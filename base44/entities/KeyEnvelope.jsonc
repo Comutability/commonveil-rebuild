@@ -1,0 +1,46 @@
+{
+  "name": "KeyEnvelope",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "recovery",
+        "device"
+      ]
+    },
+    "device_id": {
+      "type": "string",
+      "description": "Recipient device for kind=device."
+    },
+    "keyring_version": {
+      "type": "number"
+    },
+    "recovery_pub": {
+      "type": "string",
+      "description": "Recovery key this was sealed to, for kind=recovery."
+    },
+    "sealed": {
+      "type": "string",
+      "description": "JSON {epk, iv, ct}."
+    },
+    "created_by_device_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "kind",
+    "keyring_version",
+    "sealed"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}
