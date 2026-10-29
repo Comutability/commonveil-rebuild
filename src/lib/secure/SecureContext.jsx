@@ -218,9 +218,31 @@ export function SecureProvider({ children }) {
   }, [userId, setDevice]);
 
   const cancelLinking = useCallback(async () => {
+    const d = deviceRef.current;
+    if (d) {
+      try {
+        await callFn("keys", await P.prepareDeny({ userId, device: d, targetDeviceId: d.device_id }));
+      } catch {
+        /* a pending device can't deny itself; it simply expires */
+      }
+    }
     await forgetLocal();
     setPhase("needs-device");
-  }, [forgetLocal]);
+  }, [userId, forgetLocal]);
+
+  /** This browser is approved but can't get current keys: remove it and set it up again. */
+  const startOver = useCallback(async () => {
+    const d = deviceRef.current;
+    if (d) {
+      try {
+        await callFn("keys", await P.prepareRevoke({ userId, device: d, targetDeviceId: d.device_id }));
+      } catch {
+        /* if it can't be revoked from here, it can be removed from another device */
+      }
+    }
+    await forgetLocal();
+    await refresh();
+  }, [userId, forgetLocal, refresh]);
 
   const myLinkCode = useMemo(() => {
     if (!device || !userId) return null;
@@ -425,6 +447,7 @@ export function SecureProvider({ children }) {
     finishCreateAccount,
     startLinking,
     cancelLinking,
+    startOver,
     myLinkCode,
     recoverWithPhrase,
     beginReset,
