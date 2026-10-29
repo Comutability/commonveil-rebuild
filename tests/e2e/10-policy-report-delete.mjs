@@ -137,8 +137,9 @@ await A.ctx.close();
 await browser.close();
 
 // ---- Verdict ----
-// Base44 adds a few inline scripts to published pages; the policy blocks them by design.
-const ours = violations.filter((v) => !(v.blocked === "inline" && /^script-src/.test(v.directive)));
+// Base44 adds a few inline <script> elements to published pages; the policy blocks them by design.
+// The app's own HTML has none, so any other violation is ours.
+const ours = violations.filter((v) => !(v.blocked === "inline" && v.directive === "script-src-elem"));
 const platform = violations.length - ours.length;
 if (platform) console.log(`note - ${platform} platform-injected inline script(s) blocked, as intended`);
 for (const v of ours) console.log(`violation [${v.who}] ${v.directive} blocked ${v.blocked} ${v.sample} at ${v.where}`);
