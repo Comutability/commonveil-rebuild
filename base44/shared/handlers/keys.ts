@@ -40,6 +40,9 @@ function payloadOf(body: any): { json: string; data: any } {
 /** The request is signed by one of this account's active devices. */
 async function signedByActiveDevice(ctx: Ctx, action: string) {
   const { json, data } = payloadOf(ctx.body);
+  if (!ctx.body.proof || typeof ctx.body.proof !== "object") {
+    throw new ApiError(401, "PROOF_REQUIRED", "This action must come from one of your devices.");
+  }
   const deviceId = randomIdField(ctx.body.proof?.device_id, "device id");
   const device = await requireActiveDevice(ctx.sr, ctx.user.id, deviceId);
   await verifyProof({ userId: ctx.user.id, action, payloadJson: json, proof: ctx.body.proof, signPub: device.sign_pub, now: ctx.now });
