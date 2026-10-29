@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, Info, Lock, MoreHorizontal, SendHorizontal, ShieldCheck, ShieldQuestion, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Info, Lock, MoreHorizontal, SendHorizontal, ShieldCheck, ShieldQuestion, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -55,7 +55,7 @@ function Bubble({ m, result, mine, showName, name, onDelete }) {
 }
 
 export default function ConversationView({ conversation, onBack, onInfo }) {
-  const { messages, opened, hasMore, openConversation, loadOlder, markRead, send, deleteMessage, nameOf, conversationName } = useChat();
+  const { messages, opened, hasMore, openConversation, loadOlder, markRead, send, deleteMessage, nameOf, conversationName, newMembersOf, acknowledgeMembers } = useChat();
   const { userId, peers, loadPeers } = useSecure();
   const list = messages[conversation.id] || [];
   const [text, setText] = useState("");
@@ -102,6 +102,15 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
 
   const others = conversation.member_ids.filter((m) => m !== userId);
   const changed = others.filter((m) => peers[m]?.changed);
+  const fresh = newMembersOf(conversation);
+  const dmBroken = conversation.kind === "dm" && (conversation.member_ids.length !== 2 || !conversation.member_ids.includes(userId));
+  const pausedReason = dmBroken
+    ? "Sending is blocked for this conversation"
+    : changed.length
+      ? "Review the key change before sending"
+      : fresh.length
+        ? "Check who's new before sending"
+        : null;
   const allVerified = others.length > 0 && others.every((m) => peers[m]?.verified);
   const other = conversation.kind === "dm" ? others[0] : null;
 
@@ -154,6 +163,24 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
         </div>
       )}
 
+      {fresh.length > 0 && !dmBroken && (
+        <div className="flex items-start gap-3 border-b border-[hsl(var(--warning)/0.4)] bg-[hsl(var(--warning)/0.1)] px-4 py-3 text-sm">
+          <UserPlus className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--warning))]" aria-hidden="true" />
+          <p className="flex-1">
+            New in this conversation: <strong>{fresh.map(nameOf).join(", ")}</strong>. Anything you send from now on can be read by them
+            too. If you weren't expecting this, check with the group before sending.
+          </p>
+          <Button size="sm" variant="outline" onClick={() => acknowledgeMembers(conversation)}>OK, continue</Button>
+        </div>
+      )}
+
+      {dmBroken && (
+        <div className="flex items-start gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <p className="flex-1">This direct message doesn't have exactly two people in it, which shouldn't happen. Sending is blocked to keep your messages private.</p>
+        </div>
+      )}
+
       <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-4 sm:px-6" aria-live="polite">
         {hasMore[conversation.id] && (
           <div className="text-center">
@@ -196,12 +223,12 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
             }}
             rows={1}
             maxLength={MAX_MESSAGE_CHARS}
-            placeholder={changed.length ? "Review the key change before sending" : "Write a message"}
-            disabled={changed.length > 0}
+            placeholder={pausedReason || "Write a message"}
+            disabled={Boolean(pausedReason)}
             className="max-h-40 min-h-[2.75rem] resize-none"
             aria-label="Message"
           />
-          <Button type="submit" size="icon" className="h-11 w-11 shrink-0" disabled={!text.trim() || sending || changed.length > 0} aria-label="Send">
+          <Button type="submit" size="icon" className="h-11 w-11 shrink-0" disabled={!text.trim() || sending || Boolean(pausedReason)} aria-label="Send">
             <SendHorizontal className="h-5 w-5" />
           </Button>
         </div>
