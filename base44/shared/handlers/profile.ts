@@ -4,7 +4,7 @@
 import { ApiError, cleanText, idList, type Actions } from "../http.ts";
 import { accountKeysOf, blockedEitherWay, contactsOf, profileOf, publicProfile } from "../store.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
-import { purgeAccount, removePlatformUser } from "../accountDeletion.ts";
+import { isRetiredUsername, purgeAccount, removePlatformUser } from "../accountDeletion.ts";
 
 /** How long one call may spend deleting before it returns and asks to be called again. */
 const DELETION_BUDGET_MS = 45_000;
@@ -37,7 +37,8 @@ export const profileActions: Actions = {
 
   async claim_username({ sr, user, body }) {
     const { username, key } = normaliseUsername(body.username);
-    if (RESERVED.has(key)) throw new ApiError(409, "USERNAME_TAKEN", "That username isn't available.");
+    // Names of deleted accounts stay retired, so no one can take over someone's old name.
+    if (RESERVED.has(key) || (await isRetiredUsername(sr, key))) throw new ApiError(409, "USERNAME_TAKEN", "That username isn't available.");
     const display_name = cleanText(body.display_name, 50) || username;
     if (await profileOf(sr, user.id)) throw new ApiError(409, "ALREADY_CLAIMED", "You already have a username.");
     const taken = await sr.entities.Profile.filter({ username_key: key }, "created_date", 1);
