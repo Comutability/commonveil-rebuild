@@ -1,0 +1,89 @@
+{
+  "name": "Device",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "device_id": {
+      "type": "string",
+      "description": "Random id chosen by the device."
+    },
+    "label": {
+      "type": "string"
+    },
+    "sign_pub": {
+      "type": "string",
+      "description": "Device ECDSA public key. Its private key never leaves the device."
+    },
+    "box_pub": {
+      "type": "string",
+      "description": "Device ECDH public key used to deliver the keyring to it."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "active",
+        "revoked"
+      ],
+      "default": "pending"
+    },
+    "cert_key_version": {
+      "type": "number"
+    },
+    "cert_issued_at": {
+      "type": "string"
+    },
+    "cert_signature": {
+      "type": "string",
+      "description": "Account key signature over this device's keys."
+    },
+    "approved_by_device_id": {
+      "type": "string"
+    },
+    "approved_via": {
+      "type": "string",
+      "enum": [
+        "first_device",
+        "device_approval",
+        "recovery_phrase",
+        "account_reset"
+      ]
+    },
+    "approved_at": {
+      "type": "string"
+    },
+    "pending_expires_at": {
+      "type": "string"
+    },
+    "revoked_at": {
+      "type": "string"
+    },
+    "revoked_reason": {
+      "type": "string",
+      "enum": [
+        "removed",
+        "denied",
+        "expired",
+        "account_reset"
+      ]
+    },
+    "last_seen_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "device_id",
+    "sign_pub",
+    "box_pub",
+    "status"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}
