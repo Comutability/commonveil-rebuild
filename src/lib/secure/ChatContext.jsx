@@ -27,6 +27,8 @@ export function ChatProvider({ children }) {
   const [opened, setOpened] = useState({});
   const [titles, setTitles] = useState({});
   const [readState, setReadState] = useState({});
+  const [memberPins, setMemberPins] = useState(null);
+  const memberPinsRef = useRef(null);
   const cursor = useRef(null);
   const polling = useRef(false);
   // Sender devices we've already re-fetched keys for, so an unknown device triggers one refresh, not a loop.
@@ -45,6 +47,40 @@ export function ChatProvider({ children }) {
     else loadPeers([senderId], { force: true }).catch(() => {});
     return false;
   }, [devicesOf, userId, refreshSecure, loadPeers]);
+
+  const saveMemberPins = useCallback(async (next) => {
+    memberPinsRef.current = next;
+    setMemberPins(next);
+    await S.saveMemberPins(userId, next);
+  }, [userId]);
+
+  /** Pin the given members for a conversation, merged with what was already pinned. */
+  const pinMembers = useCallback(async (conversationId, ids, { replace = false } = {}) => {
+    const current = memberPinsRef.current || {};
+    const base = replace ? [] : current[conversationId] || [];
+    await saveMemberPins({ ...current, [conversationId]: [...new Set([...base, ...ids])] });
+  }, [saveMemberPins]);
+
+  /**
+   * Why sending to this conversation should wait, or null. The server decides
+   * membership, so anyone new must be seen by you before your words reach them.
+   */
+  const membershipProblem = useCallback((c) => {
+    const pins = memberPinsRef.current;
+    if (c.kind === "dm" && (c.member_ids.length !== 2 || !c.member_ids.includes(userId))) {
+      return "This direct message has an unexpected member list, so sending is blocked.";
+    }
+    if (!pins || !pins[c.id]) return "Still checking who's in this conversation. Try again in a moment.";
+    if (c.member_ids.some((id) => !pins[c.id].includes(id))) return "Someone new is in this conversation. Check who it is before sending.";
+    return null;
+  }, [userId]);
+
+  const newMembersOf = useCallback((c) => {
+    const pin = memberPins?.[c.id];
+    return pin ? c.member_ids.filter((id) => !pin.includes(id)) : [];
+  }, [memberPins]);
+
+  const acknowledgeMembers = useCallback((c) => pinMembers(c.id, c.member_ids, { replace: true }), [pinMembers]);
 
   const mergeConversations = useCallback((list, { replace = false } = {}) => {
     setConversations((prev) => {
@@ -88,7 +124,10 @@ export function ChatProvider({ children }) {
       const start = await callFn("messages", { action: "poll" });
       cursor.current = start.cursor;
       const { conversations: list } = await callFn("conversations", { action: "list" });
+      const pins = await S.loadMemberPins(userId);
       if (cancelled) return;
+      memberPinsRef.current = pins;
+      setMemberPins(pins);
       mergeConversations(list, { replace: true });
       setReadState(await S.loadReadState(userId));
       setLoaded(true);
