@@ -42,11 +42,16 @@ export function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: HEADERS });
 }
 
+/** user is null only in functions that explicitly allow anonymous callers. */
 export type Ctx = { sr: any; user: any; body: any; now: Date };
 export type Actions = Record<string, (ctx: Ctx) => Promise<unknown>>;
+export type RunOptions = { allowAnonymous?: boolean };
 
-/** Run one named action for an authenticated user. Used by the entry files and by tests. */
-export async function runAction(base44: any, rawBody: string, actions: Actions): Promise<Response> {
+/**
+ * Run one named action. By default the caller must be a signed-in user; only the security
+ * reporting function sets allowAnonymous. Used by the entry files and by tests.
+ */
+export async function runAction(base44: any, rawBody: string, actions: Actions, options: RunOptions = {}): Promise<Response> {
   try {
     if (rawBody.length > LIMITS.maxBodyBytes) throw new ApiError(413, "TOO_LARGE", "That request is too large.");
     let body: any = {};
@@ -58,8 +63,9 @@ export async function runAction(base44: any, rawBody: string, actions: Actions):
       }
     }
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new ApiError(400, "BAD_REQUEST", "Invalid request.");
-    const user = await base44.auth.me().catch(() => null);
-    if (!user || typeof user.id !== "string" || !user.id) throw new ApiError(401, "SIGN_IN_REQUIRED", "Please sign in again.");
+    const me = await base44.auth.me().catch(() => null);
+    const user = me && typeof me.id === "string" && me.id ? me : null;
+    if (!user && !options.allowAnonymous) throw new ApiError(401, "SIGN_IN_REQUIRED", "Please sign in again.");
     const action = typeof body.action === "string" ? body.action : "";
     if (!Object.prototype.hasOwnProperty.call(actions, action)) throw new ApiError(400, "UNKNOWN_ACTION", "Unknown action.");
     const result = await actions[action]({ sr: base44.asServiceRole, user, body, now: new Date() });
@@ -76,10 +82,10 @@ export async function runAction(base44: any, rawBody: string, actions: Actions):
   }
 }
 
-export async function serve(req: Request, makeClient: (req: Request) => any, actions: Actions): Promise<Response> {
+export async function serve(req: Request, makeClient: (req: Request) => any, actions: Actions, options: RunOptions = {}): Promise<Response> {
   if (req.method !== "POST") return json(405, { error: "Use POST.", code: "METHOD_NOT_ALLOWED" });
   const raw = await req.text();
-  return runAction(makeClient(req), raw, actions);
+  return runAction(makeClient(req), raw, actions, options);
 }
 
 // ---------- small validators ----------
