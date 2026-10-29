@@ -1,0 +1,51 @@
+{
+  "name": "Message",
+  "type": "object",
+  "properties": {
+    "conversation_id": {
+      "type": "string"
+    },
+    "msg_id": {
+      "type": "string",
+      "description": "Random id chosen by the sender, bound into the encryption."
+    },
+    "sender_id": {
+      "type": "string"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "envelope": {
+      "type": "string"
+    },
+    "signature": {
+      "type": "string"
+    },
+    "sent_at": {
+      "type": "string",
+      "description": "Sender's timestamp, covered by the signature."
+    },
+    "deleted": {
+      "type": "boolean",
+      "default": false
+    },
+    "deleted_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "conversation_id",
+    "msg_id",
+    "sender_id",
+    "device_id",
+    "envelope",
+    "signature",
+    "sent_at"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}
