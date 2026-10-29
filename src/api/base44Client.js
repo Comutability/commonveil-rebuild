@@ -8,5 +8,7 @@ export const base44 = createClient({
   token,
   functionsVersion,
   serverUrl: '',
-  appBaseUrl
+  appBaseUrl,
+  // No usage analytics on a privacy site.
+  analytics: { enabled: false },
 });
