@@ -1,0 +1,90 @@
+{
+  "name": "Resource",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "website": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string"
+    },
+    "open_source": {
+      "type": "string",
+      "enum": [
+        "Yes",
+        "No",
+        "Partly",
+        "Unknown"
+      ],
+      "default": "Unknown"
+    },
+    "self_hostable": {
+      "type": "boolean",
+      "default": false
+    },
+    "platforms": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "pricing_summary": {
+      "type": "string"
+    },
+    "privacy_notes": {
+      "type": "string"
+    },
+    "last_reviewed": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "published"
+      ],
+      "default": "draft"
+    }
+  },
+  "required": [
+    "name",
+    "category",
+    "description",
+    "status"
+  ],
+  "rls": {
+    "read": {
+      "$or": [
+        {
+          "data.status": "published"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}
