@@ -69,6 +69,10 @@
         "account_reset"
       ]
     },
+    "synced_key_version": {
+      "type": "number",
+      "description": "Latest keyring version this device has confirmed it holds."
+    },
     "last_seen_at": {
       "type": "string"
     }
