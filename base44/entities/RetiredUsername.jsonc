@@ -1,0 +1,19 @@
+{
+  "name": "RetiredUsername",
+  "type": "object",
+  "properties": {
+    "username_key": {
+      "type": "string",
+      "description": "Lower-cased username of a deleted account. Kept on its own, linked to nothing, so nobody else can claim it and pose as that member."
+    }
+  },
+  "required": [
+    "username_key"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}
