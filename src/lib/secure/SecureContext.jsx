@@ -217,18 +217,11 @@ export function SecureProvider({ children }) {
     setPhase("awaiting-approval");
   }, [userId, setDevice]);
 
+  /** Stop waiting. The pending request expires on its own after 15 minutes. */
   const cancelLinking = useCallback(async () => {
-    const d = deviceRef.current;
-    if (d) {
-      try {
-        await callFn("keys", await P.prepareDeny({ userId, device: d, targetDeviceId: d.device_id }));
-      } catch {
-        /* a pending device can't deny itself; it simply expires */
-      }
-    }
     await forgetLocal();
     setPhase("needs-device");
-  }, [userId, forgetLocal]);
+  }, [forgetLocal]);
 
   /** This browser is approved but can't get current keys: remove it and set it up again. */
   const startOver = useCallback(async () => {
