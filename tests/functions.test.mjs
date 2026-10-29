@@ -564,3 +564,42 @@ test("rotation with a statement not signed by the current key is refused", async
   assert.equal(res.body.code, "STATEMENT_INVALID");
   assert.equal((await alice.myChain()).latest.version, 1);
 });
+
+test("a signed-in session alone can't add people to a group, leave it, or delete messages", async () => {
+  const { members: [alice, bob, carol] } = await world("alice", "bob", "carol");
+  const { conversation: group } = await alice.ok("conversations", { action: "create_group", usernames: ["bob"] });
+  await alice.send(group, "hello group");
+  const msg = alice.world.rows("Message")[0];
+  const attempts = [
+    ["conversations", "add_members", { conversation_id: group.id, usernames: ["carol"] }],
+    ["conversations", "leave", { conversation_id: group.id }],
+    ["messages", "delete", { message_id: msg.id }],
+  ];
+  // Session only: no device proof at all.
+  for (const [fn, action, payload] of attempts) {
+    const res = await alice.call(fn, { action, payload: JSON.stringify(payload) });
+    assert.equal(res.status, 401, `${fn}.${action} without a proof`);
+    assert.equal(res.body.code, "PROOF_REQUIRED");
+  }
+  // A proof made for one action or payload can't be reused for another.
+  const addProof = await signed(alice, "add_members", { conversation_id: group.id, usernames: ["carol"] });
+  assert.equal((await alice.call("conversations", { ...addProof, action: "leave" })).body.code, "PROOF_INVALID");
+  const otherPayload = JSON.stringify({ conversation_id: group.id, usernames: ["bob"] });
+  assert.equal((await alice.call("conversations", { ...addProof, payload: otherPayload })).body.code, "PROOF_INVALID");
+  // Someone else's device can't sign for Alice.
+  assert.equal((await alice.call("conversations", await signed(alice, "add_members", { conversation_id: group.id, usernames: ["carol"] }, carol.device))).body.code, "DEVICE_UNKNOWN");
+  // A device that has been removed can't either.
+  const phone = await createDeviceKeys("Phone");
+  await alice.ok("keys", await prepareRegisterDevice({ userId: alice.id, device: phone }));
+  const pending = (await alice.status()).devices.find((d) => d.device_id === phone.device_id);
+  await alice.ok("keys", await prepareApproval({ userId: alice.id, device: alice.device, keyring: alice.keyring, target: pending }));
+  await alice.ok("keys", await prepareRevoke({ userId: alice.id, device: alice.device, targetDeviceId: phone.device_id }));
+  assert.equal((await alice.call("conversations", await signed(alice, "add_members", { conversation_id: group.id, usernames: ["carol"] }, phone))).body.code, "DEVICE_NOT_ACTIVE");
+  // Nothing changed.
+  const stored = alice.world.rows("Conversation").find((c) => c.id === group.id);
+  assert.deepEqual(stored.member_ids, [alice.id, bob.id]);
+  assert.equal(alice.world.rows("Message")[0].deleted, false);
+  // With a proper device signature it works.
+  await alice.ok("conversations", await signed(alice, "add_members", { conversation_id: group.id, usernames: ["carol"] }));
+  assert.equal(alice.world.rows("Conversation").find((c) => c.id === group.id).member_ids.length, 3);
+});
