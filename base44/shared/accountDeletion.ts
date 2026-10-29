@@ -55,6 +55,13 @@ const BLANK = {
   Profile: { user_id: "", username: "", username_key: "", display_name: "", bio: "" },
 };
 
+/** Blank and delete a conversation with all its messages. Throws OutOfTime if the deadline passes. */
+export async function eraseConversation(sr: any, conversationId: string, deadline: number) {
+  await blankAndDeleteAll(sr, "Message", { conversation_id: conversationId }, BLANK.Message, deadline);
+  await sr.entities.Conversation.update(conversationId, BLANK.Conversation);
+  await sr.entities.Conversation.delete(conversationId);
+}
+
 /**
  * Remove everything belonging to userId. Returns true when finished, false if it ran out
  * of time (call again to continue).
@@ -69,9 +76,7 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
       for (const c of convs) {
         const rest = (c.member_ids || []).filter((m: string) => m !== userId);
         if (c.kind === "dm" || rest.length === 0) {
-          await blankAndDeleteAll(sr, "Message", { conversation_id: c.id }, BLANK.Message, deadline);
-          await sr.entities.Conversation.update(c.id, BLANK.Conversation);
-          await sr.entities.Conversation.delete(c.id);
+          await eraseConversation(sr, c.id, deadline);
         } else {
           await sr.entities.Conversation.update(c.id, { member_ids: rest });
         }
