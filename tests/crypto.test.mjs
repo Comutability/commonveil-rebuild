@@ -103,9 +103,10 @@ test("recovery phrase is 24 standard words and derives the same key every time",
   const b = await deriveRecoveryKey(`  ${phrase.toUpperCase().replace(/ /g, "   ")}\n`);
   assert.equal(a.publicKey, b.publicKey, "normalisation must not change the key");
   assert.equal(fromB64(a.publicKey).length, 65);
-  const words = phrase.split(" ");
-  [words[0], words[1]] = [words[1], words[0]];
-  assert.equal(isValidPhrase(words.join(" ")), words[0] === words[1], "swapped words should almost always fail the checksum");
+  // BIP-39 vector: 256 bits of zero entropy is 23 x "abandon" + "art". 24 x "abandon" fails the checksum.
+  assert.ok(isValidPhrase(`${"abandon ".repeat(23)}art`));
+  assert.equal(isValidPhrase("abandon ".repeat(24)), false);
+  assert.equal(isValidPhrase("abandon ".repeat(11) + "about"), false, "12-word phrases are not accepted");
   await assert.rejects(deriveRecoveryKey("not a real phrase"), { code: "INVALID_PHRASE" });
   assert.equal(normalizePhrase("Abandon, ABOUT!"), "abandon about");
 });
