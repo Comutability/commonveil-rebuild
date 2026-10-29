@@ -242,19 +242,24 @@ export function SecureProvider({ children }) {
     return linkCode({ userId, deviceId: device.device_id, signPub: device.sign_pub, boxPub: device.box_pub });
   }, [device, userId]);
 
+  /** Unlock the keys with the phrase. A pending link request from this browser is completed instead of duplicated. */
   const recoverWithPhrase = useCallback(async (phrase) => {
-    let d = deviceRef.current;
-    const reuse = d && status?.devices.find((x) => x.device_id === d.device_id && x.status === "pending");
-    if (!reuse) {
-      d = await createDeviceKeys(defaultDeviceLabel());
-    }
     const recoveryResponse = await callFn("keys", { action: "get_recovery" });
-    const { keyring: recovered, request } = await P.recoverWithPhrase({ userId, device: d, phrase, recoveryResponse });
-    await callFn("keys", request);
-    await setDevice(d);
-    await setKeyring(recovered);
+    const attempt = async (d) => {
+      const { keyring: recovered, request } = await P.recoverWithPhrase({ userId, device: d, phrase, recoveryResponse });
+      await callFn("keys", request);
+      await setDevice(d);
+      await setKeyring(recovered);
+    };
+    const existing = deviceRef.current;
+    try {
+      await attempt(existing || (await createDeviceKeys(defaultDeviceLabel())));
+    } catch (err) {
+      if (existing && err?.code === "DEVICE_EXISTS") await attempt(await createDeviceKeys(defaultDeviceLabel()));
+      else throw err;
+    }
     await refresh();
-  }, [userId, status, setDevice, setKeyring, refresh]);
+  }, [userId, setDevice, setKeyring, refresh]);
 
   const beginReset = useCallback(async () => {
     const statusData = await callFn("keys", { action: "status" });
