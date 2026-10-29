@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, BookOpen, KeyRound, Lock, MessagesSquare, ShieldCheck, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,11 +14,18 @@ const PROTECTIONS = [
 ];
 
 export default function Home() {
+  const [params] = useSearchParams();
+  const deleted = params.get("account_deleted") === "1";
   const posts = useQuery({ queryKey: ["content", "BlogPost", "home"], queryFn: () => listContent("BlogPost", "-published_at", 3) });
   const guides = useQuery({ queryKey: ["content", "Guide", "home"], queryFn: () => listContent("Guide", "title", 4) });
 
   return (
     <>
+      {deleted && (
+        <div className="border-b border-border bg-accent/50" role="status">
+          <p className="container-cv py-3 text-sm">Your account has been deleted, and this browser's keys with it.</p>
+        </div>
+      )}
       <section className="relative overflow-hidden border-b border-border">
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,hsl(var(--primary)/0.14),transparent_55%),radial-gradient(ellipse_at_bottom_right,hsl(var(--warning)/0.10),transparent_50%)]" />
         <div className="container-cv relative py-20 sm:py-28">
