@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Flag, Plus } from "lucide-react";
 import { base44 } from "@/api/base44Client";
@@ -13,7 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ErrorNote, Loading, Pill, formatDate } from "@/components/site/bits";
 import Markdown from "@/components/site/Markdown";
 import { callFn } from "@/lib/api";
-import { useSecure } from "@/lib/secure/SecureContext";
+import { useAuth } from "@/lib/AuthContext";
+import { LogoMark } from "@/components/site/Logo";
 
 // ---------- Reports ----------
 
@@ -292,11 +293,28 @@ function Content() {
   );
 }
 
+/**
+ * Staff area. Deliberately outside the encrypted-messaging gate: managing content and
+ * reports needs the admin role, not encryption keys, and staff never see message content.
+ */
 export default function Admin() {
-  const { isAdmin } = useSecure();
-  if (!isAdmin) return <Navigate to="/app" replace />;
+  const { user } = useAuth();
+  if (user?.role !== "admin") return <Navigate to="/" replace />;
   return (
-    <div className="mx-auto w-full max-w-5xl overflow-y-auto px-4 py-8">
+    <div className="min-h-[100dvh]">
+      <header className="border-b border-border">
+        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
+          <Link to="/" className="flex items-center gap-2">
+            <LogoMark className="h-7 w-7 text-primary-foreground" />
+            <span className="font-heading text-lg font-semibold">Commonveil admin</span>
+          </Link>
+          <nav className="flex gap-4 text-sm text-muted-foreground">
+            <Link to="/app" className="hover:text-foreground">Messages</Link>
+            <Link to="/" className="hover:text-foreground">Site</Link>
+          </nav>
+        </div>
+      </header>
+    <div className="mx-auto w-full max-w-5xl px-4 py-8">
       <h1 className="text-3xl font-semibold">Admin</h1>
       <Tabs defaultValue="reports" className="mt-6">
         <TabsList>
@@ -306,6 +324,7 @@ export default function Admin() {
         <TabsContent value="reports" className="pt-4"><Reports /></TabsContent>
         <TabsContent value="content" className="pt-4"><Content /></TabsContent>
       </Tabs>
+    </div>
     </div>
   );
 }
