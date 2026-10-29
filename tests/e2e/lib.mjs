@@ -81,7 +81,9 @@ export async function setUp(page, person) {
 }
 
 export async function openConversation(page, name) {
-  await page.locator(`a:has-text("${name}")`).first().click({ timeout: 60000 });
+  // Wait for the app to finish its key checks first; a cold preview can take a while.
+  await page.waitForSelector('h1:has-text("Messages")', { timeout: 90000 });
+  await page.locator(`a:has-text("${name}")`).first().click({ timeout: 90000 });
 }
 
 export async function sendText(page, text) {
