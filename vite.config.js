@@ -39,8 +39,10 @@ function contentSecurityPolicy() {
     transformIndexHtml: {
       order: "pre",
       handler(html) {
-        // First thing in <head>, so it covers every script after it.
-        return html.replace(/<head>/i, `<head>\n    <meta http-equiv="Content-Security-Policy" content="${CONTENT_SECURITY_POLICY}" />`);
+        // Straight after the charset declaration and before any script, so it covers all of them.
+        const tag = `<meta http-equiv="Content-Security-Policy" content="${CONTENT_SECURITY_POLICY}" />`;
+        const charset = /<meta charset="UTF-8" \/>/i;
+        return charset.test(html) ? html.replace(charset, (m) => `${m}\n    ${tag}`) : html.replace(/<head>/i, `<head>\n    ${tag}`);
       },
     },
   };
