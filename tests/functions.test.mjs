@@ -2,6 +2,7 @@
 // code with real keys. Only the database is in-memory (tests/support/fakeBase44.mjs).
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { FakeWorld } from "./support/fakeBase44.mjs";
 import { runAction } from "../base44/shared/http.ts";
@@ -10,6 +11,7 @@ import { keysActions } from "../base44/shared/handlers/keys.ts";
 import { conversationActions } from "../base44/shared/handlers/conversations.ts";
 import { messageActions } from "../base44/shared/handlers/messages.ts";
 import { safetyActions, adminActions } from "../base44/shared/handlers/safety.ts";
+import { disclosureActions, DISCLOSURE_LIMITS } from "../base44/shared/handlers/disclosure.ts";
 
 import { createDeviceKeys } from "../src/lib/crypto/device.js";
 import { createKeyVersion, latestKey } from "../src/lib/crypto/keyring.js";
@@ -33,7 +35,10 @@ import {
   openItem,
 } from "../src/lib/secure/protocol.js";
 
+/** Functions that only signed-in members can call. */
 const FUNCTIONS = { profile: profileActions, keys: keysActions, conversations: conversationActions, messages: messageActions, safety: safetyActions, admin: adminActions };
+/** Functions that also accept anonymous callers, exactly as their entry files set it up. */
+const PUBLIC_FUNCTIONS = { disclose: disclosureActions };
 
 class Member {
   constructor(world, name, role = "user") {
@@ -44,7 +49,9 @@ class Member {
   }
 
   async call(fn, body, { anonymous = false } = {}) {
-    const res = await runAction(this.world.clientFor(anonymous ? null : this.user), JSON.stringify(body), FUNCTIONS[fn]);
+    const isPublic = Object.hasOwn(PUBLIC_FUNCTIONS, fn);
+    const actions = isPublic ? PUBLIC_FUNCTIONS[fn] : FUNCTIONS[fn];
+    const res = await runAction(this.world.clientFor(anonymous ? null : this.user), JSON.stringify(body), actions, { allowAnonymous: isPublic });
     return { status: res.status, body: await res.json() };
   }
 
