@@ -132,8 +132,10 @@ export function ChatProvider({ children }) {
           if (prev && prev.cacheKey === cacheKey) continue;
           const senderChain = chainOf(m.sender_id);
           // Wait for a current member's keys; someone who has left can't be looked up, so open without verification.
-          const stillMember = membersOf.get(m.conversation_id)?.has(m.sender_id);
-          const senderReady = m.sender_id === userId || peers[m.sender_id]?.ready !== undefined || !stillMember;
+          const members = membersOf.get(m.conversation_id);
+          if (!members) continue;
+          const departed = !members.has(m.sender_id);
+          const senderReady = m.sender_id === userId || peers[m.sender_id]?.ready !== undefined || departed;
           if (!senderReady && !m.deleted) continue;
           const r = await P.openItem({ kind: "message", item: m, userId, keyring, senderChain, senderDevices: devicesOf(m.sender_id) });
           results[m.id] = { ...r, cacheKey };
