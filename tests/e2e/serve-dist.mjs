@@ -3,9 +3,12 @@
 // in production builds: the editor preview runs Vite's dev server, which has none.
 //
 //   npm run build
-//   node tests/e2e/serve-dist.mjs 4173        # then CV_BASE_URL=http://localhost:4173
+//   CV_API_HOST=preview-sandbox--<app-id>.base44.app node tests/e2e/serve-dist.mjs 4173
+//   # then run the scripts with CV_BASE_URL=http://localhost:4173
 //
-// The build calls the functions version it was built for (VITE_BASE44_FUNCTIONS_VERSION).
+// Until the app is published, Base44 only answers visitors through the preview's host, so pass
+// that as CV_API_HOST. The build calls the functions version it was built for
+// (VITE_BASE44_FUNCTIONS_VERSION, "preview" in the editor's sandbox).
 import http from "node:http";
 import https from "node:https";
 import fs from "node:fs";
