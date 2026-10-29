@@ -97,9 +97,10 @@ export function SecureProvider({ children }) {
     }
   }, [userId]);
 
-  const refresh = useCallback(async () => {
+  /** Re-read everything. silent: a background check that shouldn't replace the screen on a network blip. */
+  const refresh = useCallback(async ({ silent = false } = {}) => {
     if (!userId) return;
-    setError(null);
+    if (!silent) setError(null);
     try {
       const meData = await callFn("profile", { action: "me" });
       setMe(meData);
@@ -154,6 +155,7 @@ export function SecureProvider({ children }) {
       setPhase("ready");
       repairDevices(statusData, ownChain);
     } catch (err) {
+      if (silent && err?.code !== "BAD_SIGNATURE" && err?.name !== "IdentityError") return;
       setError(err?.message || "Something went wrong.");
       setPhase("error");
     }
@@ -167,7 +169,7 @@ export function SecureProvider({ children }) {
   // While waiting on another device, check every few seconds.
   useEffect(() => {
     if (phase !== "awaiting-approval" && phase !== "awaiting-keys") return undefined;
-    const t = setInterval(() => refresh(), 4000);
+    const t = setInterval(() => refresh({ silent: true }), 4000);
     return () => clearInterval(t);
   }, [phase, refresh]);
 
