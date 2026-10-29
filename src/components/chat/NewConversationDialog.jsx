@@ -74,7 +74,7 @@ export default function NewConversationDialog({ open, onOpenChange, onCreated })
     setBusy(true);
     setError("");
     try {
-      const { conversation } = await startGroup(members.map((m) => m.username));
+      const { conversation } = await startGroup(members);
       if (groupName.trim()) {
         await loadPeers(conversation.member_ids, { force: true });
         try {
