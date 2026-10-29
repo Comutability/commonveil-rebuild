@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { AlertTriangle, KeyRound, Laptop, LogOut, ShieldCheck, Smartphone, UserRound } from "lucide-react";
+import { AlertTriangle, KeyRound, Laptop, LogOut, ShieldCheck, Smartphone, Trash2, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { ErrorNote, Pill, formatDate } from "@/components/site/bits";
 import { PhraseCheckpoint } from "@/components/app/Phrase";
+import { DeleteAccountForm } from "@/components/app/DeleteAccount";
 import { callFn } from "@/lib/api";
 import { useSecure } from "@/lib/secure/SecureContext";
 import { groupDigits, linkCode, safetyFingerprint } from "@/lib/crypto/identity.js";
@@ -302,6 +303,19 @@ function SignOutSection() {
   );
 }
 
+function DeleteSection() {
+  const { isAdmin } = useSecure();
+  return (
+    <Section icon={Trash2} title="Delete your account">
+      {isAdmin ? (
+        <p className="text-sm text-muted-foreground">Staff accounts can't be deleted here. The app owner removes staff access in Base44.</p>
+      ) : (
+        <DeleteAccountForm />
+      )}
+    </Section>
+  );
+}
+
 export default function Settings() {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5 overflow-y-auto px-4 py-8">
@@ -311,6 +325,7 @@ export default function Settings() {
       <RecoverySection />
       <BlockedSection />
       <SignOutSection />
+      <DeleteSection />
     </div>
   );
 }
