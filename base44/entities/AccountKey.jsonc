@@ -1,0 +1,53 @@
+{
+  "name": "AccountKey",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "version": {
+      "type": "number"
+    },
+    "ecdh_pub": {
+      "type": "string",
+      "description": "P-256 public key, raw 65 bytes, base64."
+    },
+    "sign_pub": {
+      "type": "string",
+      "description": "P-256 ECDSA public key, raw 65 bytes, base64."
+    },
+    "recovery_pub": {
+      "type": "string",
+      "description": "Recovery public key derived from the member's phrase."
+    },
+    "signed_by_version": {
+      "type": "number"
+    },
+    "issued_at": {
+      "type": "string"
+    },
+    "signature": {
+      "type": "string"
+    },
+    "is_reset": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "user_id",
+    "version",
+    "ecdh_pub",
+    "sign_pub",
+    "recovery_pub",
+    "signed_by_version",
+    "issued_at",
+    "signature"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}
