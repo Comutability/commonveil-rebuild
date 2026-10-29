@@ -1,0 +1,59 @@
+{
+  "name": "Conversation",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "dm",
+        "group"
+      ]
+    },
+    "member_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "dm_key": {
+      "type": "string",
+      "description": "Sorted pair of user ids, so a pair has one DM."
+    },
+    "created_by": {
+      "type": "string"
+    },
+    "title_envelope": {
+      "type": "string",
+      "description": "Encrypted group name."
+    },
+    "title_item_id": {
+      "type": "string"
+    },
+    "title_sender_id": {
+      "type": "string"
+    },
+    "title_device_id": {
+      "type": "string"
+    },
+    "title_sent_at": {
+      "type": "string"
+    },
+    "title_signature": {
+      "type": "string"
+    },
+    "last_message_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "member_ids",
+    "created_by"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}
