@@ -18,7 +18,7 @@ const byCreated = (a, b) => String(a.created_date).localeCompare(String(b.create
 const RETRYABLE = new Set(["STALE_KEYS", "RECIPIENTS_CHANGED"]);
 
 export function ChatProvider({ children }) {
-  const { userId, device, keyring, peers, loadPeers, chainsFor, chainOf, devicesOf } = useSecure();
+  const { userId, device, keyring, peers, loadPeers, chainsFor, chainOf, devicesOf, refresh: refreshSecure } = useSecure();
   const [conversations, setConversations] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [profiles, setProfiles] = useState({});
@@ -29,6 +29,22 @@ export function ChatProvider({ children }) {
   const [readState, setReadState] = useState({});
   const cursor = useRef(null);
   const polling = useRef(false);
+  // Sender devices we've already re-fetched keys for, so an unknown device triggers one refresh, not a loop.
+  const refetchedDevices = useRef(new Set());
+
+  /**
+   * True if we know the device that signed this item. If not, ask for fresh keys once
+   * and let the caller wait, rather than caching an "unverified" result from stale data.
+   */
+  const knowsDevice = useCallback((senderId, deviceId) => {
+    if (devicesOf(senderId).some((d) => d.device_id === deviceId)) return true;
+    const tag = `${senderId}:${deviceId}`;
+    if (refetchedDevices.current.has(tag)) return true;
+    refetchedDevices.current.add(tag);
+    if (senderId === userId) refreshSecure({ silent: true });
+    else loadPeers([senderId], { force: true });
+    return false;
+  }, [devicesOf, userId, refreshSecure, loadPeers]);
 
   const mergeConversations = useCallback((list, { replace = false } = {}) => {
     setConversations((prev) => {
@@ -137,6 +153,7 @@ export function ChatProvider({ children }) {
           const departed = !members.has(m.sender_id);
           const senderReady = m.sender_id === userId || peers[m.sender_id]?.ready !== undefined || departed;
           if (!senderReady && !m.deleted) continue;
+          if (!m.deleted && !departed && !knowsDevice(m.sender_id, m.device_id)) continue;
           const r = await P.openItem({ kind: "message", item: m, userId, keyring, senderChain, senderDevices: devicesOf(m.sender_id) });
           results[m.id] = { ...r, cacheKey };
           if (cancelled) return;
@@ -147,7 +164,7 @@ export function ChatProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [messages, conversations, keyring, peers, userId, chainOf, devicesOf, opened]);
+  }, [messages, conversations, keyring, peers, userId, chainOf, devicesOf, opened, knowsDevice]);
 
   // Group names.
   useEffect(() => {
@@ -159,6 +176,7 @@ export function ChatProvider({ children }) {
         const key = `${c.title.item_id}`;
         if (titles[c.id]?.key === key) continue;
         if (c.title.sender_id !== userId && peers[c.title.sender_id]?.ready === undefined) continue;
+        if (c.member_ids.includes(c.title.sender_id) && !knowsDevice(c.title.sender_id, c.title.device_id)) continue;
         const r = await P.openItem({
           kind: "title",
           item: { ...c.title, conversation_id: c.id },
@@ -171,7 +189,7 @@ export function ChatProvider({ children }) {
       }
       if (Object.keys(results).length) setTitles((prev) => ({ ...prev, ...results }));
     })();
-  }, [conversations, keyring, peers, userId, chainOf, devicesOf, titles]);
+  }, [conversations, keyring, peers, userId, chainOf, devicesOf, titles, knowsDevice]);
 
   const openConversation = useCallback(async (conversationId) => {
     const res = await callFn("messages", { action: "list", conversation_id: conversationId });
