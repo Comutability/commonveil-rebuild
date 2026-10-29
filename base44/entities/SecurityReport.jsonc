@@ -1,0 +1,44 @@
+{
+  "name": "SecurityReport",
+  "type": "object",
+  "properties": {
+    "summary": {
+      "type": "string"
+    },
+    "details": {
+      "type": "string"
+    },
+    "contact": {
+      "type": "string",
+      "description": "How the reporter asked to be reached, if at all."
+    },
+    "reporter_user_id": {
+      "type": "string",
+      "description": "Set when the reporter was signed in; cleared if they delete their account."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "new",
+        "triaged",
+        "fixed",
+        "closed"
+      ],
+      "default": "new"
+    },
+    "staff_note": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "summary",
+    "details",
+    "status"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}
