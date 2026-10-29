@@ -342,6 +342,34 @@ export function SecureProvider({ children }) {
     pendingRef.current = null;
   }, []);
 
+  /**
+   * Delete the account. Signed by this device while the account has keys; the server works
+   * in time-limited batches, so keep calling until it says it's done. Then wipe this browser.
+   */
+  const deleteAccount = useCallback(async () => {
+    const d = deviceRef.current;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const body = d && phase === "ready"
+        ? await P.signedRequest({ userId, device: d, action: "delete_account", payload: { confirm: "DELETE" } })
+        : { action: "delete_account", confirm: "DELETE" };
+      let res;
+      try {
+        res = await callFn("profile", body);
+      } catch (err) {
+        // A repeat call after the sign-in itself was removed means the previous call finished.
+        if (attempt > 0 && err?.status === 401) res = { done: true };
+        else throw err;
+      }
+      if (res.done) {
+        await forgetLocal();
+        logout(false);
+        window.location.assign("/?account_deleted=1");
+        return;
+      }
+    }
+    throw new Error("Deletion is taking longer than expected. Try again: it carries on where it stopped.");
+  }, [userId, phase, forgetLocal, logout]);
+
   /** Sign out. Optionally remove this browser from the account and delete its keys. */
   const signOut = useCallback(async ({ removeThisDevice = false } = {}) => {
     if (removeThisDevice) {
@@ -473,6 +501,7 @@ export function SecureProvider({ children }) {
     finishPhraseChange,
     cancelPending,
     signOut,
+    deleteAccount,
     loadPeers,
     acceptKeyChange,
     markVerified,
