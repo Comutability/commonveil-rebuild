@@ -69,8 +69,8 @@ function AppRoutes() {
           <Route index element={<Messages />} />
           <Route path="c/:conversationId" element={<Messages />} />
           <Route path="settings" element={<Settings />} />
-          <Route path="admin" element={<Admin />} />
         </Route>
+        <Route path="admin" element={<Admin />} />
       </Route>
     </Routes>
   );
