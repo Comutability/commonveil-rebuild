@@ -610,3 +610,224 @@ test("a signed-in session alone can't add people to a group, leave it, or delete
   await alice.ok("conversations", await signed(alice, "add_members", { conversation_id: group.id, usernames: ["carol"] }));
   assert.equal(alice.world.rows("Conversation").find((c) => c.id === group.id).member_ids.length, 3);
 });
+
+// ---------------------------------------------------------------------------
+// Reporting security problems
+
+test("only the security-report function lets in callers who aren't signed in", () => {
+  const dir = new URL("../base44/functions/", import.meta.url);
+  const names = readdirSync(dir).sort();
+  assert.deepEqual(names, [...Object.keys(FUNCTIONS), ...Object.keys(PUBLIC_FUNCTIONS)].sort(), "every deployed function is covered here");
+  for (const name of names) {
+    const source = readFileSync(new URL(`${name}/entry.ts`, dir), "utf8");
+    const isPublic = Object.hasOwn(PUBLIC_FUNCTIONS, name);
+    assert.equal(/allowAnonymous/.test(source), isPublic, name);
+    if (!isPublic) assert.match(source, /return serve\(req, createClientFromRequest, \w+\);/, `${name} keeps the default sign-in check`);
+  }
+});
+
+test("anyone can report a security problem, within limits, and only staff can read the reports", async () => {
+  const w = new FakeWorld();
+  const visitor = new Member(w, "visitor");
+  const alice = await new Member(w, "alice").setup();
+  const staff = new Member(w, "staffer", "admin");
+  const report = (n) => ({ action: "submit", summary: `Problem ${n}`, details: "Open the page, then look closely at the response.", contact: "researcher@example.test" });
+  const anon = (body) => visitor.call("disclose", body, { anonymous: true });
+
+  assert.equal((await anon({ action: "submit", summary: "x", details: "long enough to count as details" })).body.code, "BAD_FIELD");
+  assert.equal((await anon({ action: "submit", summary: "A title", details: "too short" })).body.code, "BAD_FIELD");
+  assert.equal((await anon({ action: "submit", summary: "A title", details: "d".repeat(8001) })).body.code, "TOO_LONG");
+  assert.equal((await anon({ action: "submit", summary: "A title", details: { nested: true } })).body.code, "BAD_FIELD");
+  assert.equal((await anon({ action: "list_security_reports" })).body.code, "UNKNOWN_ACTION", "nothing but submit is reachable");
+  assert.equal(w.rows("SecurityReport").length, 0);
+
+  // Anonymous reports share an hourly allowance...
+  for (let i = 0; i < DISCLOSURE_LIMITS.anonymousPerHour; i += 1) assert.equal((await anon(report(i))).status, 200);
+  assert.equal((await anon(report("extra"))).status, 429);
+  // ...which doesn't shut out members: they have their own.
+  for (let i = 0; i < DISCLOSURE_LIMITS.perUserPerDay; i += 1) assert.equal((await alice.call("disclose", report(`a${i}`))).status, 200);
+  assert.equal((await alice.call("disclose", report("a-extra"))).status, 429);
+
+  // As hours pass the hourly allowance comes back, up to a daily one.
+  const hoursAgo = (h) => new Date(Date.now() - h * 3600_000).toISOString().replace("Z", "000");
+  let anonymous = DISCLOSURE_LIMITS.anonymousPerHour;
+  while (anonymous < DISCLOSURE_LIMITS.anonymousPerDay) {
+    for (const r of w.rows("SecurityReport")) if (!r.reporter_user_id) r.created_date = hoursAgo(2);
+    const res = await anon(report(`later ${anonymous}`));
+    assert.equal(res.status, 200, `report ${anonymous + 1}`);
+    anonymous += 1;
+  }
+  for (const r of w.rows("SecurityReport")) if (!r.reporter_user_id) r.created_date = hoursAgo(2);
+  assert.equal((await anon(report("over the day"))).status, 429);
+  for (const r of w.rows("SecurityReport")) r.created_date = hoursAgo(25);
+  assert.equal((await anon(report("next day"))).status, 200);
+
+  const stored = w.rows("SecurityReport");
+  assert.ok(stored.every((r) => r.status === "new" && r.contact === "researcher@example.test"));
+  assert.equal(stored.filter((r) => r.reporter_user_id === alice.id).length, DISCLOSURE_LIMITS.perUserPerDay);
+
+  // Staff only.
+  assert.equal((await alice.call("admin", { action: "list_security_reports" })).status, 403);
+  assert.equal((await alice.call("admin", { action: "update_security_report", report_id: stored[0].id, status: "closed" })).status, 403);
+  const { reports } = await staff.ok("admin", { action: "list_security_reports", status: "new" });
+  assert.equal(reports.length, stored.length);
+  assert.equal(reports.find((r) => r.summary === "Problem 0").reporter, "");
+  const fromAlice = reports.find((r) => r.reporter === "alice");
+  assert.ok(fromAlice);
+  await staff.ok("admin", { action: "update_security_report", report_id: fromAlice.id, status: "triaged", staff_note: "Reproduced" });
+  const triaged = (await staff.ok("admin", { action: "list_security_reports", status: "triaged" })).reports;
+  assert.deepEqual(triaged.map((r) => [r.id, r.staff_note]), [[fromAlice.id, "Reproduced"]]);
+});
+
+// ---------------------------------------------------------------------------
+// Deleting an account
+
+const PERSONAL = ["Message", "Conversation", "Block", "Report", "KeyEnvelope", "AccountKey", "Device", "Profile"];
+
+/** Record each row as it was at the moment it was deleted. */
+function watchDeletes(w, names) {
+  const seen = [];
+  for (const name of names) {
+    const entity = w.entities[name];
+    const original = entity.delete;
+    entity.delete = async (rowId) => {
+      const row = entity._rows.find((r) => r.id === rowId);
+      if (row) seen.push({ name, row: JSON.parse(JSON.stringify(row)) });
+      return original(rowId);
+    };
+  }
+  return seen;
+}
+
+/** Rows that still mention a user, ignoring the recipient lists sealed inside other people's messages. */
+function mentions(w, userId) {
+  const found = [];
+  for (const name of PERSONAL) {
+    for (const r of w.rows(name)) {
+      const visible = name === "Message" ? { ...r, envelope: "" } : r;
+      if (JSON.stringify(visible).includes(userId)) found.push(`${name} ${r.id}`);
+    }
+  }
+  return found;
+}
+
+test("deleting an account takes a device signature and the word DELETE, then removes everything of theirs", async () => {
+  const { w, members: [alice, bob, carol] } = await world("alice", "bob", "carol");
+  for (const m of [alice, bob, carol]) w.rows("User").push({ ...m.user });
+
+  const dm = await alice.dm(bob);
+  await alice.send(dm, "hello bob");
+  await bob.send(dm, "hello alice");
+  const { conversation: group } = await alice.ok("conversations", { action: "create_group", usernames: ["bob", "carol"] });
+  const { chains } = await alice.chainsFor(group);
+  await alice.ok("conversations", await buildTitle({ userId: alice.id, device: alice.device, conversation: group, chains, title: "Neighbours" }));
+  await alice.send(group, "hello group");
+  await bob.send(group, "bob was here");
+  await alice.ok("safety", { action: "report", user_id: carol.id, reason: "spam" });
+  await carol.ok("safety", { action: "block", user_id: alice.id });
+  await alice.ok("disclose", { action: "submit", summary: "Found a bug", details: "The steps to reproduce it go in here." });
+
+  // A signed-in session alone can't delete an account that has keys.
+  const sessionOnly = await alice.call("profile", { action: "delete_account", confirm: "DELETE" });
+  assert.equal(sessionOnly.status, 401);
+  assert.equal(sessionOnly.body.code, "PROOF_REQUIRED");
+  // The confirmation is part of what the device signs.
+  assert.equal((await alice.call("profile", await signed(alice, "delete_account", { confirm: "delete" }))).body.code, "CONFIRM_REQUIRED");
+  // A proof made for another action doesn't count, and nor does another account's device.
+  const leaveProof = await signed(alice, "leave", { confirm: "DELETE" });
+  assert.equal((await alice.call("profile", { ...leaveProof, action: "delete_account" })).body.code, "PROOF_INVALID");
+  assert.equal((await alice.call("profile", await signed(alice, "delete_account", { confirm: "DELETE" }, bob.device))).body.code, "DEVICE_UNKNOWN");
+  assert.equal(w.rows("Profile").filter((p) => p.user_id === alice.id).length, 1, "nothing removed yet");
+
+  const deleted = watchDeletes(w, PERSONAL);
+  assert.deepEqual(await alice.ok("profile", await signed(alice, "delete_account", { confirm: "DELETE" })), { done: true, sign_in_removed: true });
+
+  // Every record was blanked before it was deleted, so the host's recycle bin holds nothing readable.
+  assert.ok(deleted.length >= 12, `only ${deleted.length} rows deleted`);
+  for (const { name, row } of deleted) {
+    assert.ok(!JSON.stringify(row).includes(alice.id), `${name} row still named Alice when it was deleted`);
+    if (name === "Message") assert.equal(row.envelope, "");
+    if (name === "KeyEnvelope") assert.equal(row.sealed, "");
+    if (name === "Profile") assert.equal(row.username, "");
+  }
+  assert.deepEqual(mentions(w, alice.id), []);
+  assert.equal(w.rows("User").some((u) => u.id === alice.id), false, "sign-in removed");
+  assert.equal(w.rows("User").length, 2);
+  assert.deepEqual(w.rows("SecurityReport").map((r) => [r.summary, r.reporter_user_id]), [["Found a bug", ""]]);
+
+  // Bob and Carol carry on in the group without her. The direct messages are gone for Bob too.
+  const { conversations } = await bob.ok("conversations", { action: "list" });
+  assert.deepEqual(conversations.map((c) => c.id), [group.id]);
+  const after = conversations[0];
+  assert.deepEqual(after.member_ids, [bob.id, carol.id]);
+  assert.equal(after.title, null, "a name only Alice could vouch for is cleared");
+  assert.equal((await bob.send(after, "carry on")).status, 200);
+  assert.deepEqual((await carol.read(after)).map((m) => [m.status, m.text]), [["ok", "bob was here"], ["ok", "carry on"]]);
+
+  // Nobody can take over her username.
+  assert.equal((await bob.call("profile", { action: "find", username: "alice" })).status, 404);
+  const mallory = new Member(w, "mallory");
+  assert.equal((await mallory.call("profile", { action: "claim_username", username: "Alice" })).body.code, "USERNAME_TAKEN");
+  assert.deepEqual(w.rows("RetiredUsername").map((r) => Object.keys(r).filter((k) => !["id", "created_date", "updated_date"].includes(k))), [["username_key"]]);
+
+  // Asking again once it's finished is harmless.
+  assert.equal((await alice.ok("profile", await signed(alice, "delete_account", { confirm: "DELETE" }))).done, true);
+});
+
+test("a deletion that runs out of time picks up where it stopped", async () => {
+  const { w, members: [alice, bob, carol] } = await world("alice", "bob", "carol");
+  const dm = await alice.dm(bob);
+  for (let i = 0; i < 4; i += 1) await bob.send(dm, `to alice ${i}`);
+  const { conversation: group } = await bob.ok("conversations", { action: "create_group", usernames: ["alice", "carol"] });
+  for (let i = 0; i < 3; i += 1) await alice.send(group, `from alice ${i}`);
+
+  // Pretend each write takes ten seconds, so a call gets through only a few before it pauses.
+  const realNow = Date.now;
+  Date.now = () => realNow() + w.writes * 10_000;
+  let calls = 0;
+  try {
+    for (;;) {
+      calls += 1;
+      assert.ok(calls < 40, "deletion never finished");
+      const res = await alice.ok("profile", await signed(alice, "delete_account", { confirm: "DELETE" }));
+      if (res.done) break;
+      assert.deepEqual(res, { done: false });
+    }
+  } finally {
+    Date.now = realNow;
+  }
+  assert.ok(calls >= 3, `expected several calls, took ${calls}`);
+  assert.deepEqual(mentions(w, alice.id), []);
+  assert.deepEqual((await bob.ok("conversations", { action: "list" })).conversations.map((c) => c.member_ids), [[bob.id, carol.id]]);
+});
+
+test("an account that never set up keys is deleted with just the confirmation; staff accounts can't be deleted here", async () => {
+  const w = new FakeWorld();
+  const dan = new Member(w, "dan");
+  await dan.ok("profile", { action: "claim_username", username: "dan" });
+  assert.equal((await dan.call("profile", { action: "delete_account" })).body.code, "CONFIRM_REQUIRED");
+  assert.equal((await dan.call("profile", { action: "delete_account", confirm: "yes" })).body.code, "CONFIRM_REQUIRED");
+  assert.deepEqual(await dan.ok("profile", { action: "delete_account", confirm: "DELETE" }), { done: true, sign_in_removed: true });
+  assert.equal(w.rows("Profile").length, 0);
+  // Someone who hasn't even picked a username can leave too.
+  const eve = new Member(w, "eve");
+  assert.equal((await eve.ok("profile", { action: "delete_account", confirm: "DELETE" })).done, true);
+  const staff = new Member(w, "staffer", "admin");
+  const refused = await staff.call("profile", { action: "delete_account", confirm: "DELETE" });
+  assert.equal(refused.status, 403);
+  assert.equal(refused.body.code, "STAFF_ACCOUNT");
+});
+
+test("the last member to leave a group takes its messages with it, blanked first", async () => {
+  const { w, members: [alice, bob] } = await world("alice", "bob");
+  const { conversation: group } = await alice.ok("conversations", { action: "create_group", usernames: ["bob"] });
+  await alice.send(group, "one");
+  await bob.send(group, "two");
+  await bob.ok("conversations", await signed(bob, "leave", { conversation_id: group.id }));
+  const deleted = watchDeletes(w, ["Message", "Conversation"]);
+  await alice.ok("conversations", await signed(alice, "leave", { conversation_id: group.id }));
+  assert.equal(w.rows("Conversation").length, 0);
+  assert.equal(w.rows("Message").length, 0);
+  assert.deepEqual(deleted.map((d) => d.name).sort(), ["Conversation", "Message", "Message"]);
+  assert.ok(deleted.every(({ row }) => !row.envelope && !row.sender_id && !(row.member_ids || []).length));
+});
