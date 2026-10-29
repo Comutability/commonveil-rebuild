@@ -139,7 +139,7 @@ export function AddDevice() {
   const [error, setError] = useState("");
   const [phrase, setPhrase] = useState("");
 
-  if (phase === "awaiting-approval") {
+  if (phase === "awaiting-approval" && mode !== "phrase") {
     return (
       <Panel icon={Smartphone} eyebrow="Add this device" title="Approve this device from another one">
         <div className="space-y-5">
@@ -154,7 +154,7 @@ export function AddDevice() {
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Waiting for approval. This request expires after 15 minutes.
           </p>
           <div className="flex flex-wrap gap-3">
-            <Button variant="outline" onClick={() => setMode("phrase") || cancelLinking()}>Use my recovery phrase instead</Button>
+            <Button variant="outline" onClick={() => setMode("phrase")}>Use my recovery phrase instead</Button>
             <Button variant="ghost" onClick={cancelLinking}>Cancel</Button>
           </div>
         </div>
