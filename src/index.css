@@ -62,7 +62,7 @@
       --muted-foreground: 222 10% 64%;
       --accent: 168 30% 15%;
       --accent-foreground: 164 52% 74%;
-      --destructive: 0 62% 56%;
+      --destructive: 0 70% 64%;
       --destructive-foreground: 222 26% 8%;
       --warning: 38 92% 58%;
       --border: 222 15% 19%;
@@ -112,6 +112,16 @@
   }
   .mono {
     font-family: var(--font-mono);
+  }
+  .avatar-cv {
+    background: hsl(var(--h) 45% 45% / 0.16);
+    color: hsl(var(--h) 60% 28%);
+  }
+  @media (prefers-color-scheme: dark) {
+    .avatar-cv {
+      background: hsl(var(--h) 40% 55% / 0.2);
+      color: hsl(var(--h) 75% 80%);
+    }
   }
 
   /* Long-form reading. Markdown from the CMS lands here. */
