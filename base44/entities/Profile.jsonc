@@ -1,0 +1,35 @@
+{
+  "name": "Profile",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string",
+      "description": "Base44 user id of the owner."
+    },
+    "username": {
+      "type": "string",
+      "description": "Handle as the member typed it. 3-20 of a-z, 0-9, underscore."
+    },
+    "username_key": {
+      "type": "string",
+      "description": "Lower-cased username, used for uniqueness."
+    },
+    "display_name": {
+      "type": "string"
+    },
+    "bio": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "username",
+    "username_key"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}
