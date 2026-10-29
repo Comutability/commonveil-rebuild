@@ -1,0 +1,56 @@
+{
+  "name": "Report",
+  "type": "object",
+  "properties": {
+    "reporter_id": {
+      "type": "string"
+    },
+    "reported_user_id": {
+      "type": "string"
+    },
+    "conversation_id": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "spam",
+        "harassment",
+        "impersonation",
+        "illegal",
+        "other"
+      ]
+    },
+    "details": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "reviewing",
+        "resolved",
+        "dismissed"
+      ],
+      "default": "open"
+    },
+    "resolution_note": {
+      "type": "string"
+    },
+    "handled_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "reporter_id",
+    "reported_user_id",
+    "reason",
+    "status"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}
