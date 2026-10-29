@@ -1,0 +1,22 @@
+{
+  "name": "Block",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "blocked_user_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "blocked_user_id"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}
