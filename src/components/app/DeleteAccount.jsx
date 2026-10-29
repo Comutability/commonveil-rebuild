@@ -10,7 +10,8 @@ import { useSecure } from "@/lib/secure/SecureContext";
 export function DeletionExplainer() {
   return (
     <ul className="list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
-      <li>Your profile and username, your keys and devices, and every message you've sent are deleted.</li>
+      <li>Your profile, your keys and devices, and every message you've sent are deleted.</li>
+      <li>Your username is retired: kept on its own, linked to nothing, so nobody else can take it and pose as you.</li>
       <li>Direct-message conversations with you disappear for the other person too. You're removed from your groups.</li>
       <li>Blocks and reports involving you are deleted. Security reports you sent are kept, without your name.</li>
       <li>Your sign-in is removed. Base44, our host, keeps removed sign-ins for 30 days before erasing them.</li>
