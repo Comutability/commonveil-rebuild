@@ -4,6 +4,7 @@ import { conversationForMember, enforceRate, profileOf, publicProfile } from "..
 
 const REASONS = new Set(["spam", "harassment", "impersonation", "illegal", "other"]);
 const STATUSES = new Set(["open", "reviewing", "resolved", "dismissed"]);
+const SECURITY_STATUSES = new Set(["new", "triaged", "fixed", "closed"]);
 
 export const safetyActions: Actions = {
   async block({ sr, user, body }) {
@@ -95,5 +96,35 @@ export const adminActions: Actions = {
       handled_by: user.id,
     });
     return { report: { id: report.id, status: updated.status ?? status } };
+  },
+
+  async list_security_reports({ sr, user, body }) {
+    requireAdmin(user);
+    const query: any = {};
+    if (typeof body.status === "string" && SECURITY_STATUSES.has(body.status)) query.status = body.status;
+    const rows = await sr.entities.SecurityReport.filter(query, "-created_date", 200);
+    const ids = [...new Set(rows.map((r: any) => r.reporter_user_id).filter(Boolean))];
+    const profiles = ids.length ? await sr.entities.Profile.filter({ user_id: { $in: ids } }, "created_date", 500) : [];
+    return {
+      reports: rows.map((r: any) => ({
+        id: r.id,
+        summary: r.summary,
+        details: r.details,
+        contact: r.contact || "",
+        reporter: r.reporter_user_id ? profiles.find((p: any) => p.user_id === r.reporter_user_id)?.username || "(member)" : "",
+        status: r.status,
+        staff_note: r.staff_note || "",
+        created_date: r.created_date,
+      })),
+    };
+  },
+
+  async update_security_report({ sr, user, body }) {
+    requireAdmin(user);
+    const report = await sr.entities.SecurityReport.get(id(body.report_id, "report")).catch(() => null);
+    if (!report) throw new ApiError(404, "NOT_FOUND", "Report not found.");
+    const status = typeof body.status === "string" && SECURITY_STATUSES.has(body.status) ? body.status : report.status;
+    await sr.entities.SecurityReport.update(report.id, { status, staff_note: cleanText(body.staff_note, 2000) });
+    return { report: { id: report.id, status } };
   },
 };
