@@ -25,7 +25,7 @@ function Frame({ children, showNav }) {
             <nav className="flex items-center gap-1" aria-label="App">
               <NavLink to="/app" end className={tabClass}><MessagesSquare className="h-4 w-4" aria-hidden="true" /><span className="hidden sm:inline">Messages</span></NavLink>
               <NavLink to="/app/settings" className={tabClass}><Settings className="h-4 w-4" aria-hidden="true" /><span className="hidden sm:inline">Settings</span></NavLink>
-              {isAdmin && <NavLink to="/app/admin" className={tabClass}><Shield className="h-4 w-4" aria-hidden="true" /><span className="hidden sm:inline">Admin</span></NavLink>}
+              {isAdmin && <NavLink to="/admin" className={tabClass}><Shield className="h-4 w-4" aria-hidden="true" /><span className="hidden sm:inline">Admin</span></NavLink>}
             </nav>
           )}
           <div className="flex items-center gap-3 text-sm text-muted-foreground">
