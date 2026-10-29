@@ -23,6 +23,7 @@ import {
 } from "@/pages/site/ContentPages";
 import Privacy from "@/pages/site/Privacy";
 import Security from "@/pages/site/Security";
+import ReportSecurityIssue from "@/pages/site/ReportSecurityIssue";
 import NotFound from "@/pages/site/NotFound";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
@@ -58,6 +59,7 @@ function AppRoutes() {
         <Route path="wiki/:slug" element={<WikiArticle />} />
         <Route path="privacy" element={<Privacy />} />
         <Route path="security" element={<Security />} />
+        <Route path="security/report" element={<ReportSecurityIssue />} />
         <Route path="*" element={<NotFound />} />
       </Route>
       <Route path="login" element={<Login />} />
