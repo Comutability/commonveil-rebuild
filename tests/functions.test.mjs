@@ -743,7 +743,12 @@ test("deleting an account takes a device signature and the word DELETE, then rem
   assert.deepEqual(await alice.ok("profile", await signed(alice, "delete_account", { confirm: "DELETE" })), { done: true, sign_in_removed: true });
 
   // Every record was blanked before it was deleted, so the host's recycle bin holds nothing readable.
-  assert.ok(deleted.length >= 12, `only ${deleted.length} rows deleted`);
+  const count = (name) => deleted.filter((d) => d.name === name).length;
+  assert.deepEqual(
+    ["Message", "Conversation", "Report", "Block", "AccountKey", "Device", "Profile"].map((n) => [n, count(n)]),
+    [["Message", 3], ["Conversation", 1], ["Report", 1], ["Block", 1], ["AccountKey", 1], ["Device", 1], ["Profile", 1]],
+  );
+  assert.ok(count("KeyEnvelope") >= 1);
   for (const { name, row } of deleted) {
     assert.ok(!JSON.stringify(row).includes(alice.id), `${name} row still named Alice when it was deleted`);
     if (name === "Message") assert.equal(row.envelope, "");
