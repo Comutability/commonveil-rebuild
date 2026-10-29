@@ -23,6 +23,10 @@
       "type": "string",
       "description": "Recovery key this was sealed to, for kind=recovery."
     },
+    "key_sign_pub": {
+      "type": "string",
+      "description": "Signing key of the newest version inside, to tell competing rotations apart."
+    },
     "sealed": {
       "type": "string",
       "description": "JSON {epk, iv, ct}."
