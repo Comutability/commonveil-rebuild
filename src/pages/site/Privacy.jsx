@@ -50,8 +50,14 @@ export default function Privacy() {
             </p>
             <h2 className="mt-5 text-lg font-semibold text-foreground">Deleting your data</h2>
             <p className="mt-2">
-              You can delete individual messages and remove devices today. Self-service account deletion isn't built yet; it's next on the list,
-              and this page will say when it's live.
+              You can delete single messages, remove devices, or delete your whole account from Settings. Account deletion blanks and then
+              deletes your profile, keys, devices and every message you've sent. Direct-message conversations go for both people, and you're
+              removed from groups.
+            </p>
+            <p className="mt-2">
+              Two things are outside our control. Base44 keeps removed sign-ins for 30 days before erasing them, along with the email address.
+              And Base44 keeps deleted records in a recycle bin and, on some plans, up to 30 days of change history. We blank everything before
+              deleting it, so the recycle bin holds nothing readable, but change history can hold earlier versions until it expires.
             </p>
             <p className="mt-4">
               See <Link to="/security" className="text-primary underline">Security</Link> for how the encryption works and its limits.
