@@ -107,6 +107,9 @@ class Member {
   }
 }
 
+/** A request signed by one of the member's devices (their current one by default). */
+const signed = (member, action, payload, device = member.device) => signedRequest({ userId: member.id, device, action, payload });
+
 async function world(...names) {
   const w = new FakeWorld();
   const members = [];
@@ -419,7 +422,7 @@ test("groups: names are encrypted, new members need a fresh key copy, and can't 
   await alice.ok("conversations", await buildTitle({ userId: alice.id, device: alice.device, conversation: group, chains, title: "Book club" }));
   await alice.send(group, "chapter one");
 
-  const { conversation: bigger } = await alice.ok("conversations", { action: "add_members", conversation_id: group.id, usernames: ["carol"] });
+  const { conversation: bigger } = await alice.ok("conversations", await signed(alice, "add_members", { conversation_id: group.id, usernames: ["carol"] }));
   assert.equal(bigger.member_ids.length, 3);
   // Old recipient set is refused now that Carol is in.
   const old = await buildMessage({ userId: alice.id, device: alice.device, conversation: group, chains, text: "x" });
@@ -438,9 +441,9 @@ test("groups: names are encrypted, new members need a fresh key copy, and can't 
   assert.equal(title.text, "Book club");
 
   // Leaving: Bob leaves, and later messages exclude him.
-  await bob.ok("conversations", { action: "leave", conversation_id: group.id });
+  await bob.ok("conversations", await signed(bob, "leave", { conversation_id: group.id }));
   assert.equal((await bob.call("messages", { action: "list", conversation_id: group.id })).status, 404);
-  assert.equal((await alice.call("conversations", { action: "leave", conversation_id: (await alice.dm(bob)).id })).body.code, "DM_LEAVE");
+  assert.equal((await alice.call("conversations", await signed(alice, "leave", { conversation_id: (await alice.dm(bob)).id }))).body.code, "DM_LEAVE");
 });
 
 test("messages are rate limited per sender", async () => {
@@ -464,8 +467,8 @@ test("polling returns what changed after the cursor, including deletions", async
   assert.equal(page.messages.length, 2);
   cursor = page.cursor;
   const target = page.messages[0];
-  assert.equal((await bob.call("messages", { action: "delete", message_id: target.id })).status, 404, "can't delete someone else's message");
-  await alice.ok("messages", { action: "delete", message_id: target.id });
+  assert.equal((await bob.call("messages", await signed(bob, "delete", { message_id: target.id }))).status, 404, "can't delete someone else's message");
+  await alice.ok("messages", await signed(alice, "delete", { message_id: target.id }));
   page = await bob.ok("messages", { action: "poll", since: cursor });
   const deleted = page.messages.find((m) => m.id === target.id);
   assert.ok(deleted?.deleted);
