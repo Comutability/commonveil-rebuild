@@ -122,18 +122,19 @@ export function ChatProvider({ children }) {
   useEffect(() => {
     if (!keyring) return;
     let cancelled = false;
+    const membersOf = new Map(conversations.map((c) => [c.id, new Set(c.member_ids)]));
     (async () => {
       const results = {};
       for (const list of Object.values(messages)) {
         for (const m of list) {
           const cacheKey = `${m.id}:${m.deleted ? "d" : "v"}`;
           const prev = opened[m.id];
-          if (prev && prev.cacheKey === cacheKey && prev.status !== "pending") continue;
+          if (prev && prev.cacheKey === cacheKey) continue;
           const senderChain = chainOf(m.sender_id);
-          const senderReady = m.sender_id === userId || peers[m.sender_id]?.ready !== undefined;
-          if (!senderReady && !m.deleted) {
-            continue;
-          }
+          // Wait for a current member's keys; someone who has left can't be looked up, so open without verification.
+          const stillMember = membersOf.get(m.conversation_id)?.has(m.sender_id);
+          const senderReady = m.sender_id === userId || peers[m.sender_id]?.ready !== undefined || !stillMember;
+          if (!senderReady && !m.deleted) continue;
           const r = await P.openItem({ kind: "message", item: m, userId, keyring, senderChain, senderDevices: devicesOf(m.sender_id) });
           results[m.id] = { ...r, cacheKey };
           if (cancelled) return;
@@ -144,7 +145,7 @@ export function ChatProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [messages, keyring, peers, userId, chainOf, devicesOf, opened]);
+  }, [messages, conversations, keyring, peers, userId, chainOf, devicesOf, opened]);
 
   // Group names.
   useEffect(() => {
