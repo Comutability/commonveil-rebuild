@@ -16,13 +16,9 @@ export default function Avatar({ id, name, group = false, size = "h-10 w-10" }) 
     );
   }
   const initials = String(name || "?").replace(/^@/, "").slice(0, 2).toUpperCase();
-  const hue = hueFor(id);
+  // Colours come from .avatar-cv in index.css, which adjusts them for dark mode.
   return (
-    <span
-      className={`flex shrink-0 items-center justify-center rounded-full text-sm font-semibold ${size}`}
-      style={{ background: `hsl(${hue} 45% 45% / 0.18)`, color: `hsl(${hue} 55% 38%)` }}
-      aria-hidden="true"
-    >
+    <span className={`avatar-cv flex shrink-0 items-center justify-center rounded-full text-sm font-semibold ${size}`} style={{ "--h": hueFor(id) }} aria-hidden="true">
       {initials}
     </span>
   );
