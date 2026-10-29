@@ -70,8 +70,20 @@ export const deviceOut = (d: any, now: Date) => ({
   pending_expires_at: d.pending_expires_at || null,
   revoked_at: d.revoked_at || null,
   revoked_reason: d.revoked_reason || null,
+  synced_key_version: d.synced_key_version ?? null,
   last_seen_at: d.last_seen_at || null,
   created_date: d.created_date,
+});
+
+/** What other members see about your devices: keys and certificate, no labels or timings. */
+export const peerDeviceOut = (d: any) => ({
+  device_id: d.device_id,
+  sign_pub: d.sign_pub,
+  box_pub: d.box_pub,
+  status: d.status,
+  cert_key_version: d.cert_key_version,
+  cert_issued_at: d.cert_issued_at,
+  cert_signature: d.cert_signature,
 });
 
 /** Active device owned by this user, or a 403. */
