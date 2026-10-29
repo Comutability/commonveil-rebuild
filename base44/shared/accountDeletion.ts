@@ -8,7 +8,9 @@
 // 1. Leave every conversation (direct messages are removed for both people), so nothing new
 //    can be sent from the account. 2. Remove everything else the account sent or owns.
 // 3. Published keys before devices: once the keys are gone, a resumed call no longer needs a
-//    device signature, so a half-finished deletion can't get stuck. 4. The profile last.
+//    device signature, so a half-finished deletion can't get stuck. 4. The profile last. Its
+//    username is retired first, on its own: otherwise someone could claim it and pose as this
+//    member to people who knew them.
 
 const PAGE = 100;
 const CONCURRENCY = 5;
@@ -55,6 +57,14 @@ const BLANK = {
   Profile: { user_id: "", username: "", username_key: "", display_name: "", bio: "" },
 };
 
+export async function isRetiredUsername(sr: any, key: string) {
+  return (await sr.entities.RetiredUsername.filter({ username_key: key }, "created_date", 1)).length > 0;
+}
+
+async function retireUsername(sr: any, key: string) {
+  if (!(await isRetiredUsername(sr, key))) await sr.entities.RetiredUsername.create({ username_key: key });
+}
+
 /** Blank and delete a conversation with all its messages. Throws OutOfTime if the deadline passes. */
 export async function eraseConversation(sr: any, conversationId: string, deadline: number) {
   await blankAndDeleteAll(sr, "Message", { conversation_id: conversationId }, BLANK.Message, deadline);
@@ -78,7 +88,13 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
         if (c.kind === "dm" || rest.length === 0) {
           await eraseConversation(sr, c.id, deadline);
         } else {
-          await sr.entities.Conversation.update(c.id, { member_ids: rest });
+          const changes: Record<string, unknown> = { member_ids: rest };
+          if (c.created_by === userId) changes.created_by = "";
+          // A group name set by this member can't be verified once their keys are gone.
+          if (c.title_sender_id === userId) {
+            Object.assign(changes, { title_envelope: "", title_item_id: "", title_sender_id: "", title_device_id: "", title_sent_at: "", title_signature: "" });
+          }
+          await sr.entities.Conversation.update(c.id, changes);
         }
       }
     }
@@ -96,8 +112,17 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
     await blankAndDeleteAll(sr, "KeyEnvelope", { user_id: userId }, BLANK.KeyEnvelope, deadline);
     await blankAndDeleteAll(sr, "AccountKey", { user_id: userId }, BLANK.AccountKey, deadline);
     await blankAndDeleteAll(sr, "Device", { user_id: userId }, BLANK.Device, deadline);
-    // 4. The profile.
-    await blankAndDeleteAll(sr, "Profile", { user_id: userId }, BLANK.Profile, deadline);
+    // 4. The profile, after retiring its username.
+    for (;;) {
+      checkTime(deadline);
+      const profiles = await sr.entities.Profile.filter({ user_id: userId }, "created_date", PAGE);
+      if (!profiles.length) break;
+      for (const p of profiles) {
+        if (p.username_key) await retireUsername(sr, p.username_key);
+        await sr.entities.Profile.update(p.id, BLANK.Profile);
+        await sr.entities.Profile.delete(p.id);
+      }
+    }
     return true;
   } catch (error) {
     if (error instanceof OutOfTime) return false;
