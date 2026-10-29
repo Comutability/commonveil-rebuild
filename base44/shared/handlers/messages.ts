@@ -3,6 +3,7 @@
 // ciphertext it cannot read.
 import { ApiError, LIMITS, id, int, isoTime, platformTime, randomIdField, str, type Actions } from "../http.ts";
 import { parseEnvelopeShape, verifyItemSignature } from "../verify.ts";
+import { signedByActiveDevice } from "../deviceAuth.ts";
 import {
   assertWrapsMatchMembers,
   blockedEitherWay,
@@ -87,11 +88,13 @@ export const messageActions: Actions = {
     return { cursor, messages, conversations, conversation_ids: ids, has_more: rows.length > LIMITS.pollLimit };
   },
 
-  /** Delete your own message for everyone. People may already have read it. */
-  async delete({ sr, user, body, now }) {
+  /** Delete your own message for everyone. People may already have read it. Needs a device signature. */
+  async delete(ctx) {
+    const { sr, user, now } = ctx;
+    const { data } = await signedByActiveDevice(ctx, "delete");
     let message: any = null;
     try {
-      message = await sr.entities.Message.get(id(body.message_id, "message"));
+      message = await sr.entities.Message.get(id(data.message_id, "message"));
     } catch {
       message = null;
     }
