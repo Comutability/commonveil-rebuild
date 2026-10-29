@@ -3,6 +3,7 @@
 import { ApiError, LIMITS, id, isoTime, randomIdField, str, type Actions } from "../http.ts";
 import { parseEnvelopeShape, verifyItemSignature } from "../verify.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
+import { OutOfTime, eraseConversation } from "../accountDeletion.ts";
 import {
   accountKeysOf,
   assertWrapsMatchMembers,
@@ -108,9 +109,13 @@ export const conversationActions: Actions = {
     }
     const next = conv.member_ids.filter((m: string) => m !== user.id);
     if (next.length === 0) {
-      const messages = await sr.entities.Message.filter({ conversation_id: conv.id }, "created_date", 5000);
-      for (const m of messages) await sr.entities.Message.delete(m.id);
-      await sr.entities.Conversation.delete(conv.id);
+      // Last one out: the group and its messages go, blanked first like an account deletion.
+      try {
+        await eraseConversation(sr, conv.id, Date.now() + 45_000);
+      } catch (error) {
+        if (error instanceof OutOfTime) throw new ApiError(503, "TRY_AGAIN", "Still removing this group's messages. Try again to finish.");
+        throw error;
+      }
     } else {
       await sr.entities.Conversation.update(conv.id, { member_ids: next });
     }
