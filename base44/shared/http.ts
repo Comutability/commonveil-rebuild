@@ -1,0 +1,146 @@
+// Request handling shared by every backend function.
+// Each function is a small set of named actions. Every action runs only after
+// base44.auth.me() has returned a real signed-in user; nothing here mints,
+// accepts or forwards session tokens.
+
+export const LIMITS = Object.freeze({
+  maxBodyBytes: 256 * 1024,
+  maxEnvelopeChars: 96 * 1024,
+  maxTitleEnvelopeChars: 16 * 1024,
+  maxSealedChars: 96 * 1024,
+  maxGroupMembers: 32,
+  maxDevices: 10,
+  maxPendingDevices: 3,
+  pendingDeviceMinutes: 15,
+  proofSkewMs: 5 * 60 * 1000,
+  sentAtSkewMs: 10 * 60 * 1000,
+  messagesPerMinute: 30,
+  conversationsPerHour: 30,
+  reportsPerDay: 20,
+  resetsPerDay: 3,
+  pageSize: 50,
+  pollLimit: 200,
+});
+
+export class ApiError extends Error {
+  status: number;
+  code: string;
+  constructor(status: number, code: string, message?: string) {
+    super(message || code);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+const HEADERS = {
+  "Cache-Control": "no-store",
+  "X-Content-Type-Options": "nosniff",
+  "Content-Type": "application/json; charset=utf-8",
+};
+
+export function json(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), { status, headers: HEADERS });
+}
+
+export type Ctx = { sr: any; user: any; body: any; now: Date };
+export type Actions = Record<string, (ctx: Ctx) => Promise<unknown>>;
+
+/** Run one named action for an authenticated user. Used by the entry files and by tests. */
+export async function runAction(base44: any, rawBody: string, actions: Actions): Promise<Response> {
+  try {
+    if (rawBody.length > LIMITS.maxBodyBytes) throw new ApiError(413, "TOO_LARGE", "That request is too large.");
+    let body: any = {};
+    if (rawBody) {
+      try {
+        body = JSON.parse(rawBody);
+      } catch {
+        throw new ApiError(400, "BAD_JSON", "The request wasn't valid JSON.");
+      }
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new ApiError(400, "BAD_REQUEST", "Invalid request.");
+    const user = await base44.auth.me().catch(() => null);
+    if (!user || typeof user.id !== "string" || !user.id) throw new ApiError(401, "SIGN_IN_REQUIRED", "Please sign in again.");
+    const action = typeof body.action === "string" ? body.action : "";
+    if (!Object.prototype.hasOwnProperty.call(actions, action)) throw new ApiError(400, "UNKNOWN_ACTION", "Unknown action.");
+    const result = await actions[action]({ sr: base44.asServiceRole, user, body, now: new Date() });
+    return json(200, result ?? { ok: true });
+  } catch (error) {
+    if (error instanceof ApiError) return json(error.status, { error: error.message, code: error.code });
+    const message = String((error as any)?.message || "");
+    if (/rate limit|too many requests|429/i.test(message)) {
+      return json(429, { error: "The service is busy. Please try again in a moment.", code: "UPSTREAM_BUSY" });
+    }
+    // Log a category only: no request bodies, keys or user data.
+    console.error("commonveil function failure", { name: (error as any)?.name || "Error" });
+    return json(500, { error: "Something went wrong. Nothing was changed.", code: "INTERNAL" });
+  }
+}
+
+export async function serve(req: Request, makeClient: (req: Request) => any, actions: Actions): Promise<Response> {
+  if (req.method !== "POST") return json(405, { error: "Use POST.", code: "METHOD_NOT_ALLOWED" });
+  const raw = await req.text();
+  return runAction(makeClient(req), raw, actions);
+}
+
+// ---------- small validators ----------
+
+export const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+export const RANDOM_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
+
+export function str(value: unknown, name: string, max = 200, min = 1): string {
+  if (typeof value !== "string" || value.length < min || value.length > max) {
+    throw new ApiError(400, "BAD_FIELD", `Invalid ${name}.`);
+  }
+  return value;
+}
+
+export function id(value: unknown, name: string): string {
+  if (typeof value !== "string" || !ID_RE.test(value)) throw new ApiError(400, "BAD_FIELD", `Invalid ${name}.`);
+  return value;
+}
+
+export function randomIdField(value: unknown, name: string): string {
+  if (typeof value !== "string" || !RANDOM_ID_RE.test(value)) throw new ApiError(400, "BAD_FIELD", `Invalid ${name}.`);
+  return value;
+}
+
+export function int(value: unknown, name: string, min = 1, max = 1_000_000): number {
+  if (!Number.isInteger(value) || (value as number) < min || (value as number) > max) {
+    throw new ApiError(400, "BAD_FIELD", `Invalid ${name}.`);
+  }
+  return value as number;
+}
+
+export function isoTime(value: unknown, name: string): string {
+  if (typeof value !== "string" || value.length > 40 || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(value)) {
+    throw new ApiError(400, "BAD_FIELD", `Invalid ${name}.`);
+  }
+  if (Number.isNaN(Date.parse(value))) throw new ApiError(400, "BAD_FIELD", `Invalid ${name}.`);
+  return value;
+}
+
+export function idList(value: unknown, name: string, max: number): string[] {
+  if (!Array.isArray(value) || value.length > max) throw new ApiError(400, "BAD_FIELD", `Invalid ${name}.`);
+  const out = new Set<string>();
+  for (const v of value) out.add(id(v, name));
+  return [...out];
+}
+
+/** Strip control characters and trim. */
+export function cleanText(value: unknown, max: number): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") throw new ApiError(400, "BAD_FIELD", "Invalid text.");
+  // deno-lint-ignore no-control-regex
+  const cleaned = value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, "").trim();
+  if (cleaned.length > max) throw new ApiError(400, "TOO_LONG", `Please keep it under ${max} characters.`);
+  return cleaned;
+}
+
+/** Platform timestamps look like 2026-10-29T11:37:14.587000 (UTC, no zone). */
+export function platformTime(date: Date): string {
+  return date.toISOString().replace("Z", "");
+}
+
+export function parsePlatformTime(value: string): number {
+  return Date.parse(/Z$|[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`);
+}
