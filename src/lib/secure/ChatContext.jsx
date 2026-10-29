@@ -230,6 +230,29 @@ export function ChatProvider({ children }) {
     })();
   }, [conversations, keyring, peers, userId, chainOf, devicesOf, titles, knowsDevice]);
 
+  // Membership pins: first sight of a conversation pins its members (trust on first use);
+  // people who leave drop out of the pin, so if they return it's flagged again.
+  useEffect(() => {
+    const pins = memberPinsRef.current;
+    if (!pins) return;
+    let changed = false;
+    const next = { ...pins };
+    for (const c of conversations) {
+      const current = c.member_ids || [];
+      if (!next[c.id]) {
+        next[c.id] = [...current];
+        changed = true;
+        continue;
+      }
+      const kept = next[c.id].filter((id) => current.includes(id));
+      if (kept.length !== next[c.id].length) {
+        next[c.id] = kept;
+        changed = true;
+      }
+    }
+    if (changed) saveMemberPins(next).catch(() => {});
+  }, [conversations, saveMemberPins]);
+
   const openConversation = useCallback(async (conversationId) => {
     const res = await callFn("messages", { action: "list", conversation_id: conversationId });
     mergeMessages(res.messages);
@@ -272,6 +295,9 @@ export function ChatProvider({ children }) {
   const send = useCallback(async (conversation, text) => {
     let conv = conversation;
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      // Checked on every attempt: a refresh after a rejected send must not quietly add recipients.
+      const problem = membershipProblem(conv);
+      if (problem) throw new Error(problem);
       try {
         const body = await P.buildMessage({ userId, device, conversation: conv, chains: chainsFor(conv.member_ids), text });
         const res = await callFn("messages", body);
@@ -287,45 +313,59 @@ export function ChatProvider({ children }) {
       }
     }
     return null;
-  }, [userId, device, chainsFor, mergeMessages, mergeConversations, refreshConversation]);
+  }, [userId, device, chainsFor, mergeMessages, mergeConversations, refreshConversation, membershipProblem]);
 
   const setTitle = useCallback(async (conversation, title) => {
+    const problem = membershipProblem(conversation);
+    if (problem) throw new Error(problem);
     const body = await P.buildTitle({ userId, device, conversation, chains: chainsFor(conversation.member_ids), title });
     const res = await callFn("conversations", body);
     mergeConversations([res.conversation]);
     return res.conversation;
-  }, [userId, device, chainsFor, mergeConversations]);
+  }, [userId, device, chainsFor, mergeConversations, membershipProblem]);
 
   const startDm = useCallback(async (username) => {
     const res = await callFn("conversations", { action: "create_dm", username });
+    const conv = res.conversation;
+    // A DM is exactly two people; anything else is refused before it's pinned.
+    if (!memberPinsRef.current?.[conv.id] && conv.member_ids.length === 2 && conv.member_ids.includes(userId)) {
+      await pinMembers(conv.id, conv.member_ids, { replace: true });
+    }
+    mergeConversations([conv]);
+    await Promise.all([loadPeers(conv.member_ids, { force: true }), loadProfiles(conv.member_ids)]);
+    return conv;
+  }, [userId, pinMembers, mergeConversations, loadPeers, loadProfiles]);
+
+  /** members: [{ username, user_id }] as found by exact lookup. Only these are pinned. */
+  const startGroup = useCallback(async (members) => {
+    const res = await callFn("conversations", { action: "create_group", usernames: members.map((m) => m.username) });
+    await pinMembers(res.conversation.id, [userId, ...members.map((m) => m.user_id)], { replace: true });
     mergeConversations([res.conversation]);
     await Promise.all([loadPeers(res.conversation.member_ids, { force: true }), loadProfiles(res.conversation.member_ids)]);
-    return res.conversation;
-  }, [mergeConversations, loadPeers, loadProfiles]);
+    return { conversation: res.conversation };
+  }, [userId, pinMembers, mergeConversations, loadPeers, loadProfiles]);
 
-  const startGroup = useCallback(async (usernames, title) => {
-    const res = await callFn("conversations", { action: "create_group", usernames });
-    mergeConversations([res.conversation]);
-    await Promise.all([loadPeers(res.conversation.member_ids, { force: true }), loadProfiles(res.conversation.member_ids)]);
-    return { conversation: res.conversation, title };
-  }, [mergeConversations, loadPeers, loadProfiles]);
-
+  /** Needs a signature from this device. Only the people you named are pinned as known. */
   const addMembers = useCallback(async (conversation, usernames) => {
-    const res = await callFn("conversations", { action: "add_members", conversation_id: conversation.id, usernames });
+    const found = [];
+    for (const u of usernames) found.push((await callFn("profile", { action: "find", username: u })).profile.user_id);
+    const request = await P.signedRequest({ userId, device, action: "add_members", payload: { conversation_id: conversation.id, usernames } });
+    const res = await callFn("conversations", request);
+    await pinMembers(conversation.id, found);
     mergeConversations([res.conversation]);
     await Promise.all([loadPeers(res.conversation.member_ids, { force: true }), loadProfiles(res.conversation.member_ids)]);
     return res.conversation;
-  }, [mergeConversations, loadPeers, loadProfiles]);
+  }, [userId, device, pinMembers, mergeConversations, loadPeers, loadProfiles]);
 
   const leave = useCallback(async (conversation) => {
-    await callFn("conversations", { action: "leave", conversation_id: conversation.id });
+    await callFn("conversations", await P.signedRequest({ userId, device, action: "leave", payload: { conversation_id: conversation.id } }));
     setConversations((prev) => prev.filter((c) => c.id !== conversation.id));
-  }, []);
+  }, [userId, device]);
 
   const deleteMessage = useCallback(async (message) => {
-    await callFn("messages", { action: "delete", message_id: message.id });
+    await callFn("messages", await P.signedRequest({ userId, device, action: "delete", payload: { message_id: message.id } }));
     mergeMessages([{ ...message, deleted: true, envelope: null, signature: null }]);
-  }, [mergeMessages]);
+  }, [userId, device, mergeMessages]);
 
   const nameOf = useCallback((id) => {
     if (id === userId) return "You";
@@ -367,7 +407,10 @@ export function ChatProvider({ children }) {
     nameOf,
     conversationName,
     loadProfiles,
-  }), [loaded, conversations, messages, hasMore, opened, titles, profiles, openConversation, loadOlder, markRead, isUnread, send, setTitle, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, conversationName, loadProfiles]);
+    newMembersOf,
+    acknowledgeMembers,
+    membershipProblem,
+  }), [loaded, conversations, messages, hasMore, opened, titles, profiles, openConversation, loadOlder, markRead, isUnread, send, setTitle, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem]);
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }
