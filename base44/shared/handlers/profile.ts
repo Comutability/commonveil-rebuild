@@ -3,6 +3,11 @@
 // conversation with.
 import { ApiError, cleanText, idList, type Actions } from "../http.ts";
 import { accountKeysOf, blockedEitherWay, contactsOf, profileOf, publicProfile } from "../store.ts";
+import { signedByActiveDevice } from "../deviceAuth.ts";
+import { purgeAccount, removePlatformUser } from "../accountDeletion.ts";
+
+/** How long one call may spend deleting before it returns and asks to be called again. */
+const DELETION_BUDGET_MS = 45_000;
 
 const USERNAME_RE = /^[A-Za-z0-9_]{3,20}$/;
 const RESERVED = new Set([
@@ -72,6 +77,34 @@ export const profileActions: Actions = {
     }
     const keys = await accountKeysOf(sr, target.user_id);
     return { profile: publicProfile(target), encryption_ready: keys.length > 0 };
+  },
+
+  /**
+   * Delete the account and everything in it. While the account has published keys, the
+   * request must be signed by one of its devices. Returns done:false if it needs another call.
+   */
+  async delete_account(ctx) {
+    const { sr, user, body } = ctx;
+    if (user.role === "admin") {
+      throw new ApiError(403, "STAFF_ACCOUNT", "Staff accounts can't be deleted here. The app owner removes staff access in Base44.");
+    }
+    const hasKeys = (await sr.entities.AccountKey.filter({ user_id: user.id }, "created_date", 1)).length > 0;
+    let confirm: unknown;
+    if (hasKeys) {
+      confirm = (await signedByActiveDevice(ctx, "delete_account")).data.confirm;
+    } else if (typeof body.payload === "string") {
+      try {
+        confirm = JSON.parse(body.payload)?.confirm;
+      } catch {
+        confirm = undefined;
+      }
+    } else {
+      confirm = body.confirm;
+    }
+    if (confirm !== "DELETE") throw new ApiError(400, "CONFIRM_REQUIRED", "Type DELETE to confirm.");
+    const finished = await purgeAccount(sr, user.id, Date.now() + DELETION_BUDGET_MS);
+    if (!finished) return { done: false };
+    return { done: true, sign_in_removed: await removePlatformUser(sr, user.id) };
   },
 
   /** Profiles for people you share a conversation with. Others are left out. */
