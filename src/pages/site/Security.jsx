@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import { PageHeader } from "@/components/site/bits";
 
 const PIECES = [
@@ -53,9 +54,12 @@ export default function Security() {
         <section className="max-w-3xl">
           <h2 className="text-2xl font-semibold">Status</h2>
           <p className="mt-3 text-muted-foreground">
-            The full protocol description and threat model are kept with the source. A private address for reporting security problems will be
-            published here before Commonveil opens to the public. Until an independent review is complete, please don't rely on Commonveil where
-            your physical safety depends on it.
+            The full protocol description and threat model are kept with the source. Until an independent review is complete, please don't rely
+            on Commonveil where your physical safety depends on it.
+          </p>
+          <p className="mt-3 text-muted-foreground">
+            Found a problem?{" "}
+            <Link to="/security/report" className="font-medium text-primary underline">Report it privately</Link>. You don't need an account.
           </p>
         </section>
       </div>
