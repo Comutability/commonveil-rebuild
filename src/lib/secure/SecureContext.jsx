@@ -35,6 +35,10 @@ export function SecureProvider({ children }) {
   const deviceRef = useRef(null);
   const keyringRef = useRef(null);
   const pinsRef = useRef({});
+  // Latest values for async flows: a callback created before keys loaded must still see them.
+  const peersRef = useRef({});
+  const chainRef = useRef(null);
+  const statusRef = useRef(null);
   const pendingRef = useRef(null);
   const peerFetchedAt = useRef({});
   const repairAt = useRef(0);
@@ -121,12 +125,14 @@ export function SecureProvider({ children }) {
       setKeyringState(localKeyring);
 
       const statusData = await callFn("keys", { action: "status" });
+      statusRef.current = statusData;
       setStatus(statusData);
       if (!statusData.statements.length) {
         setPhase("needs-keys");
         return;
       }
       const ownChain = await verifyAccountChain(userId, statusData.statements);
+      chainRef.current = ownChain;
       setChain(ownChain);
 
       if (!localDevice) {
@@ -359,6 +365,11 @@ export function SecureProvider({ children }) {
     await S.savePins(userId, next);
   }, [userId]);
 
+  const updatePeers = useCallback((change) => {
+    peersRef.current = change(peersRef.current);
+    setPeers(peersRef.current);
+  }, []);
+
   /** Fetch and verify keys for other members. TOFU-pins new ones; flags changes. */
   const loadPeers = useCallback(async (userIds, { force = false } = {}) => {
     const now = Date.now();
@@ -391,41 +402,44 @@ export function SecureProvider({ children }) {
       }
     }
     await savePins(pins);
-    setPeers((prev) => ({ ...prev, ...updates }));
-  }, [userId, savePins]);
+    updatePeers((prev) => ({ ...prev, ...updates }));
+  }, [userId, savePins, updatePeers]);
 
   const acceptKeyChange = useCallback(async (peerId) => {
-    const p = peers[peerId];
+    const p = peersRef.current[peerId];
     if (!p?.chain) return;
     await savePins({ ...pinsRef.current, [peerId]: pinFromChain(p.chain, false) });
-    setPeers((prev) => ({ ...prev, [peerId]: { ...prev[peerId], changed: false, verified: false } }));
-  }, [peers, savePins]);
+    updatePeers((prev) => ({ ...prev, [peerId]: { ...prev[peerId], changed: false, verified: false } }));
+  }, [savePins, updatePeers]);
 
   const markVerified = useCallback(async (peerId, verified = true) => {
-    const p = peers[peerId];
+    const p = peersRef.current[peerId];
     if (!p?.chain) return;
     await savePins({ ...pinsRef.current, [peerId]: pinFromChain(p.chain, verified) });
-    setPeers((prev) => ({ ...prev, [peerId]: { ...prev[peerId], verified } }));
-  }, [peers, savePins]);
+    updatePeers((prev) => ({ ...prev, [peerId]: { ...prev[peerId], verified } }));
+  }, [savePins, updatePeers]);
 
-  /** Verified chains for every member, ready for encrypting to a conversation. */
+  /** Verified chains for every member, ready for encrypting to a conversation. Always reads the latest keys. */
   const chainsFor = useCallback((memberIds) => {
     const map = new Map();
     for (const id of memberIds) {
       if (id === userId) {
-        map.set(id, chain);
+        map.set(id, chainRef.current);
         continue;
       }
-      const p = peers[id];
+      const p = peersRef.current[id];
       if (!p?.ready) throw new Error("Still checking everyone's keys. Try again in a moment.");
       if (p.changed) throw new Error("Someone's security keys changed. Review it in the conversation details before sending.");
       map.set(id, p.chain);
     }
     return map;
-  }, [userId, chain, peers]);
+  }, [userId]);
 
-  const devicesOf = useCallback((id) => (id === userId ? status?.devices || [] : peers[id]?.devices || []), [userId, status, peers]);
-  const chainOf = useCallback((id) => (id === userId ? chain : peers[id]?.chain || null), [userId, chain, peers]);
+  // These read the refs too, but depend on the state so that effects using them re-run when keys change.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const devicesOf = useCallback((id) => (id === userId ? statusRef.current?.devices || [] : peersRef.current[id]?.devices || []), [userId, status, peers]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const chainOf = useCallback((id) => (id === userId ? chainRef.current : peersRef.current[id]?.chain || null), [userId, chain, peers]);
 
   const value = {
     userId,
