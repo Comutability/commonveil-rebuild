@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Flag, Plus } from "lucide-react";
+import { Bug, FileText, Flag, Plus } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,6 +80,85 @@ function Reports() {
         <p className="text-muted-foreground">Nothing here.</p>
       ) : (
         <ul className="space-y-3">{q.data.reports.map((r) => <ReportRow key={r.id} r={r} onSaved={() => q.refetch()} />)}</ul>
+      )}
+    </div>
+  );
+}
+
+// ---------- Security reports ----------
+
+const SECURITY_STATUSES = ["new", "triaged", "fixed", "closed"];
+
+function SecurityReportRow({ r, onSaved }) {
+  const [status, setStatus] = useState(r.status);
+  const [note, setNote] = useState(r.staff_note);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <li className="card-cv space-y-3 p-4">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <Pill tone={r.status === "new" ? "warn" : "muted"}>{r.status}</Pill>
+        <strong className="min-w-0 break-words">{r.summary}</strong>
+        <span className="text-muted-foreground">{formatDate(r.created_date)}</span>
+      </div>
+      {/* Reports come from the public, so they're shown as plain text: never Markdown, never links. */}
+      <p className="whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-sm">{r.details}</p>
+      <p className="text-sm text-muted-foreground">
+        {r.reporter ? <>From member <strong>@{r.reporter}</strong>. </> : <>Sent without signing in. </>}
+        {r.contact ? <>Contact: <span className="break-all text-foreground">{r.contact}</span></> : "No contact given."}
+      </p>
+      <div className="grid gap-2 sm:grid-cols-[180px_1fr_auto]">
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger aria-label="Status"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {SECURITY_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (staff only)" aria-label="Staff note" />
+        <Button
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError("");
+            try {
+              await callFn("admin", { action: "update_security_report", report_id: r.id, status, staff_note: note });
+              onSaved();
+            } catch (err) {
+              setError(err.message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Save
+        </Button>
+      </div>
+      <ErrorNote>{error}</ErrorNote>
+    </li>
+  );
+}
+
+function SecurityReports() {
+  const [filter, setFilter] = useState("new");
+  const q = useQuery({
+    queryKey: ["admin-security-reports", filter],
+    queryFn: () => callFn("admin", { action: "list_security_reports", status: filter === "all" ? undefined : filter }),
+  });
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <Label>Show</Label>
+        <Select value={filter} onValueChange={setFilter}>
+          <SelectTrigger className="w-44" aria-label="Filter security reports"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {[...SECURITY_STATUSES, "all"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      {q.isLoading ? <Loading /> : q.error ? <ErrorNote>{q.error.message}</ErrorNote> : q.data.reports.length === 0 ? (
+        <p className="text-muted-foreground">Nothing here.</p>
+      ) : (
+        <ul className="space-y-3">{q.data.reports.map((r) => <SecurityReportRow key={r.id} r={r} onSaved={() => q.refetch()} />)}</ul>
       )}
     </div>
   );
@@ -319,9 +398,11 @@ export default function Admin() {
         <Tabs defaultValue="reports" className="mt-6">
           <TabsList>
             <TabsTrigger value="reports"><Flag className="mr-1.5 h-4 w-4" aria-hidden="true" /> Reports</TabsTrigger>
+            <TabsTrigger value="security"><Bug className="mr-1.5 h-4 w-4" aria-hidden="true" /> Security</TabsTrigger>
             <TabsTrigger value="content"><FileText className="mr-1.5 h-4 w-4" aria-hidden="true" /> Content</TabsTrigger>
           </TabsList>
           <TabsContent value="reports" className="pt-4"><Reports /></TabsContent>
+          <TabsContent value="security" className="pt-4"><SecurityReports /></TabsContent>
           <TabsContent value="content" className="pt-4"><Content /></TabsContent>
         </Tabs>
       </main>
