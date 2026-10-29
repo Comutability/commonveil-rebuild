@@ -56,7 +56,7 @@ function Bubble({ m, result, mine, showName, name, onDelete }) {
 
 export default function ConversationView({ conversation, onBack, onInfo }) {
   const { messages, opened, hasMore, openConversation, loadOlder, markRead, send, deleteMessage, nameOf, conversationName } = useChat();
-  const { userId, peers } = useSecure();
+  const { userId, peers, loadPeers } = useSecure();
   const list = messages[conversation.id] || [];
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -80,6 +80,15 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
   useEffect(() => {
     markRead(conversation.id);
   }, [conversation.id, list.length, markRead]);
+
+  // Keep members' keys fresh while the conversation is open, so a key change shows up before you send.
+  const memberKey = conversation.member_ids.join(",");
+  useEffect(() => {
+    const ids = memberKey.split(",");
+    loadPeers(ids).catch(() => {});
+    const t = setInterval(() => loadPeers(ids).catch(() => {}), 30_000);
+    return () => clearInterval(t);
+  }, [memberKey, loadPeers]);
 
   useLayoutEffect(() => {
     const el = scroller.current;
