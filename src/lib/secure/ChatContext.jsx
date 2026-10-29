@@ -42,7 +42,7 @@ export function ChatProvider({ children }) {
     if (refetchedDevices.current.has(tag)) return true;
     refetchedDevices.current.add(tag);
     if (senderId === userId) refreshSecure({ silent: true });
-    else loadPeers([senderId], { force: true });
+    else loadPeers([senderId], { force: true }).catch(() => {});
     return false;
   }, [devicesOf, userId, refreshSecure, loadPeers]);
 
