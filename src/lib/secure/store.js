@@ -43,9 +43,22 @@ export async function saveReadState(userId, state) {
   await set(key(userId, "read"), state, store);
 }
 
+/**
+ * Who was in each conversation when you last confirmed it: { [conversationId]: userId[] }.
+ * The server controls membership, so the app pauses sending when someone new appears
+ * until you've seen who it is.
+ */
+export async function loadMemberPins(userId) {
+  return (await get(key(userId, "members"), store)) || {};
+}
+
+export async function saveMemberPins(userId, pins) {
+  await set(key(userId, "members"), pins, store);
+}
+
 /** Remove every key and record for this account from this browser. */
 export async function wipeLocal(userId) {
-  for (const name of ["device", "keyring", "pins", "read"]) await del(key(userId, name), store);
+  for (const name of ["device", "keyring", "pins", "read", "members"]) await del(key(userId, name), store);
 }
 
 export function storageAvailable() {
