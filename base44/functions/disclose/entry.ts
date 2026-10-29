@@ -1,0 +1,8 @@
+import { createClientFromRequest } from "npm:@base44/sdk@0.8.57";
+import { serve } from "../../shared/http.ts";
+import { disclosureActions } from "../../shared/handlers/disclosure.ts";
+
+// The only function that accepts callers who aren't signed in: security reports.
+export default async function (req: Request): Promise<Response> {
+  return serve(req, createClientFromRequest, disclosureActions, { allowAnonymous: true });
+}
