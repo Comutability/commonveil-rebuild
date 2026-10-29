@@ -314,17 +314,17 @@ export default function Admin() {
           </nav>
         </div>
       </header>
-    <div className="mx-auto w-full max-w-5xl px-4 py-8">
-      <h1 className="text-3xl font-semibold">Admin</h1>
-      <Tabs defaultValue="reports" className="mt-6">
-        <TabsList>
-          <TabsTrigger value="reports"><Flag className="mr-1.5 h-4 w-4" aria-hidden="true" /> Reports</TabsTrigger>
-          <TabsTrigger value="content"><FileText className="mr-1.5 h-4 w-4" aria-hidden="true" /> Content</TabsTrigger>
-        </TabsList>
-        <TabsContent value="reports" className="pt-4"><Reports /></TabsContent>
-        <TabsContent value="content" className="pt-4"><Content /></TabsContent>
-      </Tabs>
-    </div>
+      <main className="mx-auto w-full max-w-5xl px-4 py-8">
+        <h1 className="text-3xl font-semibold">Admin</h1>
+        <Tabs defaultValue="reports" className="mt-6">
+          <TabsList>
+            <TabsTrigger value="reports"><Flag className="mr-1.5 h-4 w-4" aria-hidden="true" /> Reports</TabsTrigger>
+            <TabsTrigger value="content"><FileText className="mr-1.5 h-4 w-4" aria-hidden="true" /> Content</TabsTrigger>
+          </TabsList>
+          <TabsContent value="reports" className="pt-4"><Reports /></TabsContent>
+          <TabsContent value="content" className="pt-4"><Content /></TabsContent>
+        </Tabs>
+      </main>
     </div>
   );
 }
