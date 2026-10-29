@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ErrorNote } from "@/components/site/bits";
 import { PhraseCheckpoint } from "@/components/app/Phrase";
+import { DeleteAccountLink } from "@/components/app/DeleteAccount";
 import { useSecure } from "@/lib/secure/SecureContext";
 import { groupDigits } from "@/lib/crypto/identity.js";
 import { isKnownWord, phraseWords } from "@/lib/crypto/recovery.js";
@@ -70,6 +71,7 @@ export function Welcome() {
         <ErrorNote>{error}</ErrorNote>
         <Button type="submit" disabled={!valid || busy}>{busy ? "Saving…" : "Continue"}</Button>
       </form>
+      <div className="mt-8 border-t border-border pt-4"><DeleteAccountLink /></div>
     </Panel>
   );
 }
@@ -124,6 +126,7 @@ export function SetupKeys() {
           <Button onClick={begin} disabled={busy}>
             {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating keys…</> : "Create my keys"}
           </Button>
+          <div className="border-t border-border pt-4"><DeleteAccountLink /></div>
         </div>
       ) : (
         <PhraseCheckpoint phrase={phrase} onConfirmed={finish} confirmLabel="Finish setup" busy={busy} error={error} />
