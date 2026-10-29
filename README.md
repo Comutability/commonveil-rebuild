@@ -1,62 +1,54 @@
-# Base44 Project
+# Commonveil
 
-Use this repository to run and edit the app locally, then publish changes back through Base44.
+Practical guides to owning your digital life, and end-to-end encrypted messaging that doesn't depend on trusting the server.
+Built on Base44. Rebuilt from scratch in October 2026; see `docs/REBUILD_REVIEW.md` for why.
 
-Any change pushed to the repo will also be reflected in the Base44 Builder.
+**Status: working and tested, not independently audited.** Don't rely on it where someone's safety depends on it until a
+review is published.
 
-## Prerequisites
+## What's here
 
-1. Clone the repository using the project's Git URL.
-2. Navigate to the project directory.
-3. Install dependencies: `npm install`.
-4. Install the Base44 CLI: `npm install -g base44@latest`.
-5. Install [Deno](https://docs.deno.com/runtime/getting_started/installation/) — the local Base44 backend runs on it.
+- **Public site:** blog, guides, learning paths, resources, wiki, privacy and security pages. No analytics or trackers.
+- **Encrypted messaging:** direct messages and groups of up to 32, device linking with a compared code, a 24-word recovery
+  phrase, key rotation when a device is removed, safety numbers and key-change warnings, blocking and reporting.
+- **Admin area** (`/admin`): reports and content editing. It needs the admin role, not encryption keys.
 
-Run `base44 --help` (or see the [CLI reference](https://docs.base44.com/developers/references/cli/commands/introduction)) for the full command surface.
+## Documents
 
-## Run Locally
+- `docs/PROTOCOL.md`: the encryption protocol, exactly as implemented.
+- `docs/THREAT_MODEL.md`: what is and isn't protected, against whom.
+- `docs/REBUILD_REVIEW.md`: what was wrong with the previous app and the decisions behind this one.
 
-Three commands, from the project root:
+## Layout
 
-```bash
-base44 login   # one-time per machine
-base44 link    # one-time per clone
-base44 dev     # local backend + frontend together
+```
+src/lib/crypto/      primitives, keyring, recovery, envelopes, identity (no network, no storage)
+src/lib/secure/      client protocol flows, local storage, React state for keys and chat
+src/pages/site/      public pages
+src/pages/app/       sign-in gate, onboarding, messages, settings, admin
+base44/functions/    6 backend functions: profile, keys, conversations, messages, safety, admin
+base44/shared/       request handling, signature checks, data access, the action handlers
+base44/entities/     13 tables; everything private is backend-only
+tests/               crypto and backend tests (npm test), live browser tests (tests/e2e)
 ```
 
-Open the frontend URL that `base44 dev` prints (typically `http://localhost:5173`).
-
-Notes:
-
-- **Every fresh clone needs `base44 link`.** It writes `base44/.app.jsonc` (the app-id pointer), which is deliberately gitignored. Your app id is in the Builder URL (`app.base44.com/apps/<id>/...`); `base44 link --help` shows the non-interactive flags.
-- **`base44 dev` runs the frontend for you** (via `site.serveCommand` in this repo's `base44/config.jsonc`) — never run `npm run dev` yourself: alone it serves a UI with no backend behind it (`[base44] Proxy not enabled`, every `/api` call fails), and alongside `base44 dev` the second Vite silently takes the next port and you end up looking at the wrong one.
-- **The app must be published at least once for the UI to load under `base44 dev`.** The frontend boots by fetching app settings from the hosted app; before the first publish that fails and every page redirects to login. The local API works regardless.
-- Entities, functions, and auth run locally — entity data is **in-memory only**, wiped when `base44 dev` restarts. Everything else (Core integrations, OAuth login) is forwarded to your deployed app. Full breakdown: [Local development overview](https://docs.base44.com/developers/backend/overview/local-dev/local-development-overview).
-
-## Frontend Only, Hosted Backend
-
-To work on just the frontend against your app's live hosted backend:
+## Checks
 
 ```bash
-base44 dev --remote
+npm test          # 40 tests: crypto, plus the real backend handlers driven by the real client code
+npm run lint
+npm run build
+npm run verify    # all three
 ```
 
-⚠️ In this mode writes go to your app's **production data** — plain `base44 dev` keeps everything local.
+The live browser suite in `tests/e2e/` runs the real app against the real backend; see its README.
 
-## Publish Your Changes
-
-After pushing your changes to git, open the Base44 dashboard and publish the app:
+## Running locally
 
 ```bash
-base44 dashboard open
+base44 login   # once per machine
+base44 link    # once per clone
+base44 dev     # local backend and frontend together
 ```
 
-This repo syncs to Base44 through git, so publish from the dashboard rather than `base44 deploy` — a CLI deploy ships your local tree directly, bypassing the sync, and the deployed state silently diverges from the repo.
-
-## Docs & Support
-
-GitHub integration: [https://docs.base44.com/developers/app-code/local-development/github](https://docs.base44.com/developers/app-code/local-development/github)
-
-Local development: [https://docs.base44.com/developers/backend/overview/local-dev/local-development-overview](https://docs.base44.com/developers/backend/overview/local-dev/local-development-overview)
-
-Support: [https://app.base44.com/support](https://app.base44.com/support)
+Publish from the Base44 dashboard, not with `base44 deploy`, so the deployed state matches the repository.
