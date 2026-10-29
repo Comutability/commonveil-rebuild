@@ -2,6 +2,7 @@
 // and messages are end-to-end encrypted.
 import { ApiError, LIMITS, id, isoTime, randomIdField, str, type Actions } from "../http.ts";
 import { parseEnvelopeShape, verifyItemSignature } from "../verify.ts";
+import { signedByActiveDevice } from "../deviceAuth.ts";
 import {
   accountKeysOf,
   assertWrapsMatchMembers,
@@ -85,18 +86,23 @@ export const conversationActions: Actions = {
     return { conversation: conversationOut(created) };
   },
 
-  async add_members({ sr, user, body }) {
-    const conv = await conversationForMember(sr, user.id, id(body.conversation_id, "conversation"));
+  /** Adding someone exposes future messages to them, so it needs a device signature, not just a session. */
+  async add_members(ctx) {
+    const { sr, user } = ctx;
+    const { data } = await signedByActiveDevice(ctx, "add_members");
+    const conv = await conversationForMember(sr, user.id, id(data.conversation_id, "conversation"));
     if (conv.kind !== "group") throw new ApiError(400, "NOT_GROUP", "You can only add people to a group.");
-    const ids = await resolveUsernames(sr, user.id, body.usernames, LIMITS.maxGroupMembers);
+    const ids = await resolveUsernames(sr, user.id, data.usernames, LIMITS.maxGroupMembers);
     const next = [...new Set([...conv.member_ids, ...ids])];
     if (next.length > LIMITS.maxGroupMembers) throw new ApiError(409, "GROUP_FULL", `Groups can have up to ${LIMITS.maxGroupMembers} people.`);
     const updated = await sr.entities.Conversation.update(conv.id, { member_ids: next });
     return { conversation: conversationOut({ ...conv, ...updated, member_ids: next }) };
   },
 
-  async leave({ sr, user, body }) {
-    const conv = await conversationForMember(sr, user.id, id(body.conversation_id, "conversation"));
+  async leave(ctx) {
+    const { sr, user } = ctx;
+    const { data } = await signedByActiveDevice(ctx, "leave");
+    const conv = await conversationForMember(sr, user.id, id(data.conversation_id, "conversation"));
     if (conv.kind !== "group") {
       throw new ApiError(400, "DM_LEAVE", "You can't leave a direct message. Block the member if you need to stop contact.");
     }
