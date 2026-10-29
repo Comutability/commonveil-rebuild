@@ -100,6 +100,7 @@ export default function SiteLayout() {
               <li><Link className="hover:text-foreground" to="/app">Encrypted messages</Link></li>
               <li><Link className="hover:text-foreground" to="/privacy">Privacy: what we hold</Link></li>
               <li><Link className="hover:text-foreground" to="/security">Security and status</Link></li>
+              <li><Link className="hover:text-foreground" to="/security/report">Report a security problem</Link></li>
             </ul>
           </div>
         </div>
