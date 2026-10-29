@@ -106,7 +106,7 @@ function DevicesSection() {
   const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
-    const t = setInterval(() => refresh(), 15000);
+    const t = setInterval(() => refresh({ silent: true }), 15000);
     return () => clearInterval(t);
   }, [refresh]);
 
