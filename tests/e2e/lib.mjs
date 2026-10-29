@@ -66,9 +66,10 @@ export async function confirmPhrase(page, finishLabel) {
   return words.join(" ");
 }
 
-/** Username, then keys, then phrase confirmation. Returns the phrase. */
+/** Username, then keys, then phrase confirmation. Returns the phrase, or null if already set up. */
 export async function setUp(page, person) {
   await page.waitForSelector('#username, h1:has-text("Set up encryption"), h1:has-text("Messages")', { timeout: 60000 });
+  if (await page.locator('h1:has-text("Messages")').count()) return null;
   if (await page.locator("#username").count()) {
     await page.fill("#username", person.username);
     await page.fill("#display", person.display);
@@ -91,6 +92,16 @@ export async function sendText(page, text) {
   await box.fill(text);
   await box.press("Enter");
   await page.waitForSelector(`text=${text}`, { timeout: 60000 });
+}
+
+/** Wait for a success text; if an error appears on screen instead, fail with its wording. */
+export async function expectText(page, text, timeout = 60000) {
+  const ok = page.locator(`text=${text}`).first();
+  const alert = page.locator('[role="alert"]').first();
+  await Promise.race([ok.waitFor({ timeout }), alert.waitFor({ timeout })]).catch(() => {});
+  if (await ok.count()) return;
+  const shown = (await alert.count()) ? await alert.innerText() : "(nothing)";
+  throw new Error(`FAILED: expected "${text}", the page showed: ${shown}`);
 }
 
 export const countUnverified = (page) => page.locator("text=unverified").count();
