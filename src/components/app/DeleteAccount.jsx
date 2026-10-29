@@ -59,7 +59,9 @@ export function DeleteAccountForm({ onCancel }) {
 
 /** A quiet link that opens the deletion form, for screens before setup is finished. */
 export function DeleteAccountLink() {
+  const { isAdmin } = useSecure();
   const [open, setOpen] = useState(false);
+  if (isAdmin) return null;
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} className="text-sm text-muted-foreground underline-offset-2 hover:underline">
