@@ -9,7 +9,28 @@ import { MAX_MESSAGE_CHARS } from "@/lib/secure/protocol.js";
 import { formatTime, Loading } from "@/components/site/bits";
 import Avatar from "./Avatar";
 
-function Bubble({ m, result, mine, showName, name, onDelete }) {
+/** Why a decrypted message isn't vouched for, in a few words. */
+function Caution({ result }) {
+  if (result?.status === "unverified") {
+    const removed = result.reason === "removed-device";
+    return (
+      <span
+        className="inline-flex items-center gap-0.5 font-medium text-[hsl(var(--warning))]"
+        title={removed
+          ? "This was signed by a device that had already been removed from the sender's account. Don't trust it."
+          : "The sender's signature couldn't be checked against keys you trust. Be cautious."}
+      >
+        <ShieldQuestion className="h-3 w-3" aria-hidden="true" /> {removed ? "sent from a removed device" : "unverified"}
+      </span>
+    );
+  }
+  if (result?.status === "ok" && result.removedDevice) {
+    return <span title="Sent before this device was removed from the sender's account.">· from a device since removed</span>;
+  }
+  return null;
+}
+
+function Bubble({ m, result, mine, showName, name, handle, onDelete }) {
   const base = `max-w-[min(34rem,85%)] rounded-2xl px-3.5 py-2 text-[0.95rem] leading-relaxed ${mine ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted"}`;
   let body;
   if (!result) body = <span className="opacity-70">Decrypting…</span>;
@@ -24,7 +45,11 @@ function Bubble({ m, result, mine, showName, name, onDelete }) {
 
   return (
     <div className={`group flex flex-col ${mine ? "items-end" : "items-start"}`}>
-      {showName && !mine && <span className="mb-1 ml-1 text-xs font-medium text-muted-foreground">{name}</span>}
+      {showName && !mine && (
+        <span className="mb-1 ml-1 text-xs font-medium text-muted-foreground">
+          {name} {handle && <span className="font-normal opacity-80">{handle}</span>}
+        </span>
+      )}
       <div className={`flex items-center gap-1 ${mine ? "flex-row-reverse" : ""}`}>
         <div className={base}>{body}</div>
         {mine && result && result.status !== "deleted" && (
@@ -44,18 +69,14 @@ function Bubble({ m, result, mine, showName, name, onDelete }) {
       </div>
       <span className={`mt-1 flex items-center gap-1 text-[0.7rem] text-muted-foreground ${mine ? "mr-1" : "ml-1"}`}>
         {formatTime(m.created_date)}
-        {result?.status === "unverified" && (
-          <span className="inline-flex items-center gap-0.5 text-[hsl(var(--warning))]" title="The sender's signature couldn't be checked. Be cautious.">
-            <ShieldQuestion className="h-3 w-3" aria-hidden="true" /> unverified
-          </span>
-        )}
+        <Caution result={result} />
       </span>
     </div>
   );
 }
 
 export default function ConversationView({ conversation, onBack, onInfo }) {
-  const { messages, opened, hasMore, openConversation, loadOlder, markRead, send, deleteMessage, nameOf, conversationName, newMembersOf, acknowledgeMembers } = useChat();
+  const { messages, opened, hasMore, openConversation, loadOlder, markRead, send, deleteMessage, nameOf, handleOf, conversationName, newMembersOf, acknowledgeMembers } = useChat();
   const { userId, peers, loadPeers } = useSecure();
   const list = messages[conversation.id] || [];
   const [text, setText] = useState("");
@@ -167,8 +188,11 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
         <div className="flex items-start gap-3 border-b border-[hsl(var(--warning)/0.4)] bg-[hsl(var(--warning)/0.1)] px-4 py-3 text-sm">
           <UserPlus className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--warning))]" aria-hidden="true" />
           <p className="flex-1">
-            New in this conversation: <strong>{fresh.map(nameOf).join(", ")}</strong>. Anything you send from now on can be read by them
-            too. If you weren't expecting this, check with the group before sending.
+            {fresh.length === others.length && conversation.kind === "group" ? (
+              <>You're in a group you haven't checked yet, with <strong>{fresh.map((id) => `${nameOf(id)} ${handleOf(id)}`.trim()).join(", ")}</strong>. Make sure you know who these people are before you send anything.</>
+            ) : (
+              <>New in this conversation: <strong>{fresh.map((id) => `${nameOf(id)} ${handleOf(id)}`.trim()).join(", ")}</strong>. Anything you send from now on can be read by them too. If you weren't expecting this, check with the group before sending.</>
+            )}
           </p>
           <Button size="sm" variant="outline" onClick={() => acknowledgeMembers(conversation)}>OK, continue</Button>
         </div>
@@ -203,6 +227,7 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
               mine={m.sender_id === userId}
               showName={conversation.kind === "group" && list[i - 1]?.sender_id !== m.sender_id}
               name={nameOf(m.sender_id)}
+              handle={handleOf(m.sender_id)}
               onDelete={() => deleteMessage(m).catch((err) => setError(err.message))}
             />
           ))
