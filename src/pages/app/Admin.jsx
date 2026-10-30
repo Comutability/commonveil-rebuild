@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 import { ErrorNote, Loading, Pill, formatDate } from "@/components/site/bits";
 import Markdown from "@/components/site/Markdown";
 import { callFn } from "@/lib/api";
@@ -32,12 +32,9 @@ function ReportRow({ r, onSaved }) {
       </div>
       {r.details ? <p className="whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">{r.details}</p> : <p className="text-sm text-muted-foreground">No details given.</p>}
       <div className="grid gap-2 sm:grid-cols-[180px_1fr_auto]">
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger aria-label="Status"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {["open", "reviewing", "resolved", "dismissed"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <NativeSelect value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
+          {["open", "reviewing", "resolved", "dismissed"].map((s) => <option key={s} value={s}>{s}</option>)}
+        </NativeSelect>
         <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (staff only)" aria-label="Resolution note" />
         <Button
           disabled={busy}
@@ -69,12 +66,9 @@ function Reports() {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <Label>Show</Label>
-        <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-44" aria-label="Filter reports"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {["open", "reviewing", "resolved", "dismissed", "all"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <NativeSelect className="w-44" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter reports">
+          {["open", "reviewing", "resolved", "dismissed", "all"].map((s) => <option key={s} value={s}>{s}</option>)}
+        </NativeSelect>
       </div>
       {q.isLoading ? <Loading /> : q.error ? <ErrorNote>{q.error.message}</ErrorNote> : q.data.reports.length === 0 ? (
         <p className="text-muted-foreground">Nothing here.</p>
@@ -108,12 +102,9 @@ function SecurityReportRow({ r, onSaved }) {
         {r.contact ? <>Contact: <span className="break-all text-foreground">{r.contact}</span></> : "No contact given."}
       </p>
       <div className="grid gap-2 sm:grid-cols-[180px_1fr_auto]">
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger aria-label="Status"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {SECURITY_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <NativeSelect value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
+          {SECURITY_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+        </NativeSelect>
         <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (staff only)" aria-label="Staff note" />
         <Button
           disabled={busy}
@@ -148,12 +139,9 @@ function SecurityReports() {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <Label>Show</Label>
-        <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-44" aria-label="Filter security reports"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {[...SECURITY_STATUSES, "all"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <NativeSelect className="w-44" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter security reports">
+          {[...SECURITY_STATUSES, "all"].map((s) => <option key={s} value={s}>{s}</option>)}
+        </NativeSelect>
       </div>
       {q.isLoading ? <Loading /> : q.error ? <ErrorNote>{q.error.message}</ErrorNote> : q.data.reports.length === 0 ? (
         <p className="text-muted-foreground">Nothing here.</p>
@@ -279,10 +267,10 @@ function Editor({ type, record, onClose }) {
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="ghost" onClick={onClose}>← Back</Button>
         <span className="flex-1" />
-        <Select value={form.status} onValueChange={(v) => set("status", v)}>
-          <SelectTrigger className="w-36" aria-label="Status"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectItem value="draft">Draft</SelectItem><SelectItem value="published">Published</SelectItem></SelectContent>
-        </Select>
+        <NativeSelect className="w-36" value={form.status} onChange={(e) => set("status", e.target.value)} aria-label="Status">
+          <option value="draft">Draft</option>
+          <option value="published">Published</option>
+        </NativeSelect>
         {record?.id && <Button variant="outline" className="text-destructive" onClick={remove} disabled={busy}>Delete</Button>}
         <Button onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
       </div>
@@ -313,11 +301,10 @@ function Editor({ type, record, onClose }) {
           if (kind === "select") {
             return (
               <div key={key} className="space-y-1.5">
-                <Label>{label}</Label>
-                <Select value={form[key] || options[0]} onValueChange={(v) => set(key, v)}>
-                  <SelectTrigger aria-label={label}><SelectValue /></SelectTrigger>
-                  <SelectContent>{options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
-                </Select>
+                <Label htmlFor={id}>{label}</Label>
+                <NativeSelect id={id} value={form[key] || options[0]} onChange={(e) => set(key, e.target.value)}>
+                  {options.map((o) => <option key={o} value={o}>{o}</option>)}
+                </NativeSelect>
               </div>
             );
           }
@@ -348,10 +335,9 @@ function Content() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <Select value={type} onValueChange={setType}>
-          <SelectTrigger className="w-48" aria-label="Content type"><SelectValue /></SelectTrigger>
-          <SelectContent>{Object.entries(TYPES).map(([k, v]) => <SelectItem key={k} value={k}>{v.label}</SelectItem>)}</SelectContent>
-        </Select>
+        <NativeSelect className="w-48" value={type} onChange={(e) => setType(e.target.value)} aria-label="Content type">
+          {Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </NativeSelect>
         <Button onClick={() => setEditing({})}><Plus className="mr-1 h-4 w-4" aria-hidden="true" /> New</Button>
       </div>
       {q.isLoading ? <Loading /> : (
