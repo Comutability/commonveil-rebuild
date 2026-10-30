@@ -14,6 +14,7 @@ import { createDeviceKeys, defaultDeviceLabel } from "../crypto/device.js";
 import { anchorChain, assertKeyringMatchesChain, compareWithPin, headDigest, linkCode, pinFromChain, verifyAccountChain } from "../crypto/identity.js";
 import { latestKey, parseKeyring, serializeKeyring } from "../crypto/keyring.js";
 import { clearEnvelopeKeyCache } from "../crypto/envelope.js";
+import { IDLE_CHOICES, createLock, isSealedKeyring, openKeyringText, sealKeyringText, unlock as openLock } from "../crypto/lock.js";
 
 const SecureContext = createContext(null);
 
@@ -48,9 +49,13 @@ export function SecureProvider({ children }) {
   const [linkPin, setLinkPinState] = useState(null);
   const [pendingReset, setPendingReset] = useState(null);
   const [removal, setRemoval] = useState(null);
+  // The passcode lock's settings (no secrets), if this browser has one.
+  const [lockInfo, setLockInfo] = useState(null);
 
   const deviceRef = useRef(null);
   const keyringRef = useRef(null);
+  // While unlocked: the key the keyring is stored under. Dropped on lock.
+  const lockKeyRef = useRef(null);
   const pinsRef = useRef({});
   // Latest values for async flows: a callback created before keys loaded must still see them.
   const peersRef = useRef({});
@@ -75,7 +80,9 @@ export function SecureProvider({ children }) {
     keyringRef.current = k;
     setKeyringState(k);
     clearEnvelopeKeyCache();
-    if (persist && userId && k) await S.saveKeyring(userId, k);
+    if (!persist || !userId || !k) return;
+    if (lockKeyRef.current) await S.saveKeyringRecord(userId, await sealKeyringText(lockKeyRef.current, userId, serializeKeyring(k)));
+    else await S.saveKeyring(userId, k);
   }, [userId]);
 
   const setLinkPin = useCallback(async (pin) => {
@@ -88,6 +95,8 @@ export function SecureProvider({ children }) {
 
   const forgetLocal = useCallback(async () => {
     if (userId) await S.wipeLocal(userId);
+    lockKeyRef.current = null;
+    setLockInfo(null);
     deviceRef.current = null;
     keyringRef.current = null;
     linkPinRef.current = null;
@@ -175,6 +184,14 @@ export function SecureProvider({ children }) {
     if (!userId) return;
     if (!silent) setError(null);
     try {
+      // A locked browser asks for its passcode before anything else, the server included.
+      const lockRecord = S.storageAvailable() ? await S.loadLock(userId) : null;
+      setLockInfo(lockRecord ? { idle_minutes: lockRecord.idle_minutes } : null);
+      if (!lockRecord) lockKeyRef.current = null;
+      else if (!lockKeyRef.current) {
+        setPhase("locked");
+        return;
+      }
       const meData = await callFn("profile", { action: "me" });
       setMe(meData);
       if (!meData.profile) {
@@ -198,12 +215,28 @@ export function SecureProvider({ children }) {
         statusData = await callFn("keys", { action: "status" });
       }
 
-      const [localDevice, localKeyring, pins, savedLinkPin] = await Promise.all([
+      const [localDevice, storedKeyring, pins, savedLinkPin] = await Promise.all([
         S.loadDevice(userId),
-        S.loadKeyring(userId),
+        S.loadKeyringRecord(userId),
         S.loadPins(userId),
         S.loadLinkPin(userId),
       ]);
+      let localKeyring = null;
+      if (isSealedKeyring(storedKeyring)) {
+        try {
+          if (!lockKeyRef.current) throw new Error("locked");
+          localKeyring = parseKeyring(await openKeyringText(lockKeyRef.current, userId, storedKeyring), userId);
+        } catch {
+          // Locked, or the passcode was changed in another tab: ask for it again.
+          lockKeyRef.current = null;
+          setPhase("locked");
+          return;
+        }
+      } else if (storedKeyring) {
+        localKeyring = parseKeyring(storedKeyring, userId);
+        // A lock is set but these keys were stored without it (another tab wrote them): store them locked.
+        if (lockKeyRef.current) await S.saveKeyringRecord(userId, await sealKeyringText(lockKeyRef.current, userId, storedKeyring));
+      }
       pinsRef.current = pins;
       deviceRef.current = localDevice;
       keyringRef.current = localKeyring;
@@ -357,6 +390,105 @@ export function SecureProvider({ children }) {
     await forgetLocal();
     await refresh();
   }, [userId, forgetLocal, refresh]);
+
+  // ---------- passcode lock ----------
+
+  /** Close the keys: they're dropped from memory, and the passcode is needed to open them again. */
+  const lockNow = useCallback(() => {
+    if (!lockKeyRef.current) return;
+    lockKeyRef.current = null;
+    keyringRef.current = null;
+    pendingRef.current = null;
+    setKeyringState(null);
+    clearEnvelopeKeyCache();
+    setPhase("locked");
+  }, []);
+
+  const unlock = useCallback(async (passcode) => {
+    const record = await S.loadLock(userId);
+    if (record) lockKeyRef.current = await openLock(passcode, record);
+    await refresh();
+  }, [userId, refresh]);
+
+  /** Set or change the passcode. The keys must be open on this browser. */
+  const setPasscode = useCallback(async (passcode, idleMinutes) => {
+    const k = keyringRef.current;
+    if (!k || phase !== "ready") throw new Error("Your keys need to be open on this browser first.");
+    const { record, key } = await createLock(passcode, idleMinutes);
+    await S.saveLockAndKeyring(userId, record, await sealKeyringText(key, userId, serializeKeyring(k)));
+    lockKeyRef.current = key;
+    setLockInfo({ idle_minutes: record.idle_minutes });
+  }, [userId, phase]);
+
+  const setLockIdle = useCallback(async (idleMinutes) => {
+    if (!IDLE_CHOICES.includes(idleMinutes)) throw new Error("Choose when to lock.");
+    const record = await S.loadLock(userId);
+    if (!record) return;
+    await S.saveLock(userId, { ...record, idle_minutes: idleMinutes });
+    setLockInfo({ idle_minutes: idleMinutes });
+  }, [userId]);
+
+  /** Store the keys without a lock again. */
+  const removePasscode = useCallback(async () => {
+    const k = keyringRef.current;
+    if (!k || phase !== "ready") throw new Error("Your keys need to be open on this browser first.");
+    await S.saveLockAndKeyring(userId, null, serializeKeyring(k));
+    lockKeyRef.current = null;
+    setLockInfo(null);
+  }, [userId, phase]);
+
+  /**
+   * Forgot the passcode: the keys here can't be opened, so this browser is removed from the
+   * account (its signing key still works for that) and wiped. Set it up again by linking it
+   * from another device or with the recovery phrase.
+   */
+  const forgetLockedBrowser = useCallback(async () => {
+    const d = deviceRef.current || (await S.loadDevice(userId));
+    if (d) {
+      try {
+        await callFn("keys", await P.prepareRevoke({ userId, device: d, targetDeviceId: d.device_id }));
+      } catch {
+        /* it can also be removed from another device */
+      }
+    }
+    await forgetLocal();
+    await refresh();
+  }, [userId, forgetLocal, refresh]);
+
+  // Lock after a stretch without use, if a lock is set. Timers slow down in background tabs,
+  // so coming back to the tab checks too.
+  useEffect(() => {
+    if (phase !== "ready" || !lockInfo) return undefined;
+    const limit = (IDLE_CHOICES.includes(lockInfo.idle_minutes) ? lockInfo.idle_minutes : 15) * 60_000;
+    let last = Date.now();
+    const bump = () => {
+      last = Date.now();
+    };
+    const check = () => {
+      if (Date.now() - last >= limit) lockNow();
+    };
+    const events = ["pointerdown", "keydown", "wheel", "touchstart"];
+    for (const e of events) window.addEventListener(e, bump, { passive: true });
+    const onVisible = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    const t = setInterval(check, 15_000);
+    return () => {
+      clearInterval(t);
+      for (const e of events) window.removeEventListener(e, bump);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [phase, lockInfo, lockNow]);
+
+  // ---------- account settings ----------
+
+  /** Delete the account after this many days without use (0: off). Signed by this device. */
+  const setAutoDelete = useCallback(async (days) => {
+    const res = await callFn("profile", await P.signedRequest({ userId, device: deviceRef.current, action: "set_auto_delete", payload: { days } }));
+    setMe((m) => ({ ...m, auto_delete: res.auto_delete }));
+    return res.auto_delete;
+  }, [userId]);
 
   /** The person has decided this browser's keys can go (after it was removed, or the account reset). */
   const discardKeys = useCallback(async () => {
@@ -673,6 +805,14 @@ export function SecureProvider({ children }) {
     pendingReset,
     waitingReset,
     isAdmin: me?.user?.role === "admin",
+    lockInfo,
+    lockNow,
+    unlock,
+    setPasscode,
+    setLockIdle,
+    removePasscode,
+    forgetLockedBrowser,
+    setAutoDelete,
     refresh,
     claimUsername,
     updateProfile,
