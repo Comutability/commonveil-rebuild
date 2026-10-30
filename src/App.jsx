@@ -24,6 +24,8 @@ import {
 import Privacy from "@/pages/site/Privacy";
 import Security from "@/pages/site/Security";
 import ReportSecurityIssue from "@/pages/site/ReportSecurityIssue";
+import Saved from "@/pages/site/Saved";
+import Search from "@/pages/site/Search";
 import NotFound from "@/pages/site/NotFound";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
@@ -60,6 +62,8 @@ function AppRoutes() {
         <Route path="privacy" element={<Privacy />} />
         <Route path="security" element={<Security />} />
         <Route path="security/report" element={<ReportSecurityIssue />} />
+        <Route path="saved" element={<Saved />} />
+        <Route path="search" element={<Search />} />
         <Route path="*" element={<NotFound />} />
       </Route>
       <Route path="login" element={<Login />} />
