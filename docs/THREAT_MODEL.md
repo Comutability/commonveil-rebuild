@@ -47,7 +47,8 @@ What Commonveil protects, against whom, and what it doesn't. Read with `PROTOCOL
 - **Sign-in links.** The Base44 sign-in library accepts a session token in the page address (`?access_token=`), so a
   crafted link can sign a visitor into someone else's account. It can't expose the visitor's own keys (they're stored
   per account), but someone who doesn't notice could set up keys or send messages in the wrong account. The app shows
-  the signed-in @username on every screen. This is platform behaviour Commonveil can't change.
+  which @username is signed in, in the header on wider screens and in Settings. This is platform behaviour Commonveil
+  can't change.
 - **Display names aren't unique.** Anyone can call themselves anything. The app shows @usernames beside names in groups,
   in new-member and first-look notices, and in safety-number screens; check those.
 - **Email notices are best effort.** If the email service fails, a reset request still shows on the account's devices.
