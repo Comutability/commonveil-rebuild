@@ -66,12 +66,18 @@ function ProfileSection() {
   );
 }
 
+/**
+ * A browser asking to join. Its code covers its keys and your account's key history, so it
+ * only matches the new screen if nobody swapped either. Ticking the box freezes exactly the
+ * keys you compared, and approval uses those, whatever the server shows afterwards.
+ */
 function PendingDevice({ d }) {
-  const { userId, approveDevice, denyDevice } = useSecure();
-  const [match, setMatch] = useState(false);
+  const { userId, chainDigest, approveDevice, denyDevice } = useSecure();
+  const [compared, setCompared] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const code = linkCode({ userId, deviceId: d.device_id, signPub: d.sign_pub, boxPub: d.box_pub });
+  const code = chainDigest ? linkCode({ userId, deviceId: d.device_id, signPub: d.sign_pub, boxPub: d.box_pub, accountDigest: chainDigest }) : null;
+  const match = Boolean(compared);
   const act = async (fn) => {
     setBusy(true);
     setError("");
@@ -86,13 +92,18 @@ function PendingDevice({ d }) {
     <li className="rounded-lg border-2 border-primary/50 bg-accent/30 p-4">
       <p className="font-semibold">{d.label} wants to join</p>
       <p className="mt-1 text-sm text-muted-foreground">Only approve if this code is exactly the one on the new device's screen.</p>
-      <p className="mono mt-3 rounded-lg bg-card px-3 py-3 text-center text-xl tracking-wider">{groupDigits(code, 4)}</p>
+      <p className="mono mt-3 rounded-lg bg-card px-3 py-3 text-center text-xl tracking-wider">{code ? groupDigits(code, 4) : "…"}</p>
       <label className="mt-3 flex items-center gap-2 text-sm">
-        <Checkbox checked={match} onCheckedChange={(v) => setMatch(Boolean(v))} /> The codes match, and this is my device
+        <Checkbox
+          checked={match}
+          disabled={!code}
+          onCheckedChange={(v) => setCompared(v ? { device_id: d.device_id, sign_pub: d.sign_pub, box_pub: d.box_pub, label: d.label } : null)}
+        />{" "}
+        The codes match, and this is my device
       </label>
       <ErrorNote>{error}</ErrorNote>
       <div className="mt-3 flex gap-2">
-        <Button size="sm" disabled={!match || busy} onClick={() => act(() => approveDevice(d))}>{busy ? "Working…" : "Approve"}</Button>
+        <Button size="sm" disabled={!match || busy} onClick={() => act(() => approveDevice(compared))}>{busy ? "Working…" : "Approve"}</Button>
         <Button size="sm" variant="outline" disabled={busy} onClick={() => act(() => denyDevice(d.device_id))}>Deny</Button>
       </div>
     </li>
@@ -100,7 +111,7 @@ function PendingDevice({ d }) {
 }
 
 function DevicesSection() {
-  const { status, device, removeDevice, refresh } = useSecure();
+  const { status, chain, device, removeDevice, refresh } = useSecure();
   const [target, setTarget] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -131,19 +142,25 @@ function DevicesSection() {
 
   return (
     <Section icon={Laptop} title="Devices" description="Every device here holds your keys. Remove any you don't recognise; your keys are rotated so it can't read anything new.">
-      {pending.length > 0 && <ul className="mb-5 space-y-3">{pending.map((d) => <PendingDevice key={d.device_id} d={d} />)}</ul>}
+      {/* Keyed by the keys too: if they change, the box has to be ticked again. */}
+      {pending.length > 0 && <ul className="mb-5 space-y-3">{pending.map((d) => <PendingDevice key={`${d.device_id}:${d.sign_pub}:${d.box_pub}`} d={d} />)}</ul>}
       <ul className="divide-y divide-border">
         {active.map((d) => {
           const mine = d.device_id === device?.device_id;
+          // Certificates are renewed at every key change; one left behind belongs to a device that was removed then.
+          const stale = chain && d.cert_key_version !== chain.latest.version;
           return (
             <li key={d.device_id} className="flex items-center gap-3 py-3">
               {/Android|iOS/.test(d.label) ? <Smartphone className="h-5 w-5 text-muted-foreground" aria-hidden="true" /> : <Laptop className="h-5 w-5 text-muted-foreground" aria-hidden="true" />}
               <div className="min-w-0 flex-1">
-                <p className="font-medium">{d.label} {mine && <Pill tone="accent">This browser</Pill>}</p>
+                <p className="font-medium">
+                  {d.label} {mine && <Pill tone="accent">This browser</Pill>} {stale && !mine && <Pill tone="warn">Not certified for your current keys</Pill>}
+                </p>
                 <p className="text-xs text-muted-foreground">
                   Added {formatDate(d.approved_at || d.created_date)}
                   {d.last_seen_at && !mine ? ` · last seen ${formatDate(d.last_seen_at)}` : ""}
                   {d.keys_waiting ? " · waiting to pick up new keys" : ""}
+                  {stale && !mine ? " · it won't be sent new keys; remove it and set it up again" : ""}
                 </p>
               </div>
               <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setTarget(d)}>Remove</Button>
@@ -187,12 +204,12 @@ function DevicesSection() {
 }
 
 function RecoverySection() {
-  const { beginPhraseChange, finishPhraseChange, cancelPending, userId, chain } = useSecure();
+  const { beginPhraseChange, finishPhraseChange, cancelPending, userId, chainDigest } = useSecure();
   const [phrase, setPhrase] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
-  const fingerprint = chain ? groupDigits(safetyFingerprint(userId, chain.latest.sign_pub), 5) : "";
+  const fingerprint = chainDigest ? groupDigits(safetyFingerprint(userId, chainDigest), 5) : "";
 
   if (phrase) {
     return (
