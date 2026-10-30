@@ -1,0 +1,69 @@
+// Searching the public site, entirely in the browser: the published pages are fetched as they
+// are for browsing, and what you type is matched here. It's never sent anywhere, put in the
+// address bar or kept.
+
+const fold = (s) => String(s || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+/** Markdown to plain text, roughly: enough for matching and snippets. */
+export function plainText(markdown) {
+  return String(markdown || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[#>*_`~|-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Everything searchable, as one list. */
+export function toDocs({ guides = [], wiki = [], blog = [], paths = [], resources = [] }) {
+  const docs = [];
+  for (const g of guides) docs.push({ kind: "guide", url: `/guides/${g.slug}`, title: g.title, summary: g.summary, category: g.category, tags: [g.difficulty], body: g.body });
+  for (const w of wiki) docs.push({ kind: "wiki", url: `/wiki/${w.slug}`, title: w.title, summary: w.summary, category: w.category, tags: [], body: w.body });
+  for (const b of blog) docs.push({ kind: "blog", url: `/blog/${b.slug}`, title: b.title, summary: b.excerpt, category: b.category, tags: b.tags || [], body: b.body });
+  for (const p of paths) docs.push({ kind: "path", url: `/paths/${p.slug}`, title: p.title, summary: p.summary, category: p.category, tags: [p.difficulty], body: p.description });
+  for (const r of resources) docs.push({ kind: "resource", url: "/resources", external: r.website || null, title: r.name, summary: r.description, category: r.category, tags: [r.pricing_summary], body: "" });
+  return docs.filter((d) => d.title);
+}
+
+function snippetOf(doc, terms) {
+  const text = plainText(doc.body) || plainText(doc.summary);
+  const folded = fold(text);
+  let at = -1;
+  for (const t of terms) {
+    const i = folded.indexOf(t);
+    if (i >= 0 && (at < 0 || i < at)) at = i;
+  }
+  if (at < 0) return plainText(doc.summary).slice(0, 180);
+  const start = Math.max(0, at - 60);
+  const end = Math.min(text.length, at + 140);
+  return `${start > 0 ? "…" : ""}${text.slice(start, end).trim()}${end < text.length ? "…" : ""}`;
+}
+
+/** Pages that contain every word of the query, best matches first. */
+export function searchContent(docs, query, { limit = 40 } = {}) {
+  const terms = [...new Set(fold(query).split(/\s+/).filter((t) => t.length >= 2))].slice(0, 8);
+  if (!terms.length) return [];
+  const results = [];
+  for (const doc of docs) {
+    const title = fold(doc.title);
+    const meta = fold([doc.summary, doc.category, ...(doc.tags || [])].filter(Boolean).join(" "));
+    const body = fold(plainText(doc.body));
+    let score = 0;
+    let all = true;
+    for (const t of terms) {
+      const inTitle = title.includes(t);
+      const inMeta = meta.includes(t);
+      const inBody = body.includes(t);
+      if (!inTitle && !inMeta && !inBody) {
+        all = false;
+        break;
+      }
+      score += (inTitle ? 10 : 0) + (inMeta ? 4 : 0) + (inBody ? 1 : 0);
+    }
+    if (all) results.push({ doc, score, snippet: snippetOf(doc, terms) });
+  }
+  results.sort((a, b) => b.score - a.score || a.doc.title.localeCompare(b.doc.title));
+  return results.slice(0, limit);
+}
