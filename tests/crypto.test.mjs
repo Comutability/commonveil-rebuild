@@ -377,7 +377,10 @@ test("anchoring: a chain must match the keys this device holds, or the history i
   const fakeV1 = await createKeyVersion(1);
   const fake = await verifyAccountChain(acct.userId, [await makeAccountStatement({ userId: acct.userId, keyVersion: fakeV1, recoveryPub: acct.recoveryPub, signer: fakeV1 })]);
   assert.throws(() => anchorChain(fake, { keyring: older }), { code: "KEYRING_MISMATCH" });
-  assert.throws(() => anchorChain(fake, { keyring: acct.keyring }), { code: "KEYS_ROLLED_BACK" });
+  assert.throws(() => anchorChain(fake, { keyring: acct.keyring }), { code: "KEYRING_MISMATCH" });
+  // The server hiding a newer key is caught too.
+  const rolledBack = await verifyAccountChain(acct.userId, acct.statements.slice(0, 1));
+  assert.throws(() => anchorChain(rolledBack, { keyring: acct.keyring }), { code: "KEYS_ROLLED_BACK" });
   // Pins: the digest must match.
   const pin = { version: 1, digest: chain.digests.get(1) };
   assert.equal(anchorChain(chain, { pin }), 1);
