@@ -73,10 +73,10 @@ export const conversationActions: Actions = {
     const dmKey = [user.id, other].sort().join(":");
     const existing = (await sr.entities.Conversation.filter({ dm_key: dmKey }, "created_date", 5)).sort(byAge);
     if (existing[0]) return { conversation: conversationOut(existing[0]), created: false };
-    await enforceRate(sr, "Conversation", { created_by: user.id }, 3600_000, LIMITS.conversationsPerHour, now, "starting conversations");
+    await enforceRate(sr, "Conversation", { creator_id: user.id }, 3600_000, LIMITS.conversationsPerHour, now, "starting conversations");
     const members = [user.id, other];
-    const created = await sr.entities.Conversation.create({ kind: "dm", member_ids: members, dm_key: dmKey, created_by: user.id });
-    if (!(await withinRate(sr, "Conversation", { created_by: user.id }, 3600_000, LIMITS.conversationsPerHour, now, created))) {
+    const created = await sr.entities.Conversation.create({ kind: "dm", member_ids: members, dm_key: dmKey, creator_id: user.id });
+    if (!(await withinRate(sr, "Conversation", { creator_id: user.id }, 3600_000, LIMITS.conversationsPerHour, now, created))) {
       await sr.entities.Conversation.delete(created.id);
       throw rateLimited("starting conversations");
     }
@@ -94,10 +94,10 @@ export const conversationActions: Actions = {
     await requireSelfReady(sr, user.id);
     const others = await resolveUsernames(sr, user.id, data.usernames, LIMITS.maxGroupMembers - 1);
     if (!others.length) throw new ApiError(400, "BAD_FIELD", "Add at least one other person.");
-    await enforceRate(sr, "Conversation", { created_by: user.id }, 3600_000, LIMITS.conversationsPerHour, now, "starting conversations");
+    await enforceRate(sr, "Conversation", { creator_id: user.id }, 3600_000, LIMITS.conversationsPerHour, now, "starting conversations");
     const members = [user.id, ...others];
-    const created = await sr.entities.Conversation.create({ kind: "group", member_ids: members, created_by: user.id });
-    if (!(await withinRate(sr, "Conversation", { created_by: user.id }, 3600_000, LIMITS.conversationsPerHour, now, created))) {
+    const created = await sr.entities.Conversation.create({ kind: "group", member_ids: members, creator_id: user.id });
+    if (!(await withinRate(sr, "Conversation", { creator_id: user.id }, 3600_000, LIMITS.conversationsPerHour, now, created))) {
       await sr.entities.Conversation.delete(created.id);
       throw rateLimited("starting conversations");
     }
