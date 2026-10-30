@@ -25,6 +25,8 @@ import {
   deriveRecoveryKey,
   openKeyringWithPhrase,
   normalizePhrase,
+  recoveryAnchorMac,
+  verifyRecoveryAnchor,
 } from "../src/lib/crypto/recovery.js";
 import { encryptEnvelope, decryptEnvelope } from "../src/lib/crypto/envelope.js";
 import {
@@ -32,6 +34,8 @@ import {
   verifyAccountChain,
   compareWithPin,
   pinFromChain,
+  anchorChain,
+  headDigest,
   assertKeyringMatchesChain,
   makeDeviceCert,
   verifyDeviceCert,
@@ -299,26 +303,124 @@ test("keyring consistency check catches a private key paired with the wrong publ
   assert.throws(() => parseKeyring(JSON.stringify({ ...acct.keyring, user_id: uid() }), acct.userId));
 });
 
-test("safety numbers match on both sides and change with the key", async () => {
+test("safety numbers match on both sides and change with any key in the history", async () => {
   const [a, b] = await Promise.all([makeAccount(), makeAccount()]);
-  const ka = { user_id: a.userId, sign_pub: latestKey(a.keyring).sign_pub };
-  const kb = { user_id: b.userId, sign_pub: latestKey(b.keyring).sign_pub };
+  const side = async (acct) => ({ user_id: acct.userId, digest: headDigest(await verifyAccountChain(acct.userId, acct.statements)) });
+  const ka = await side(a);
+  const kb = await side(b);
   const n1 = safetyNumber(ka, kb);
   assert.equal(n1, safetyNumber(kb, ka));
   assert.match(n1, /^\d{60}$/);
   await rotate(b);
-  assert.notEqual(n1, safetyNumber(ka, { user_id: b.userId, sign_pub: latestKey(b.keyring).sign_pub }));
+  const kb2 = await side(b);
+  assert.notEqual(n1, safetyNumber(ka, kb2));
+  // Same latest keys, different earlier history: a different number.
+  const fakeV1 = await createKeyVersion(1);
+  const latest = b.statements[1];
+  const rewritten = await verifyAccountChain(b.userId, [
+    await makeAccountStatement({ userId: b.userId, keyVersion: fakeV1, recoveryPub: b.recoveryPub, signer: fakeV1 }),
+    await makeAccountStatement({ userId: b.userId, keyVersion: { version: 2, ecdh_pub: latest.ecdh_pub, sign_pub: latest.sign_pub }, recoveryPub: b.recoveryPub, signer: fakeV1 }),
+  ]);
+  assert.equal(rewritten.latest.sign_pub, latest.sign_pub);
+  assert.notEqual(safetyNumber(ka, { user_id: b.userId, digest: headDigest(rewritten) }), safetyNumber(ka, kb2));
 });
 
-test("link codes are 20 digits and depend on every device key", async () => {
+test("link codes are 20 digits and depend on every device key and the account's history", async () => {
   const d = await createDeviceKeys();
-  const base = { userId: uid(), deviceId: d.device_id, signPub: d.sign_pub, boxPub: d.box_pub };
+  const acct = await makeAccount();
+  const digest = headDigest(await verifyAccountChain(acct.userId, acct.statements));
+  const base = { userId: acct.userId, deviceId: d.device_id, signPub: d.sign_pub, boxPub: d.box_pub, accountDigest: digest };
   const code = linkCode(base);
   assert.match(code, /^\d{20}$/);
   assert.equal(code, linkCode(base));
   const other = await createDeviceKeys();
   assert.notEqual(code, linkCode({ ...base, boxPub: other.box_pub }));
   assert.notEqual(code, linkCode({ ...base, signPub: other.sign_pub }));
+  await rotate(acct);
+  assert.notEqual(code, linkCode({ ...base, accountDigest: headDigest(await verifyAccountChain(acct.userId, acct.statements)) }));
+  assert.throws(() => linkCode({ ...base, accountDigest: "" }));
+});
+
+test("pins cover the whole history: a rewrite below the pinned key is a change", async () => {
+  const acct = await makeAccount();
+  await rotate(acct);
+  const real = await verifyAccountChain(acct.userId, acct.statements);
+  const pin = pinFromChain(real, true);
+  assert.equal(compareWithPin(real, pin), "same");
+  assert.equal((await verifyAccountChain(acct.userId, pin.statements)).latest.version, 2, "the pin keeps the history it covers");
+  // The server keeps v2's signing key but swaps its encryption key, re-signing with an invented v1.
+  const fakeV1 = await createKeyVersion(1);
+  const server = await createKeyVersion(2);
+  const forged = await verifyAccountChain(acct.userId, [
+    await makeAccountStatement({ userId: acct.userId, keyVersion: fakeV1, recoveryPub: acct.recoveryPub, signer: fakeV1 }),
+    await makeAccountStatement({ userId: acct.userId, keyVersion: { version: 2, ecdh_pub: server.ecdh_pub, sign_pub: real.latest.sign_pub }, recoveryPub: acct.recoveryPub, signer: fakeV1 }),
+  ]);
+  assert.equal(compareWithPin(forged, pin), "changed");
+  // Honest rotations after the pin are fine.
+  await rotate(acct);
+  assert.equal(compareWithPin(await verifyAccountChain(acct.userId, acct.statements), pin), "rotated");
+  // A pin from before digests existed is re-pinned if its key still matches.
+  const legacy = { version: 2, sign_pub: real.latest.sign_pub, verified: true };
+  assert.equal(compareWithPin(real, legacy), "rotated");
+  assert.equal(compareWithPin(forged, { ...legacy, sign_pub: server.sign_pub }), "changed");
+});
+
+test("anchoring: a chain must match the keys this device holds, or the history it showed in its link code", async () => {
+  const acct = await makeAccount();
+  await rotate(acct);
+  const chain = await verifyAccountChain(acct.userId, acct.statements);
+  assert.equal(anchorChain(chain, { keyring: acct.keyring }), 2);
+  // An older keyring is fine: newer keys follow on by rotation.
+  const older = newKeyring(acct.userId, acct.keyring.versions[0]);
+  assert.equal(anchorChain(chain, { keyring: older }), 1);
+  // A made-up history doesn't match the keys.
+  const fakeV1 = await createKeyVersion(1);
+  const fake = await verifyAccountChain(acct.userId, [await makeAccountStatement({ userId: acct.userId, keyVersion: fakeV1, recoveryPub: acct.recoveryPub, signer: fakeV1 })]);
+  assert.throws(() => anchorChain(fake, { keyring: older }), { code: "KEYRING_MISMATCH" });
+  assert.throws(() => anchorChain(fake, { keyring: acct.keyring }), { code: "KEYS_ROLLED_BACK" });
+  // Pins: the digest must match.
+  const pin = { version: 1, digest: chain.digests.get(1) };
+  assert.equal(anchorChain(chain, { pin }), 1);
+  assert.throws(() => anchorChain(fake, { pin }), { code: "ANCHOR_MISMATCH" });
+  assert.throws(() => anchorChain(chain, {}), { code: "NO_ANCHOR" });
+  // A reset after the anchor means this device's keys no longer apply.
+  const v3 = await createKeyVersion(3);
+  const reset = await verifyAccountChain(acct.userId, [...acct.statements, await makeAccountStatement({ userId: acct.userId, keyVersion: v3, recoveryPub: acct.recoveryPub, signer: v3 })]);
+  assert.throws(() => anchorChain(reset, { keyring: acct.keyring }), { code: "ACCOUNT_RESET" });
+  assert.throws(() => anchorChain(reset, { pin }), { code: "ACCOUNT_RESET" });
+});
+
+test("the recovery anchor can only be made with the phrase, and covers the whole statement", async () => {
+  const acct = await makeAccount();
+  const keys = await deriveRecoveryKey(acct.phrase);
+  const st = { ...acct.statements[0] };
+  st.recovery_mac = await recoveryAnchorMac(keys.anchorKey, st);
+  assert.equal(fromB64(st.recovery_mac).length, 32);
+  assert.ok(await verifyRecoveryAnchor(keys.anchorKey, st));
+  const again = await deriveRecoveryKey(acct.phrase.toUpperCase());
+  assert.ok(await verifyRecoveryAnchor(again.anchorKey, st), "same phrase, same anchor key");
+  const other = await deriveRecoveryKey(generateRecoveryPhrase());
+  assert.equal(await verifyRecoveryAnchor(other.anchorKey, st), false);
+  assert.equal(await verifyRecoveryAnchor(keys.anchorKey, { ...st, ecdh_pub: (await createKeyVersion(1)).ecdh_pub }), false);
+  assert.equal(await verifyRecoveryAnchor(keys.anchorKey, { ...st, recovery_mac: "" }), false);
+  assert.equal(await verifyRecoveryAnchor(keys.anchorKey, { ...st, recovery_mac: "not base64!" }), false);
+});
+
+test("every member opens the same message: a content key that doesn't match the commitment is refused", async () => {
+  const [alice, bob] = await Promise.all([makeAccount(), makeAccount()]);
+  const scope = { kind: "message", conversation_id: uid(), item_id: randomId(), sender_id: alice.userId, device_id: randomId() };
+  const envelope = await encryptEnvelope({ scope, recipients: [recipientOf(alice), recipientOf(bob)], payload: { type: "text", text: "yes" } });
+  assert.equal(fromB64(envelope.kc).length, 32);
+  // A dishonest sender seals Bob a different content key.
+  const other = crypto.getRandomValues(new Uint8Array(32));
+  const wrapContext = `commonveil/wrap/v1|${scope.kind}|${scope.conversation_id}|${scope.item_id}|${bob.userId}|${latestKey(bob.keyring).version}`;
+  const sealed = await sealTo(latestKey(bob.keyring).ecdh_pub, other, wrapContext);
+  const split = { ...envelope, wraps: envelope.wraps.map((w) => (w.u === bob.userId ? { ...w, epk: sealed.epk, iv: sealed.iv, wk: sealed.ct } : w)) };
+  await assert.rejects(decryptEnvelope({ scope, envelope: split, userId: bob.userId, keyring: bob.keyring }), { code: "KEY_COMMITMENT_FAILED" });
+  assert.equal((await decryptEnvelope({ scope, envelope: split, userId: alice.userId, keyring: alice.keyring })).text, "yes");
+  const noCommitment = { ...envelope };
+  delete noCommitment.kc;
+  await assert.rejects(decryptEnvelope({ scope, envelope: noCommitment, userId: bob.userId, keyring: bob.keyring }), { code: "BAD_ENVELOPE" });
 });
 
 test("generic sealing round trip and context binding", async () => {
