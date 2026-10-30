@@ -73,7 +73,7 @@ export const adminActions: Actions = {
     const rows = await sr.entities.Report.filter(query, "-created_date", 200);
     const ids = [...new Set(rows.flatMap((r: any) => [r.reporter_id, r.reported_user_id]))];
     const profiles = ids.length ? await sr.entities.Profile.filter({ user_id: { $in: ids } }, "created_date", 500) : [];
-    const name = (uid: string) => profiles.find((p: any) => p.user_id === uid)?.username || "(no username)";
+    const name = (uid: string) => profiles.find((p: any) => p.user_id === uid)?.username || "(deleted account)";
     return {
       reports: rows.map((r: any) => ({
         id: r.id,
