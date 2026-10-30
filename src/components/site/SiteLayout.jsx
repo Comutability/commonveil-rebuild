@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
-import { Lock, Menu, X } from "lucide-react";
+import { Bookmark, Lock, Menu, Search, X } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
 import Logo from "./Logo";
@@ -38,7 +38,13 @@ export default function SiteLayout() {
               </NavLink>
             ))}
           </nav>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2">
+            <Link to="/search" className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Search the site" title="Search">
+              <Search className="h-5 w-5" aria-hidden="true" />
+            </Link>
+            <Link to="/saved" className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Saved on this browser" title="Saved">
+              <Bookmark className="h-5 w-5" aria-hidden="true" />
+            </Link>
             <Button asChild size="sm">
               <Link to="/app">
                 <Lock className="mr-1.5 h-4 w-4" aria-hidden="true" />
@@ -60,7 +66,7 @@ export default function SiteLayout() {
         {open && (
           <nav id="mobile-nav" className="border-t border-border md:hidden" aria-label="Main">
             <div className="container-cv flex flex-col py-2">
-              {[...NAV, ["/privacy", "Privacy"], ["/security", "Security"]].map(([to, label]) => (
+              {[...NAV, ["/search", "Search"], ["/saved", "Saved"], ["/privacy", "Privacy"], ["/security", "Security"]].map(([to, label]) => (
                 <NavLink key={to} to={to} className={linkClass}>
                   {label}
                 </NavLink>
