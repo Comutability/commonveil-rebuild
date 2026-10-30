@@ -26,7 +26,8 @@ export async function signedByActiveDevice(ctx: Ctx, action: string) {
   }
   const { json, data } = payloadOf(ctx.body);
   const deviceId = randomIdField(ctx.body.proof.device_id, "device id");
-  const device = await requireActiveDevice(ctx.sr, ctx.user.id, deviceId);
+  // The member's own device row: read with their own access (see Ctx).
+  const device = await requireActiveDevice(ctx.own, ctx.user.id, deviceId);
   await verifyProof({ userId: ctx.user.id, action, payloadJson: json, proof: ctx.body.proof, signPub: device.sign_pub, now: ctx.now });
   return { device, data };
 }
