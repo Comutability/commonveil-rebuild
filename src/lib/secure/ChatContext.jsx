@@ -139,8 +139,14 @@ export function ChatProvider({ children }) {
     });
   }, []);
 
+  const profilesRef = useRef({});
+  useEffect(() => {
+    profilesRef.current = profiles;
+  }, [profiles]);
+
+  // Stable, so the polling loop below isn't restarted every time a profile arrives.
   const loadProfiles = useCallback(async (ids) => {
-    const missing = [...new Set(ids)].filter((id) => id && !profiles[id]);
+    const missing = [...new Set(ids)].filter((id) => id && !profilesRef.current[id]);
     if (!missing.length) return;
     const { profiles: rows } = await callFn("profile", { action: "get_many", user_ids: missing.slice(0, 100) });
     setProfiles((prev) => {
@@ -148,13 +154,16 @@ export function ChatProvider({ children }) {
       for (const p of rows) next[p.user_id] = p;
       return next;
     });
-  }, [profiles]);
+  }, []);
 
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
 
-  /** Starting cursors and the conversation list. Returns false if the service couldn't be reached. */
+  /**
+   * Starting cursors and the conversation list. Returns false if the service couldn't be
+   * reached; the list keeps showing as loading (not as empty) until this works.
+   */
   const loadStart = useCallback(async () => {
     try {
       const start = await callFn("messages", { action: "poll" });
@@ -167,17 +176,15 @@ export function ChatProvider({ children }) {
       cursor.current = start.cursor;
       convCursor.current = start.conversations_cursor || start.cursor;
       convCheckedAt.current = Date.now();
+      setLoaded(true);
       const memberIds = list.flatMap((c) => c.member_ids);
       loadPeers(memberIds).catch(() => {});
       loadProfiles(memberIds).catch(() => {});
       return true;
     } catch {
       return false;
-    } finally {
-      setLoaded(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, [userId, mergeConversations, loadPeers, loadProfiles]);
 
   // Poll for changes. The first round loads the start; after that, messages every few seconds
   // and conversation changes every half minute (sooner if a message arrives for one we don't have).
@@ -185,6 +192,8 @@ export function ChatProvider({ children }) {
     let timer;
     let stopped = false;
     let backoff = 0;
+    cursor.current = null;
+    convCursor.current = null;
     const delay = () => {
       if (backoff) return backoff;
       if (document.visibilityState !== "visible") return POLL_HIDDEN_MS;
