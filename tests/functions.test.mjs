@@ -539,12 +539,44 @@ test("reading with your own access shows only conversations you're in and messag
   const asBob = w.clientFor(bob.user).entities;
   assert.equal((await asBob.Message.filter({})).length, 1);
   assert.equal((await asBob.Conversation.get(dm.id)).id, dm.id);
-  for (const name of ["AccountKey", "Device", "KeyEnvelope", "Profile", "Report", "ResetRequest", "SecurityReport", "Block", "RetiredUsername"]) {
+  // His own account's rows, and nobody else's.
+  for (const name of ["AccountKey", "Device", "KeyEnvelope", "Profile"]) {
+    const rows = await asBob[name].filter({});
+    assert.ok(rows.length > 0 && rows.every((r) => r.user_id === bob.id), `${name}: only Bob's own rows`);
+  }
+  await assert.rejects(asBob.AccountKey.get(w.rows("AccountKey").find((k) => k.user_id === alice.id).id), { status: 404 });
+  for (const name of ["Report", "SecurityReport", "Block", "RetiredUsername"]) {
     assert.deepEqual(await asBob[name].filter({}), [], `${name} can't be read directly`);
   }
   await assert.rejects(asBob.Message.update("any", {}), { status: 403 });
   await assert.rejects(asBob.Conversation.create({}), { status: 403 });
+  await assert.rejects(asBob.AccountKey.create({}), { status: 403 });
   assert.deepEqual(await w.clientFor(null).entities.Message.filter({}), [], "nothing for visitors");
+  assert.deepEqual(await w.clientFor(null).entities.Profile.filter({}), [], "nothing for visitors");
+});
+
+test("everyday reads come out of the member's own allowance; lookups across members take a few shared queries", async () => {
+  const { w, members: [alice, ...others] } = await world("alice", "bob", "carol", "dave", "erin", "frank");
+  for (const other of others) await alice.send(await alice.dm(other), `hello ${other.name}`);
+  const ids = others.map((o) => o.id);
+  w.serviceReads = 0;
+  await alice.ok("profile", { action: "me" });
+  await alice.ok("keys", { action: "status" });
+  await alice.ok("keys", { action: "device_sync", device_id: alice.device.device_id });
+  await alice.ok("keys", { action: "get_recovery" });
+  const { conversations } = await alice.ok("conversations", { action: "list" });
+  await alice.ok("conversations", { action: "get", conversation_id: conversations[0].id });
+  await alice.ok("messages", { action: "list", conversation_id: conversations[0].id });
+  const start = await alice.ok("messages", { action: "poll" });
+  await alice.ok("messages", { action: "poll", since: start.cursor, conversations_since: start.conversations_cursor });
+  assert.equal(w.serviceReads, 0, "page loads and polling use none of the shared allowance");
+  const { keys } = await alice.ok("keys", { action: "peer_keys", user_ids: ids });
+  assert.deepEqual(Object.keys(keys).sort(), [...ids].sort());
+  assert.ok(Object.values(keys).every((k) => k.statements.length === 1 && k.devices.length === 1));
+  assert.equal(w.serviceReads, 3, "keys for five people in three queries");
+  w.serviceReads = 0;
+  assert.equal((await alice.ok("profile", { action: "get_many", user_ids: ids })).profiles.length, 5);
+  assert.equal(w.serviceReads, 1);
 });
 
 test("peer keys are only shared with people you have a conversation with", async () => {
