@@ -6,9 +6,9 @@
 //   node tests/e2e/13-features.mjs
 // It prints a message to make disappear. Move that message's expires_at into the past (Base44 entity
 // tools: Message where expires_at is set, newest first), then check it's gone everywhere:
-//   node tests/e2e/13-features.mjs --expired "<that message>"
+//   node tests/e2e/13-features.mjs --expired <conversation path> "<that message>"
 import fs from "node:fs";
-import { BASE, PEOPLE, check, expectText, goto, loadPhrase, open, openConversation, sendText, shot } from "./lib.mjs";
+import { BASE, PEOPLE, check, expectText, goto, loadPhrase, open, sendText, shot } from "./lib.mjs";
 
 const BEN = process.env.CV_BEN_PROFILE || "ben2";
 const RUN = String(Math.floor(Date.now() / 1000) % 100000);
@@ -23,18 +23,32 @@ async function menu(page, text, item) {
   await page.getByRole("menuitem", { name: item }).click();
 }
 
+/**
+ * Open the direct message with someone by starting it again (it finds the existing one), so
+ * groups whose names haven't been decrypted yet can't be mistaken for it. Returns its path.
+ */
+async function openDm(page, username) {
+  await goto(page);
+  await page.waitForSelector('h1:has-text("Messages")', { timeout: 90000 });
+  await page.getByRole("button", { name: "New" }).click();
+  await page.fill("#dm-username", username);
+  await page.getByRole("button", { name: "Start conversation" }).click();
+  await page.waitForURL(/\/app\/c\//, { timeout: 60000 });
+  return new URL(page.url()).pathname;
+}
+
 async function details(page) {
   await page.getByRole("button", { name: /Conversation details/ }).click();
   await page.getByRole("dialog").waitFor({ timeout: 30000 });
 }
 
 if (args[0] === "--expired") {
-  const gone = args[1];
+  const [, dmPath, gone] = args;
   const A = await open("ann1");
   const B = await open(BEN);
-  for (const [who, page, other] of [["Ann", A.page, PEOPLE.ben.display], ["Ben", B.page, PEOPLE.ann.display]]) {
-    await goto(page);
-    await openConversation(page, other);
+  for (const [who, page] of [["Ann", A.page], ["Ben", B.page]]) {
+    await goto(page, dmPath);
+    await page.waitForSelector("div.group", { timeout: 90000 });
     await page.waitForTimeout(8000);
     check((await page.locator(`text=${gone}`).count()) === 0, `${who} no longer sees the message whose time is up`);
   }
@@ -53,17 +67,15 @@ await A.ctx.addInitScript(() => {
   window.__alerts = [];
   window.Notification = class extends Original {
     constructor(title, options) {
-      super(title, options);
       window.__alerts.push({ title, body: options?.body || "" });
+      super(title, options);
     }
   };
 });
 
 // ---------- replies, reactions, edits ----------
-await goto(A.page);
-await openConversation(A.page, PEOPLE.ben.display);
-await goto(B.page);
-await openConversation(B.page, PEOPLE.ann.display);
+const dmPath = await openDm(A.page, PEOPLE.ben.username);
+await goto(B.page, dmPath);
 const lunch = `Lunch tomorrow? ${RUN}`;
 await sendText(A.page, lunch);
 await bubble(B.page, lunch).waitFor({ timeout: 60000 });
@@ -91,10 +103,8 @@ check((await bubble(A.page, edited).getByRole("button", { name: /^Thumbs up, 1/ 
 await shot(A.page, "13-reply-reaction-edit");
 
 // ---------- message search, on the device ----------
-await goto(A.page);
-await A.page.waitForSelector('h1:has-text("Messages")', { timeout: 90000 });
-await openConversation(A.page, PEOPLE.ben.display);
-await bubble(A.page, edited).waitFor({ timeout: 60000 });
+await goto(A.page, dmPath);
+await bubble(A.page, edited).waitFor({ timeout: 90000 });
 await A.page.getByRole("textbox", { name: "Search conversations and messages" }).fill(`half past one ${RUN}`);
 await A.page.locator('section[aria-label="Messages found"] a', { hasText: `half past one ${RUN}` }).first().waitFor({ timeout: 30000 });
 check(true, "searching on the device finds the message as edited");
@@ -109,8 +119,7 @@ await A.page.locator("header >> text=1 day").first().waitFor({ timeout: 30000 })
 const fleeting = `This one disappears ${RUN}`;
 await sendText(A.page, fleeting);
 check((await bubble(A.page, fleeting).locator("text=/^Disappears /").count()) === 1, "a message sent with the timer on shows when it disappears");
-await goto(B.page);
-await openConversation(B.page, PEOPLE.ann.display);
+await goto(B.page, dmPath);
 await B.page.waitForSelector("text=Ann Test set messages to disappear after a day.", { timeout: 90000 });
 await bubble(B.page, fleeting).waitFor({ timeout: 60000 });
 check(true, "Ben sees who set the timer, and the timed message");
@@ -127,9 +136,9 @@ await A.page.getByRole("button", { name: "Add", exact: true }).click();
 await A.page.waitForSelector(`li:has-text("${PEOPLE.ben.display}")`, { timeout: 30000 });
 await A.page.getByRole("button", { name: "Create group" }).click();
 await A.page.waitForSelector(`h2:has-text("${GROUP}")`, { timeout: 60000 });
+const groupPath = new URL(A.page.url()).pathname;
 
-await goto(B.page);
-await openConversation(B.page, GROUP);
+await goto(B.page, groupPath);
 await B.page.getByRole("button", { name: "OK, continue" }).click({ timeout: 60000 });
 await details(B.page);
 await B.page.waitForSelector("text=Admins: Ann Test", { timeout: 30000 });
@@ -161,8 +170,7 @@ await goto(A.page);
 await A.page.waitForSelector('h1:has-text("Messages")', { timeout: 90000 });
 await A.page.waitForTimeout(3000);
 const ping = `Ping ${RUN}`;
-await goto(B.page);
-await openConversation(B.page, PEOPLE.ann.display);
+await goto(B.page, dmPath);
 await sendText(B.page, ping);
 await A.page.waitForFunction(() => /^\(\d+\) Commonveil$/.test(document.title), null, { timeout: 90000 });
 check(true, `the tab title counts unread conversations: ${await A.page.title()}`);
@@ -240,6 +248,6 @@ await A.page.waitForSelector("text=Nothing saved yet", { timeout: 10000 });
 check(true, "clearing removes it all from the browser");
 await shot(A.page, "13-saved");
 
-console.log(`\nNext: move the expires_at of "${fleeting}" into the past, then run:\n  node tests/e2e/13-features.mjs --expired "${fleeting}"`);
+console.log(`\nNext: move the expires_at of "${fleeting}" into the past, then run:\n  node tests/e2e/13-features.mjs --expired ${dmPath} "${fleeting}"`);
 await A.ctx.close();
 await B.ctx.close();
