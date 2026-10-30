@@ -291,15 +291,15 @@ export const keysActions: Actions = {
     return { ok: true };
   },
 
-  /** A device checks its own status and collects any keyring sealed to it. */
-  async device_sync({ sr, user, body, now }) {
+  /** A device checks its own status and collects any keyring sealed to it. Reads with the member's own access. */
+  async device_sync({ sr, own, user, body, now }) {
     const deviceId = randomIdField(body.device_id, "device id");
-    const device = await deviceOf(sr, user.id, deviceId);
+    const device = await deviceOf(own, user.id, deviceId);
     if (!device) throw new ApiError(404, "DEVICE_UNKNOWN", "This device isn't registered to your account.");
-    const latest = latestKeyOf(await accountKeysOf(sr, user.id));
+    const latest = latestKeyOf(await accountKeysOf(own, user.id));
     let envelope = null;
     if (device.status === "active" && latest) {
-      const rows = await sr.entities.KeyEnvelope.filter(
+      const rows = await own.entities.KeyEnvelope.filter(
         { user_id: user.id, kind: "device", device_id: deviceId, keyring_version: latest.version, key_sign_pub: latest.sign_pub },
         "-created_date",
         1,
@@ -351,12 +351,12 @@ export const keysActions: Actions = {
     return { ok: true };
   },
 
-  /** The encrypted recovery backup. Useless without the 24-word phrase. */
-  async get_recovery({ sr, user }) {
-    const keys = uniqueVersions(await accountKeysOf(sr, user.id));
+  /** The encrypted recovery backup. Useless without the 24-word phrase. Reads with the member's own access. */
+  async get_recovery({ own, user }) {
+    const keys = uniqueVersions(await accountKeysOf(own, user.id));
     const latest = latestKeyOf(keys);
     if (!latest) throw new ApiError(409, "NOT_INITIALISED", "Encryption isn't set up for this account yet.");
-    const rows = await sr.entities.KeyEnvelope.filter(
+    const rows = await own.entities.KeyEnvelope.filter(
       { user_id: user.id, kind: "recovery", keyring_version: latest.version, key_sign_pub: latest.sign_pub },
       "-created_date",
       1,
