@@ -25,9 +25,10 @@ function normaliseUsername(value: unknown) {
 }
 
 export const profileActions: Actions = {
-  async me({ sr, user }) {
-    const profile = await profileOf(sr, user.id);
-    const keys = await accountKeysOf(sr, user.id);
+  /** Read with the member's own access (see Ctx): every page load asks. */
+  async me({ own, user }) {
+    const profile = await profileOf(own, user.id);
+    const keys = await accountKeysOf(own, user.id);
     return {
       user: { id: user.id, role: user.role === "admin" ? "admin" : "user" },
       profile: profile ? publicProfile(profile) : null,
@@ -108,9 +109,9 @@ export const profileActions: Actions = {
   },
 
   /** Profiles for people you share a conversation with. Others are left out. */
-  async get_many({ sr, user, body }) {
+  async get_many({ sr, own, user, body }) {
     const ids = idList(body.user_ids, "user ids", 100);
-    const allowed = await contactsOf(sr, user.id);
+    const allowed = await contactsOf(own, user.id);
     const wanted = ids.filter((i) => allowed.has(i));
     if (!wanted.length) return { profiles: [] };
     const rows = await sr.entities.Profile.filter({ user_id: { $in: wanted } }, "created_date", 200);
