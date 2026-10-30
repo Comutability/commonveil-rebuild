@@ -26,13 +26,17 @@ const BLANK_MESSAGE = {
 };
 
 export const messageActions: Actions = {
-  async send({ sr, user, body, now }) {
-    const conv = await conversationForMember(sr, user.id, id(body.conversation_id, "conversation"));
+  /**
+   * Reads that only touch the sender's own rows use their own access; the block check and
+   * the other members' key versions need the service role (see Ctx).
+   */
+  async send({ sr, own, user, body, now }) {
+    const conv = await conversationForMember(own, user.id, id(body.conversation_id, "conversation"));
     if (conv.kind === "dm") {
       const other = conv.member_ids.find((m: string) => m !== user.id);
       if (other && (await blockedEitherWay(sr, user.id, other))) throw new ApiError(403, "BLOCKED", "You can't message this member.");
     }
-    const device = await requireActiveDevice(sr, user.id, randomIdField(body.device_id, "device id"));
+    const device = await requireActiveDevice(own, user.id, randomIdField(body.device_id, "device id"));
     const msgId = randomIdField(body.msg_id, "message id");
     const sentAt = isoTime(body.sent_at, "sent time");
     if (Math.abs(now.getTime() - Date.parse(sentAt)) > LIMITS.sentAtSkewMs) {
@@ -47,7 +51,8 @@ export const messageActions: Actions = {
     });
     if (!ok) throw new ApiError(403, "SIGNATURE_INVALID", "The message signature didn't verify, so it wasn't sent.");
     // A retry of a send that was stored but whose answer got lost: same message id, same message.
-    const duplicate = await sr.entities.Message.filter({ conversation_id: conv.id, msg_id: msgId }, "created_date", 1);
+    // (Every message is sealed to its sender too, so the sender's own access sees it.)
+    const duplicate = await own.entities.Message.filter({ conversation_id: conv.id, msg_id: msgId }, "created_date", 1);
     if (duplicate.length) {
       if (duplicate[0].sender_id !== user.id) throw new ApiError(409, "DUPLICATE_ID", "That message id is already taken. Please try again.");
       if (String(conv.last_message_at || "") < String(duplicate[0].created_date)) {
@@ -55,7 +60,7 @@ export const messageActions: Actions = {
       }
       return { message: messageOut(duplicate[0]), duplicate: true };
     }
-    await enforceRate(sr, "Message", { sender_id: user.id }, 60_000, LIMITS.messagesPerMinute, now, "sending messages");
+    await enforceRate(own, "Message", { sender_id: user.id }, 60_000, LIMITS.messagesPerMinute, now, "sending messages");
     const message = await sr.entities.Message.create({
       conversation_id: conv.id,
       msg_id: msgId,
@@ -67,7 +72,7 @@ export const messageActions: Actions = {
       recipient_ids: wraps.map((w) => w.u),
       deleted: false,
     });
-    if (!(await withinRate(sr, "Message", { sender_id: user.id }, 60_000, LIMITS.messagesPerMinute, now, message))) {
+    if (!(await withinRate(own, "Message", { sender_id: user.id }, 60_000, LIMITS.messagesPerMinute, now, message))) {
       await sr.entities.Message.update(message.id, BLANK_MESSAGE);
       await sr.entities.Message.delete(message.id);
       throw rateLimited("sending messages");
