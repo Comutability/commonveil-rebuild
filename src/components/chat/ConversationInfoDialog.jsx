@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { AlertTriangle, Ban, Flag, LogOut, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Ban, Flag, LogOut, MoreHorizontal, ShieldCheck, Timer, UserMinus, UserCog } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,12 +7,94 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { NativeSelect } from "@/components/ui/native-select";
-import { ErrorNote } from "@/components/site/bits";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ErrorNote, formatTime } from "@/components/site/bits";
 import { callFn } from "@/lib/api";
 import { useChat } from "@/lib/secure/ChatContext";
 import { useSecure } from "@/lib/secure/SecureContext";
 import { groupDigits, headDigest, safetyNumber } from "@/lib/crypto/identity.js";
+import { EXPIRY_CHOICES } from "@/lib/secure/protocol.js";
+import { timerLabel } from "@/lib/secure/thread.js";
 import Avatar from "./Avatar";
+
+/** Disappearing messages: either person in a direct message, or a group's admins, can change it. */
+function DisappearingMessages({ conversation, canChange, busy, run, setMessage }) {
+  const { setExpiry, nameOf } = useChat();
+  const current = Number(conversation.expire_seconds) || 0;
+  return (
+    <div className="space-y-1.5 border-t border-border pt-4">
+      <Label htmlFor="disappearing" className="flex items-center gap-1.5"><Timer className="h-4 w-4" aria-hidden="true" /> Disappearing messages</Label>
+      <NativeSelect
+        id="disappearing"
+        value={String(current)}
+        disabled={!canChange || busy}
+        onChange={(e) => {
+          const seconds = Number(e.target.value);
+          run(async () => {
+            await setExpiry(conversation, seconds);
+            setMessage(seconds ? `New messages will disappear after ${timerLabel(seconds).replace(/^1 /, "a ")}.` : "Disappearing messages are off.");
+          });
+        }}
+      >
+        {EXPIRY_CHOICES.map((s) => <option key={s} value={String(s)}>{timerLabel(s)}</option>)}
+      </NativeSelect>
+      <p className="text-xs text-muted-foreground">
+        New messages are deleted for everyone this long after they're sent: from the server, and from each member's app.
+        Anyone can still copy or screenshot a message before then.
+        {conversation.expiry_set_by && <> Last changed by {nameOf(conversation.expiry_set_by)}{conversation.expiry_set_at ? `, ${formatTime(conversation.expiry_set_at)}` : ""}.</>}
+        {!canChange && " Only the group's admins can change it."}
+      </p>
+    </div>
+  );
+}
+
+/** What an admin can do about another member of the group. */
+function MemberActions({ conversation, memberId, isAdminMember, busy, run, setMessage }) {
+  const { setAdmin, removeMember, nameOf } = useChat();
+  const [confirming, setConfirming] = useState(false);
+  if (confirming) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span>Remove {nameOf(memberId)} from the group?</span>
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={busy}
+          onClick={() => run(async () => {
+            await removeMember(conversation, memberId);
+            setConfirming(false);
+            setMessage(`${nameOf(memberId)} was removed. Nothing new is sent to them.`);
+          })}
+        >
+          Remove
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>Cancel</Button>
+      </div>
+    );
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={busy} aria-label={`Manage ${nameOf(memberId)}`}>
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onSelect={() => run(async () => {
+            await setAdmin(conversation, memberId, !isAdminMember);
+            setMessage(isAdminMember ? `${nameOf(memberId)} is no longer an admin.` : `${nameOf(memberId)} is now an admin.`);
+          })}
+        >
+          <UserCog className="mr-2 h-4 w-4" aria-hidden="true" /> {isAdminMember ? "Remove as admin" : "Make admin"}
+        </DropdownMenuItem>
+        <DropdownMenuItem className="text-destructive" onSelect={() => setConfirming(true)}>
+          <UserMinus className="mr-2 h-4 w-4" aria-hidden="true" /> Remove from group
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 function SafetyNumber({ peerId }) {
   const { userId, chainDigest, peers, markVerified, acceptKeyChange } = useSecure();
@@ -98,7 +180,7 @@ function ReportForm({ userId, conversationId, onDone }) {
 
 export default function ConversationInfoDialog({ conversation, open, onOpenChange, onLeft }) {
   const { userId } = useSecure();
-  const { nameOf, profiles, conversationName, setTitle, addMembers, leave, titles } = useChat();
+  const { nameOf, profiles, conversationName, setTitle, addMembers, leave, titles, setAdmin } = useChat();
   const [title, setTitleInput] = useState("");
   const [adding, setAdding] = useState("");
   const [busy, setBusy] = useState(false);
@@ -110,6 +192,10 @@ export default function ConversationInfoDialog({ conversation, open, onOpenChang
   if (!conversation) return null;
   const isGroup = conversation.kind === "group";
   const others = conversation.member_ids.filter((m) => m !== userId);
+  const admins = conversation.admin_ids || [];
+  const iAmAdmin = isGroup && admins.includes(userId);
+  // In a direct message both people manage it; in a group, its admins do.
+  const canManage = !isGroup || iAmAdmin;
   // Only a name whose signature checks out is kept (and re-encrypted for newcomers): never vouch for one that doesn't.
   const verifiedTitle = titles[conversation.id]?.status === "ok" ? titles[conversation.id].text || "" : "";
   const currentTitle = verifiedTitle;
@@ -142,42 +228,68 @@ export default function ConversationInfoDialog({ conversation, open, onOpenChang
             <li key={id} className="flex gap-3">
               <Avatar id={id} name={nameOf(id)} size="h-9 w-9" />
               <div className="min-w-0 flex-1 space-y-1">
-                <p className="font-medium">
-                  {nameOf(id)} {profiles[id] && <span className="text-sm font-normal text-muted-foreground">@{profiles[id].username}</span>}
-                </p>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-medium">
+                    {nameOf(id)} {profiles[id] && <span className="text-sm font-normal text-muted-foreground">@{profiles[id].username}</span>}
+                    {isGroup && admins.includes(id) && <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">Admin</span>}
+                  </p>
+                  {iAmAdmin && <MemberActions conversation={conversation} memberId={id} isAdminMember={admins.includes(id)} busy={busy} run={run} setMessage={setMessage} />}
+                </div>
                 <SafetyNumber peerId={id} />
               </div>
             </li>
           ))}
         </ul>
 
+        <DisappearingMessages conversation={conversation} canChange={canManage} busy={busy} run={run} setMessage={setMessage} />
+
         {isGroup && (
           <div className="space-y-4 border-t border-border pt-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="rename">Group name</Label>
-              <div className="flex gap-2">
-                <Input id="rename" defaultValue={currentTitle} onChange={(e) => setTitleInput(e.target.value)} maxLength={80} />
-                <Button variant="outline" disabled={busy || !title.trim()} onClick={() => run(async () => { await setTitle(conversation, title.trim()); setMessage("Name updated."); })}>Save</Button>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="add-person">Add someone</Label>
-              <div className="flex gap-2">
-                <Input id="add-person" value={adding} onChange={(e) => setAdding(e.target.value)} placeholder="@username" autoComplete="off" autoCapitalize="none" />
+            <p className="text-sm text-muted-foreground">
+              {iAmAdmin
+                ? admins.length > 1 ? "You're one of this group's admins." : "You're this group's admin."
+                : `Admins: ${admins.map(nameOf).join(", ") || "none"}. Only they can rename the group, add or remove people, or change the timer.`}
+              {iAmAdmin && admins.length > 1 && (
                 <Button
-                  variant="outline"
-                  disabled={busy || !adding.trim()}
-                  onClick={() => run(async () => {
-                    const updated = await addMembers(conversation, [adding.trim().replace(/^@/, "")]);
-                    if (currentTitle) await setTitle(updated, currentTitle);
-                    setAdding("");
-                    setMessage("Added. They'll see messages from now on.");
-                  })}
+                  variant="link"
+                  size="sm"
+                  className="h-auto px-1 py-0"
+                  disabled={busy}
+                  onClick={() => run(async () => { await setAdmin(conversation, userId, false); setMessage("You're no longer an admin."); })}
                 >
-                  Add
+                  Stop being an admin
                 </Button>
-              </div>
-            </div>
+              )}
+            </p>
+            {iAmAdmin && (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="rename">Group name</Label>
+                  <div className="flex gap-2">
+                    <Input id="rename" defaultValue={currentTitle} onChange={(e) => setTitleInput(e.target.value)} maxLength={80} />
+                    <Button variant="outline" disabled={busy || !title.trim()} onClick={() => run(async () => { await setTitle(conversation, title.trim()); setMessage("Name updated."); })}>Save</Button>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="add-person">Add someone</Label>
+                  <div className="flex gap-2">
+                    <Input id="add-person" value={adding} onChange={(e) => setAdding(e.target.value)} placeholder="@username" autoComplete="off" autoCapitalize="none" />
+                    <Button
+                      variant="outline"
+                      disabled={busy || !adding.trim()}
+                      onClick={() => run(async () => {
+                        const updated = await addMembers(conversation, [adding.trim().replace(/^@/, "")]);
+                        if (currentTitle) await setTitle(updated, currentTitle);
+                        setAdding("");
+                        setMessage("Added. They'll see messages from now on.");
+                      })}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
             <Button variant="ghost" className="text-destructive" disabled={busy} onClick={() => run(async () => { await leave(conversation); onOpenChange(false); onLeft?.(); })}>
               <LogOut className="mr-2 h-4 w-4" aria-hidden="true" /> Leave group
             </Button>
