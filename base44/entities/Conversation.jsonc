@@ -43,6 +43,13 @@
     },
     "last_message_at": {
       "type": "string"
+    },
+    "member_since": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "\"user_id|time\" for each member: people see only messages sent after they joined."
     }
   },
   "required": [
