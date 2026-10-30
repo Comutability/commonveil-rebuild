@@ -577,6 +577,12 @@ test("everyday reads come out of the member's own allowance; lookups across memb
   w.serviceReads = 0;
   assert.equal((await alice.ok("profile", { action: "get_many", user_ids: ids })).profiles.length, 5);
   assert.equal(w.serviceReads, 1);
+  // Sending: only the block check (direct messages) and everyone's current key versions.
+  const { chains } = await alice.chainsFor(conversations[0]);
+  const body = await buildMessage({ userId: alice.id, device: alice.device, conversation: conversations[0], chains, text: "one more", keyring: alice.keyring });
+  w.serviceReads = 0;
+  await alice.ok("messages", body);
+  assert.equal(w.serviceReads, 2);
 });
 
 test("peer keys are only shared with people you have a conversation with", async () => {
