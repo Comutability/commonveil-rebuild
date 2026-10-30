@@ -2,8 +2,10 @@
 // Device private keys are stored as non-extractable CryptoKey objects.
 // The keyring is stored as data: anyone who can run code in this site, or who
 // has full access to this browser profile, can read it. That's stated in the docs.
+// With a passcode lock set, it's stored encrypted instead (see crypto/lock.js).
 import { createStore, del, get, set } from "idb-keyval";
 import { parseKeyring, serializeKeyring } from "../crypto/keyring.js";
+import { isSealedKeyring } from "../crypto/lock.js";
 
 const store = typeof indexedDB !== "undefined" ? createStore("commonveil", "e2ee") : undefined;
 const key = (userId, name) => `${name}:${userId}`;
@@ -16,13 +18,37 @@ export async function saveDevice(userId, device) {
   await set(key(userId, "device"), device, store);
 }
 
+/** Only for a keyring stored without a lock. */
 export async function loadKeyring(userId) {
-  const text = await get(key(userId, "keyring"), store);
-  return text ? parseKeyring(text, userId) : null;
+  const stored = await get(key(userId, "keyring"), store);
+  if (isSealedKeyring(stored)) throw new Error("This browser's keys are locked.");
+  return stored ? parseKeyring(stored, userId) : null;
 }
 
 export async function saveKeyring(userId, keyring) {
   await set(key(userId, "keyring"), serializeKeyring(keyring), store);
+}
+
+/** The keyring as stored: its text, a sealed record (lock set), or null. */
+export async function loadKeyringRecord(userId) {
+  return (await get(key(userId, "keyring"), store)) || null;
+}
+
+export async function saveKeyringRecord(userId, record) {
+  await set(key(userId, "keyring"), record, store);
+}
+
+/** The passcode lock's settings, if one is set (see crypto/lock.js). */
+export async function loadLock(userId) {
+  return (await get(key(userId, "lock"), store)) || null;
+}
+
+export async function saveLock(userId, record) {
+  await set(key(userId, "lock"), record, store);
+}
+
+export async function clearLock(userId) {
+  await del(key(userId, "lock"), store);
 }
 
 /** Trust-on-first-use pins: { [userId]: { version, digest, sign_pub, statements, verified, pinned_at } } */
