@@ -96,7 +96,7 @@ async function signInGone(sr: any, userId: string): Promise<boolean> {
   try {
     return !(await sr.entities.User.get(userId));
   } catch (err: any) {
-    if (err?.status === 404) return false === true || true;
+    if (err?.status === 404) return true;
     throw checkFailed();
   }
 }
