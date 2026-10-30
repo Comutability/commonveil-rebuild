@@ -925,7 +925,8 @@ function mentions(w, userId) {
   for (const name of PERSONAL) {
     for (const r of w.rows(name)) {
       if (name === "Report" && r.reported_user_id === userId && r.reporter_id !== userId) continue;
-      const visible = name === "Message" ? { ...r, envelope: "" } : r;
+      // Other people's messages to her still list her as a recipient, inside the signed envelope and beside it.
+      const visible = name === "Message" && r.sender_id !== userId ? { ...r, envelope: "", recipient_ids: [] } : r;
       if (JSON.stringify(visible).includes(userId)) found.push(`${name} ${r.id}`);
     }
   }
