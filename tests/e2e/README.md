@@ -55,12 +55,13 @@ CV_API_HOST=preview-sandbox--<app-id>.base44.app node tests/e2e/serve-dist.mjs 4
 CV_BASE_URL=http://localhost:4173 node tests/e2e/10-policy-report-delete.mjs "<new member link>" "<admin link>"
 ```
 
-The usernames in `lib.mjs` (`e2e_ann`, `e2e_ben`, `e2e_cat`) are claimed by script 01 and 06; change them if they're taken.
+Scripts 01 and 06 claim the usernames `e2e_ann`, `e2e_ben` and `e2e_cat`. Deleted and erased accounts retire their usernames
+for good, so set `CV_E2E_TAG` (up to 8 letters or numbers) to give each run its own: `e2e_ann_<tag>` and so on.
 Browser profiles, screenshots and Ann's test phrase are kept in `CV_E2E_DIR` (default `/tmp/cv-e2e`).
 
 ## Cleaning up
 
-Deprovision the test accounts (`DELETE /api/apps/{app_id}/users/provisions`) and delete their `Profile`, `AccountKey`, `Device`,
-`KeyEnvelope`, `ResetRequest`, `Conversation`, `Message`, `Block`, `Report` and `SecurityReport` rows (and the
-`RetiredUsername` rows that deleting an account leaves). Never run these against an app with real members unless the test
-usernames can't collide with theirs.
+Deprovision the test people (`DELETE /api/apps/{app_id}/users/provisions`), then, signed in as the admin, open **Admin →
+Accounts** and erase what each left behind: that removes their profiles, keys, devices, conversations and messages, the same way
+a member's own account deletion does. Deprovision the admin last, and close any test security reports first. Erased usernames stay
+retired. Never run these scripts against an app with real members unless the test usernames can't collide with theirs.
