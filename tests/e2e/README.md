@@ -10,13 +10,14 @@ not part of `npm test` because they need signed-in test accounts and create real
 |---|---|
 | `01-messaging.mjs` | Two new accounts set up keys, exchange messages, signatures verify, safety numbers match |
 | `02-link-device.mjs` | Adding a second browser by approval; link codes match; history readable; new device's messages verify |
-| `03-remove-device.mjs` | Removing a device rotates keys; no false key-change alarm for contacts; removed browser locked out |
+| `03-remove-device.mjs` | Removing a device rotates keys; no false key-change alarm for contacts; removed browser locked out, its keys kept until the person deletes them |
 | `04-recover.mjs` | Wrong (valid) phrase refused; right phrase restores everything, before and after rotation |
-| `05-reset-warning.mjs` | Account reset: old messages unreadable to the new identity; contacts warned and paused until review; report filed |
-| `06-groups.mjs` | Encrypted group names; device-signed add; other members paused until they see who's new; newcomer can't read history; device-signed delete and leave |
+| `05-reset-warning.mjs` | Account reset waits a week: the account's email is sent a notice, an existing browser shows the request and cancels it, a second request is left waiting. After the wait (`--finish`): old messages unreadable to the new identity; contacts warned and paused until review; the old browser told the account was reset; report filed |
+| `06-groups.mjs` | Encrypted group names; members check who's in a group someone else made before sending; device-signed add; other members paused until they see who's new; newcomers aren't shown earlier messages; device-signed delete and leave |
 | `07-admin.mjs` | Admin area without encryption setup; resolving a report; content editor; non-admins turned away |
 | `08-public-pages.mjs` | Public pages on desktop (light) and phone (dark): no errors, no sideways scrolling |
 | `09-accessibility.mjs` | axe-core WCAG 2 A/AA on public pages and signed-in screens, light and dark |
+| `10-policy-report-delete.mjs` | A production build under its Content Security Policy: the policy and `security.txt` are served; public pages; an anonymous security report; a new member sets up and deletes their account; staff close the report; nothing of the app's own is blocked |
 
 ## Running them
 
@@ -35,10 +36,23 @@ node tests/e2e/02-link-device.mjs "<ann link>"
 node tests/e2e/03-remove-device.mjs
 node tests/e2e/04-recover.mjs "<ann link>"
 node tests/e2e/05-reset-warning.mjs "<ben link>"
+# A reset waits a week. Move Ben's waiting request into the past (Base44 entity tools, or the
+# dashboard): ResetRequest where user_id is Ben's id and status is "waiting", effective_at = an hour ago.
+node tests/e2e/05-reset-warning.mjs --finish
 node tests/e2e/06-groups.mjs "<cat link>"
 node tests/e2e/07-admin.mjs "<admin link>"
 node tests/e2e/08-public-pages.mjs
 node tests/e2e/09-accessibility.mjs
+```
+
+`10-policy-report-delete.mjs` needs a production build, because the policy only exists there (the editor preview runs
+Vite's dev server). Build, serve `dist/` with `serve-dist.mjs`, and point the script at it with a newly provisioned member
+(the script deletes that account) and the admin:
+
+```bash
+npm run build
+CV_API_HOST=preview-sandbox--<app-id>.base44.app node tests/e2e/serve-dist.mjs 4173 &
+CV_BASE_URL=http://localhost:4173 node tests/e2e/10-policy-report-delete.mjs "<new member link>" "<admin link>"
 ```
 
 The usernames in `lib.mjs` (`e2e_ann`, `e2e_ben`, `e2e_cat`) are claimed by script 01 and 06; change them if they're taken.
@@ -47,5 +61,6 @@ Browser profiles, screenshots and Ann's test phrase are kept in `CV_E2E_DIR` (de
 ## Cleaning up
 
 Deprovision the test accounts (`DELETE /api/apps/{app_id}/users/provisions`) and delete their `Profile`, `AccountKey`, `Device`,
-`KeyEnvelope`, `Conversation`, `Message`, `Block` and `Report` rows. Never run these against an app with real members unless the
-test usernames can't collide with theirs.
+`KeyEnvelope`, `ResetRequest`, `Conversation`, `Message`, `Block`, `Report` and `SecurityReport` rows (and the
+`RetiredUsername` rows that deleting an account leaves). Never run these against an app with real members unless the test
+usernames can't collide with theirs.
