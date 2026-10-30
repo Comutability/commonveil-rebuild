@@ -694,6 +694,10 @@ test("review E: a password alone can't take an account over; a reset waits and t
   const requested = await alice.ok("keys", reset.request);
   assert.equal(requested.request.status, "waiting");
   assert.ok(Date.parse(requested.request.effective_at) - Date.now() > 6.9 * 24 * 3600_000, "a week's wait");
+  assert.equal(requested.emailed, true);
+  assert.equal(w.emails.length, 1, "the account's own address is told");
+  assert.equal(w.emails[0].to, alice.user.email);
+  assert.match(w.emails[0].subject, /reset your encryption keys/);
 
   // Nothing has changed: Alice's device is active, her keys stand, and her devices see the request.
   const status = await alice.status();
@@ -725,7 +729,10 @@ test("review E: unlocking with the phrase also cancels a waiting reset", async (
   const { w, members: [alice] } = await world("alice");
   const intruder = await createDeviceKeys("Intruder");
   const reset = await prepareReset({ userId: alice.id, device: intruder, nextVersion: 2 });
-  const { request } = await alice.ok("keys", reset.request);
+  w.emailDown = true;
+  const { request, emailed } = await alice.ok("keys", reset.request);
+  assert.equal(emailed, false, "if the email can't be sent, the request still stands and the devices still show it");
+  assert.equal((await alice.status()).resets[0].status, "waiting");
   const fresh = await createDeviceKeys("Alice's new laptop");
   const recovered = await recoverWithPhrase({ userId: alice.id, device: fresh, phrase: alice.phrase, recoveryResponse: await alice.ok("keys", { action: "get_recovery" }) });
   await alice.ok("keys", recovered.request);
