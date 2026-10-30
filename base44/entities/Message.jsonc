@@ -38,6 +38,10 @@
         "type": "string"
       },
       "description": "Accounts the message key was sealed to. Members only ever see messages addressed to them, so newcomers don't see what came before."
+    },
+    "expires_at": {
+      "type": "string",
+      "description": "Disappearing messages: when the server deletes this message. Missing: kept until deleted."
     }
   },
   "required": [
