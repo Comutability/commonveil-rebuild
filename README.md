@@ -8,16 +8,21 @@ review is published.
 
 ## What's here
 
-- **Public site:** blog, guides, learning paths, resources, wiki, privacy and security pages. No analytics or trackers.
+- **Public site:** blog, guides, learning paths, resources, wiki, privacy and security pages, and a private security
+  report form (`/security/report`, no account needed). No analytics or trackers. A Content Security Policy is built in.
 - **Encrypted messaging:** direct messages and groups of up to 32, device linking with a compared code, a 24-word recovery
-  phrase, key rotation when a device is removed, safety numbers and key-change warnings, blocking and reporting.
-- **Admin area** (`/admin`): reports and content editing. It needs the admin role, not encryption keys.
+  phrase, key rotation when a device is removed, safety numbers and key-change warnings over each person's whole key
+  history, a reset that waits a week so a stolen password can't take an account over, blocking, reporting, and
+  self-service account deletion.
+- **Admin area** (`/admin`): reports, security reports, erasing what removed sign-ins left behind, and content editing. It
+  needs the admin role, not encryption keys.
 
 ## Documents
 
-- `docs/PROTOCOL.md`: the encryption protocol, exactly as implemented.
-- `docs/THREAT_MODEL.md`: what is and isn't protected, against whom.
-- `docs/REBUILD_REVIEW.md`: what was wrong with the previous app and the decisions behind this one.
+- `docs/PROTOCOL.md`: the encryption protocol (version 2), exactly as implemented.
+- `docs/THREAT_MODEL.md`: what is and isn't protected, against whom, and the known limitations.
+- `docs/REBUILD_REVIEW.md`: what was wrong with the previous app, the decisions behind this one, and the review findings
+  fixed before launch.
 
 ## Layout
 
@@ -26,22 +31,25 @@ src/lib/crypto/      primitives, keyring, recovery, envelopes, identity (no netw
 src/lib/secure/      client protocol flows, local storage, React state for keys and chat
 src/pages/site/      public pages
 src/pages/app/       sign-in gate, onboarding, messages, settings, admin
-base44/functions/    6 backend functions: profile, keys, conversations, messages, safety, admin
+base44/functions/    7 backend functions: profile, keys, conversations, messages, safety, admin, disclose
 base44/shared/       request handling, signature checks, data access, the action handlers
-base44/entities/     13 tables; everything private is backend-only
-tests/               crypto and backend tests (npm test), live browser tests (tests/e2e)
+base44/entities/     16 tables; nothing private can be written directly, and members can read only rows that name them
+tests/               crypto, backend and schema tests (npm test), live browser tests (tests/e2e)
+scripts/             check-bundle.mjs: the built site carries its policy and needs nothing it blocks
 ```
 
 ## Checks
 
 ```bash
-npm test          # 40 tests: crypto, plus the real backend handlers driven by the real client code
+npm test               # 67 tests: crypto; the real backend handlers driven by the real client code; table definitions
 npm run lint
 npm run build
-npm run verify    # all three
+npm run check:bundle   # after a build
+npm run verify         # all four
 ```
 
-The live browser suite in `tests/e2e/` runs the real app against the real backend; see its README.
+The live browser suite in `tests/e2e/` runs the real app against the real backend, including a production build under its
+Content Security Policy; see its README.
 
 ## Running locally
 
@@ -52,3 +60,9 @@ base44 dev     # local backend and frontend together
 ```
 
 Publish from the Base44 dashboard, not with `base44 deploy`, so the deployed state matches the repository.
+
+## Running it for a community
+
+Base44 limits how many queries an app makes per minute. Everyday reads (polling for messages, loading the app) use each
+member's own allowance, but writes and lookups across members share one allowance for the whole app, which is larger on
+higher Base44 plans. If members see "the service is busy" often, that allowance is the place to look.
