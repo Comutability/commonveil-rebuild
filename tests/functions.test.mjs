@@ -835,7 +835,7 @@ test("review O: rate limits hold when requests arrive at the same moment", async
   );
   const ok = results.filter((r) => r.status === 200).length;
   assert.ok(ok <= 30, `${ok} groups were created against a limit of 30`);
-  assert.equal(w.rows("Conversation").filter((c) => c.created_by === alice.id).length, ok);
+  assert.equal(w.rows("Conversation").filter((c) => c.creator_id === alice.id).length, ok);
   assert.ok(results.filter((r) => r.status === 429).length >= 15);
   assert.ok(bob);
 });
