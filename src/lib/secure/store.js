@@ -3,7 +3,7 @@
 // The keyring is stored as data: anyone who can run code in this site, or who
 // has full access to this browser profile, can read it. That's stated in the docs.
 // With a passcode lock set, it's stored encrypted instead (see crypto/lock.js).
-import { createStore, del, get, set } from "idb-keyval";
+import { createStore, del, get, promisifyRequest, set } from "idb-keyval";
 import { parseKeyring, serializeKeyring } from "../crypto/keyring.js";
 import { isSealedKeyring } from "../crypto/lock.js";
 
@@ -47,8 +47,18 @@ export async function saveLock(userId, record) {
   await set(key(userId, "lock"), record, store);
 }
 
-export async function clearLock(userId) {
-  await del(key(userId, "lock"), store);
+/**
+ * Set, change or remove the lock together with the keyring it covers, in one transaction: the
+ * stored keyring must always be readable with whatever lock is stored next to it.
+ * lockRecord null removes the lock (keyringValue is then the keyring's plain text).
+ */
+export async function saveLockAndKeyring(userId, lockRecord, keyringValue) {
+  await store("readwrite", (s) => {
+    if (lockRecord) s.put(lockRecord, key(userId, "lock"));
+    else s.delete(key(userId, "lock"));
+    s.put(keyringValue, key(userId, "keyring"));
+    return promisifyRequest(s.transaction);
+  });
 }
 
 /** Trust-on-first-use pins: { [userId]: { version, digest, sign_pub, statements, verified, pinned_at } } */
