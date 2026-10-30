@@ -3,11 +3,12 @@
 // Replies, reactions and edits are messages too, put together on this device (thread.js).
 // Disappearing timers and group admins are conversation settings the server enforces.
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ApiError, callFn } from "@/lib/api";
 import { useSecure } from "./SecureContext.jsx";
 import * as P from "./protocol.js";
 import * as S from "./store.js";
-import { buildThread, isShowing, searchThreads } from "./thread.js";
+import { buildThread, hideAt, isShowing, searchThreads } from "./thread.js";
 import { DEFAULT_ALERTS, alertText, cleanAlerts, showAlert } from "./alerts.js";
 
 const ChatContext = createContext(null);
@@ -35,6 +36,8 @@ const BACKOFF_MAX_MS = 60_000;
 const SEND_RETRY_MS = [1_500, 4_000, 8_000];
 /** How often disappearing messages are checked and dropped from memory. */
 const EXPIRY_CHECK_MS = 15_000;
+/** Without any, the clock the conversation goes by (edit windows) is still moved on now and then. */
+const CLOCK_MS = 5 * 60_000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const isTransient = (err) => err instanceof ApiError && (err.code === "UPSTREAM_BUSY" || err.code === "NETWORK");
 
@@ -53,6 +56,7 @@ const deliver = (body) => withRetry(() => callFn("messages", body));
 
 export function ChatProvider({ children }) {
   const { userId, device, keyring, peers, loadPeers, chainsFor, chainOf, devicesOf, ownMinCertVersion, refresh: refreshSecure } = useSecure();
+  const navigate = useNavigate();
   const [conversations, setConversations] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [profiles, setProfiles] = useState({});
@@ -82,12 +86,22 @@ export function ChatProvider({ children }) {
   const alertsRef = useRef(DEFAULT_ALERTS);
   const activeConversation = useRef(null);
   const openedRef = useRef({});
+  const messagesRef = useRef({});
+  const navigateRef = useRef(navigate);
   // Sender devices we've already re-fetched keys for, so an unknown device triggers one refresh, not a loop.
   const refetchedDevices = useRef(new Set());
 
   useEffect(() => {
     openedRef.current = opened;
   }, [opened]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    navigateRef.current = navigate;
+  }, [navigate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -192,32 +206,30 @@ export function ChatProvider({ children }) {
     });
   }, []);
 
-  // Disappearing messages: hidden the moment their time is up, and dropped from memory too.
+  // Disappearing messages: hidden the moment their time is up (the rows are worked out against
+  // `now`), and dropped from memory too.
   useEffect(() => {
+    let clockMovedAt = Date.now();
     const t = setInterval(() => {
       const at = Date.now();
-      setNow(at);
-      let removed = [];
-      setMessages((prev) => {
-        let changed = false;
-        const next = {};
-        for (const [cid, list] of Object.entries(prev)) {
-          const kept = list.filter((m) => isShowing(m, openedRef.current[m.id], at));
-          if (kept.length !== list.length) {
-            changed = true;
-            removed = removed.concat(list.filter((m) => !kept.includes(m)).map((m) => m.id));
-          }
-          next[cid] = kept;
-        }
-        return changed ? next : prev;
-      });
-      if (removed.length) {
-        setOpened((prev) => {
-          const next = { ...prev };
-          for (const id of removed) delete next[id];
-          return next;
-        });
+      const all = Object.values(messagesRef.current).flat();
+      const timed = all.some((m) => hideAt(m, openedRef.current[m.id]) !== null);
+      if (timed || at - clockMovedAt >= CLOCK_MS) {
+        clockMovedAt = at;
+        setNow(at);
       }
+      const gone = new Set(all.filter((m) => !isShowing(m, openedRef.current[m.id], at)).map((m) => m.id));
+      if (!gone.size) return;
+      setMessages((prev) => {
+        const next = {};
+        for (const [cid, list] of Object.entries(prev)) next[cid] = list.filter((m) => !gone.has(m.id));
+        return next;
+      });
+      setOpened((prev) => {
+        const next = { ...prev };
+        for (const id of gone) delete next[id];
+        return next;
+      });
     }, EXPIRY_CHECK_MS);
     return () => clearInterval(t);
   }, []);
@@ -370,9 +382,7 @@ export function ChatProvider({ children }) {
     showAlert({
       body: alertText(settings, sender ? sender.display_name || sender.username : ""),
       tag: `commonveil-${m.conversation_id}`,
-      onClick: () => {
-        if (window.location.pathname !== `/app/c/${m.conversation_id}`) window.location.assign(`/app/c/${m.conversation_id}`);
-      },
+      onClick: () => navigateRef.current(`/app/c/${m.conversation_id}`),
     });
   }, [userId]);
 
