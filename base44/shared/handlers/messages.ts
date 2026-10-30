@@ -76,23 +76,23 @@ export const messageActions: Actions = {
     return { message: messageOut(message) };
   },
 
-  /** Page backwards through one conversation. */
-  async list({ sr, user, body }) {
-    const conv = await conversationForMember(sr, user.id, id(body.conversation_id, "conversation"));
+  /** Page backwards through one conversation. Read with the caller's own access (see Ctx). */
+  async list({ own, user, body }) {
+    const conv = await conversationForMember(own, user.id, id(body.conversation_id, "conversation"));
     const limit = body.limit === undefined ? LIMITS.pageSize : int(body.limit, "limit", 1, LIMITS.pageSize);
     const query: any = { conversation_id: conv.id, ...addressedTo(user.id) };
     if (body.before !== undefined) query.created_date = { $lt: str(body.before, "cursor", 40) };
-    const rows = await sr.entities.Message.filter(query, "-created_date", limit + 1);
+    const rows = await own.entities.Message.filter(query, "-created_date", limit + 1);
     return { messages: rows.slice(0, limit).map(messageOut).reverse(), has_more: rows.length > limit };
   },
 
   /**
-   * Messages addressed to you that changed since a cursor: one query, as this runs every few
-   * seconds for everyone and Base44 limits how many queries an app makes. Pass
+   * Messages addressed to you that changed since a cursor. This runs every few seconds for
+   * everyone, so it's one query, made with the caller's own access (see Ctx). Pass
    * conversations_since now and then to get conversation changes too (their own cursor).
    * Without a cursor, returns starting cursors and nothing else.
    */
-  async poll({ sr, user, body, now }) {
+  async poll({ own, user, body, now }) {
     if (body.since === undefined) {
       const start = platformTime(new Date(now.getTime() - 5_000));
       return { cursor: start, conversations_cursor: start, messages: [], conversations: [], conversation_ids: [] };
@@ -101,7 +101,7 @@ export const messageActions: Actions = {
     // A row can turn up in queries a moment after it's written, so the cursor never passes
     // "a few seconds ago": anything that recent comes again next time, and the client merges it.
     const settled = platformTime(new Date(now.getTime() - SETTLE_MS));
-    const rows = await sr.entities.Message.filter(
+    const rows = await own.entities.Message.filter(
       { recipient_ids: user.id, updated_date: { $gte: since } },
       "updated_date",
       LIMITS.pollLimit + 1,
@@ -115,7 +115,7 @@ export const messageActions: Actions = {
 
     if (body.conversations_since !== undefined) {
       const convSince = str(body.conversations_since, "cursor", 40);
-      const convs = await myConversations(sr, user.id);
+      const convs = await myConversations(own, user.id);
       const changed = convs.filter((c: any) => String(c.updated_date) >= convSince);
       let convCursor = convSince;
       for (const c of changed) if (String(c.updated_date) > convCursor) convCursor = String(c.updated_date);
