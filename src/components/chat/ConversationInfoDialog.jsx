@@ -6,22 +6,23 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NativeSelect } from "@/components/ui/native-select";
 import { ErrorNote } from "@/components/site/bits";
 import { callFn } from "@/lib/api";
 import { useChat } from "@/lib/secure/ChatContext";
 import { useSecure } from "@/lib/secure/SecureContext";
-import { groupDigits, safetyNumber } from "@/lib/crypto/identity.js";
+import { groupDigits, headDigest, safetyNumber } from "@/lib/crypto/identity.js";
 import Avatar from "./Avatar";
 
 function SafetyNumber({ peerId }) {
-  const { userId, chain, peers, markVerified, acceptKeyChange } = useSecure();
+  const { userId, chainDigest, peers, markVerified, acceptKeyChange } = useSecure();
   const peer = peers[peerId];
   const [show, setShow] = useState(false);
+  // Covers both accounts' whole key histories, not just the newest keys.
   const number = useMemo(() => {
-    if (!peer?.chain || !chain) return null;
-    return safetyNumber({ user_id: userId, sign_pub: chain.latest.sign_pub }, { user_id: peerId, sign_pub: peer.chain.latest.sign_pub });
-  }, [peer, chain, userId, peerId]);
+    if (!peer?.chain || !chainDigest) return null;
+    return safetyNumber({ user_id: userId, digest: chainDigest }, { user_id: peerId, digest: headDigest(peer.chain) });
+  }, [peer, chainDigest, userId, peerId]);
 
   if (!peer) return <p className="text-xs text-muted-foreground">Checking keys…</p>;
   if (!peer.ready) return <p className="text-xs text-destructive">{peer.broken ? "Their published keys failed verification." : "No keys yet."}</p>;
@@ -33,8 +34,9 @@ function SafetyNumber({ peerId }) {
           <p className="flex items-center gap-1.5 font-semibold"><AlertTriangle className="h-4 w-4" aria-hidden="true" /> Their security keys changed</p>
           <p className="mt-1 text-muted-foreground">
             If they told you they reset their account, this is expected. If not, check the new safety number with them in person or over a
-            call before continuing.
+            call before continuing. Until you do, messages that only the new keys vouch for are marked unverified.
           </p>
+          {number && <p className="mono mt-2 rounded-lg bg-background p-2 text-center text-xs leading-relaxed tracking-wide">{groupDigits(number, 5)}</p>}
           <Button size="sm" className="mt-2" onClick={() => acceptKeyChange(peerId)}>I understand, continue</Button>
         </div>
       )}
@@ -79,16 +81,14 @@ function ReportForm({ userId, conversationId, onDone }) {
   return (
     <form onSubmit={submit} className="space-y-3 rounded-lg border border-border p-4">
       <p className="text-sm text-muted-foreground">Staff can't read your messages. Paste anything they need to see.</p>
-      <Select value={reason} onValueChange={setReason}>
-        <SelectTrigger aria-label="Reason"><SelectValue placeholder="Reason" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="spam">Spam</SelectItem>
-          <SelectItem value="harassment">Harassment</SelectItem>
-          <SelectItem value="impersonation">Impersonation</SelectItem>
-          <SelectItem value="illegal">Illegal content</SelectItem>
-          <SelectItem value="other">Something else</SelectItem>
-        </SelectContent>
-      </Select>
+      <NativeSelect value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Reason">
+        <option value="" disabled>Reason</option>
+        <option value="spam">Spam</option>
+        <option value="harassment">Harassment</option>
+        <option value="impersonation">Impersonation</option>
+        <option value="illegal">Illegal content</option>
+        <option value="other">Something else</option>
+      </NativeSelect>
       <Textarea value={details} onChange={(e) => setDetails(e.target.value)} maxLength={2000} rows={4} placeholder="What happened? (optional)" aria-label="Details" />
       <ErrorNote>{error}</ErrorNote>
       <Button type="submit" size="sm" disabled={!reason || busy}>{busy ? "Sending…" : "Send report"}</Button>
@@ -110,7 +110,9 @@ export default function ConversationInfoDialog({ conversation, open, onOpenChang
   if (!conversation) return null;
   const isGroup = conversation.kind === "group";
   const others = conversation.member_ids.filter((m) => m !== userId);
-  const currentTitle = titles[conversation.id]?.text || "";
+  // Only a name whose signature checks out is kept (and re-encrypted for newcomers): never vouch for one that doesn't.
+  const verifiedTitle = titles[conversation.id]?.status === "ok" ? titles[conversation.id].text || "" : "";
+  const currentTitle = verifiedTitle;
 
   const run = async (fn) => {
     setBusy(true);
