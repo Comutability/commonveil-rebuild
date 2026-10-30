@@ -12,6 +12,7 @@ function previewOf(result) {
   if (!result) return "Encrypted message";
   if (result.status === "deleted") return "Message deleted";
   if (result.status === "locked") return "Can't be read on this device";
+  if (result.status === "unverified") return `⚠ Unverified: ${result.text}`;
   return result.text;
 }
 
