@@ -3,13 +3,13 @@ import { Link } from "react-router-dom";
 import { PageHeader } from "@/components/site/bits";
 
 const HOLD = [
-  ["Your sign-in email", "Used only to sign you in and for password resets, by our hosting platform (Base44). It is never shown to other members. An alias address works fine."],
+  ["Your sign-in email", "Used only to sign you in and for password resets, by our hosting platform (Base44), and to tell you if someone asks to reset your encryption. It is never shown to other members. An alias address works fine."],
   ["Your username, display name and short bio", "Visible only to people who look up your exact username or share a conversation with you."],
   ["Public keys and your device list", "Public keys let others encrypt to you and check your signatures. Your device list includes a label like \"Firefox on Linux\" so you can recognise them; other members don't see labels."],
-  ["Who is in each conversation, and when messages are sent", "We need this to deliver messages. We can see that you and someone else exchanged messages and roughly how large they were."],
+  ["Who is in each conversation, and when messages are sent", "We need this to deliver messages. We can see that you and someone else exchanged messages, roughly how large they were, and which accounts each message was encrypted for."],
   ["Encrypted messages and group names", "Stored as ciphertext. We have no key that opens them."],
   ["Encrypted backup of your keys", "Sealed to your recovery phrase. Without the phrase it's unreadable, including to us."],
-  ["Blocks and reports", "If you report someone, staff see the reason and anything you choose to paste in. They can't read your messages."],
+  ["Blocks and reports", "If you report someone, staff see the reason and anything you choose to paste in. They can't read your messages. A report about someone stays with staff even if that person later deletes their account."],
 ];
 
 const NEVER = [
@@ -53,7 +53,11 @@ export default function Privacy() {
               You can delete single messages, remove devices, or delete your whole account from Settings. Account deletion blanks and then
               deletes your profile, keys, devices and every message you've sent. Direct-message conversations go for both people, and you're
               removed from groups. Your username is retired rather than freed: it's kept on its own, linked to nothing, so nobody else can
-              claim it and pose as you to people who knew you.
+              claim it and pose as you to people who knew you. Reports you made go; reports other people made about you stay with staff, so
+              deleting an account can't erase a record of abuse.
+            </p>
+            <p className="mt-2">
+              If your sign-in is removed in Base44 rather than here, staff can erase what's left in exactly the same way.
             </p>
             <p className="mt-2">
               Messages other people sent to a group while you were in it stay in that group. Their encryption lists every recipient's account
