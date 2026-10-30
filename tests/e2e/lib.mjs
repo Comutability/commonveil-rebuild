@@ -92,11 +92,22 @@ export async function openConversation(page, name) {
   await page.locator(`a:has-text("${name}")`).first().click({ timeout: 90000 });
 }
 
+/**
+ * Send a message and make sure it went: the composer empties only once the server has it. (The
+ * text alone isn't proof: the composer itself still holds it if sending failed.)
+ */
 export async function sendText(page, text) {
   const box = page.getByRole("textbox", { name: "Message" });
   await box.fill(text);
   await box.press("Enter");
-  await page.waitForSelector(`text=${text}`, { timeout: 60000 });
+  const deadline = Date.now() + 60000;
+  while ((await box.inputValue()) !== "") {
+    const alert = page.locator('form [role="alert"]');
+    if ((await alert.count()) && !(await box.isDisabled())) throw new Error(`FAILED: sending "${text}": ${await alert.first().innerText()}`);
+    if (Date.now() > deadline) throw new Error(`FAILED: "${text}" wasn't sent within a minute`);
+    await page.waitForTimeout(250);
+  }
+  await page.locator("div.group", { hasText: text }).first().waitFor({ timeout: 30000 });
 }
 
 /** Wait for a success text; if an error appears on screen instead, fail with its wording. */
