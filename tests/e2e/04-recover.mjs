@@ -8,7 +8,7 @@ await goto(A3.page);
 await A3.page.getByRole("button", { name: /Use your 24-word recovery phrase/ }).click({ timeout: 60000 });
 await A3.page.fill("#phrase", `${"abandon ".repeat(23)}art`);
 await A3.page.getByRole("button", { name: "Unlock my keys" }).click();
-await A3.page.waitForSelector("text=isn't the recovery phrase for this account", { timeout: 60000 });
+await A3.page.waitForSelector("text=isn't the current recovery phrase for this account", { timeout: 60000 });
 check(true, "a valid but wrong phrase is refused");
 await A3.page.fill("#phrase", loadPhrase("ann"));
 await A3.page.getByRole("button", { name: "Unlock my keys" }).click();
