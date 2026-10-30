@@ -1490,3 +1490,13 @@ test("auto-delete leaves staff alone, and if the warning can't be sent the setti
   assert.equal(w.rows("Profile").filter((p) => p.user_id === alice.id).length, 0);
   assert.equal(w.rows("Profile").filter((p) => p.user_id === staff.id).length, 1, "staff accounts are never deleted this way");
 });
+
+test("members can get a copy of the reports they made, and only those", async () => {
+  const { members: [alice, bob, carol] } = await world("alice", "bob", "carol");
+  const dm = await alice.dm(bob);
+  await alice.ok("safety", { action: "report", user_id: bob.id, reason: "spam", details: "Kept sending links", conversation_id: dm.id });
+  await carol.ok("safety", { action: "report", user_id: alice.id, reason: "other", details: "Carol's words about Alice" });
+  const mine = await alice.ok("safety", { action: "my_reports" });
+  assert.deepEqual(mine.reports.map((r) => [r.reported_user_id, r.conversation_id, r.reason, r.details, r.status]), [[bob.id, dm.id, "spam", "Kept sending links", "open"]]);
+  assert.deepEqual((await bob.ok("safety", { action: "my_reports" })).reports, [], "nobody sees reports about them");
+});
