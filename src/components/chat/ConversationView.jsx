@@ -102,12 +102,15 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
     markRead(conversation.id);
   }, [conversation.id, list.length, markRead]);
 
-  // Keep members' keys fresh while the conversation is open, so a key change shows up before you send.
+  // Keep members' keys fresh while the conversation is open, so a key change shows up before you
+  // send. loadPeers only asks again once its cached copy is a few minutes old.
   const memberKey = conversation.member_ids.join(",");
   useEffect(() => {
     const ids = memberKey.split(",");
     loadPeers(ids).catch(() => {});
-    const t = setInterval(() => loadPeers(ids).catch(() => {}), 30_000);
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") loadPeers(ids).catch(() => {});
+    }, 60_000);
     return () => clearInterval(t);
   }, [memberKey, loadPeers]);
 
