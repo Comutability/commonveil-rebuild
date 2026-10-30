@@ -20,9 +20,6 @@ import {
 
 const USERNAME_RE = /^[A-Za-z0-9_]{3,20}$/;
 
-const byAge = (a: any, b: any) =>
-  String(a.created_date).localeCompare(String(b.created_date)) || String(a.id).localeCompare(String(b.id));
-
 async function requireSelfReady(sr: any, userId: string) {
   if (!(await profileOf(sr, userId))) throw new ApiError(409, "PROFILE_REQUIRED", "Choose a username first.");
   if (!(await accountKeysOf(sr, userId)).length) throw new ApiError(409, "SETUP_REQUIRED", "Finish setting up encryption first.");
@@ -80,7 +77,7 @@ export const conversationActions: Actions = {
       await sr.entities.Conversation.delete(created.id);
       throw rateLimited("starting conversations");
     }
-    const all = (await sr.entities.Conversation.filter({ dm_key: dmKey }, "created_date", 5)).sort(byAge);
+    const all = withRow(await sr.entities.Conversation.filter({ dm_key: dmKey }, "created_date", 5), created);
     if (all[0].id !== created.id) {
       await sr.entities.Conversation.delete(created.id);
       return { conversation: conversationOut(all[0]), created: false };
