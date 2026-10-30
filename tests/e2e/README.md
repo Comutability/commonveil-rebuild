@@ -18,6 +18,7 @@ not part of `npm test` because they need signed-in test accounts and create real
 | `08-public-pages.mjs` | Public pages on desktop (light) and phone (dark): no errors, no sideways scrolling |
 | `09-accessibility.mjs` | axe-core WCAG 2 A/AA on public pages and signed-in screens, light and dark |
 | `10-policy-report-delete.mjs` | A production build under its Content Security Policy: the policy and `security.txt` are served; public pages; an anonymous security report; a new member sets up and deletes their account; staff close the report; nothing of the app's own is blocked |
+| `11-erase-test-accounts.mjs` | Cleaning up: Admin → Accounts lists deprovisioned test people and erases what they left (only usernames starting `e2e_`) |
 
 ## Running them
 
@@ -61,7 +62,8 @@ Browser profiles, screenshots and Ann's test phrase are kept in `CV_E2E_DIR` (de
 
 ## Cleaning up
 
-Deprovision the test people (`DELETE /api/apps/{app_id}/users/provisions`), then, signed in as the admin, open **Admin →
-Accounts** and erase what each left behind: that removes their profiles, keys, devices, conversations and messages, the same way
-a member's own account deletion does. Deprovision the admin last, and close any test security reports first. Erased usernames stay
-retired. Never run these scripts against an app with real members unless the test usernames can't collide with theirs.
+Deprovision the test people (`DELETE /api/apps/{app_id}/users/provisions`), then run `11-erase-test-accounts.mjs` as the admin
+(or open **Admin → Accounts** yourself) to erase what each left behind: their profiles, keys, devices, conversations and
+messages go, the same way as when a member deletes their own account. Close any test security reports, then deprovision the
+admin last. Erased usernames stay retired. Never run these scripts against an app with real members unless the test usernames
+can't collide with theirs.
