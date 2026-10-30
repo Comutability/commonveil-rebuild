@@ -201,10 +201,20 @@ export function memberSince(conv: any, userId: string): string | null {
   return null;
 }
 
-/** member_since with these members joining now (existing entries kept), and anyone gone dropped. */
+/**
+ * member_since for this member list: anyone new joins now, existing entries are kept,
+ * and anyone gone drops out. In a conversation from before join times were recorded,
+ * existing members keep their whole history (an empty time).
+ */
 export function withMemberSince(conv: any, memberIds: string[], now: Date) {
   const at = platformTime(now);
-  return memberIds.map((m) => `${m}|${(conv && memberSince(conv, m)) || at}`);
+  const legacy = Boolean(conv) && !(conv.member_since || []).length;
+  const before = new Set(conv?.member_ids || []);
+  return memberIds.map((m) => {
+    const known = conv ? memberSince(conv, m) : null;
+    if (known !== null) return `${m}|${known}`;
+    return `${m}|${legacy && before.has(m) ? "" : at}`;
+  });
 }
 
 export const conversationOut = (c: any) => ({
