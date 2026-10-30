@@ -88,9 +88,18 @@ export async function clearPendingReset(userId) {
   await del(key(userId, "reset"), store);
 }
 
+/** Alert settings for this browser: { notify, showSender, titleCount }. They never leave it. */
+export async function loadAlerts(userId) {
+  return (await get(key(userId, "alerts"), store)) || null;
+}
+
+export async function saveAlerts(userId, settings) {
+  await set(key(userId, "alerts"), settings, store);
+}
+
 /** Remove every key and record for this account from this browser. */
 export async function wipeLocal(userId) {
-  for (const name of ["device", "keyring", "pins", "read", "members", "linkpin", "reset"]) await del(key(userId, name), store);
+  for (const name of ["device", "keyring", "lock", "pins", "read", "members", "linkpin", "reset", "alerts"]) await del(key(userId, name), store);
 }
 
 export function storageAvailable() {
