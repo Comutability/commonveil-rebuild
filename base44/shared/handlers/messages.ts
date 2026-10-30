@@ -132,11 +132,11 @@ export const messageActions: Actions = {
 
   /** Delete your own message for everyone. People may already have read it. Needs a device signature. */
   async delete(ctx) {
-    const { sr, user, now } = ctx;
+    const { sr, own, user, now } = ctx;
     const { data } = await signedByActiveDevice(ctx, "delete");
     let message: any = null;
     try {
-      message = await sr.entities.Message.get(id(data.message_id, "message"));
+      message = await own.entities.Message.get(id(data.message_id, "message"));
     } catch {
       message = null;
     }
