@@ -44,6 +44,16 @@ import { publicDevice } from "../crypto/device.js";
 
 export const MAX_MESSAGE_CHARS = 4000;
 
+/** The reactions on offer. Anything else in a reaction is ignored, so a reaction can't carry a message. */
+export const REACTIONS = Object.freeze(["\u{1F44D}", "❤️", "\u{1F602}", "\u{1F62E}", "\u{1F622}", "\u{1F64F}"]);
+
+/** Message ids are random, chosen by the sender, and bound into each message's encryption. */
+const ITEM_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
+const isItemId = (v) => typeof v === "string" && ITEM_ID_RE.test(v);
+
+/** Disappearing-message timers a conversation can have, in seconds: off, a day, a week, four weeks. */
+export const EXPIRY_CHOICES = Object.freeze([0, 86_400, 604_800, 2_419_200]);
+
 /** Allowance for device clocks when deciding whether an item was sent after its device was removed. */
 export const REMOVAL_GRACE_MS = 10 * 60 * 1000;
 
@@ -364,12 +374,87 @@ async function buildItem({ kind, userId, device, conversation, chains, payload, 
   return { itemId, sentAt, envelope, signature };
 }
 
-/** chains: Map(user_id -> verified chain) covering every member, including you. */
-export async function buildMessage({ userId, device, conversation, chains, text, keyring = null }) {
+function cleanMessageText(text) {
   const clean = String(text || "").replace(/\r\n/g, "\n");
   if (!clean.trim()) throw new Error("Message is empty");
   if (clean.length > MAX_MESSAGE_CHARS) throw new Error(`Messages can be up to ${MAX_MESSAGE_CHARS} characters`);
-  const item = await buildItem({ kind: "message", userId, device, conversation, chains, payload: { type: "text", text: clean }, keyring });
+  return clean;
+}
+
+/**
+ * The conversation's timer goes inside the encrypted, signed message too, so the sender's
+ * choice holds in every member's app whatever the server says.
+ */
+const timerOf = (conversation) => {
+  const seconds = Number(conversation.expire_seconds) || 0;
+  return EXPIRY_CHOICES.includes(seconds) && seconds > 0 ? { expire_seconds: seconds } : {};
+};
+
+async function buildMessageBody({ userId, device, conversation, chains, payload, keyring }) {
+  const item = await buildItem({ kind: "message", userId, device, conversation, chains, payload: { ...payload, ...timerOf(conversation) }, keyring });
+  return {
+    action: "send",
+    conversation_id: conversation.id,
+    msg_id: item.itemId,
+    envelope: item.envelope,
+    signature: item.signature,
+    device_id: device.device_id,
+    sent_at: item.sentAt,
+  };
+}
+
+/**
+ * chains: Map(user_id -> verified chain) covering every member, including you.
+ * replyTo: the msg_id of the message this answers, if any. Only the id is sent, never a copy of it.
+ */
+export async function buildMessage({ userId, device, conversation, chains, text, keyring = null, replyTo = null }) {
+  const payload = { type: "text", text: cleanMessageText(text) };
+  if (replyTo !== null && replyTo !== undefined) {
+    if (!isItemId(replyTo)) throw new Error("That message can't be replied to.");
+    payload.reply_to = replyTo;
+  }
+  return buildMessageBody({ userId, device, conversation, chains, payload, keyring });
+}
+
+/** Add (or, with remove, take back) one of the offered reactions to a message. */
+export async function buildReaction({ userId, device, conversation, chains, keyring = null, target, emoji, remove = false }) {
+  if (!isItemId(target)) throw new Error("That message can't be reacted to.");
+  if (!REACTIONS.includes(emoji)) throw new Error("Choose one of the offered reactions.");
+  const payload = { type: "reaction", target, emoji, ...(remove ? { remove: true } : {}) };
+  return buildMessageBody({ userId, device, conversation, chains, payload, keyring });
+}
+
+/** New text for one of your own messages. Everyone sees that it was edited. */
+export async function buildEdit({ userId, device, conversation, chains, keyring = null, target, text }) {
+  if (!isItemId(target)) throw new Error("That message can't be edited.");
+  const payload = { type: "edit", target, text: cleanMessageText(text) };
+  return buildMessageBody({ userId, device, conversation, chains, payload, keyring });
+}
+
+/** What a decrypted message says, checked field by field. Unknown kinds and stray fields are dropped. */
+function messageContent(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const seconds = Number(payload.expire_seconds);
+  const timer = EXPIRY_CHOICES.includes(seconds) && seconds > 0 ? { expire_seconds: seconds } : {};
+  if (payload.type === "text" || payload.type === undefined) {
+    if (typeof payload.text !== "string") return null;
+    return { type: "text", text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...(isItemId(payload.reply_to) ? { reply_to: payload.reply_to } : {}), ...timer };
+  }
+  if (payload.type === "reaction") {
+    if (!isItemId(payload.target) || !REACTIONS.includes(payload.emoji)) return null;
+    return { type: "reaction", target: payload.target, emoji: payload.emoji, remove: payload.remove === true, ...timer };
+  }
+  if (payload.type === "edit") {
+    if (!isItemId(payload.target) || typeof payload.text !== "string" || !payload.text.trim()) return null;
+    return { type: "edit", target: payload.target, text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...timer };
+  }
+  return null;
+}
+
+/** Kept for callers that only send plain text. */
+export async function buildPlainMessage(args) {
+  const clean = cleanMessageText(args.text);
+  const item = await buildItem({ ...args, kind: "message", payload: { type: "text", text: clean } });
   return {
     action: "send",
     conversation_id: conversation.id,
@@ -448,12 +533,12 @@ export async function openItem({ kind, item, userId, keyring, senderChain, sende
       reason = "removed-device";
     }
   }
-  const text = kind === "title" ? payload?.title : payload?.text;
-  if (typeof text !== "string") return { status: "locked", code: "BAD_PAYLOAD", message: "Unrecognised content." };
-  return {
-    status: verified ? "ok" : "unverified",
-    reason: verified ? null : reason,
-    text: text.slice(0, kind === "title" ? 80 : MAX_MESSAGE_CHARS),
-    removedDevice: dev?.status === "revoked",
-  };
+  const base = { status: verified ? "ok" : "unverified", reason: verified ? null : reason, removedDevice: dev?.status === "revoked" };
+  if (kind === "title") {
+    if (typeof payload?.title !== "string") return { status: "locked", code: "BAD_PAYLOAD", message: "Unrecognised content." };
+    return { ...base, text: payload.title.slice(0, 80) };
+  }
+  const content = messageContent(payload);
+  if (!content) return { status: "locked", code: "BAD_PAYLOAD", message: "This message needs a newer version of Commonveil." };
+  return { ...base, text: content.type === "reaction" ? "" : content.text, content };
 }
