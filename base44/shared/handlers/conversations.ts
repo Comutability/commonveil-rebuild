@@ -52,13 +52,14 @@ async function resolveUsernames(sr: any, me: string, usernames: unknown, max: nu
 }
 
 export const conversationActions: Actions = {
-  async list({ sr, user }) {
-    const rows = await myConversations(sr, user.id);
+  // Reads with the caller's own access (see Ctx).
+  async list({ own, user }) {
+    const rows = await myConversations(own, user.id);
     return { conversations: rows.map(conversationOut) };
   },
 
-  async get({ sr, user, body }) {
-    const conv = await conversationForMember(sr, user.id, id(body.conversation_id, "conversation"));
+  async get({ own, user, body }) {
+    const conv = await conversationForMember(own, user.id, id(body.conversation_id, "conversation"));
     return { conversation: conversationOut(conv) };
   },
 
