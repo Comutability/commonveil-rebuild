@@ -393,6 +393,17 @@ export function SecureProvider({ children }) {
 
   // ---------- passcode lock ----------
 
+  // Other tabs of this site in this browser hear about locking, so locking one locks them all,
+  // and a passcode set or removed in one tab applies in every tab straight away.
+  const lockChannel = useRef(null);
+  const tellOtherTabs = useCallback((kind) => {
+    try {
+      lockChannel.current?.postMessage({ userId, kind });
+    } catch {
+      /* other tabs catch up when they next check */
+    }
+  }, [userId]);
+
   /** Close the keys: they're dropped from memory, and the passcode is needed to open them again. */
   const lockNow = useCallback(() => {
     if (!lockKeyRef.current) return;
@@ -402,7 +413,30 @@ export function SecureProvider({ children }) {
     setKeyringState(null);
     clearEnvelopeKeyCache();
     setPhase("locked");
-  }, []);
+    tellOtherTabs("lock");
+  }, [tellOtherTabs]);
+
+  useEffect(() => {
+    if (!userId || typeof BroadcastChannel === "undefined") return undefined;
+    const channel = new BroadcastChannel("commonveil-lock");
+    lockChannel.current = channel;
+    channel.onmessage = (event) => {
+      if (event.data?.userId !== userId) return;
+      if (event.data.kind === "lock") lockNow();
+      if (event.data.kind === "changed") {
+        // The passcode was set, changed or removed elsewhere: read it all again (and ask for it, if there is one).
+        lockKeyRef.current = null;
+        keyringRef.current = null;
+        setKeyringState(null);
+        clearEnvelopeKeyCache();
+        refresh({ silent: true });
+      }
+    };
+    return () => {
+      lockChannel.current = null;
+      channel.close();
+    };
+  }, [userId, lockNow, refresh]);
 
   const unlock = useCallback(async (passcode) => {
     const record = await S.loadLock(userId);
@@ -418,7 +452,8 @@ export function SecureProvider({ children }) {
     await S.saveLockAndKeyring(userId, record, await sealKeyringText(key, userId, serializeKeyring(k)));
     lockKeyRef.current = key;
     setLockInfo({ idle_minutes: record.idle_minutes });
-  }, [userId, phase]);
+    tellOtherTabs("changed");
+  }, [userId, phase, tellOtherTabs]);
 
   const setLockIdle = useCallback(async (idleMinutes) => {
     if (!IDLE_CHOICES.includes(idleMinutes)) throw new Error("Choose when to lock.");
@@ -435,7 +470,8 @@ export function SecureProvider({ children }) {
     await S.saveLockAndKeyring(userId, null, serializeKeyring(k));
     lockKeyRef.current = null;
     setLockInfo(null);
-  }, [userId, phase]);
+    tellOtherTabs("changed");
+  }, [userId, phase, tellOtherTabs]);
 
   /**
    * Forgot the passcode: the keys here can't be opened, so this browser is removed from the
