@@ -13,6 +13,7 @@ import { conversationActions } from "../base44/shared/handlers/conversations.ts"
 import { messageActions } from "../base44/shared/handlers/messages.ts";
 import { safetyActions, adminActions } from "../base44/shared/handlers/safety.ts";
 import { disclosureActions, DISCLOSURE_LIMITS } from "../base44/shared/handlers/disclosure.ts";
+import { resetMaintenanceThrottle, runMaintenance } from "../base44/shared/maintenance.ts";
 
 import { createDeviceKeys } from "../src/lib/crypto/device.js";
 import { createKeyVersion, latestKey, newKeyring, sealKeyringForRecovery, sealKeyringToDevice } from "../src/lib/crypto/keyring.js";
@@ -53,6 +54,8 @@ import {
 const FUNCTIONS = { profile: profileActions, keys: keysActions, conversations: conversationActions, messages: messageActions, safety: safetyActions, admin: adminActions };
 /** Functions that also accept anonymous callers, exactly as their entry files set it up. */
 const PUBLIC_FUNCTIONS = { disclose: disclosureActions };
+/** Functions started by the app's own schedule. They act on no member's say-so, only on what's due. */
+const SCHEDULED_FUNCTIONS = ["maintenance"];
 
 /** A request signed by one of the member's devices (their current one by default). */
 const signed = (member, action, payload, device = member.device) => signedRequest({ userId: member.id, device, action, payload });
@@ -940,9 +943,15 @@ test("review O: rate limits hold when requests arrive at the same moment", async
 test("only the security-report function lets in callers who aren't signed in", () => {
   const dir = new URL("../base44/functions/", import.meta.url);
   const names = readdirSync(dir).sort();
-  assert.deepEqual(names, [...Object.keys(FUNCTIONS), ...Object.keys(PUBLIC_FUNCTIONS)].sort(), "every deployed function is covered here");
+  assert.deepEqual(names, [...Object.keys(FUNCTIONS), ...Object.keys(PUBLIC_FUNCTIONS), ...SCHEDULED_FUNCTIONS].sort(), "every deployed function is covered here");
   for (const name of names) {
     const source = readFileSync(new URL(`${name}/entry.ts`, dir), "utf8");
+    if (SCHEDULED_FUNCTIONS.includes(name)) {
+      // No member actions at all: only the named task, run as the app itself (see the maintenance tests).
+      assert.doesNotMatch(source, /serve\(|Actions|allowAnonymous/, name);
+      assert.match(source, /runMaintenance\(createClientFromRequest\(req\)\.asServiceRole, task, new Date\(\)\)/, name);
+      continue;
+    }
     const isPublic = Object.hasOwn(PUBLIC_FUNCTIONS, name);
     assert.equal(/allowAnonymous/.test(source), isPublic, name);
     if (!isPublic) assert.match(source, /return serve\(req, createClientFromRequest, \w+\);/, `${name} keeps the default sign-in check`);
