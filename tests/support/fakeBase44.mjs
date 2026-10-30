@@ -112,6 +112,8 @@ export class FakeWorld {
     /** Emails the handlers asked to send. Set emailDown to make sending fail. */
     this.emails = [];
     this.emailDown = false;
+    /** Reads made as the service role, which on Base44 share one allowance for the whole app. */
+    this.serviceReads = 0;
     this.entities = new Proxy({}, {
       get: (target, name) => {
         if (typeof name !== "string") return undefined;
@@ -222,6 +224,30 @@ export class FakeWorld {
     });
   }
 
+  /** The store as the service role sees it: everything, with reads counted. */
+  #asService() {
+    const world = this;
+    return new Proxy({}, {
+      get: (_target, name) => {
+        if (typeof name !== "string") return undefined;
+        const store = world.entities[name];
+        return {
+          filter: (...args) => {
+            world.serviceReads += 1;
+            return store.filter(...args);
+          },
+          get: (...args) => {
+            world.serviceReads += 1;
+            return store.get(...args);
+          },
+          create: (...args) => store.create(...args),
+          update: (...args) => store.update(...args),
+          delete: (...args) => store.delete(...args),
+        };
+      },
+    });
+  }
+
   /** What createClientFromRequest returns inside a function, for a given caller. */
   clientFor(user) {
     return {
@@ -233,7 +259,7 @@ export class FakeWorld {
         },
       },
       asServiceRole: {
-        entities: this.entities,
+        entities: this.#asService(),
         integrations: {
           Core: {
             SendEmail: async (args) => {
