@@ -222,7 +222,7 @@ export function isAdmin(conv: any, userId: string) {
   return conv.kind !== "group" || (conv.admin_ids || []).includes(userId);
 }
 
-export function requireAdmin(conv: any, userId: string, what: string) {
+export function requireGroupAdmin(conv: any, userId: string, what: string) {
   if (!isAdmin(conv, userId)) throw new ApiError(403, "NOT_ADMIN", `Only the group's admins can ${what}.`);
 }
 
