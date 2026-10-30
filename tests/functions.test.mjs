@@ -1340,7 +1340,7 @@ test("group admins: only admins add, remove, rename, set the timer or choose adm
   const removed = (await conversationCall(bob, "remove_member", { conversation_id: group.id, user_id: carol.id })).body.conversation;
   assert.deepEqual(removed.member_ids, [alice.id, bob.id, dave.id]);
   assert.equal((await carol.call("conversations", { action: "get", conversation_id: group.id })).status, 404, "Carol no longer sees it");
-  assert.equal((await carol.send(removed, "still here?")).status, 404);
+  assert.equal((await carol.call("messages", { action: "list", conversation_id: group.id })).status, 404);
   assert.equal((await conversationCall(bob, "remove_member", { conversation_id: group.id, user_id: carol.id })).body.code, "NOT_MEMBER");
   assert.equal((await conversationCall(bob, "remove_member", { conversation_id: group.id, user_id: bob.id })).body.code, "BAD_FIELD", "leaving is separate");
   assert.equal((await conversationCall(bob, "set_admin", { conversation_id: group.id, user_id: carol.id, admin: true })).body.code, "NOT_MEMBER");
