@@ -2,18 +2,12 @@
 // only by their exact username, and see profiles of people you share a
 // conversation with.
 import { ApiError, cleanText, idList, type Actions } from "../http.ts";
-import { accountKeysOf, blockedEitherWay, contactsOf, profileOf, publicProfile, withRow } from "../store.ts";
+import { AUTO_DELETE_DAYS, accountKeysOf, blockedEitherWay, contactsOf, dayOf, profileOf, publicProfile, withRow } from "../store.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
 import { isRetiredUsername, purgeAccount, removePlatformUser } from "../accountDeletion.ts";
 
 /** How long one call may spend deleting before it returns and asks to be called again. */
 const DELETION_BUDGET_MS = 45_000;
-
-/** Delete the account after this many days without use: off, about six months, a year. */
-export const AUTO_DELETE_DAYS = Object.freeze([0, 183, 365]);
-
-/** A day, "2026-10-30": all that's kept of when an account was last used, and only while auto-delete is on. */
-export const dayOf = (d: Date) => d.toISOString().slice(0, 10);
 
 function autoDeleteOut(p: any) {
   const days = Number(p?.delete_after_days) || 0;
