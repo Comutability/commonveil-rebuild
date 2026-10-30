@@ -104,11 +104,14 @@ async function signedByResetDevice(ctx: Ctx, action: string) {
   return request;
 }
 
-/** Best effort: the account's own devices also show the request, and can cancel it there. */
-async function emailResetNotice(sr: any, user: any, effectiveAt: Date) {
+/**
+ * Best effort: the account's own devices also show the request, and can cancel it there.
+ * Returns whether the email service accepted the message.
+ */
+async function emailResetNotice(sr: any, user: any, effectiveAt: Date): Promise<boolean> {
   try {
     const send = sr?.integrations?.Core?.SendEmail;
-    if (typeof send !== "function" || typeof user.email !== "string" || !user.email.includes("@")) return;
+    if (typeof send !== "function" || typeof user.email !== "string" || !user.email.includes("@")) return false;
     const when = effectiveAt.toUTCString().replace(" GMT", " UTC");
     await send({
       to: user.email,
@@ -124,8 +127,10 @@ async function emailResetNotice(sr: any, user: any, effectiveAt: Date) {
         "Until the reset completes, nothing changes: your devices, keys and messages stay as they are.",
       ].join("\n"),
     });
+    return true;
   } catch {
-    /* in-app notices still show */
+    // In-app notices still show.
+    return false;
   }
 }
 
@@ -527,8 +532,8 @@ export const keysActions: Actions = {
       await sr.entities.ResetRequest.delete(row.id);
       throw rateLimited("requesting resets");
     }
-    await emailResetNotice(sr, user, effective);
-    return { request: resetOut(row) };
+    const emailed = await emailResetNotice(sr, user, effective);
+    return { request: resetOut(row), emailed };
   },
 
   /** From the browser that asked: complete the reset once the waiting period is over. */
