@@ -1,16 +1,22 @@
 import React, { useEffect, useState } from "react";
-import { AlertTriangle, KeyRound, Laptop, LogOut, ShieldCheck, Smartphone, Trash2, UserRound } from "lucide-react";
+import { AlertTriangle, Bell, CalendarClock, Download, KeyRound, Laptop, Lock, LogOut, ShieldCheck, Smartphone, Trash2, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { NativeSelect } from "@/components/ui/native-select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { ErrorNote, Pill, formatDate } from "@/components/site/bits";
 import { PhraseCheckpoint } from "@/components/app/Phrase";
 import { DeleteAccountForm } from "@/components/app/DeleteAccount";
 import { callFn } from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
 import { useSecure } from "@/lib/secure/SecureContext";
+import { useChat } from "@/lib/secure/ChatContext";
+import { askNotificationPermission, notificationPermission, notificationsSupported } from "@/lib/secure/alerts.js";
+import { buildExport, downloadJson } from "@/lib/secure/exportData.js";
+import { IDLE_CHOICES, MIN_PASSCODE_CHARS } from "@/lib/crypto/lock.js";
 import { groupDigits, linkCode, safetyFingerprint } from "@/lib/crypto/identity.js";
 
 function Section({ icon: Icon, title, children, description }) {
@@ -279,6 +285,241 @@ function RecoverySection() {
   );
 }
 
+function Toggle({ id, checked, onChange, disabled, children, hint }) {
+  return (
+    <div className="flex items-start gap-3">
+      <Checkbox id={id} checked={checked} disabled={disabled} onCheckedChange={(v) => onChange(Boolean(v))} className="mt-0.5" />
+      <div>
+        <Label htmlFor={id} className="font-normal">{children}</Label>
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      </div>
+    </div>
+  );
+}
+
+/** Notifications and an unread count, on this browser only. */
+function AlertsSection() {
+  const { alerts, updateAlerts } = useChat();
+  const [permission, setPermission] = useState(notificationPermission());
+  const [error, setError] = useState("");
+  const supported = notificationsSupported();
+  const change = async (changes) => {
+    setError("");
+    try {
+      if (changes.notify) {
+        const p = await askNotificationPermission();
+        setPermission(p);
+        if (p !== "granted") {
+          setError(p === "denied" ? "Your browser is blocking notifications for this site. Allow them in the browser's site settings first." : "Notifications weren't allowed.");
+          return;
+        }
+      }
+      await updateAlerts(changes);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+  return (
+    <Section icon={Bell} title="Alerts on this browser" description="Off unless you turn them on. They're set for this browser only and never sent anywhere.">
+      <div className="space-y-4 text-sm">
+        <Toggle
+          id="alert-notify"
+          checked={alerts.notify && permission === "granted"}
+          disabled={!supported}
+          onChange={(v) => change({ notify: v })}
+          hint={supported
+            ? "Shown while Commonveil is open in a tab, when you're not already looking at that conversation. A notification says \"New message\" and never what it says. There are no push notifications: nothing is sent to your browser's maker or anyone else."
+            : "This browser doesn't support notifications from web pages."}
+        >
+          Notify me of new messages
+        </Toggle>
+        <Toggle
+          id="alert-sender"
+          checked={alerts.showSender}
+          disabled={!alerts.notify}
+          onChange={(v) => change({ showSender: v })}
+          hint="Notifications can show on a locked screen, so this is off unless you want it."
+        >
+          Say who it's from
+        </Toggle>
+        <Toggle id="alert-title" checked={alerts.titleCount} onChange={(v) => change({ titleCount: v })} hint="For example \"(2) Commonveil\", so you can see it from another tab.">
+          Show the number of unread conversations in the tab's title
+        </Toggle>
+        <ErrorNote>{error}</ErrorNote>
+      </div>
+    </Section>
+  );
+}
+
+/** A passcode that encrypts this browser's keys, and locks after a while without use. */
+function LockSection() {
+  const { lockInfo, setPasscode, setLockIdle, removePasscode, lockNow } = useSecure();
+  const [editing, setEditing] = useState(false);
+  const [first, setFirst] = useState("");
+  const [second, setSecond] = useState("");
+  const [idle, setIdle] = useState(lockInfo?.idle_minutes || 15);
+  const [state, setState] = useState({ busy: false, msg: "", error: "" });
+  const run = async (fn, msg) => {
+    setState({ busy: true, msg: "", error: "" });
+    try {
+      await fn();
+      setState({ busy: false, msg, error: "" });
+    } catch (err) {
+      setState({ busy: false, msg: "", error: err.message });
+    }
+  };
+  const save = (e) => {
+    e.preventDefault();
+    if (first !== second) {
+      setState({ busy: false, msg: "", error: "The two passcodes don't match." });
+      return;
+    }
+    run(async () => {
+      await setPasscode(first, idle);
+      setFirst("");
+      setSecond("");
+      setEditing(false);
+    }, lockInfo ? "Passcode changed." : "This browser is now locked with your passcode.");
+  };
+  return (
+    <Section icon={Lock} title="Passcode lock" description="Encrypts this browser's copy of your keys with a passcode, and locks after a while without use.">
+      <div className="space-y-4 text-sm">
+        <p className="text-muted-foreground">
+          While it's locked, your keys aren't in memory and your conversations aren't shown. It's for this browser only: set one on each
+          device you want locked. There's no way to recover a forgotten passcode; you'd set this browser up again from another device or
+          with your recovery phrase. Someone who copies this browser's files can still try guesses, so a longer passcode is stronger.
+        </p>
+        {lockInfo && !editing && (
+          <div className="space-y-3">
+            <p className="flex items-center gap-1.5 text-primary"><ShieldCheck className="h-4 w-4" aria-hidden="true" /> On.</p>
+            <div className="max-w-xs space-y-1.5">
+              <Label htmlFor="lock-idle">Lock after</Label>
+              <NativeSelect
+                id="lock-idle"
+                value={String(lockInfo.idle_minutes)}
+                disabled={state.busy}
+                onChange={(e) => {
+                  const minutes = Number(e.target.value);
+                  setIdle(minutes);
+                  run(() => setLockIdle(minutes), "Saved.");
+                }}
+              >
+                {IDLE_CHOICES.map((m) => <option key={m} value={String(m)}>{m === 60 ? "1 hour" : `${m} minutes`} without use</option>)}
+              </NativeSelect>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={lockNow}>Lock now</Button>
+              <Button variant="outline" onClick={() => { setEditing(true); setState({ busy: false, msg: "", error: "" }); }}>Change passcode</Button>
+              <Button variant="ghost" className="text-destructive" disabled={state.busy} onClick={() => run(removePasscode, "The lock is off. Your keys are stored on this browser without it.")}>
+                Turn off
+              </Button>
+            </div>
+          </div>
+        )}
+        {(!lockInfo || editing) && (
+          <form onSubmit={save} className="max-w-sm space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="passcode-new">{lockInfo ? "New passcode" : "Passcode"}</Label>
+              <Input id="passcode-new" type="password" autoComplete="new-password" value={first} onChange={(e) => setFirst(e.target.value)} />
+              <p className="text-xs text-muted-foreground">At least {MIN_PASSCODE_CHARS} characters. A few unrelated words make a strong one.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="passcode-again">Type it again</Label>
+              <Input id="passcode-again" type="password" autoComplete="new-password" value={second} onChange={(e) => setSecond(e.target.value)} />
+            </div>
+            {!lockInfo && (
+              <div className="space-y-1.5">
+                <Label htmlFor="lock-idle-new">Lock after</Label>
+                <NativeSelect id="lock-idle-new" value={String(idle)} onChange={(e) => setIdle(Number(e.target.value))}>
+                  {IDLE_CHOICES.map((m) => <option key={m} value={String(m)}>{m === 60 ? "1 hour" : `${m} minutes`} without use</option>)}
+                </NativeSelect>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button type="submit" disabled={state.busy || first.length < MIN_PASSCODE_CHARS || !second}>{state.busy ? "Encrypting…" : lockInfo ? "Change passcode" : "Turn on"}</Button>
+              {editing && <Button type="button" variant="ghost" onClick={() => { setEditing(false); setFirst(""); setSecond(""); }}>Cancel</Button>}
+            </div>
+          </form>
+        )}
+        <ErrorNote>{state.error}</ErrorNote>
+        {state.msg && <p className="text-primary">{state.msg}</p>}
+      </div>
+    </Section>
+  );
+}
+
+/** A copy of everything the service holds about you, decrypted here and saved as a file. */
+function DataSection() {
+  const secure = useSecure();
+  const { user } = useAuth();
+  const [state, setState] = useState({ busy: false, progress: "", error: "", done: false });
+  const start = async () => {
+    setState({ busy: true, progress: "Starting", error: "", done: false });
+    try {
+      const data = await buildExport(secure, { email: user?.email || null, onProgress: (progress) => setState((s) => ({ ...s, progress })) });
+      downloadJson(data, `commonveil-data-${new Date().toISOString().slice(0, 10)}.json`);
+      setState({ busy: false, progress: "", error: "", done: true });
+    } catch (err) {
+      setState({ busy: false, progress: "", error: err.message, done: false });
+    }
+  };
+  return (
+    <Section icon={Download} title="Download your data" description="Everything Commonveil holds about your account, in one file.">
+      <div className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          Your profile, devices, conversations and every message you can read, decrypted here in your browser and saved as a JSON file.
+          Nothing is sent anywhere to make it, and your keys aren't in it. The file holds your messages in readable form, so keep it
+          somewhere safe.
+        </p>
+        <ErrorNote>{state.error}</ErrorNote>
+        {state.done && <p className="text-primary">Done. Check your downloads.</p>}
+        <Button variant="outline" disabled={state.busy} onClick={start}>
+          <Download className="mr-2 h-4 w-4" aria-hidden="true" /> {state.busy ? `Working: ${state.progress}…` : "Download my data"}
+        </Button>
+      </div>
+    </Section>
+  );
+}
+
+/** Opt in to having the account deleted after a stretch without use. */
+function AutoDeleteSection() {
+  const { me, setAutoDelete, isAdmin } = useSecure();
+  const current = me?.auto_delete || { days: 0 };
+  const [state, setState] = useState({ busy: false, msg: "", error: "" });
+  if (isAdmin) return null;
+  const change = async (days) => {
+    setState({ busy: true, msg: "", error: "" });
+    try {
+      await setAutoDelete(days);
+      setState({ busy: false, msg: days ? "Saved." : "Off. The day you last used Commonveil is no longer kept.", error: "" });
+    } catch (err) {
+      setState({ busy: false, msg: "", error: err.message });
+    }
+  };
+  return (
+    <Section icon={CalendarClock} title="Delete my account if I stop using it" description="Off unless you turn it on.">
+      <div className="space-y-3 text-sm">
+        <div className="max-w-xs space-y-1.5">
+          <Label htmlFor="auto-delete">Delete my account after</Label>
+          <NativeSelect id="auto-delete" value={String(current.days || 0)} disabled={state.busy} onChange={(e) => change(Number(e.target.value))}>
+            <option value="0">Never (off)</option>
+            <option value="183">6 months without use</option>
+            <option value="365">1 year without use</option>
+          </NativeSelect>
+        </div>
+        <p className="text-muted-foreground">
+          While this is on, the server keeps the date (not the time) you last opened Commonveil, and nothing else about your use. A week
+          before the deletion, your sign-in email address is sent a warning; opening Commonveil before then keeps your account. Deletion
+          removes everything, exactly as if you'd deleted the account yourself. Turning this off forgets the date.
+        </p>
+        {current.days > 0 && current.last_active_on && <p>Last used: {formatDate(current.last_active_on)}.</p>}
+        <ErrorNote>{state.error}</ErrorNote>
+        {state.msg && <p className="text-primary">{state.msg}</p>}
+      </div>
+    </Section>
+  );
+}
+
 function BlockedSection() {
   const [blocked, setBlocked] = useState(null);
   const load = () => callFn("safety", { action: "list_blocks" }).then((r) => setBlocked(r.blocked)).catch(() => setBlocked([]));
@@ -344,8 +585,12 @@ export default function Settings() {
       <DevicesSection />
       <ProfileSection />
       <RecoverySection />
+      <LockSection />
+      <AlertsSection />
       <BlockedSection />
+      <DataSection />
       <SignOutSection />
+      <AutoDeleteSection />
       <DeleteSection />
     </div>
   );
