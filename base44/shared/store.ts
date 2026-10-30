@@ -211,14 +211,44 @@ export async function withinRate(sr: any, entity: string, query: any, windowMs: 
  */
 export const addressedTo = (userId: string) => ({ $or: [{ recipient_ids: userId }, { recipient_ids: null }] });
 
+/** Disappearing-message timers a conversation can have, in seconds: off, a day, a week, four weeks. */
+export const EXPIRY_CHOICES = Object.freeze([0, 86_400, 604_800, 2_419_200]);
+
+/** False once a disappearing message's time is up, even before the hourly clean-up deletes it. */
+export const isLive = (m: any, now: Date) => !m.expires_at || Date.parse(m.expires_at) > now.getTime();
+
+/** Group admins; in a direct message both people manage their own conversation. */
+export function isAdmin(conv: any, userId: string) {
+  return conv.kind !== "group" || (conv.admin_ids || []).includes(userId);
+}
+
+export function requireAdmin(conv: any, userId: string, what: string) {
+  if (!isAdmin(conv, userId)) throw new ApiError(403, "NOT_ADMIN", `Only the group's admins can ${what}.`);
+}
+
+/**
+ * Who's left, and who manages, once someone leaves or is removed. A group is never left
+ * without an admin: if the last one goes, the longest-standing member takes over.
+ */
+export function withoutMember(conv: any, userId: string) {
+  const member_ids = (conv.member_ids || []).filter((m: string) => m !== userId);
+  let admin_ids = (conv.admin_ids || []).filter((m: string) => m !== userId && member_ids.includes(m));
+  if (!admin_ids.length && member_ids.length) admin_ids = [member_ids[0]];
+  return { member_ids, admin_ids };
+}
+
 export const conversationOut = (c: any) => ({
   id: c.id,
   kind: c.kind,
   member_ids: c.member_ids || [],
+  admin_ids: c.kind === "group" ? c.admin_ids || [] : [],
   creator_id: c.creator_id || "",
   created_date: c.created_date,
   updated_date: c.updated_date,
   last_message_at: c.last_message_at || null,
+  expire_seconds: Number(c.expire_seconds) || 0,
+  expiry_set_by: c.expiry_set_by || null,
+  expiry_set_at: c.expiry_set_at || null,
   title: c.title_envelope
     ? {
         envelope: c.title_envelope,
@@ -241,6 +271,7 @@ export const messageOut = (m: any) => ({
   signature: m.deleted ? null : m.signature,
   sent_at: m.sent_at,
   created_date: m.created_date,
+  expires_at: m.expires_at || null,
   deleted: Boolean(m.deleted),
 });
 
