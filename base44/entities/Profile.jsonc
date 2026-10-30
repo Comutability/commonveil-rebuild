@@ -19,6 +19,18 @@
     },
     "bio": {
       "type": "string"
+    },
+    "delete_after_days": {
+      "type": "number",
+      "description": "Opt-in: delete the account after this many days without use. 0 or missing: off."
+    },
+    "last_active_at": {
+      "type": "string",
+      "description": "Kept only while delete_after_days is on, to the day."
+    },
+    "inactive_warned_at": {
+      "type": "string",
+      "description": "When the member was emailed that the account will be deleted soon."
     }
   },
   "required": [
