@@ -2,26 +2,38 @@
 //
 // Trust rules the server enforces (it can't read keys, but it can refuse):
 // - The first key statement must be self-signed; every later one must be signed
-//   by the previous key, except an explicit account reset.
+//   by the previous key, except an account reset. Statements made with the recovery
+//   phrase to hand (setup, a new phrase, a reset) must carry its anchor.
 // - A device becomes active only with a certificate signed by the account's
 //   current key: from an approving device, or from a device that opened the
 //   recovery backup with the phrase. A signed-in session alone is never enough.
+// - A reset (every device and the phrase lost) waits LIMITS.resetDelayHours, and any
+//   of the account's devices, or the phrase, can cancel it. A password alone can ask
+//   for one, but can't take the account over before its owner has had time to stop it.
 // - Sensitive actions carry a proof signed by an active device's own key.
-import { ApiError, LIMITS, idList, int, parsePlatformTime, randomIdField, type Actions, type Ctx } from "../http.ts";
-import { parseDevice, parseStatement, requireSealed, verifyCert, verifyProof, verifyStatement } from "../verify.ts";
+import { ApiError, LIMITS, id, idList, int, parsePlatformTime, randomIdField, type Actions, type Ctx } from "../http.ts";
+import { parseDevice, parseStatement, requireRecoveryAnchor, requireSealed, verifyCert, verifyProof, verifyStatement } from "../verify.ts";
 import { payloadOf, signedByActiveDevice } from "../deviceAuth.ts";
 import {
   accountKeysOf,
+  byAge,
   contactsOf,
   deviceOf,
   deviceOut,
   devicesOf,
+  enforceRate,
   latestKeyOf,
+  ownStatementOut,
   peerDeviceOut,
   pendingExpired,
   profileOf,
+  rateLimited,
   statementOut,
+  uniqueVersions,
+  withinRate,
 } from "../store.ts";
+
+const DAY = 24 * 3600_000;
 
 /** The request is signed by the new device it describes (proves it holds that key). */
 async function signedByNewDevice(ctx: Ctx, action: string) {
@@ -52,10 +64,6 @@ function requireKeyringEnvelope(raw: any, version: number, signPub: string, name
   return requireSealed(raw.sealed, name);
 }
 
-/** Oldest row wins when two requests race to create the same thing. */
-const byAge = (a: any, b: any) =>
-  String(a.created_date).localeCompare(String(b.created_date)) || String(a.id).localeCompare(String(b.id));
-
 async function publishKey(sr: any, userId: string, statement: any, isReset: boolean) {
   const key = await sr.entities.AccountKey.create({ ...statement, is_reset: isReset });
   const sameVersion = (await sr.entities.AccountKey.filter({ user_id: userId, version: statement.version }, "created_date", 10)).sort(byAge);
@@ -66,13 +74,71 @@ async function publishKey(sr: any, userId: string, statement: any, isReset: bool
   return key;
 }
 
+// ---------- resets ----------
+
+const resetOut = (r: any) => ({
+  id: r.id,
+  device_id: r.device_id,
+  device_label: r.device_label || "A browser",
+  requested_at: r.created_date,
+  effective_at: r.effective_at,
+  status: r.status,
+  ended_by: r.ended_by || "",
+});
+
+async function waitingResets(sr: any, userId: string) {
+  return sr.entities.ResetRequest.filter({ user_id: userId, status: "waiting" }, "created_date", 20);
+}
+
+async function endResets(sr: any, rows: any[], status: string, by: string, now: Date) {
+  for (const r of rows) await sr.entities.ResetRequest.update(r.id, { status, ended_by: by, ended_at: now.toISOString() });
+}
+
+/** The request is signed by the browser a reset request came from. */
+async function signedByResetDevice(ctx: Ctx, action: string) {
+  const { json, data } = payloadOf(ctx.body);
+  const request = await ctx.sr.entities.ResetRequest.get(id(data.request_id, "request")).catch(() => null);
+  if (!request || request.user_id !== ctx.user.id) throw new ApiError(404, "NOT_FOUND", "That reset request wasn't found.");
+  const proofDevice = await verifyProof({ userId: ctx.user.id, action, payloadJson: json, proof: ctx.body.proof, signPub: request.device_sign_pub, now: ctx.now });
+  if (proofDevice !== request.device_id) throw new ApiError(403, "PROOF_INVALID", "This browser couldn't prove it made the request.");
+  return request;
+}
+
+/** Best effort: the account's own devices also show the request, and can cancel it there. */
+async function emailResetNotice(sr: any, user: any, effectiveAt: Date) {
+  try {
+    const send = sr?.integrations?.Core?.SendEmail;
+    if (typeof send !== "function" || typeof user.email !== "string" || !user.email.includes("@")) return;
+    const when = effectiveAt.toUTCString().replace(" GMT", " UTC");
+    await send({
+      to: user.email,
+      subject: "Commonveil: someone asked to reset your encryption keys",
+      body: [
+        "Someone signed in to your Commonveil account and asked to reset its encryption keys.",
+        "",
+        `If that was you, there's nothing to do. The reset completes on ${when}.`,
+        "",
+        "If it wasn't you: open Commonveil on one of your devices, where you'll see the request and can cancel it,",
+        "or unlock your keys with your recovery phrase, which cancels it too. Then change your password.",
+        "",
+        "Until the reset completes, nothing changes: your devices, keys and messages stay as they are.",
+      ].join("\n"),
+    });
+  } catch {
+    /* in-app notices still show */
+  }
+}
+
 export const keysActions: Actions = {
   async status({ sr, user, now }) {
-    const [keys, devices, envelopes] = await Promise.all([
+    const [keyRows, devices, envelopes, resets] = await Promise.all([
       accountKeysOf(sr, user.id),
       devicesOf(sr, user.id),
       sr.entities.KeyEnvelope.filter({ user_id: user.id }, "-created_date", 300),
+      sr.entities.ResetRequest.filter({ user_id: user.id }, "-created_date", 5),
     ]);
+    await expireStalePending(sr, devices, now);
+    const keys = uniqueVersions(keyRows);
     const latest = latestKeyOf(keys);
     const recovery = latest
       ? envelopes.find((e: any) => e.kind === "recovery" && e.keyring_version === latest.version && e.key_sign_pub === latest.sign_pub)
@@ -83,9 +149,10 @@ export const keysActions: Actions = {
         .map((e: any) => e.device_id),
     );
     return {
-      statements: keys.map(statementOut),
+      statements: keys.map(ownStatementOut),
       devices: devices.map((d: any) => ({ ...deviceOut(d, now), keys_waiting: waiting.has(d.device_id) })),
       recovery: recovery ? { keyring_version: recovery.keyring_version, recovery_pub: recovery.recovery_pub } : null,
+      resets: resets.map(resetOut),
     };
   },
 
@@ -100,6 +167,7 @@ export const keysActions: Actions = {
     const statement = await parseStatement(data.statement, user.id);
     if (statement.version !== 1 || statement.signed_by_version !== 1) throw new ApiError(400, "BAD_STATEMENT", "The first key must be version 1.");
     if (!(await verifyStatement(statement, statement.sign_pub))) throw new ApiError(403, "STATEMENT_INVALID", "The key statement failed its signature check.");
+    requireRecoveryAnchor(statement);
     const cert = await verifyCert(data.cert, user.id, device, 1, statement.sign_pub);
     const recoverySealed = requireKeyringEnvelope(data.recovery, 1, statement.sign_pub, "recovery backup");
 
@@ -137,7 +205,7 @@ export const keysActions: Actions = {
     if (!(await accountKeysOf(sr, user.id)).length) throw new ApiError(409, "NOT_INITIALISED", "Encryption isn't set up for this account yet.");
     const devices = await devicesOf(sr, user.id);
     await expireStalePending(sr, devices, now);
-    if (devices.some((d: any) => d.device_id === device.device_id)) throw new ApiError(409, "DEVICE_EXISTS", "This device is already registered.");
+    if (await deviceOf(sr, user.id, device.device_id)) throw new ApiError(409, "DEVICE_EXISTS", "This device is already registered.");
     const live = liveDevices(devices, now);
     if (live.length >= LIMITS.maxDevices) {
       throw new ApiError(409, "TOO_MANY_DEVICES", `You can have up to ${LIMITS.maxDevices} devices. Remove one first.`);
@@ -145,12 +213,17 @@ export const keysActions: Actions = {
     if (live.filter((d: any) => d.status === "pending").length >= LIMITS.maxPendingDevices) {
       throw new ApiError(429, "TOO_MANY_PENDING", "Too many devices are waiting for approval. Approve or deny them first.");
     }
+    await enforceRate(sr, "Device", { user_id: user.id }, DAY, LIMITS.registrationsPerDay, now, "adding devices");
     const row = await sr.entities.Device.create({
       user_id: user.id,
       ...device,
       status: "pending",
       pending_expires_at: new Date(now.getTime() + LIMITS.pendingDeviceMinutes * 60_000).toISOString(),
     });
+    if (!(await withinRate(sr, "Device", { user_id: user.id }, DAY, LIMITS.registrationsPerDay, now, row))) {
+      await sr.entities.Device.delete(row.id);
+      throw rateLimited("adding devices");
+    }
     return { device: deviceOut(row, now) };
   },
 
@@ -260,7 +333,7 @@ export const keysActions: Actions = {
 
   /** The encrypted recovery backup. Useless without the 24-word phrase. */
   async get_recovery({ sr, user }) {
-    const keys = await accountKeysOf(sr, user.id);
+    const keys = uniqueVersions(await accountKeysOf(sr, user.id));
     const latest = latestKeyOf(keys);
     if (!latest) throw new ApiError(409, "NOT_INITIALISED", "Encryption isn't set up for this account yet.");
     const rows = await sr.entities.KeyEnvelope.filter(
@@ -270,12 +343,12 @@ export const keysActions: Actions = {
     );
     if (!rows[0]) throw new ApiError(404, "NO_BACKUP", "No recovery backup was found for your current keys.");
     return {
-      statements: keys.map(statementOut),
+      statements: keys.map(ownStatementOut),
       recovery: { keyring_version: rows[0].keyring_version, recovery_pub: rows[0].recovery_pub, sealed: JSON.parse(rows[0].sealed) },
     };
   },
 
-  /** A device that opened the recovery backup certifies itself with the account key. */
+  /** A device that opened the recovery backup certifies itself with the account key. It also stops any waiting reset. */
   async recover_device(ctx) {
     const { sr, user, now } = ctx;
     const { device, data } = await signedByNewDevice(ctx, "recover_device");
@@ -295,19 +368,22 @@ export const keysActions: Actions = {
       synced_key_version: latest.version,
       last_seen_at: at,
     };
-    const existing = devices.find((d: any) => d.device_id === device.device_id);
+    const existing = await deviceOf(sr, user.id, device.device_id);
+    let row;
     if (existing) {
       // A pending link request from this same browser can be completed by recovery instead.
       if (existing.status !== "pending" || existing.sign_pub !== device.sign_pub || existing.box_pub !== device.box_pub) {
         throw new ApiError(409, "DEVICE_EXISTS", "This device is already registered.");
       }
-      const updated = await sr.entities.Device.update(existing.id, fields);
-      return { device: deviceOut({ ...existing, ...updated }, now) };
+      row = { ...existing, ...(await sr.entities.Device.update(existing.id, fields)) };
+    } else {
+      if (liveDevices(devices, now).length >= LIMITS.maxDevices) {
+        throw new ApiError(409, "TOO_MANY_DEVICES", `You can have up to ${LIMITS.maxDevices} devices. Remove one first.`);
+      }
+      row = await sr.entities.Device.create({ user_id: user.id, ...device, ...fields });
     }
-    if (liveDevices(devices, now).length >= LIMITS.maxDevices) {
-      throw new ApiError(409, "TOO_MANY_DEVICES", `You can have up to ${LIMITS.maxDevices} devices. Remove one first.`);
-    }
-    const row = await sr.entities.Device.create({ user_id: user.id, ...device, ...fields });
+    // Whoever holds the phrase is the account's owner: a reset someone asked for stops here.
+    await endResets(sr, await waitingResets(sr, user.id), "cancelled", "recovery", now);
     return { device: deviceOut(row, now) };
   },
 
@@ -336,11 +412,15 @@ export const keysActions: Actions = {
     const { device: actor, data } = await signedByActiveDevice(ctx, "rotate_keys");
     const latest = latestKeyOf(await accountKeysOf(sr, user.id));
     if (!latest) throw new ApiError(409, "NOT_INITIALISED", "Encryption isn't set up for this account yet.");
+    if (latest.version >= LIMITS.maxKeyVersions) throw new ApiError(409, "TOO_MANY_VERSIONS", "This account's keys have changed too many times. Contact support.");
     const statement = await parseStatement(data.statement, user.id);
     if (statement.version !== latest.version + 1 || statement.signed_by_version !== latest.version) {
       throw new ApiError(409, "STALE_KEYS", "Your keys changed on another device. Refresh and try again.");
     }
     if (!(await verifyStatement(statement, latest.sign_pub))) throw new ApiError(403, "STATEMENT_INVALID", "The new key wasn't signed by your current key.");
+    // A new phrase is anchored with the phrase itself; an ordinary rotation carries no anchor.
+    if (statement.recovery_pub !== latest.recovery_pub) requireRecoveryAnchor(statement);
+    else statement.recovery_mac = "";
 
     const active = (await devicesOf(sr, user.id)).filter((d: any) => d.status === "active");
     const certs = Array.isArray(data.certs) ? data.certs : [];
@@ -399,32 +479,84 @@ export const keysActions: Actions = {
   },
 
   /**
-   * Lost every device and the phrase: start a new, unlinked identity.
-   * Old messages become unreadable and contacts see that your keys changed.
+   * Lost every device and the phrase: ask to start a new, unlinked identity. Nothing
+   * changes yet. The request waits LIMITS.resetDelayHours; the account's own devices
+   * show it and can cancel it, so can the phrase, and the account's email is told.
    */
-  async reset_account(ctx) {
+  async request_reset(ctx) {
     const { sr, user, now } = ctx;
-    const { device, data } = await signedByNewDevice(ctx, "reset_account");
+    const { device, data } = await signedByNewDevice(ctx, "request_reset");
     if (data.confirm !== "RESET") throw new ApiError(400, "CONFIRM_REQUIRED", "Type RESET to confirm.");
-    const keys = await accountKeysOf(sr, user.id);
-    const latest = latestKeyOf(keys);
+    const latest = latestKeyOf(await accountKeysOf(sr, user.id));
     if (!latest) throw new ApiError(409, "NOT_INITIALISED", "Encryption isn't set up yet, so there's nothing to reset.");
-    const recentResets = keys.filter((k: any) => k.is_reset && now.getTime() - parsePlatformTime(k.created_date) < 24 * 3600_000).length;
-    if (recentResets >= LIMITS.resetsPerDay) throw new ApiError(429, "RATE_LIMITED", "Too many resets today. Please try again tomorrow.");
     const statement = await parseStatement(data.statement, user.id);
     if (statement.version !== latest.version + 1 || statement.signed_by_version !== statement.version) {
       throw new ApiError(409, "STALE_KEYS", "Your keys changed. Refresh and try again.");
     }
     if (!(await verifyStatement(statement, statement.sign_pub))) throw new ApiError(403, "STATEMENT_INVALID", "The key statement failed its signature check.");
+    requireRecoveryAnchor(statement);
     const cert = await verifyCert(data.cert, user.id, device, statement.version, statement.sign_pub);
     const recoverySealed = requireKeyringEnvelope(data.recovery, statement.version, statement.sign_pub, "recovery backup");
+    const existing = await deviceOf(sr, user.id, device.device_id);
+    if (existing && existing.status === "active") throw new ApiError(409, "DEVICE_EXISTS", "This browser is already set up, so there's nothing to reset.");
+
+    const waiting = await waitingResets(sr, user.id);
+    if (waiting.some((r: any) => r.device_id !== device.device_id)) {
+      throw new ApiError(409, "RESET_PENDING", "A reset was already requested from another browser. It can be cancelled from one of your devices.");
+    }
+    await enforceRate(sr, "ResetRequest", { user_id: user.id }, DAY, LIMITS.resetsPerDay, now, "requesting resets");
+    await endResets(sr, waiting, "withdrawn", "requester", now);
+    const effective = new Date(now.getTime() + LIMITS.resetDelayHours * 3600_000);
+    const row = await sr.entities.ResetRequest.create({
+      user_id: user.id,
+      device_id: device.device_id,
+      device_label: device.label,
+      device_sign_pub: device.sign_pub,
+      device_box_pub: device.box_pub,
+      statement: JSON.stringify(statement),
+      cert: JSON.stringify(cert),
+      recovery_sealed: recoverySealed,
+      recovery_pub: statement.recovery_pub,
+      key_sign_pub: statement.sign_pub,
+      effective_at: effective.toISOString(),
+      status: "waiting",
+      ended_by: "",
+      ended_at: "",
+    });
+    if (!(await withinRate(sr, "ResetRequest", { user_id: user.id }, DAY, LIMITS.resetsPerDay, now, row))) {
+      await sr.entities.ResetRequest.delete(row.id);
+      throw rateLimited("requesting resets");
+    }
+    await emailResetNotice(sr, user, effective);
+    return { request: resetOut(row) };
+  },
+
+  /** From the browser that asked: complete the reset once the waiting period is over. */
+  async finish_reset(ctx) {
+    const { sr, user, now } = ctx;
+    const request = await signedByResetDevice(ctx, "finish_reset");
+    if (request.status !== "waiting") {
+      throw new ApiError(409, "RESET_ENDED", request.status === "done" ? "This reset is already complete." : "This reset was cancelled, so nothing changed.");
+    }
+    if (now.getTime() < Date.parse(request.effective_at)) {
+      throw new ApiError(409, "RESET_WAITING", "The waiting period isn't over yet.");
+    }
+    const statement = JSON.parse(request.statement);
+    const cert = JSON.parse(request.cert);
+    const latest = latestKeyOf(await accountKeysOf(sr, user.id));
+    if (!latest || statement.version !== latest.version + 1 || !(await verifyStatement(statement, statement.sign_pub))) {
+      await endResets(sr, [request], "stale", "keys_changed", now);
+      throw new ApiError(409, "RESET_STALE", "Your account's keys changed while the reset was waiting, so it was cancelled.");
+    }
+    const keys = await accountKeysOf(sr, user.id);
+    const recentResets = keys.filter((k: any) => k.is_reset && now.getTime() - parsePlatformTime(k.created_date) < DAY).length;
+    if (recentResets >= LIMITS.resetsPerDay) throw new ApiError(429, "RATE_LIMITED", "Too many resets today. Please try again tomorrow.");
 
     const key = await publishKey(sr, user.id, statement, true);
     if (!key) throw new ApiError(409, "STALE_KEYS", "Your keys changed at the same moment. Refresh and try again.");
     const at = now.toISOString();
-    const devices = await devicesOf(sr, user.id);
-    for (const d of devices) {
-      if (d.status !== "revoked" && d.device_id !== device.device_id) {
+    for (const d of await devicesOf(sr, user.id)) {
+      if (d.status !== "revoked" && d.device_id !== request.device_id) {
         await sr.entities.Device.update(d.id, { status: "revoked", revoked_reason: "account_reset", revoked_at: at });
       }
     }
@@ -440,15 +572,44 @@ export const keysActions: Actions = {
       approved_at: at,
       synced_key_version: statement.version,
       last_seen_at: at,
+      pending_expires_at: "",
     };
-    const existing = devices.find((d: any) => d.device_id === device.device_id);
-    if (existing) await sr.entities.Device.update(existing.id, { ...fields, sign_pub: device.sign_pub, box_pub: device.box_pub });
-    else await sr.entities.Device.create({ user_id: user.id, ...device, ...fields });
+    const existing = await deviceOf(sr, user.id, request.device_id);
+    if (existing) {
+      await sr.entities.Device.update(existing.id, { ...fields, sign_pub: request.device_sign_pub, box_pub: request.device_box_pub });
+    } else {
+      await sr.entities.Device.create({
+        user_id: user.id,
+        device_id: request.device_id,
+        label: request.device_label || "Device",
+        sign_pub: request.device_sign_pub,
+        box_pub: request.device_box_pub,
+        ...fields,
+      });
+    }
     await sr.entities.KeyEnvelope.create({
-      user_id: user.id, kind: "recovery", keyring_version: statement.version, recovery_pub: statement.recovery_pub,
-      key_sign_pub: statement.sign_pub, sealed: recoverySealed, created_by_device_id: device.device_id,
+      user_id: user.id, kind: "recovery", keyring_version: statement.version, recovery_pub: request.recovery_pub,
+      key_sign_pub: request.key_sign_pub, sealed: request.recovery_sealed, created_by_device_id: request.device_id,
     });
+    await endResets(sr, [request], "done", "requester", now);
     return { ok: true, version: statement.version };
+  },
+
+  /** From the browser that asked: take the request back. */
+  async withdraw_reset(ctx) {
+    const { sr, now } = ctx;
+    const request = await signedByResetDevice(ctx, "withdraw_reset");
+    if (request.status === "waiting") await endResets(sr, [request], "withdrawn", "requester", now);
+    return { ok: true };
+  },
+
+  /** From any active device: stop every waiting reset. */
+  async cancel_reset(ctx) {
+    const { sr, user, now } = ctx;
+    await signedByActiveDevice(ctx, "cancel_reset");
+    const waiting = await waitingResets(sr, user.id);
+    await endResets(sr, waiting, "cancelled", "device", now);
+    return { ok: true, cancelled: waiting.length };
   },
 
   /** Public keys and device certificates for people you share a conversation with. */
@@ -457,21 +618,19 @@ export const keysActions: Actions = {
     const allowed = await contactsOf(sr, user.id);
     const wanted = ids.filter((i) => allowed.has(i));
     const out: Record<string, { statements: any[]; devices: any[] }> = {};
-    if (!wanted.length) return { keys: out };
-    const [keyRows, deviceRows] = await Promise.all([
-      sr.entities.AccountKey.filter({ user_id: { $in: wanted } }, "version", 5000),
-      sr.entities.Device.filter({ user_id: { $in: wanted }, status: { $in: ["active", "revoked"] } }, "created_date", 5000),
-    ]);
-    for (const uid of wanted) out[uid] = { statements: [], devices: [] };
-    const seen = new Set<string>();
-    for (const k of [...keyRows].sort(byAge)) {
-      const tag = `${k.user_id}:${k.version}`;
-      if (seen.has(tag)) continue; // a lost race leaves at most a moment's duplicate; oldest wins
-      seen.add(tag);
-      out[k.user_id]?.statements.push(statementOut(k));
-    }
-    for (const uid of wanted) out[uid].statements.sort((a, b) => a.version - b.version);
-    for (const d of deviceRows) if (d.cert_signature) out[d.user_id]?.devices.push(peerDeviceOut(d));
+    // One query per person, so nobody's long history can crowd out anyone else's.
+    await Promise.all(wanted.map(async (uid) => {
+      const [keyRows, active, removed] = await Promise.all([
+        sr.entities.AccountKey.filter({ user_id: uid }, "version", 300),
+        sr.entities.Device.filter({ user_id: uid, status: "active" }, "created_date", 50),
+        // Devices removed after holding keys: needed to check what they sent before.
+        sr.entities.Device.filter({ user_id: uid, status: "revoked", revoked_reason: { $in: ["removed", "account_reset"] } }, "-created_date", 100),
+      ]);
+      out[uid] = {
+        statements: uniqueVersions(keyRows).map(statementOut),
+        devices: [...active, ...removed].filter((d: any) => d.cert_signature).map(peerDeviceOut),
+      };
+    }));
     return { keys: out };
   },
 };
