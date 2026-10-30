@@ -526,6 +526,27 @@ test("a poll is one query unless conversations are asked for, and only returns m
   assert.ok(Date.parse(`${bobs.cursor}Z`) <= Date.now() - 4_000);
 });
 
+test("reading with your own access shows only conversations you're in and messages sealed to you", async () => {
+  const { w, members: [alice, bob, eve] } = await world("alice", "bob", "eve");
+  const dm = await alice.dm(bob);
+  await alice.send(dm, "private");
+  const asEve = w.clientFor(eve.user).entities;
+  assert.deepEqual(await asEve.Message.filter({}), []);
+  assert.deepEqual(await asEve.Conversation.filter({}), []);
+  await assert.rejects(asEve.Conversation.get(dm.id), { status: 404 });
+  assert.equal((await eve.call("messages", { action: "list", conversation_id: dm.id })).status, 404);
+  assert.equal((await eve.call("conversations", { action: "get", conversation_id: dm.id })).status, 404);
+  const asBob = w.clientFor(bob.user).entities;
+  assert.equal((await asBob.Message.filter({})).length, 1);
+  assert.equal((await asBob.Conversation.get(dm.id)).id, dm.id);
+  for (const name of ["AccountKey", "Device", "KeyEnvelope", "Profile", "Report", "ResetRequest", "SecurityReport", "Block", "RetiredUsername"]) {
+    assert.deepEqual(await asBob[name].filter({}), [], `${name} can't be read directly`);
+  }
+  await assert.rejects(asBob.Message.update("any", {}), { status: 403 });
+  await assert.rejects(asBob.Conversation.create({}), { status: 403 });
+  assert.deepEqual(await w.clientFor(null).entities.Message.filter({}), [], "nothing for visitors");
+});
+
 test("peer keys are only shared with people you have a conversation with", async () => {
   const { members: [alice, bob, eve] } = await world("alice", "bob", "eve");
   assert.deepEqual((await eve.ok("keys", { action: "peer_keys", user_ids: [alice.id] })).keys, {});
