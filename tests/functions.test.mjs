@@ -1045,6 +1045,60 @@ test("an account that never set up keys is deleted with just the confirmation; s
   assert.equal(refused.body.code, "STAFF_ACCOUNT");
 });
 
+test("staff can erase what a removed sign-in left behind, and never an account that can still sign in", async () => {
+  const { w, members: [alice, bob] } = await world("alice", "bob");
+  const staff = new Member(w, "staffer", "admin");
+  for (const m of [alice, bob, staff]) w.rows("User").push({ ...m.user });
+  const dm = await alice.dm(bob);
+  await alice.send(dm, "hello bob");
+  await bob.send(dm, "hello alice");
+  const group = await alice.group(["bob"]);
+  await bob.send(group, "bob in the group");
+  await alice.send(group, "alice in the group");
+
+  // Bob's sign-in is removed in the Base44 dashboard. Everything of his is still here.
+  w.rows("User").splice(w.rows("User").findIndex((u) => u.id === bob.id), 1);
+  assert.equal((await alice.call("admin", { action: "list_removed_accounts" })).status, 403);
+  assert.equal((await alice.call("admin", { action: "erase_removed_account", user_id: bob.id, confirm: "ERASE" })).status, 403);
+  const listed = await staff.ok("admin", { action: "list_removed_accounts" });
+  assert.deepEqual(listed.accounts.map((a) => a.username), ["bob"]);
+  assert.equal(listed.complete, true);
+
+  assert.equal((await staff.call("admin", { action: "erase_removed_account", user_id: bob.id })).body.code, "CONFIRM_REQUIRED");
+  assert.equal((await staff.call("admin", { action: "erase_removed_account", user_id: alice.id, confirm: "ERASE" })).body.code, "SIGN_IN_EXISTS");
+
+  // If the platform can't see sign-ins properly, nobody is called removed and nothing is erased.
+  const users = w.entities.User;
+  const { filter, get } = users;
+  users.filter = async () => [];
+  users.get = async () => {
+    throw Object.assign(new Error("Not found"), { status: 404 });
+  };
+  assert.equal((await staff.call("admin", { action: "list_removed_accounts" })).body.code, "CHECK_FAILED");
+  assert.equal((await staff.call("admin", { action: "erase_removed_account", user_id: alice.id, confirm: "ERASE" })).body.code, "CHECK_FAILED");
+  // Two separate checks: one missing Alice isn't enough.
+  users.filter = async (...args) => (await filter(...args)).filter((u) => u.id !== alice.id);
+  users.get = get;
+  assert.equal((await staff.call("admin", { action: "erase_removed_account", user_id: alice.id, confirm: "ERASE" })).body.code, "SIGN_IN_EXISTS");
+  users.filter = filter;
+  users.get = async () => {
+    throw Object.assign(new Error("Service unavailable"), { status: 503 });
+  };
+  assert.equal((await staff.call("admin", { action: "erase_removed_account", user_id: bob.id, confirm: "ERASE" })).body.code, "CHECK_FAILED");
+  users.get = get;
+  assert.equal(w.rows("Profile").length, 2, "nothing was erased by any of that");
+
+  assert.deepEqual(await staff.ok("admin", { action: "erase_removed_account", user_id: bob.id, confirm: "ERASE" }), { done: true });
+  assert.deepEqual(mentions(w, bob.id), []);
+  assert.deepEqual((await staff.ok("admin", { action: "list_removed_accounts" })).accounts, []);
+  const { conversations } = await alice.ok("conversations", { action: "list" });
+  assert.deepEqual(conversations.map((c) => [c.id, c.member_ids]), [[group.id, [alice.id]]], "the direct conversation went; Bob left the group");
+  assert.deepEqual((await alice.read(conversations[0])).map((m) => m.text), ["alice in the group"]);
+  const newcomer = new Member(w, "newcomer");
+  assert.equal((await newcomer.call("profile", { action: "claim_username", username: "bob" })).body.code, "USERNAME_TAKEN");
+  assert.equal(w.rows("Profile").filter((p) => p.user_id === alice.id).length, 1, "Alice is untouched");
+});
+
 test("the last member to leave a group takes its messages with it, blanked first", async () => {
   const { w, members: [alice, bob] } = await world("alice", "bob");
   const group = await alice.group(["bob"]);
