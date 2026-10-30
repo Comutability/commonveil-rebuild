@@ -13,7 +13,10 @@ import {
   enforceRate,
   myConversations,
   profileOf,
+  rateLimited,
   requireActiveDevice,
+  withMemberSince,
+  withinRate,
 } from "../store.ts";
 
 const USERNAME_RE = /^[A-Za-z0-9_]{3,20}$/;
@@ -61,15 +64,25 @@ export const conversationActions: Actions = {
     return { conversation: conversationOut(conv) };
   },
 
-  async create_dm({ sr, user, body, now }) {
+  /** Starting a conversation, like changing who's in one, needs a device signature, not just a session. */
+  async create_dm(ctx) {
+    const { sr, user, now } = ctx;
+    const { data } = await signedByActiveDevice(ctx, "create_dm");
     await requireSelfReady(sr, user.id);
-    const [other] = await resolveUsernames(sr, user.id, [body.username], 1);
+    const [other] = await resolveUsernames(sr, user.id, [data.username], 1);
     if (!other) throw new ApiError(400, "BAD_FIELD", "That's your own username.");
     const dmKey = [user.id, other].sort().join(":");
     const existing = (await sr.entities.Conversation.filter({ dm_key: dmKey }, "created_date", 5)).sort(byAge);
     if (existing[0]) return { conversation: conversationOut(existing[0]), created: false };
     await enforceRate(sr, "Conversation", { created_by: user.id }, 3600_000, LIMITS.conversationsPerHour, now, "starting conversations");
-    const created = await sr.entities.Conversation.create({ kind: "dm", member_ids: [user.id, other], dm_key: dmKey, created_by: user.id });
+    const members = [user.id, other];
+    const created = await sr.entities.Conversation.create({
+      kind: "dm", member_ids: members, dm_key: dmKey, created_by: user.id, member_since: withMemberSince(null, members, now),
+    });
+    if (!(await withinRate(sr, "Conversation", { created_by: user.id }, 3600_000, LIMITS.conversationsPerHour, now, created))) {
+      await sr.entities.Conversation.delete(created.id);
+      throw rateLimited("starting conversations");
+    }
     const all = (await sr.entities.Conversation.filter({ dm_key: dmKey }, "created_date", 5)).sort(byAge);
     if (all[0].id !== created.id) {
       await sr.entities.Conversation.delete(created.id);
@@ -78,25 +91,35 @@ export const conversationActions: Actions = {
     return { conversation: conversationOut(created), created: true };
   },
 
-  async create_group({ sr, user, body, now }) {
+  async create_group(ctx) {
+    const { sr, user, now } = ctx;
+    const { data } = await signedByActiveDevice(ctx, "create_group");
     await requireSelfReady(sr, user.id);
-    const others = await resolveUsernames(sr, user.id, body.usernames, LIMITS.maxGroupMembers - 1);
+    const others = await resolveUsernames(sr, user.id, data.usernames, LIMITS.maxGroupMembers - 1);
     if (!others.length) throw new ApiError(400, "BAD_FIELD", "Add at least one other person.");
     await enforceRate(sr, "Conversation", { created_by: user.id }, 3600_000, LIMITS.conversationsPerHour, now, "starting conversations");
-    const created = await sr.entities.Conversation.create({ kind: "group", member_ids: [user.id, ...others], created_by: user.id });
+    const members = [user.id, ...others];
+    const created = await sr.entities.Conversation.create({
+      kind: "group", member_ids: members, created_by: user.id, member_since: withMemberSince(null, members, now),
+    });
+    if (!(await withinRate(sr, "Conversation", { created_by: user.id }, 3600_000, LIMITS.conversationsPerHour, now, created))) {
+      await sr.entities.Conversation.delete(created.id);
+      throw rateLimited("starting conversations");
+    }
     return { conversation: conversationOut(created) };
   },
 
   /** Adding someone exposes future messages to them, so it needs a device signature, not just a session. */
   async add_members(ctx) {
-    const { sr, user } = ctx;
+    const { sr, user, now } = ctx;
     const { data } = await signedByActiveDevice(ctx, "add_members");
     const conv = await conversationForMember(sr, user.id, id(data.conversation_id, "conversation"));
     if (conv.kind !== "group") throw new ApiError(400, "NOT_GROUP", "You can only add people to a group.");
     const ids = await resolveUsernames(sr, user.id, data.usernames, LIMITS.maxGroupMembers);
     const next = [...new Set([...conv.member_ids, ...ids])];
     if (next.length > LIMITS.maxGroupMembers) throw new ApiError(409, "GROUP_FULL", `Groups can have up to ${LIMITS.maxGroupMembers} people.`);
-    const updated = await sr.entities.Conversation.update(conv.id, { member_ids: next });
+    // Newcomers see only what's sent from now on, not even when earlier messages were sent.
+    const updated = await sr.entities.Conversation.update(conv.id, { member_ids: next, member_since: withMemberSince(conv, next, now) });
     return { conversation: conversationOut({ ...conv, ...updated, member_ids: next }) };
   },
 
@@ -117,7 +140,7 @@ export const conversationActions: Actions = {
         throw error;
       }
     } else {
-      await sr.entities.Conversation.update(conv.id, { member_ids: next });
+      await sr.entities.Conversation.update(conv.id, { member_ids: next, member_since: withMemberSince(conv, next, ctx.now) });
     }
     return { ok: true };
   },
