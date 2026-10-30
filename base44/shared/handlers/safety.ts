@@ -1,6 +1,6 @@
 // Blocking and reporting, plus the staff side of reports.
 import { ApiError, LIMITS, cleanText, id, type Actions } from "../http.ts";
-import { conversationForMember, enforceRate, profileOf, publicProfile } from "../store.ts";
+import { conversationForMember, enforceRate, profileOf, publicProfile, rateLimited, withinRate } from "../store.ts";
 
 const REASONS = new Set(["spam", "harassment", "impersonation", "illegal", "other"]);
 const STATUSES = new Set(["open", "reviewing", "resolved", "dismissed"]);
@@ -45,7 +45,7 @@ export const safetyActions: Actions = {
     }
     const details = cleanText(body.details, 2000);
     await enforceRate(sr, "Report", { reporter_id: user.id }, 24 * 3600_000, LIMITS.reportsPerDay, now, "sending reports");
-    await sr.entities.Report.create({
+    const created = await sr.entities.Report.create({
       reporter_id: user.id,
       reported_user_id: target,
       conversation_id: conversationId,
@@ -53,6 +53,10 @@ export const safetyActions: Actions = {
       details,
       status: "open",
     });
+    if (!(await withinRate(sr, "Report", { reporter_id: user.id }, 24 * 3600_000, LIMITS.reportsPerDay, now, created))) {
+      await sr.entities.Report.delete(created.id);
+      throw rateLimited("sending reports");
+    }
     return { ok: true };
   },
 };
