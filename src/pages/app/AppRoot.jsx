@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { AlertTriangle, MessagesSquare, Settings, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,49 @@ import { SecureProvider, useSecure } from "@/lib/secure/SecureContext";
 import { ChatProvider } from "@/lib/secure/ChatContext";
 import { LogoMark } from "@/components/site/Logo";
 import { FullScreenLoading } from "@/components/site/bits";
-import { AddDevice, AwaitingKeys, SetupKeys, Welcome } from "./Onboarding";
+import { AddDevice, AwaitingKeys, BrowserRemoved, ResetWaiting, SetupKeys, Welcome, formatWhen } from "./Onboarding";
+
+/** Shown on every screen while someone's asked to reset this account: any of its devices can stop it. */
+function ResetRequested() {
+  const { waitingReset, cancelReset } = useSecure();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (!waitingReset) return null;
+  return (
+    <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-3 text-sm sm:px-4" role="alert">
+      <div className="mx-auto flex w-full max-w-7xl flex-wrap items-start gap-3">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="font-semibold">Someone asked to reset your encryption keys</p>
+          <p>
+            The request came from &ldquo;{waitingReset.device_label}&rdquo; on {formatWhen(waitingReset.requested_at)}. If it goes ahead on{" "}
+            {formatWhen(waitingReset.effective_at)}, all your devices are removed and your contacts see new keys. If it wasn't you, cancel it
+            and change your password.
+          </p>
+          {error && <p className="text-destructive">{error}</p>}
+        </div>
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError("");
+            try {
+              await cancelReset();
+            } catch (err) {
+              setError(err.message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Cancelling…" : "Cancel the reset"}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 const tabClass = ({ isActive }) =>
   `inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${isActive ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`;
@@ -34,6 +76,7 @@ function Frame({ children, showNav }) {
           </div>
         </div>
       </header>
+      {showNav && <ResetRequested />}
       <div className="flex min-h-0 flex-1 flex-col">{children}</div>
     </div>
   );
@@ -58,6 +101,8 @@ function Gate() {
   if (phase === "needs-keys") return <Frame><SetupKeys /></Frame>;
   if (phase === "needs-device" || phase === "awaiting-approval") return <Frame><AddDevice /></Frame>;
   if (phase === "awaiting-keys") return <Frame><AwaitingKeys /></Frame>;
+  if (phase === "removed") return <Frame><BrowserRemoved /></Frame>;
+  if (phase === "reset-waiting") return <Frame><ResetWaiting /></Frame>;
   return (
     <ChatProvider>
       <Frame showNav>
