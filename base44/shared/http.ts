@@ -47,8 +47,14 @@ export function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: HEADERS });
 }
 
-/** user is null only in functions that explicitly allow anonymous callers. */
-export type Ctx = { sr: any; user: any; body: any; now: Date };
+/**
+ * user is null only in functions that explicitly allow anonymous callers.
+ * sr: the service role, which ignores row level security; every call it makes counts against one
+ * allowance shared by the whole app. own: the caller's own access, limited by the entities' rules
+ * and counted against that person's allowance, so frequent reads (polling) use it where the
+ * rules allow.
+ */
+export type Ctx = { sr: any; own: any; user: any; body: any; now: Date };
 export type Actions = Record<string, (ctx: Ctx) => Promise<unknown>>;
 export type RunOptions = { allowAnonymous?: boolean };
 
@@ -73,7 +79,7 @@ export async function runAction(base44: any, rawBody: string, actions: Actions, 
     if (!user && !options.allowAnonymous) throw new ApiError(401, "SIGN_IN_REQUIRED", "Please sign in again.");
     const action = typeof body.action === "string" ? body.action : "";
     if (!Object.prototype.hasOwnProperty.call(actions, action)) throw new ApiError(400, "UNKNOWN_ACTION", "Unknown action.");
-    const result = await actions[action]({ sr: base44.asServiceRole, user, body, now: new Date() });
+    const result = await actions[action]({ sr: base44.asServiceRole, own: base44, user, body, now: new Date() });
     return json(200, result ?? { ok: true });
   } catch (error) {
     if (error instanceof ApiError) return json(error.status, { error: error.message, code: error.code });
