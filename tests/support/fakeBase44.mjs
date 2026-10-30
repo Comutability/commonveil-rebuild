@@ -2,8 +2,54 @@
 // handlers in tests. It replaces the database and records emails instead of sending
 // them. It does NOT stand in for any session or token API: the handlers never call
 // one, and auth.me() here simply returns the test user (or fails, for anonymous callers).
+//
+// Reads made as the signed-in person (not the service role) follow the row level security
+// rules in base44/entities, read from the real schema files, the way Base44 applies them.
+import fs from "node:fs";
 
 const clone = (v) => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
+
+const SCHEMA_DIR = new URL("../../base44/entities/", import.meta.url);
+const RULES = Object.fromEntries(
+  fs
+    .readdirSync(SCHEMA_DIR)
+    .filter((f) => f.endsWith(".jsonc"))
+    .map((f) => JSON.parse(fs.readFileSync(new URL(f, SCHEMA_DIR), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "")))
+    .map((s) => [s.name, s.rls]),
+);
+
+/**
+ * Turn a row level security rule into a query for this person: {} matches everything, null
+ * nothing. Only the rule shapes this app uses are understood; anything else fails the test.
+ */
+function ruleToQuery(rule, user) {
+  if (rule === true) return {};
+  if (rule === false || rule === undefined) return null;
+  if (!user) return null; // a rule that refers to the user blocks anonymous callers outright
+  const parts = [];
+  for (const [key, value] of Object.entries(rule)) {
+    if (key === "$or") {
+      const subs = value.map((r) => ruleToQuery(r, user));
+      if (subs.some((s) => s && !Object.keys(s).length)) continue;
+      const live = subs.filter(Boolean);
+      if (!live.length) return null;
+      parts.push({ $or: live });
+    } else if (key === "$and") {
+      const subs = value.map((r) => ruleToQuery(r, user));
+      if (subs.some((s) => s === null)) return null;
+      parts.push(...subs);
+    } else if (key === "user_condition") {
+      for (const [field, expected] of Object.entries(value)) if (user[field] !== expected) return null;
+    } else if (key.startsWith("data.")) {
+      const resolved = value === "{{user.id}}" ? user.id : value === "{{user.email}}" ? user.email : value;
+      if (typeof resolved === "string" && resolved.includes("{{")) throw new Error(`Fake RLS doesn't understand ${value}`);
+      parts.push({ [key.slice(5)]: resolved });
+    } else {
+      throw new Error(`Fake RLS doesn't understand the rule key ${key}`);
+    }
+  }
+  return parts.length ? { $and: parts } : {};
+}
 
 function compare(a, b) {
   if (a === b) return 0;
@@ -138,9 +184,48 @@ export class FakeWorld {
     };
   }
 
+  /** Entities as the signed-in person sees them: the service store, filtered by each entity's rules. */
+  #asPerson(user) {
+    const world = this;
+    const denied = (status, message) => Object.assign(new Error(message), { status });
+    return new Proxy({}, {
+      get: (_target, name) => {
+        if (typeof name !== "string") return undefined;
+        const rules = RULES[name] || {};
+        const store = world.entities[name];
+        return {
+          async filter(query = {}, sort, limit) {
+            const allowed = ruleToQuery(rules.read, user);
+            if (!allowed) return [];
+            return store.filter(Object.keys(allowed).length ? { $and: [query, allowed] } : query, sort, limit);
+          },
+          async get(id) {
+            const allowed = ruleToQuery(rules.read, user);
+            const row = await store.get(id);
+            if (!allowed || !matches(row, allowed)) throw denied(404, "Not found");
+            return row;
+          },
+          async create() {
+            if (!ruleToQuery(rules.create, user)) throw denied(403, "Permission denied");
+            throw new Error("Writes as a person aren't emulated: the backend writes as the service role");
+          },
+          async update() {
+            if (!ruleToQuery(rules.update, user)) throw denied(403, "Permission denied");
+            throw new Error("Writes as a person aren't emulated: the backend writes as the service role");
+          },
+          async delete() {
+            if (!ruleToQuery(rules.delete, user)) throw denied(403, "Permission denied");
+            throw new Error("Writes as a person aren't emulated: the backend writes as the service role");
+          },
+        };
+      },
+    });
+  }
+
   /** What createClientFromRequest returns inside a function, for a given caller. */
   clientFor(user) {
     return {
+      entities: this.#asPerson(user),
       auth: {
         me: async () => {
           if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
