@@ -1240,3 +1240,253 @@ test("statements without the phrase's anchor are refused where the phrase is to 
   await alice.ok("keys", await signed(alice, "rotate_keys", plainPayload));
   assert.equal((await alice.status()).statements[1].recovery_mac, "");
 });
+
+// ---------------------------------------------------------------------------
+// Disappearing messages, group admins, security emails and auto-delete
+
+const DAY_MS = 24 * 3600_000;
+const dayString = (ms) => new Date(ms).toISOString().slice(0, 10);
+const conversationCall = (member, action, payload) => member.call("conversations", signed(member, action, payload));
+
+/** Run a scheduled task as the automation does: no user, the app's own access. */
+async function maintenance(w, task, at = new Date()) {
+  resetMaintenanceThrottle();
+  const res = await runMaintenance(w.clientFor(null).asServiceRole, task, at);
+  assert.equal(res.status, 200, `${task} failed`);
+  return res.json();
+}
+
+test("disappearing messages: either person in a DM sets the timer; messages vanish when it's up and are then deleted, blanked first", async () => {
+  const { w, members: [alice, bob] } = await world("alice", "bob");
+  const dm = await alice.dm(bob);
+  await alice.send(dm, "sent before the timer");
+  assert.equal((await bob.call("conversations", { action: "set_expiry", conversation_id: dm.id, seconds: 86_400 })).body.code, "PROOF_REQUIRED");
+  assert.equal((await conversationCall(bob, "set_expiry", { conversation_id: dm.id, seconds: 3600 })).body.code, "BAD_FIELD", "only the offered choices");
+  const set = (await conversationCall(bob, "set_expiry", { conversation_id: dm.id, seconds: 86_400 })).body;
+  assert.equal(set.conversation.expire_seconds, 86_400);
+  assert.equal(set.conversation.expiry_set_by, bob.id, "everyone sees who set it");
+  const conv = set.conversation;
+
+  assert.equal((await alice.send(conv, "gone tomorrow")).status, 200);
+  assert.equal((await alice.send(conv, "also timed")).status, 200);
+  const timed = w.rows("Message").filter((r) => r.expires_at);
+  assert.equal(timed.length, 2, "messages from before the timer keep no expiry");
+  assert.ok(Math.abs(Date.parse(timed[0].expires_at) - Date.now() - 86_400_000) < 60_000, "a day from when it arrived");
+  assert.deepEqual((await bob.read(conv)).map((m) => m.text), ["sent before the timer", "gone tomorrow", "also timed"]);
+
+  // Time's up for one: it's hidden straight away, from listing and polling alike...
+  timed[0].expires_at = new Date(Date.now() - 1000).toISOString();
+  const goneId = timed[0].id;
+  assert.deepEqual((await bob.read(conv)).map((m) => m.text), ["sent before the timer", "also timed"]);
+  const polled = await bob.ok("messages", { action: "poll", since: "2000-01-01T00:00:00" });
+  assert.ok(polled.messages.length && polled.messages.every((m) => m.id !== goneId));
+  // ...paging still finds what's behind it...
+  const page = await bob.ok("messages", { action: "list", conversation_id: conv.id, limit: 2 });
+  assert.deepEqual(page.messages.length, 1);
+  assert.equal(page.has_more, true);
+  const older = await bob.ok("messages", { action: "list", conversation_id: conv.id, limit: 2, before: page.before });
+  assert.equal(older.messages.length, 1);
+  // ...and the scheduled clean-up deletes it, blanked first. Nothing else is touched.
+  const deleted = watchDeletes(w, ["Message"]);
+  assert.deepEqual(await maintenance(w, "expire"), { task: "expire", removed: 1, done: true });
+  assert.equal(deleted.length, 1);
+  assert.equal(deleted[0].row.id, goneId);
+  assert.ok(!deleted[0].row.envelope && !deleted[0].row.sender_id && !deleted[0].row.expires_at && !deleted[0].row.recipient_ids.length);
+  assert.equal(w.rows("Message").length, 2);
+  assert.deepEqual(await maintenance(w, "expire"), { task: "expire", removed: 0, done: true }, "nothing else was due");
+
+  // Either of them can turn it off; later messages are kept again.
+  const off = (await conversationCall(alice, "set_expiry", { conversation_id: dm.id, seconds: 0 })).body.conversation;
+  assert.equal(off.expire_seconds, 0);
+  assert.equal(off.expiry_set_by, alice.id);
+  await alice.send(off, "kept again");
+  assert.equal(w.rows("Message").filter((r) => r.expires_at).length, 1);
+});
+
+test("the scheduled clean-up takes no instructions: unknown tasks are refused, and back-to-back calls do nothing", async () => {
+  const w = new FakeWorld();
+  const sr = w.clientFor(null).asServiceRole;
+  resetMaintenanceThrottle();
+  assert.equal((await runMaintenance(sr, "erase_everything", new Date())).status, 400);
+  assert.equal((await runMaintenance(sr, undefined, new Date())).status, 400);
+  assert.equal((await runMaintenance(sr, "__proto__", new Date())).status, 400);
+  assert.equal((await (await runMaintenance(sr, "expire", new Date())).json()).removed, 0);
+  const reads = w.serviceReads;
+  assert.deepEqual(await (await runMaintenance(sr, "expire", new Date())).json(), { task: "expire", skipped: "ran recently" });
+  assert.equal(w.serviceReads, reads, "a repeat call costs nothing");
+});
+
+test("group admins: only admins add, remove, rename, set the timer or choose admins, and a group always keeps one", async () => {
+  const { members: [alice, bob, carol, dave] } = await world("alice", "bob", "carol", "dave");
+  const group = await alice.group(["bob", "carol"]);
+  assert.deepEqual(group.admin_ids, [alice.id], "whoever starts a group runs it");
+
+  for (const [action, payload] of [
+    ["add_members", { conversation_id: group.id, usernames: ["dave"] }],
+    ["remove_member", { conversation_id: group.id, user_id: carol.id }],
+    ["set_admin", { conversation_id: group.id, user_id: bob.id, admin: true }],
+    ["set_expiry", { conversation_id: group.id, seconds: 86_400 }],
+  ]) {
+    assert.equal((await conversationCall(bob, action, payload)).body.code, "NOT_ADMIN", action);
+  }
+  const { chains } = await bob.chainsFor(group);
+  const rename = await buildTitle({ userId: bob.id, device: bob.device, conversation: group, chains, title: "Bob's club" });
+  assert.equal((await bob.call("conversations", rename)).body.code, "NOT_ADMIN");
+
+  // Alice makes Bob an admin. He adds Dave and removes Carol.
+  const promoted = (await conversationCall(alice, "set_admin", { conversation_id: group.id, user_id: bob.id, admin: true })).body.conversation;
+  assert.deepEqual(promoted.admin_ids, [alice.id, bob.id]);
+  assert.equal((await conversationCall(bob, "add_members", { conversation_id: group.id, usernames: ["dave"] })).status, 200);
+  const removed = (await conversationCall(bob, "remove_member", { conversation_id: group.id, user_id: carol.id })).body.conversation;
+  assert.deepEqual(removed.member_ids, [alice.id, bob.id, dave.id]);
+  assert.equal((await carol.call("conversations", { action: "get", conversation_id: group.id })).status, 404, "Carol no longer sees it");
+  assert.equal((await carol.send(removed, "still here?")).status, 404);
+  assert.equal((await conversationCall(bob, "remove_member", { conversation_id: group.id, user_id: carol.id })).body.code, "NOT_MEMBER");
+  assert.equal((await conversationCall(bob, "remove_member", { conversation_id: group.id, user_id: bob.id })).body.code, "BAD_FIELD", "leaving is separate");
+  assert.equal((await conversationCall(bob, "set_admin", { conversation_id: group.id, user_id: carol.id, admin: true })).body.code, "NOT_MEMBER");
+  assert.equal((await conversationCall(bob, "set_admin", { conversation_id: group.id, user_id: dave.id, admin: "yes" })).body.code, "BAD_FIELD");
+  assert.equal((await conversationCall(bob, "set_expiry", { conversation_id: group.id, seconds: 604_800 })).status, 200);
+
+  // Admins can step down while another remains; the last one can't.
+  assert.equal((await conversationCall(alice, "set_admin", { conversation_id: group.id, user_id: alice.id, admin: false })).status, 200);
+  assert.equal((await conversationCall(bob, "set_admin", { conversation_id: group.id, user_id: bob.id, admin: false })).body.code, "LAST_ADMIN");
+  // If the last admin leaves, the longest-standing member takes over.
+  assert.equal((await conversationCall(bob, "leave", { conversation_id: group.id })).status, 200);
+  const after = (await alice.ok("conversations", { action: "get", conversation_id: group.id })).conversation;
+  assert.deepEqual(after.member_ids, [alice.id, dave.id]);
+  assert.deepEqual(after.admin_ids, [alice.id]);
+  assert.equal(after.expire_seconds, 604_800, "the timer stays as it was set");
+
+  const dm = await alice.dm(bob);
+  assert.deepEqual(dm.admin_ids, [], "direct messages have no admins");
+  assert.equal((await conversationCall(alice, "set_admin", { conversation_id: dm.id, user_id: bob.id, admin: true })).body.code, "NOT_GROUP");
+  assert.equal((await conversationCall(alice, "remove_member", { conversation_id: dm.id, user_id: bob.id })).body.code, "NOT_GROUP");
+});
+
+test("a group whose admins are all gone is run by its creator, or else its longest-standing member", async () => {
+  const { w, members: [alice, bob, carol] } = await world("alice", "bob", "carol");
+  const group = await alice.group(["bob", "carol"]);
+  const row = w.rows("Conversation").find((c) => c.id === group.id);
+  delete row.admin_ids; // as a group from before admins existed would be
+  assert.deepEqual((await bob.ok("conversations", { action: "get", conversation_id: group.id })).conversation.admin_ids, [alice.id]);
+  assert.equal((await conversationCall(bob, "set_expiry", { conversation_id: group.id, seconds: 86_400 })).body.code, "NOT_ADMIN");
+  row.creator_id = "";
+  row.member_ids = [bob.id, carol.id];
+  assert.deepEqual((await bob.ok("conversations", { action: "get", conversation_id: group.id })).conversation.admin_ids, [bob.id]);
+  assert.equal((await conversationCall(bob, "set_expiry", { conversation_id: group.id, seconds: 86_400 })).status, 200);
+});
+
+test("security emails: a new device, a used recovery phrase and a finished reset are emailed, saying nothing about the device", async () => {
+  const { w, members: [alice] } = await world("alice");
+  await alice.linkDevice("Kitchen tablet 7731");
+  assert.equal(w.emails.length, 1);
+  assert.equal(w.emails[0].to, alice.user.email, "only ever the account's own sign-in address");
+  assert.equal(w.emails[0].subject, "Commonveil: a new device was added to your account");
+
+  const fresh = await createDeviceKeys("Borrowed laptop 4410");
+  const recovered = await recoverWithPhrase({ userId: alice.id, device: fresh, phrase: alice.phrase, recoveryResponse: await alice.ok("keys", { action: "get_recovery" }) });
+  assert.equal((await alice.ok("keys", recovered.request)).emailed, true);
+  assert.equal(w.emails[1].subject, "Commonveil: your recovery phrase was used");
+  for (const e of w.emails) {
+    for (const secret of ["Kitchen tablet", "7731", "Borrowed laptop", "4410", alice.name, alice.id]) {
+      assert.ok(!e.body.includes(secret) && !e.subject.includes(secret), `an email mentions ${secret}`);
+    }
+  }
+
+  // If email is down, the change still happens.
+  w.emailDown = true;
+  await alice.linkDevice("Phone");
+  assert.equal(w.emails.length, 2);
+  assert.equal((await alice.status()).devices.filter((d) => d.status === "active").length, 4);
+});
+
+test("auto-delete is off unless chosen, needs a device, and keeps only the day the account was last used", async () => {
+  const { w, members: [alice] } = await world("alice");
+  const profile = () => w.rows("Profile").find((p) => p.user_id === alice.id);
+  const writes = w.writes;
+  assert.deepEqual((await alice.ok("profile", { action: "me" })).auto_delete, { days: 0, last_active_on: null, warned: false });
+  assert.equal(w.writes, writes, "nothing about use is noted by default");
+  assert.equal(profile().last_active_at, undefined);
+
+  assert.equal((await alice.call("profile", { action: "set_auto_delete", days: 183 })).body.code, "PROOF_REQUIRED");
+  for (const days of [30, "183", -1, 183.5, null]) {
+    assert.equal((await alice.call("profile", await signed(alice, "set_auto_delete", { days }))).body.code, "BAD_FIELD", String(days));
+  }
+  const today = dayString(Date.now());
+  const on = await alice.ok("profile", await signed(alice, "set_auto_delete", { days: 183 }));
+  assert.deepEqual(on.auto_delete, { days: 183, last_active_on: today, warned: false });
+
+  // Using the app notes the day, at most once a day.
+  profile().last_active_at = "2026-01-01";
+  await alice.ok("profile", { action: "me" });
+  assert.equal(profile().last_active_at, today);
+  const after = w.writes;
+  await alice.ok("profile", { action: "me" });
+  assert.equal(w.writes, after, "once a day");
+
+  // Off again: the day is cleared.
+  const off = await alice.ok("profile", await signed(alice, "set_auto_delete", { days: 0 }));
+  assert.deepEqual(off.auto_delete, { days: 0, last_active_on: null, warned: false });
+  assert.equal(profile().last_active_at, "");
+  // Another member can't see any of it.
+  const bob = await new Member(w, "bob").setup();
+  await alice.dm(bob);
+  const seen = await bob.ok("profile", { action: "get_many", user_ids: [alice.id] });
+  assert.deepEqual(Object.keys(seen.profiles[0]).sort(), ["bio", "display_name", "user_id", "username"]);
+
+  const staff = new Member(w, "staffer", "admin");
+  assert.equal((await staff.call("profile", { action: "set_auto_delete", days: 183 })).body.code, "STAFF_ACCOUNT");
+});
+
+test("auto-delete: a week's warning by email, signing in keeps the account, otherwise it's deleted with everything in it", async () => {
+  const { w, members: [alice, bob] } = await world("alice", "bob");
+  for (const m of [alice, bob]) w.rows("User").push({ ...m.user });
+  const dm = await alice.dm(bob);
+  await alice.send(dm, "hi bob");
+  await alice.ok("profile", await signed(alice, "set_auto_delete", { days: 183 }));
+  const profile = () => w.rows("Profile").find((p) => p.user_id === alice.id);
+  const quiet = { task: "inactive", warned: 0, deleted: 0, skipped: 0, done: true };
+  const now = Date.now();
+
+  assert.deepEqual(await maintenance(w, "inactive"), quiet, "used today: nothing to do");
+  // Unused for 177 days: a week's notice by email, nothing deleted.
+  profile().last_active_at = dayString(now - 177 * DAY_MS);
+  assert.deepEqual(await maintenance(w, "inactive", new Date(now)), { ...quiet, warned: 1 });
+  assert.equal(w.emails.length, 1);
+  assert.equal(w.emails[0].to, alice.user.email);
+  assert.equal(w.emails[0].subject, "Commonveil: your account will be deleted soon");
+  assert.ok(!w.emails[0].body.includes(alice.name) && !w.emails[0].body.includes("bob"));
+  assert.deepEqual(await maintenance(w, "inactive", new Date(now + 3 * DAY_MS)), quiet, "warned once");
+  assert.equal((await alice.ok("profile", { action: "me" })).auto_delete.warned, false, "signing in withdraws the warning");
+  assert.equal(profile().inactive_warned_at, "");
+  assert.deepEqual(await maintenance(w, "inactive", new Date(now + 8 * DAY_MS)), quiet, "and keeps the account");
+
+  // Long unused this time: still a full week between the warning and the deletion.
+  profile().last_active_at = dayString(now - 400 * DAY_MS);
+  assert.deepEqual(await maintenance(w, "inactive", new Date(now)), { ...quiet, warned: 1 });
+  assert.deepEqual(await maintenance(w, "inactive", new Date(now + 6 * DAY_MS)), quiet);
+  assert.deepEqual(await maintenance(w, "inactive", new Date(now + 7 * DAY_MS + 60_000)), { ...quiet, deleted: 1 });
+  assert.deepEqual(mentions(w, alice.id), []);
+  assert.equal(w.rows("User").some((u) => u.id === alice.id), false, "the sign-in goes too");
+  assert.deepEqual((await bob.ok("conversations", { action: "list" })).conversations, []);
+  assert.equal(w.rows("Profile").length, 1);
+});
+
+test("auto-delete leaves staff alone, and if the warning can't be sent the setting still stands a week after the date", async () => {
+  const { w, members: [alice] } = await world("alice");
+  const staff = await new Member(w, "staffer", "admin").setup();
+  for (const m of [alice, staff]) w.rows("User").push({ ...m.user });
+  await alice.ok("profile", await signed(alice, "set_auto_delete", { days: 365 }));
+  const now = Date.now();
+  const staffProfile = w.rows("Profile").find((p) => p.user_id === staff.id);
+  Object.assign(staffProfile, { delete_after_days: 183, last_active_at: dayString(now - 900 * DAY_MS) });
+  const quiet = { task: "inactive", warned: 0, deleted: 0, skipped: 1, done: true };
+
+  w.emailDown = true;
+  w.rows("Profile").find((p) => p.user_id === alice.id).last_active_at = dayString(now - 360 * DAY_MS);
+  assert.deepEqual(await maintenance(w, "inactive", new Date(now)), quiet, "no warning went out, so nothing happens yet");
+  assert.deepEqual(await maintenance(w, "inactive", new Date(now + 11 * DAY_MS)), quiet, "tried again each run");
+  assert.deepEqual(await maintenance(w, "inactive", new Date(now + 13 * DAY_MS)), { ...quiet, deleted: 1 });
+  assert.equal(w.rows("Profile").filter((p) => p.user_id === alice.id).length, 0);
+  assert.equal(w.rows("Profile").filter((p) => p.user_id === staff.id).length, 1, "staff accounts are never deleted this way");
+});
