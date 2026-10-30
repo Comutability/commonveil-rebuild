@@ -1,7 +1,7 @@
 // In-memory stand-in for the Base44 entity store, used to drive the real backend
-// handlers in tests. It replaces the database only. It does NOT stand in for any
-// session or token API: the handlers never call one, and auth.me() here simply
-// returns the test user (or fails, for anonymous callers).
+// handlers in tests. It replaces the database and records emails instead of sending
+// them. It does NOT stand in for any session or token API: the handlers never call
+// one, and auth.me() here simply returns the test user (or fails, for anonymous callers).
 
 const clone = (v) => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
 
@@ -51,6 +51,9 @@ export class FakeWorld {
     this.clock = Date.now();
     this.counter = 0;
     this.writes = 0;
+    /** Emails the handlers asked to send. Set emailDown to make sending fail. */
+    this.emails = [];
+    this.emailDown = false;
     this.entities = new Proxy({}, {
       get: (target, name) => {
         if (typeof name !== "string") return undefined;
@@ -131,7 +134,18 @@ export class FakeWorld {
           return clone(user);
         },
       },
-      asServiceRole: { entities: this.entities },
+      asServiceRole: {
+        entities: this.entities,
+        integrations: {
+          Core: {
+            SendEmail: async (args) => {
+              if (this.emailDown) throw new Error("Email service unavailable");
+              this.emails.push(clone(args));
+              return { ok: true };
+            },
+          },
+        },
+      },
     };
   }
 }
