@@ -44,6 +44,24 @@
     },
     "last_message_at": {
       "type": "string"
+    },
+    "admin_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Group admins. Only they can add or remove people, rename the group, set its timer and choose other admins."
+    },
+    "expire_seconds": {
+      "type": "number",
+      "description": "Disappearing messages: how long each message is kept, in seconds. 0 or missing: off."
+    },
+    "expiry_set_by": {
+      "type": "string",
+      "description": "Who last changed the timer, so members can see it."
+    },
+    "expiry_set_at": {
+      "type": "string"
     }
   },
   "required": [
