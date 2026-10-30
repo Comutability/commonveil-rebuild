@@ -1,5 +1,6 @@
-// Groups: encrypted name, a device-signed add, the "someone new" pause for other members,
-// newcomers can't read earlier messages, device-signed delete and leave.
+// Groups: encrypted name, a device-signed add, the "check who's here" pause on first sight
+// and the "someone new" pause for other members, newcomers not shown earlier messages,
+// device-signed delete and leave.
 // Args: [cat embed url] (omit if Cat's browser profile is already signed in)
 import { PEOPLE, check, countLocked, countUnverified, expectText, goto, open, openConversation, sendText, setUp, shot } from "./lib.mjs";
 
@@ -27,6 +28,9 @@ await goto(B.page);
 await openConversation(B.page, GROUP);
 await B.page.waitForSelector("text=First group message", { timeout: 60000 });
 check((await countUnverified(B.page)) === 0, "Ben sees the encrypted group name and a verified message");
+await B.page.waitForSelector("text=You're in a group you haven't checked yet", { timeout: 30000 });
+check(await B.page.getByRole("textbox", { name: "Message" }).isDisabled(), "a group someone else made waits until Ben has looked at who's in it");
+await B.page.getByRole("button", { name: "OK, continue" }).click();
 
 // Ann adds Cat (device-signed). The group name is re-encrypted so Cat can read it.
 await A.page.getByRole("button", { name: /Conversation details/ }).click();
@@ -51,9 +55,9 @@ await openConversation(C.page, GROUP);
 await C.page.waitForSelector("text=Hi Cat", { timeout: 60000 });
 await C.page.waitForTimeout(3000);
 check((await C.page.locator(`h2:has-text("${GROUP}")`).count()) === 1, "Cat can read the group name");
-check((await countLocked(C.page)) === 1, "Cat can't read the message sent before she joined");
+check((await C.page.locator("text=First group message").count()) === 0 && (await countLocked(C.page)) === 0, "Cat isn't shown messages from before she joined");
 check((await countUnverified(C.page)) === 0, "Cat verifies everything she can read");
-check((await C.page.locator("text=New in this conversation").count()) === 0, "a newcomer isn't asked about members on first sight");
+check((await C.page.locator("text=You're in a group you haven't checked yet").count()) === 1, "Cat is asked to look at who's in the group before sending");
 
 // Device-signed delete.
 const bubble = A.page.locator('div.group:has-text("Cat is here now")').last();
