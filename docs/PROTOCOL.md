@@ -146,9 +146,33 @@ fresh 256-bit content key `K`:
 A reader unwraps `K` and refuses it unless `kc` matches before decrypting. Without the commitment, a sender could craft one
 ciphertext that different members' wraps open to different texts, since AES-GCM doesn't commit to its key.
 
-Payloads are `{"type":"text","text":…}` (at most 4000 characters) and `{"type":"title","title":…}` (at most 80).
+Payloads are `{"type":"title","title":…}` (at most 80 characters) for group names, and for messages one of:
+
+- `{"type":"text","text":…, "reply_to"?: msg_id}`: text of at most 4000 characters, optionally answering another message.
+  Only the id of the message answered is sent, never a copy of it.
+- `{"type":"reaction","target": msg_id, "emoji":…, "remove"?: true}`: one of six fixed emoji, added or taken back.
+- `{"type":"edit","target": msg_id, "text":…}`: new text for one of the sender's own messages.
+
+Any message payload also carries `"expire_seconds"` when the conversation has a disappearing-message timer (below). To the
+server these are all the same: one envelope, one signature, one row. Readers check every field and treat anything else
+(an unknown type, an emoji outside the set, a malformed id) as unreadable.
+
 The server stores, beside each message, the list of accounts its key was sealed to (`recipient_ids`, taken from the wraps).
 Members are only ever sent messages that list them, so someone added to a group isn't shown that earlier messages exist.
+
+**Putting a conversation together** (`src/lib/secure/thread.js`). Reactions and edits never show on their own; they change
+the message they point at, and only when they check out:
+- an edit counts only if it and the original are both verified, come from the same account, the original isn't deleted,
+  and the edit's `sent_at` is within 24 hours of the original's; the latest edit wins, and the message is marked edited;
+- a reaction counts only if it's verified; for each person, message and emoji, their latest reaction says whether it stands;
+- "latest" means by the sender's signed `sent_at`, then by `msg_id`, so every member settles on the same result. A sender
+  can only reorder their own edits and reactions this way.
+
+**Disappearing messages.** A conversation can have a timer: off, 1 day, 1 week or 4 weeks. When a message arrives, the
+server stores `expires_at = arrival + timer` beside it, stops listing it once that passes, and a scheduled task deletes it
+(blanked first) every 30 minutes. The sender also puts the timer inside the signed payload, and readers hide a message at
+the earlier of `expires_at` and `sent_at + expire_seconds`, so the server can't keep a message showing longer than its
+sender chose. Apps also drop it from memory. Nothing stops a member copying a message before then.
 
 A reader marks an item **verified** only if the sending device appears in the sender's device list, that device's
 certificate verifies against the sender's chain (the pinned history while a change awaits review; for your own account,
@@ -209,8 +233,36 @@ Contacts then see a "changed" warning; earlier messages stay unreadable to the n
 show that the account was reset elsewhere. They keep their keys until the person deletes them: the server can claim a
 device was removed, but can't make it forget anything.
 
-**Conversations.** Starting a direct message or group, adding members, leaving a group and deleting a message require a
-device proof (`device-proof/v1` over the exact payload). The server holds member lists, so each client also pins who was
+**Security emails.** The account's sign-in address is emailed (best effort, never blocking the change) when a device is
+approved, when the recovery phrase is used to add a device, when a reset is asked for and when one completes. Emails say
+what happened and when; they never include device names, usernames or anything about conversations.
+
+**Passcode lock (one browser, optional).** The keyring is stored as
+`{"v":1,"locked":true, iv, ct}` = AES-256-GCM under a key derived from the passcode with PBKDF2-SHA-256 (600,000
+rounds, 16-byte random salt), with associated data `commonveil-lock:keyring:<user id>`. Beside it, the lock record holds
+the salt, the round count, the idle time and a check value (a fixed string sealed the same way) so a wrong passcode is
+recognised. The record and the keyring are written in one IndexedDB transaction. Unlocked, the derived key is held in
+memory as a non-extractable `CryptoKey`; locking drops it and the keyring. Device private keys are non-extractable, so they
+can't be wrapped and aren't covered. Locking one tab locks the others (`BroadcastChannel`). Forgetting the passcode means
+removing the browser (its signing key can still sign its own removal) and setting it up again.
+
+**Auto-delete (opt-in).** A member can choose to have the account deleted after 183 or 365 days without use. Only then
+does the server keep the day (not the time) the app was last opened, updated at most once a day. A daily scheduled task
+emails a warning once the account is within 7 days of its date; opening the app withdraws it. The account is deleted at
+the later of its date and 7 days after the warning, exactly as a self-service deletion, then its sign-in is removed. If
+the warning can't be sent it's tried again each day, and the account is deleted 7 days after its date regardless. Staff
+accounts are never deleted this way.
+
+**Download my data.** Built in the browser: profile, devices, public key versions, every conversation with each message
+the member can read (decrypted and verified there, with edits and reactions applied), blocks and the member's own reports.
+It never includes keys or the phrase.
+
+**Conversations.** Starting a direct message or group, adding or removing members, choosing admins, setting the timer,
+leaving a group and deleting a message require a device proof (`device-proof/v1` over the exact payload). Whoever starts a
+group is its admin and can make others admins. Only admins can add or remove people, rename the group, change its timer or
+choose admins; an admin can step down while another admin remains. A group whose admins have all gone (or that predates
+admins) is run by its creator if they're still in it, otherwise by its longest-standing member. In a direct message both
+people manage the timer. Everyone sees who last changed the timer, and when. The server holds member lists, so each client also pins who was
 in each conversation and refuses to encrypt to anyone it hasn't seen: a direct message is pinned on first sight (it must
 have exactly two members, or sending is blocked); a group started on this browser is pinned with the people chosen; any
 other group pins only yourself, so on first sight you're shown everyone in it before you can send. After that, anyone
@@ -237,7 +289,15 @@ The server never holds a private key. It checks, and refuses otherwise:
 - blocks stop direct messages in both directions and hide each person from the other's username lookup;
 - usernames: exact-match lookup only, no directory; a deleted or erased account's username is retired, never reissued;
 - profiles and public keys only for people you share a conversation with; groups of at most 32; reports readable only
-  by admins.
+  by admins;
+- group changes (adding or removing people, names, the timer, admins) only by the group's admins, never leaving a group
+  without one; timers only from the offered choices; expired messages are never listed;
+- auto-delete only from the offered choices, signed by a device, and never for staff.
+
+**Scheduled tasks.** One function, `maintenance`, is started by two automations: `expire` every 30 minutes, `inactive`
+daily. Like every function its address is public, so it takes nothing but a task name and acts only on what's already due
+by the server's clock; calling it early, late or twice does nothing extra, and a repeat within a minute (fifteen for
+`inactive`) is skipped without touching the database. It answers with counts only.
 
 **Data access.** Every table is closed to direct writes. Reads that run constantly (polling, page loads) are made with the
 member's own access, and row rules allow only rows that name them: messages sealed to them, conversations they're in, and
@@ -261,9 +321,11 @@ account whose sign-in was removed in Base44, only after two separate checks conf
 ## 10. Tests
 
 - `tests/crypto.test.mjs`: primitives, chains and digests, anchoring, envelopes and key commitment, recovery anchors,
-  linking, tampering (21 tests).
+  linking, tampering, the passcode lock (22 tests).
 - `tests/functions.test.mjs`: the real backend handlers driven by the real client code, with only the database replaced
-  (it applies the real row rules to members' own reads), including attack cases and a regression test for each review
-  finding (43 tests).
+  (it applies the real row rules to members' own reads), including attack cases, a regression test for each review
+  finding, disappearing messages, group admins, security emails, auto-delete and the scheduled tasks (53 tests).
+- `tests/thread.test.mjs`: replies, reactions, edits, timers and on-device search (8 tests).
+- `tests/site.test.mjs`: saved pages, guide progress and site search on the public site (2 tests).
 - `tests/schema.test.mjs`: table definitions: no clashes with Base44's own fields, and the exact access rules (3 tests).
 - `tests/e2e/`: live browser runs against the real platform (see its README).
