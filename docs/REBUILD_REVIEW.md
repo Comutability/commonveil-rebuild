@@ -37,6 +37,43 @@ encrypted existed.
 | 6 backend functions | Each a small set of named actions over shared, tested modules. |
 | Messaging core first | Public site plus encrypted DMs and small groups. Everything else waits until this is reviewed. |
 
+## Independent review and fixes (29–30 October)
+
+Before launch, a reviewer who hadn't worked on the code reviewed version 1 of the protocol and its implementation. Every
+finding was fixed, with a regression test, which became version 2 of the protocol:
+
+| Finding | Fix |
+|---|---|
+| Pins and safety numbers covered only the latest key, so earlier keys in someone's history could be swapped unnoticed | Pins, safety numbers and link codes commit to a hash of the whole key history |
+| A device trusted the server's view of its own account | Each device anchors the published keys to the keyring it holds; new devices to the history in their link code |
+| A forged account could be handed to a device being recovered, since the backup is sealed to a public key | Statements made with the phrase carry a recovery anchor only the phrase can make, and recovery requires one |
+| Messages from a removed device kept verifying | Items sent after the rotation that removed their device are flagged; removed devices are left out of rotations by the client itself |
+| A password alone could reset an account's encryption at once | Resets wait 7 days; the account's devices and the phrase can stop them, and the sign-in email is told |
+| AES-GCM doesn't commit to its key, so one ciphertext could read differently for different members | Envelopes carry a key commitment, checked before decrypting |
+| The server's word could wipe a device's keys | A device told it was removed keeps its keys until the person deletes them |
+| Starting a conversation needed only a session; first sight of a group trusted whoever was in it | Starting a conversation is device-signed; a group someone else made shows everyone in it before you can send |
+| People added to a group could see that earlier messages existed | Messages record whom they were sealed to; members are only sent those addressed to them |
+| Simultaneous requests could slip past rate limits, and concurrent pin updates could undo each other | Limits are re-checked after writing; pin updates are serialised |
+| An approval certified whatever keys the server listed by then, and a group name could be shown before it verified | Approval certifies exactly the keys compared; only verified group names are shown |
+
+Reports about a deleted account are now kept for staff, deleted usernames are retired rather than freed, and production
+builds ignore a backend version given in the page address.
+
+Live testing against Base44 also found three platform behaviours the unit tests couldn't, each now fixed and covered:
+
+- **`created_by` is a reserved field.** Base44 adds its own `created_by` to every record, and queries on a schema field of
+  that name silently match nothing, so conversations couldn't be started. The field is now `creator_id`, and a test
+  checks no table defines a built-in name.
+- **The service role shares one small allowance for the whole app.** About 120 queries a minute in testing, so a handful of
+  open browsers polling through the backend caused "service is busy" errors. Polling and page loads now read with each
+  member's own access, under row rules that allow only rows naming them; polling is one query and slows down when quiet;
+  sends that hit a busy service are retried as the same message.
+- **A query straight after a write may not include the new row.** "Oldest wins" checks (usernames, direct messages, key
+  versions) and post-write rate checks now place the new row themselves, comparing times as numbers.
+
+Staff also gained a tool to erase what an account leaves behind when its sign-in is removed in Base44 rather than deleted
+in the app.
+
 ## Content carried over
 
 5 hand-written posts, 5 guides, 3 learning paths, 16 resources and 1 wiki page. The 29 auto-generated posts and the daily
