@@ -3,20 +3,33 @@ import { Link } from "react-router-dom";
 import { PageHeader } from "@/components/site/bits";
 
 const HOLD = [
-  ["Your sign-in email", "Used only to sign you in and for password resets, by our hosting platform (Base44), and to tell you if someone asks to reset your encryption. It is never shown to other members. An alias address works fine."],
+  ["Your sign-in email", "Used by our hosting platform (Base44) to sign you in and for password resets, and by us only for security emails: when a device is added to your account, when your recovery phrase is used, when someone asks to reset your encryption and when a reset completes, and a week before an account you've set to delete itself is deleted. The emails say what happened and when, and nothing about your devices or who you talk to. Your address is never shown to other members, and an alias works fine."],
   ["Your username, display name and short bio", "Visible only to people who look up your exact username or share a conversation with you."],
   ["Public keys and your device list", "Public keys let others encrypt to you and check your signatures. Your device list includes a label like \"Firefox on Linux\" so you can recognise them; other members don't see labels."],
   ["Who is in each conversation, and when messages are sent", "We need this to deliver messages. We can see that you and someone else exchanged messages, roughly how large they were, and which accounts each message was encrypted for."],
-  ["Encrypted messages and group names", "Stored as ciphertext. We have no key that opens them."],
+  ["Encrypted messages and group names", "Stored as ciphertext. We have no key that opens them. Replies, reactions and edits are encrypted messages too, so we can't tell them apart from any other message or see what they point at."],
+  ["Conversation settings", "A group's admins, and a conversation's disappearing-message timer with who last changed it and when. The server needs these to enforce them."],
+  ["Disappearing messages", "With a timer on, each new message is stored with the time it's due to go. When that time comes your app stops showing it, and the server deletes it (blanked first) within about half an hour."],
+  ["Auto-delete, only if you turn it on", "The date (not the time) you last opened Commonveil, and whether you've been sent the warning. Turning it off forgets the date. If it's off, we keep nothing about when you use Commonveil."],
   ["Encrypted backup of your keys", "Sealed to your recovery phrase. Without the phrase it's unreadable, including to us."],
   ["Blocks and reports", "If you report someone, staff see the reason and anything you choose to paste in. They can't read your messages. A report about someone stays with staff even if that person later deletes their account."],
 ];
 
 const NEVER = [
   "Your messages or group names, in readable form",
-  "Your private keys or your 24-word recovery phrase",
+  "Your private keys, your 24-word recovery phrase or your passcode",
   "What you've read: read markers stay on your device",
+  "What you search for: message search runs on your device, site search in your browser",
+  "Your notification settings: they stay in your browser, and there are no push notifications",
+  "Your saved pages and finished guides: they stay in your browser",
   "Analytics, advertising IDs or third-party trackers: this site's code has none",
+];
+
+const ON_DEVICE = [
+  ["Passcode lock", "If you set one, your keys on that browser are stored encrypted with it. The passcode itself is never stored or sent."],
+  ["Alerts", "Whether to show notifications, whether they name the sender, and whether to put an unread count in the tab title. All off until you turn them on."],
+  ["Saved pages and progress", "Guides, wiki pages, posts and paths you save, and guides you mark as done, with the day. Clear them from the Saved page."],
+  ["Your data download", "Made in your browser from what you can already see, and saved straight to your device. It holds your messages in readable form, so keep it safe."],
 ];
 
 export default function Privacy() {
@@ -42,6 +55,17 @@ export default function Privacy() {
               {NEVER.map((n) => <li key={n}>{n}</li>)}
             </ul>
           </div>
+          <div className="card-cv p-6">
+            <h2 className="text-xl font-semibold">Kept only in your browser</h2>
+            <dl className="mt-4 space-y-3 text-sm">
+              {ON_DEVICE.map(([t, d]) => (
+                <div key={t}>
+                  <dt className="font-semibold">{t}</dt>
+                  <dd className="mt-0.5 text-muted-foreground">{d}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
           <div className="card-cv p-6 text-sm text-muted-foreground">
             <h2 className="text-lg font-semibold text-foreground">Where it lives</h2>
             <p className="mt-2">
@@ -49,6 +73,10 @@ export default function Privacy() {
               encryption is what keeps message content out of reach of both of us.
             </p>
             <h2 className="mt-5 text-lg font-semibold text-foreground">Deleting your data</h2>
+            <p className="mt-2">
+              You can download everything we hold about your account from Settings, decrypted in your browser. You can also set your account
+              to delete itself after six months or a year without use.
+            </p>
             <p className="mt-2">
               You can delete single messages, remove devices, or delete your whole account from Settings. Account deletion blanks and then
               deletes your profile, keys, devices and every message you've sent. Direct-message conversations go for both people, and you're
