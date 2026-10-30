@@ -41,9 +41,9 @@ async function blankAndDeleteAll(sr: any, entity: string, query: any, blank: Rec
 }
 
 const BLANK = {
-  Message: { conversation_id: "", msg_id: "", sender_id: "", device_id: "", envelope: "", signature: "", sent_at: "", deleted: true },
+  Message: { conversation_id: "", msg_id: "", sender_id: "", device_id: "", envelope: "", signature: "", sent_at: "", recipient_ids: [], deleted: true },
   Conversation: {
-    member_ids: [], member_since: [], dm_key: "", created_by: "", title_envelope: "", title_item_id: "", title_sender_id: "",
+    member_ids: [], dm_key: "", created_by: "", title_envelope: "", title_item_id: "", title_sender_id: "",
     title_device_id: "", title_sent_at: "", title_signature: "", last_message_at: "",
   },
   Block: { user_id: "", blocked_user_id: "" },
@@ -92,10 +92,7 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
         if (c.kind === "dm" || rest.length === 0) {
           await eraseConversation(sr, c.id, deadline);
         } else {
-          const changes: Record<string, unknown> = {
-            member_ids: rest,
-            member_since: (c.member_since || []).filter((e: string) => !String(e).startsWith(`${userId}|`)),
-          };
+          const changes: Record<string, unknown> = { member_ids: rest };
           if (c.created_by === userId) changes.created_by = "";
           // A group name set by this member can't be verified once their keys are gone.
           if (c.title_sender_id === userId) {
