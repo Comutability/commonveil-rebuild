@@ -1,10 +1,14 @@
 // Conversations and messages for the signed-in, set-up account: polling,
 // decryption with signature checks, sending with automatic key refresh.
+// Replies, reactions and edits are messages too, put together on this device (thread.js).
+// Disappearing timers and group admins are conversation settings the server enforces.
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, callFn } from "@/lib/api";
 import { useSecure } from "./SecureContext.jsx";
 import * as P from "./protocol.js";
 import * as S from "./store.js";
+import { buildThread, isShowing, searchThreads } from "./thread.js";
+import { DEFAULT_ALERTS, alertText, cleanAlerts, showAlert } from "./alerts.js";
 
 const ChatContext = createContext(null);
 
@@ -29,19 +33,23 @@ const BACKOFF_MAX_MS = 60_000;
 // A message that couldn't be delivered because the service was busy is sent again as the same
 // message (same id), so it can't arrive twice.
 const SEND_RETRY_MS = [1_500, 4_000, 8_000];
+/** How often disappearing messages are checked and dropped from memory. */
+const EXPIRY_CHECK_MS = 15_000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const isTransient = (err) => err instanceof ApiError && (err.code === "UPSTREAM_BUSY" || err.code === "NETWORK");
 
-async function deliver(body) {
+async function withRetry(fn) {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return await callFn("messages", body);
+      return await fn();
     } catch (err) {
       if (!isTransient(err) || attempt >= SEND_RETRY_MS.length) throw err;
       await sleep(SEND_RETRY_MS[attempt]);
     }
   }
 }
+
+const deliver = (body) => withRetry(() => callFn("messages", body));
 
 export function ChatProvider({ children }) {
   const { userId, device, keyring, peers, loadPeers, chainsFor, chainOf, devicesOf, ownMinCertVersion, refresh: refreshSecure } = useSecure();
@@ -54,6 +62,8 @@ export function ChatProvider({ children }) {
   const [titles, setTitles] = useState({});
   const [readState, setReadState] = useState({});
   const [memberPins, setMemberPins] = useState(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [alerts, setAlerts] = useState(DEFAULT_ALERTS);
   const memberPinsRef = useRef(null);
   // Groups started from this browser: their members were chosen here, so they're pinned as they are.
   const startedHere = useRef(new Set());
@@ -64,8 +74,43 @@ export function ChatProvider({ children }) {
   const lastActivity = useRef(Date.now());
   const conversationsRef = useRef([]);
   const polling = useRef(false);
+  // Where "load earlier messages" carries on from, per conversation (the server's own paging cursor).
+  const olderCursor = useRef({});
+  // Messages that arrived after this point can raise an alert; nothing from before the page loaded does.
+  const alertsFrom = useRef(null);
+  const alerted = useRef(new Set());
+  const alertsRef = useRef(DEFAULT_ALERTS);
+  const activeConversation = useRef(null);
+  const openedRef = useRef({});
   // Sender devices we've already re-fetched keys for, so an unknown device triggers one refresh, not a loop.
   const refetchedDevices = useRef(new Set());
+
+  useEffect(() => {
+    openedRef.current = opened;
+  }, [opened]);
+
+  useEffect(() => {
+    let cancelled = false;
+    S.loadAlerts(userId)
+      .then((saved) => {
+        if (cancelled) return;
+        const clean = cleanAlerts(saved || DEFAULT_ALERTS);
+        alertsRef.current = clean;
+        setAlerts(clean);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const updateAlerts = useCallback(async (changes) => {
+    const next = cleanAlerts({ ...alertsRef.current, ...changes });
+    alertsRef.current = next;
+    setAlerts(next);
+    await S.saveAlerts(userId, next);
+    return next;
+  }, [userId]);
 
   /**
    * True if we know the device that signed this item. If not, ask for fresh keys once
@@ -115,14 +160,22 @@ export function ChatProvider({ children }) {
 
   const acknowledgeMembers = useCallback((c) => pinMembers(c.id, c.member_ids, { replace: true }), [pinMembers]);
 
+  const sortConversations = (list) =>
+    list.sort((a, b) => String(b.last_message_at || b.created_date).localeCompare(String(a.last_message_at || a.created_date)));
+
   const mergeConversations = useCallback((list, { replace = false } = {}) => {
     setConversations((prev) => {
       const map = new Map(replace ? [] : prev.map((c) => [c.id, c]));
       for (const c of list) map.set(c.id, c);
-      return [...map.values()].sort((a, b) =>
-        String(b.last_message_at || b.created_date).localeCompare(String(a.last_message_at || a.created_date)),
-      );
+      return sortConversations([...map.values()]);
     });
+  }, []);
+
+  /** Note a new message without overwriting anything else that changed about the conversation meanwhile. */
+  const touchConversation = useCallback((conversationId, at) => {
+    setConversations((prev) => sortConversations(prev.map((c) =>
+      c.id === conversationId && String(at) > String(c.last_message_at || "") ? { ...c, last_message_at: at } : c,
+    )));
   }, []);
 
   const mergeMessages = useCallback((list) => {
@@ -137,6 +190,36 @@ export function ChatProvider({ children }) {
       }
       return next;
     });
+  }, []);
+
+  // Disappearing messages: hidden the moment their time is up, and dropped from memory too.
+  useEffect(() => {
+    const t = setInterval(() => {
+      const at = Date.now();
+      setNow(at);
+      let removed = [];
+      setMessages((prev) => {
+        let changed = false;
+        const next = {};
+        for (const [cid, list] of Object.entries(prev)) {
+          const kept = list.filter((m) => isShowing(m, openedRef.current[m.id], at));
+          if (kept.length !== list.length) {
+            changed = true;
+            removed = removed.concat(list.filter((m) => !kept.includes(m)).map((m) => m.id));
+          }
+          next[cid] = kept;
+        }
+        return changed ? next : prev;
+      });
+      if (removed.length) {
+        setOpened((prev) => {
+          const next = { ...prev };
+          for (const id of removed) delete next[id];
+          return next;
+        });
+      }
+    }, EXPIRY_CHECK_MS);
+    return () => clearInterval(t);
   }, []);
 
   const profilesRef = useRef({});
@@ -176,6 +259,7 @@ export function ChatProvider({ children }) {
       cursor.current = start.cursor;
       convCursor.current = start.conversations_cursor || start.cursor;
       convCheckedAt.current = Date.now();
+      if (!alertsFrom.current) alertsFrom.current = start.cursor;
       setLoaded(true);
       const memberIds = list.flatMap((c) => c.member_ids);
       loadPeers(memberIds).catch(() => {});
@@ -264,6 +348,34 @@ export function ChatProvider({ children }) {
     };
   }, [userId, loadStart, mergeConversations, mergeMessages, loadPeers, loadProfiles]);
 
+  const nameOf = useCallback((id) => {
+    if (id === userId) return "You";
+    const p = profiles[id];
+    return p ? p.display_name || p.username : "Member";
+  }, [profiles, userId]);
+
+  /**
+   * A notification for a message that just arrived, if they're switched on and you're not
+   * already looking at that conversation. Reactions and edits don't raise one.
+   */
+  const maybeAlert = useCallback((m, result) => {
+    const settings = alertsRef.current;
+    if (!settings.notify || m.sender_id === userId || alerted.current.has(m.id)) return;
+    if (!alertsFrom.current || String(m.created_date) <= String(alertsFrom.current)) return;
+    if (result.content?.type !== "text" || (result.status !== "ok" && result.status !== "unverified")) return;
+    alerted.current.add(m.id);
+    const looking = document.visibilityState === "visible" && document.hasFocus() && activeConversation.current === m.conversation_id;
+    if (looking) return;
+    const sender = profilesRef.current[m.sender_id];
+    showAlert({
+      body: alertText(settings, sender ? sender.display_name || sender.username : ""),
+      tag: `commonveil-${m.conversation_id}`,
+      onClick: () => {
+        if (window.location.pathname !== `/app/c/${m.conversation_id}`) window.location.assign(`/app/c/${m.conversation_id}`);
+      },
+    });
+  }, [userId]);
+
   // Decrypt anything new once the sender's keys are known.
   useEffect(() => {
     if (!keyring) return;
@@ -271,6 +383,7 @@ export function ChatProvider({ children }) {
     const membersOf = new Map(conversations.map((c) => [c.id, new Set(c.member_ids)]));
     (async () => {
       const results = {};
+      const fresh = [];
       for (const list of Object.values(messages)) {
         for (const m of list) {
           const cacheKey = `${m.id}:${m.deleted ? "d" : "v"}`;
@@ -294,15 +407,19 @@ export function ChatProvider({ children }) {
             minCertVersion: m.sender_id === userId ? ownMinCertVersion : 1,
           });
           results[m.id] = { ...r, cacheKey };
+          if (!prev) fresh.push([m, r]);
           if (cancelled) return;
         }
       }
-      if (!cancelled && Object.keys(results).length) setOpened((prev) => ({ ...prev, ...results }));
+      if (!cancelled && Object.keys(results).length) {
+        setOpened((prev) => ({ ...prev, ...results }));
+        for (const [m, r] of fresh) maybeAlert(m, r);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [messages, conversations, keyring, peers, userId, chainOf, devicesOf, opened, knowsDevice, ownMinCertVersion]);
+  }, [messages, conversations, keyring, peers, userId, chainOf, devicesOf, opened, knowsDevice, ownMinCertVersion, maybeAlert]);
 
   // Group names.
   useEffect(() => {
@@ -355,20 +472,51 @@ export function ChatProvider({ children }) {
     if (changed) saveMemberPins(next).catch(() => {});
   }, [conversations, saveMemberPins, userId]);
 
+  /** The newest page. If earlier pages were already loaded, where they left off still stands. */
   const openConversation = useCallback(async (conversationId) => {
     lastActivity.current = Date.now();
+    activeConversation.current = conversationId;
     const res = await callFn("messages", { action: "list", conversation_id: conversationId });
     mergeMessages(res.messages);
-    setHasMore((prev) => ({ ...prev, [conversationId]: res.has_more }));
+    if (!(conversationId in olderCursor.current)) {
+      olderCursor.current[conversationId] = res.before;
+      setHasMore((prev) => ({ ...prev, [conversationId]: res.has_more }));
+    }
   }, [mergeMessages]);
 
+  const closeConversation = useCallback((conversationId) => {
+    if (activeConversation.current === conversationId) activeConversation.current = null;
+  }, []);
+
+  /** One more page back. Returns how many messages came. */
   const loadOlder = useCallback(async (conversationId) => {
-    const first = (messages[conversationId] || [])[0];
-    if (!first) return;
-    const res = await callFn("messages", { action: "list", conversation_id: conversationId, before: first.created_date });
+    const before = olderCursor.current[conversationId];
+    if (!before) return 0;
+    const res = await withRetry(() => callFn("messages", { action: "list", conversation_id: conversationId, before }));
     mergeMessages(res.messages);
+    olderCursor.current[conversationId] = res.has_more ? res.before : null;
     setHasMore((prev) => ({ ...prev, [conversationId]: res.has_more }));
-  }, [messages, mergeMessages]);
+    return res.messages.length;
+  }, [mergeMessages]);
+
+  /**
+   * For search: fetch earlier messages for every conversation, a few pages each, so they can be
+   * decrypted and searched here. Returns false once there's nothing further back anywhere.
+   */
+  const loadHistory = useCallback(async ({ pages = 3 } = {}) => {
+    let more = false;
+    for (const c of conversationsRef.current) {
+      if (!(c.id in olderCursor.current)) {
+        const res = await withRetry(() => callFn("messages", { action: "list", conversation_id: c.id }));
+        mergeMessages(res.messages);
+        olderCursor.current[c.id] = res.has_more ? res.before : null;
+        setHasMore((prev) => ({ ...prev, [c.id]: res.has_more }));
+      }
+      for (let i = 0; i < pages && olderCursor.current[c.id]; i += 1) await loadOlder(c.id);
+      if (olderCursor.current[c.id]) more = true;
+    }
+    return more;
+  }, [mergeMessages, loadOlder]);
 
   const markRead = useCallback(async (conversationId) => {
     const list = messages[conversationId] || [];
@@ -388,6 +536,16 @@ export function ChatProvider({ children }) {
     return !seen || String(c.last_message_at) > String(seen);
   }, [readState, messages, userId]);
 
+  // The unread count in the tab title, if it's switched on. It never says from whom.
+  useEffect(() => {
+    if (!alerts.titleCount) return undefined;
+    const count = conversations.filter(isUnread).length;
+    document.title = count ? `(${count}) Commonveil` : "Commonveil";
+    return () => {
+      document.title = "Commonveil";
+    };
+  }, [alerts.titleCount, conversations, isUnread]);
+
   const refreshConversation = useCallback(async (conversationId) => {
     const { conversation } = await callFn("conversations", { action: "get", conversation_id: conversationId });
     mergeConversations([conversation]);
@@ -395,18 +553,22 @@ export function ChatProvider({ children }) {
     return conversation;
   }, [mergeConversations, loadPeers]);
 
-  const send = useCallback(async (conversation, text) => {
+  /**
+   * Send something built for the conversation as it is right now. If the server says the
+   * members or their keys changed, refresh once and build it again: the membership check
+   * runs every time, so a refresh can't quietly add recipients.
+   */
+  const sendBuilt = useCallback(async (conversation, build) => {
     lastActivity.current = Date.now();
     let conv = conversation;
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      // Checked on every attempt: a refresh after a rejected send must not quietly add recipients.
       const problem = membershipProblem(conv);
       if (problem) throw new Error(problem);
       try {
-        const body = await P.buildMessage({ userId, device, conversation: conv, chains: chainsFor(conv.member_ids), text, keyring });
+        const body = await build(conv, chainsFor(conv.member_ids));
         const res = await deliver(body);
         mergeMessages([res.message]);
-        mergeConversations([{ ...conv, last_message_at: res.message.created_date }]);
+        touchConversation(conv.id, res.message.created_date);
         return res.message;
       } catch (err) {
         if (attempt === 0 && err instanceof ApiError && RETRYABLE.has(err.code)) {
@@ -417,7 +579,19 @@ export function ChatProvider({ children }) {
       }
     }
     return null;
-  }, [userId, device, keyring, chainsFor, mergeMessages, mergeConversations, refreshConversation, membershipProblem]);
+  }, [chainsFor, mergeMessages, touchConversation, refreshConversation, membershipProblem]);
+
+  const send = useCallback((conversation, text, { replyTo = null } = {}) =>
+    sendBuilt(conversation, (conv, chains) => P.buildMessage({ userId, device, conversation: conv, chains, text, keyring, replyTo })),
+  [sendBuilt, userId, device, keyring]);
+
+  const react = useCallback((conversation, message, emoji, remove = false) =>
+    sendBuilt(conversation, (conv, chains) => P.buildReaction({ userId, device, conversation: conv, chains, keyring, target: message.msg_id, emoji, remove })),
+  [sendBuilt, userId, device, keyring]);
+
+  const editMessage = useCallback((conversation, message, text) =>
+    sendBuilt(conversation, (conv, chains) => P.buildEdit({ userId, device, conversation: conv, chains, keyring, target: message.msg_id, text })),
+  [sendBuilt, userId, device, keyring]);
 
   const setTitle = useCallback(async (conversation, title) => {
     const problem = membershipProblem(conversation);
@@ -427,6 +601,17 @@ export function ChatProvider({ children }) {
     mergeConversations([res.conversation]);
     return res.conversation;
   }, [userId, device, keyring, chainsFor, mergeConversations, membershipProblem]);
+
+  /** A conversation setting that needs this device's signature. */
+  const conversationAction = useCallback(async (action, payload) => {
+    const res = await callFn("conversations", await P.signedRequest({ userId, device, action, payload }));
+    if (res.conversation) mergeConversations([res.conversation]);
+    return res.conversation;
+  }, [userId, device, mergeConversations]);
+
+  const setExpiry = useCallback((c, seconds) => conversationAction("set_expiry", { conversation_id: c.id, seconds }), [conversationAction]);
+  const setAdmin = useCallback((c, memberId, admin) => conversationAction("set_admin", { conversation_id: c.id, user_id: memberId, admin }), [conversationAction]);
+  const removeMember = useCallback((c, memberId) => conversationAction("remove_member", { conversation_id: c.id, user_id: memberId }), [conversationAction]);
 
   const startDm = useCallback(async (username) => {
     const res = await callFn("conversations", await P.prepareCreateDm({ userId, device, username }));
@@ -472,12 +657,6 @@ export function ChatProvider({ children }) {
     mergeMessages([{ ...message, deleted: true, envelope: null, signature: null }]);
   }, [userId, device, mergeMessages]);
 
-  const nameOf = useCallback((id) => {
-    if (id === userId) return "You";
-    const p = profiles[id];
-    return p ? p.display_name || p.username : "Member";
-  }, [profiles, userId]);
-
   /** The unique @username. Display names are chosen freely, so anyone can pick someone else's. */
   const handleOf = useCallback((id) => (profiles[id]?.username ? `@${profiles[id].username}` : ""), [profiles]);
 
@@ -493,20 +672,43 @@ export function ChatProvider({ children }) {
     return other ? nameOf(other) : "Conversation";
   }, [titles, userId, nameOf]);
 
+  /** Every conversation as it reads now: edits applied, reactions gathered, disappeared messages gone. */
+  const threads = useMemo(() => {
+    const out = {};
+    for (const [cid, list] of Object.entries(messages)) out[cid] = buildThread(list, opened, { userId, now });
+    return out;
+  }, [messages, opened, userId, now]);
+
+  /** Search what this device has decrypted. The query never leaves it. */
+  const searchMessages = useCallback((query) =>
+    searchThreads(conversations.map((c) => ({ conversation: c, rows: threads[c.id] || [] })), query),
+  [conversations, threads]);
+
   const value = useMemo(() => ({
     loaded,
     conversations,
     messages,
+    threads,
     hasMore,
     opened,
     titles,
     profiles,
+    alerts,
+    updateAlerts,
     openConversation,
+    closeConversation,
     loadOlder,
+    loadHistory,
+    searchMessages,
     markRead,
     isUnread,
     send,
+    react,
+    editMessage,
     setTitle,
+    setExpiry,
+    setAdmin,
+    removeMember,
     startDm,
     startGroup,
     addMembers,
@@ -520,7 +722,7 @@ export function ChatProvider({ children }) {
     newMembersOf,
     acknowledgeMembers,
     membershipProblem,
-  }), [loaded, conversations, messages, hasMore, opened, titles, profiles, openConversation, loadOlder, markRead, isUnread, send, setTitle, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem]);
+  }), [loaded, conversations, messages, threads, hasMore, opened, titles, profiles, alerts, updateAlerts, openConversation, closeConversation, loadOlder, loadHistory, searchMessages, markRead, isUnread, send, react, editMessage, setTitle, setExpiry, setAdmin, removeMember, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem]);
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }
