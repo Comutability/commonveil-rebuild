@@ -2,7 +2,7 @@
 // only by their exact username, and see profiles of people you share a
 // conversation with.
 import { ApiError, cleanText, idList, type Actions } from "../http.ts";
-import { accountKeysOf, blockedEitherWay, contactsOf, profileOf, publicProfile } from "../store.ts";
+import { accountKeysOf, blockedEitherWay, contactsOf, profileOf, publicProfile, withRow } from "../store.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
 import { isRetiredUsername, purgeAccount, removePlatformUser } from "../accountDeletion.ts";
 
@@ -47,10 +47,9 @@ export const profileActions: Actions = {
     const created = await sr.entities.Profile.create({ user_id: user.id, username, username_key: key, display_name, bio: "" });
 
     // Two people (or two tabs) can race for the same name. Oldest claim wins.
-    const byOrder = (a: any, b: any) => String(a.created_date).localeCompare(String(b.created_date)) || String(a.id).localeCompare(String(b.id));
-    const sameName = (await sr.entities.Profile.filter({ username_key: key }, "created_date", 10)).sort(byOrder);
-    const mine = (await sr.entities.Profile.filter({ user_id: user.id }, "created_date", 10)).sort(byOrder);
-    if (sameName[0]?.id !== created.id || mine[0]?.id !== created.id) {
+    const sameName = withRow(await sr.entities.Profile.filter({ username_key: key }, "created_date", 10), created);
+    const mine = withRow(await sr.entities.Profile.filter({ user_id: user.id }, "created_date", 10), created);
+    if (sameName[0].id !== created.id || mine[0].id !== created.id) {
       await sr.entities.Profile.delete(created.id);
       if (mine[0] && mine[0].id !== created.id) throw new ApiError(409, "ALREADY_CLAIMED", "You already have a username.");
       throw new ApiError(409, "USERNAME_TAKEN", "That username is taken.");
