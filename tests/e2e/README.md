@@ -19,6 +19,7 @@ not part of `npm test` because they need signed-in test accounts and create real
 | `09-accessibility.mjs` | axe-core WCAG 2 A/AA on public pages and signed-in screens, light and dark |
 | `10-policy-report-delete.mjs` | A production build under its Content Security Policy: the policy and `security.txt` are served; public pages; an anonymous security report; a new member sets up and deletes their account; staff close the report; nothing of the app's own is blocked |
 | `11-erase-test-accounts.mjs` | Cleaning up: Admin → Accounts lists deprovisioned test people and erases what they left (only usernames starting `e2e_`) |
+| `12-access-rules.mjs` | Every table's read rule on the real platform: two new members each read only rows naming them and can't fetch the other's by id; visitors read nothing; private tables are closed |
 
 ## Running them
 
