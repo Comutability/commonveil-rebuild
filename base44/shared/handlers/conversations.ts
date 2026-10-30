@@ -5,6 +5,7 @@ import { parseEnvelopeShape, verifyItemSignature } from "../verify.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
 import { OutOfTime, eraseConversation } from "../accountDeletion.ts";
 import {
+  EXPIRY_CHOICES,
   accountKeysOf,
   assertWrapsMatchMembers,
   blockedEitherWay,
@@ -16,9 +17,14 @@ import {
   profileOf,
   rateLimited,
   requireActiveDevice,
+  requireGroupAdmin,
   withinRate,
+  withoutMember,
   withRow,
 } from "../store.ts";
+
+/** A group name set by someone who's no longer in the group can't be checked by the others, so it goes. */
+const TITLE_CLEARED = { title_envelope: "", title_item_id: "", title_sender_id: "", title_device_id: "", title_sent_at: "", title_signature: "" };
 
 const USERNAME_RE = /^[A-Za-z0-9_]{3,20}$/;
 
@@ -96,7 +102,7 @@ export const conversationActions: Actions = {
     if (!others.length) throw new ApiError(400, "BAD_FIELD", "Add at least one other person.");
     await enforceRate(sr, "Conversation", { creator_id: user.id }, 3600_000, LIMITS.conversationsPerHour, now, "starting conversations");
     const members = [user.id, ...others];
-    const created = await sr.entities.Conversation.create({ kind: "group", member_ids: members, creator_id: user.id });
+    const created = await sr.entities.Conversation.create({ kind: "group", member_ids: members, admin_ids: [user.id], creator_id: user.id });
     if (!(await withinRate(sr, "Conversation", { creator_id: user.id }, 3600_000, LIMITS.conversationsPerHour, now, created))) {
       await sr.entities.Conversation.delete(created.id);
       throw rateLimited("starting conversations");
@@ -110,6 +116,7 @@ export const conversationActions: Actions = {
     const { data } = await signedByActiveDevice(ctx, "add_members");
     const conv = await conversationForMember(sr, user.id, id(data.conversation_id, "conversation"));
     if (conv.kind !== "group") throw new ApiError(400, "NOT_GROUP", "You can only add people to a group.");
+    requireGroupAdmin(conv, user.id, "add people");
     const ids = await resolveUsernames(sr, user.id, data.usernames, LIMITS.maxGroupMembers);
     const next = [...new Set([...conv.member_ids, ...ids])];
     if (next.length > LIMITS.maxGroupMembers) throw new ApiError(409, "GROUP_FULL", `Groups can have up to ${LIMITS.maxGroupMembers} people.`);
@@ -124,8 +131,8 @@ export const conversationActions: Actions = {
     if (conv.kind !== "group") {
       throw new ApiError(400, "DM_LEAVE", "You can't leave a direct message. Block the member if you need to stop contact.");
     }
-    const next = conv.member_ids.filter((m: string) => m !== user.id);
-    if (next.length === 0) {
+    const next = withoutMember(conv, user.id);
+    if (next.member_ids.length === 0) {
       // Last one out: the group and its messages go, blanked first like an account deletion.
       try {
         await eraseConversation(sr, conv.id, Date.now() + 45_000);
@@ -134,16 +141,66 @@ export const conversationActions: Actions = {
         throw error;
       }
     } else {
-      await sr.entities.Conversation.update(conv.id, { member_ids: next });
+      await sr.entities.Conversation.update(conv.id, { ...next, ...(conv.title_sender_id === user.id ? TITLE_CLEARED : {}) });
     }
     return { ok: true };
   },
 
+  /** An admin removes someone from a group. They keep what they already received; nothing new is sealed to them. */
+  async remove_member(ctx) {
+    const { sr, user } = ctx;
+    const { data } = await signedByActiveDevice(ctx, "remove_member");
+    const conv = await conversationForMember(sr, user.id, id(data.conversation_id, "conversation"));
+    if (conv.kind !== "group") throw new ApiError(400, "NOT_GROUP", "Only groups have members to remove.");
+    requireGroupAdmin(conv, user.id, "remove people");
+    const target = id(data.user_id, "member");
+    if (target === user.id) throw new ApiError(400, "BAD_FIELD", "To leave the group yourself, use Leave group.");
+    if (!conv.member_ids.includes(target)) throw new ApiError(404, "NOT_MEMBER", "That person isn't in this group.");
+    const next = withoutMember(conv, target);
+    const updated = await sr.entities.Conversation.update(conv.id, { ...next, ...(conv.title_sender_id === target ? TITLE_CLEARED : {}) });
+    return { conversation: conversationOut({ ...conv, ...updated, ...next }) };
+  },
+
+  /** An admin makes another member an admin, or stops being one while another admin remains. */
+  async set_admin(ctx) {
+    const { sr, user } = ctx;
+    const { data } = await signedByActiveDevice(ctx, "set_admin");
+    const conv = await conversationForMember(sr, user.id, id(data.conversation_id, "conversation"));
+    if (conv.kind !== "group") throw new ApiError(400, "NOT_GROUP", "Only groups have admins.");
+    requireGroupAdmin(conv, user.id, "choose admins");
+    const target = id(data.user_id, "member");
+    if (!conv.member_ids.includes(target)) throw new ApiError(404, "NOT_MEMBER", "That person isn't in this group.");
+    if (typeof data.admin !== "boolean") throw new ApiError(400, "BAD_FIELD", "Say whether they should be an admin.");
+    const current: string[] = conv.admin_ids || [];
+    const admin_ids = data.admin ? [...new Set([...current, target])] : current.filter((a) => a !== target);
+    if (!admin_ids.length) throw new ApiError(409, "LAST_ADMIN", "A group needs at least one admin. Make someone else an admin first.");
+    const updated = await sr.entities.Conversation.update(conv.id, { admin_ids });
+    return { conversation: conversationOut({ ...conv, ...updated, admin_ids }) };
+  },
+
+  /**
+   * Disappearing messages: from now on, each message is deleted this long after it's sent.
+   * Either person in a direct message can change it; in a group, only admins. The new
+   * timer and who set it are shown to everyone in the conversation.
+   */
+  async set_expiry(ctx) {
+    const { sr, user, now } = ctx;
+    const { data } = await signedByActiveDevice(ctx, "set_expiry");
+    const conv = await conversationForMember(sr, user.id, id(data.conversation_id, "conversation"));
+    requireGroupAdmin(conv, user.id, "change disappearing messages");
+    const seconds = Number(data.seconds);
+    if (!EXPIRY_CHOICES.includes(seconds)) throw new ApiError(400, "BAD_FIELD", "Choose off, a day, a week or four weeks.");
+    const changes = { expire_seconds: seconds, expiry_set_by: user.id, expiry_set_at: now.toISOString() };
+    const updated = await sr.entities.Conversation.update(conv.id, changes);
+    return { conversation: conversationOut({ ...conv, ...updated, ...changes }) };
+  },
+
   /** Set or re-encrypt the group name, e.g. after adding people. */
-  async set_title({ sr, user, body, now }) {
-    const conv = await conversationForMember(sr, user.id, id(body.conversation_id, "conversation"));
+  async set_title({ sr, own, user, body, now }) {
+    const conv = await conversationForMember(own, user.id, id(body.conversation_id, "conversation"));
     if (conv.kind !== "group") throw new ApiError(400, "NOT_GROUP", "Only groups have names.");
-    const device = await requireActiveDevice(sr, user.id, randomIdField(body.device_id, "device id"));
+    requireGroupAdmin(conv, user.id, "rename the group");
+    const device = await requireActiveDevice(own, user.id, randomIdField(body.device_id, "device id"));
     const itemId = randomIdField(body.item_id, "item id");
     const sentAt = isoTime(body.sent_at, "sent time");
     if (Math.abs(now.getTime() - Date.parse(sentAt)) > LIMITS.sentAtSkewMs) {
