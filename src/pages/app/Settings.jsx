@@ -342,7 +342,7 @@ function AlertsSection() {
         >
           Say who it's from
         </Toggle>
-        <Toggle id="alert-title" checked={alerts.titleCount} onChange={(v) => change({ titleCount: v })} hint="For example \"(2) Commonveil\", so you can see it from another tab.">
+        <Toggle id="alert-title" checked={alerts.titleCount} onChange={(v) => change({ titleCount: v })} hint={'For example "(2) Commonveil", so you can see it from another tab.'}>
           Show the number of unread conversations in the tab's title
         </Toggle>
         <ErrorNote>{error}</ErrorNote>
