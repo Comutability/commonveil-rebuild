@@ -18,7 +18,7 @@ const byCreated = (a, b) => String(a.created_date).localeCompare(String(b.create
 const RETRYABLE = new Set(["STALE_KEYS", "RECIPIENTS_CHANGED"]);
 
 export function ChatProvider({ children }) {
-  const { userId, device, keyring, peers, loadPeers, chainsFor, chainOf, devicesOf, refresh: refreshSecure } = useSecure();
+  const { userId, device, keyring, peers, loadPeers, chainsFor, chainOf, devicesOf, ownMinCertVersion, refresh: refreshSecure } = useSecure();
   const [conversations, setConversations] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [profiles, setProfiles] = useState({});
@@ -29,6 +29,8 @@ export function ChatProvider({ children }) {
   const [readState, setReadState] = useState({});
   const [memberPins, setMemberPins] = useState(null);
   const memberPinsRef = useRef(null);
+  // Groups started from this browser: their members were chosen here, so they're pinned as they are.
+  const startedHere = useRef(new Set());
   const cursor = useRef(null);
   const polling = useRef(false);
   // Sender devices we've already re-fetched keys for, so an unknown device triggers one refresh, not a loop.
@@ -193,7 +195,15 @@ export function ChatProvider({ children }) {
           const senderReady = m.sender_id === userId || peers[m.sender_id]?.ready !== undefined || departed;
           if (!senderReady && !m.deleted) continue;
           if (!m.deleted && !departed && !knowsDevice(m.sender_id, m.device_id)) continue;
-          const r = await P.openItem({ kind: "message", item: m, userId, keyring, senderChain, senderDevices: devicesOf(m.sender_id) });
+          const r = await P.openItem({
+            kind: "message",
+            item: m,
+            userId,
+            keyring,
+            senderChain,
+            senderDevices: devicesOf(m.sender_id),
+            minCertVersion: m.sender_id === userId ? ownMinCertVersion : 1,
+          });
           results[m.id] = { ...r, cacheKey };
           if (cancelled) return;
         }
@@ -203,7 +213,7 @@ export function ChatProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [messages, conversations, keyring, peers, userId, chainOf, devicesOf, opened, knowsDevice]);
+  }, [messages, conversations, keyring, peers, userId, chainOf, devicesOf, opened, knowsDevice, ownMinCertVersion]);
 
   // Group names.
   useEffect(() => {
@@ -223,15 +233,18 @@ export function ChatProvider({ children }) {
           keyring,
           senderChain: chainOf(c.title.sender_id),
           senderDevices: devicesOf(c.title.sender_id),
+          minCertVersion: c.title.sender_id === userId ? ownMinCertVersion : 1,
         });
         results[c.id] = { ...r, key };
       }
       if (Object.keys(results).length) setTitles((prev) => ({ ...prev, ...results }));
     })();
-  }, [conversations, keyring, peers, userId, chainOf, devicesOf, titles, knowsDevice]);
+  }, [conversations, keyring, peers, userId, chainOf, devicesOf, titles, knowsDevice, ownMinCertVersion]);
 
-  // Membership pins: first sight of a conversation pins its members (trust on first use);
-  // people who leave drop out of the pin, so if they return it's flagged again.
+  // Membership pins. A direct message is pinned on first sight: it's always you and one other
+  // person. A group first seen here pins only you, so everyone else in it is shown as new and
+  // sending waits until you've looked (unless you started it from this browser). People who
+  // leave drop out of the pin, so if they come back they're flagged again.
   useEffect(() => {
     const pins = memberPinsRef.current;
     if (!pins) return;
@@ -240,7 +253,7 @@ export function ChatProvider({ children }) {
     for (const c of conversations) {
       const current = c.member_ids || [];
       if (!next[c.id]) {
-        next[c.id] = [...current];
+        next[c.id] = c.kind === "dm" || startedHere.current.has(c.id) ? [...current] : current.filter((id) => id === userId);
         changed = true;
         continue;
       }
@@ -251,7 +264,7 @@ export function ChatProvider({ children }) {
       }
     }
     if (changed) saveMemberPins(next).catch(() => {});
-  }, [conversations, saveMemberPins]);
+  }, [conversations, saveMemberPins, userId]);
 
   const openConversation = useCallback(async (conversationId) => {
     const res = await callFn("messages", { action: "list", conversation_id: conversationId });
@@ -299,7 +312,7 @@ export function ChatProvider({ children }) {
       const problem = membershipProblem(conv);
       if (problem) throw new Error(problem);
       try {
-        const body = await P.buildMessage({ userId, device, conversation: conv, chains: chainsFor(conv.member_ids), text });
+        const body = await P.buildMessage({ userId, device, conversation: conv, chains: chainsFor(conv.member_ids), text, keyring });
         const res = await callFn("messages", body);
         mergeMessages([res.message]);
         mergeConversations([{ ...conv, last_message_at: res.message.created_date }]);
@@ -313,19 +326,19 @@ export function ChatProvider({ children }) {
       }
     }
     return null;
-  }, [userId, device, chainsFor, mergeMessages, mergeConversations, refreshConversation, membershipProblem]);
+  }, [userId, device, keyring, chainsFor, mergeMessages, mergeConversations, refreshConversation, membershipProblem]);
 
   const setTitle = useCallback(async (conversation, title) => {
     const problem = membershipProblem(conversation);
     if (problem) throw new Error(problem);
-    const body = await P.buildTitle({ userId, device, conversation, chains: chainsFor(conversation.member_ids), title });
+    const body = await P.buildTitle({ userId, device, conversation, chains: chainsFor(conversation.member_ids), title, keyring });
     const res = await callFn("conversations", body);
     mergeConversations([res.conversation]);
     return res.conversation;
-  }, [userId, device, chainsFor, mergeConversations, membershipProblem]);
+  }, [userId, device, keyring, chainsFor, mergeConversations, membershipProblem]);
 
   const startDm = useCallback(async (username) => {
-    const res = await callFn("conversations", { action: "create_dm", username });
+    const res = await callFn("conversations", await P.prepareCreateDm({ userId, device, username }));
     const conv = res.conversation;
     // A DM is exactly two people; anything else is refused before it's pinned.
     if (!memberPinsRef.current?.[conv.id] && conv.member_ids.length === 2 && conv.member_ids.includes(userId)) {
@@ -334,16 +347,17 @@ export function ChatProvider({ children }) {
     mergeConversations([conv]);
     await Promise.all([loadPeers(conv.member_ids, { force: true }), loadProfiles(conv.member_ids)]);
     return conv;
-  }, [userId, pinMembers, mergeConversations, loadPeers, loadProfiles]);
+  }, [userId, device, pinMembers, mergeConversations, loadPeers, loadProfiles]);
 
   /** members: [{ username, user_id }] as found by exact lookup. Only these are pinned. */
   const startGroup = useCallback(async (members) => {
-    const res = await callFn("conversations", { action: "create_group", usernames: members.map((m) => m.username) });
+    const res = await callFn("conversations", await P.prepareCreateGroup({ userId, device, usernames: members.map((m) => m.username) }));
+    startedHere.current.add(res.conversation.id);
     await pinMembers(res.conversation.id, [userId, ...members.map((m) => m.user_id)], { replace: true });
     mergeConversations([res.conversation]);
     await Promise.all([loadPeers(res.conversation.member_ids, { force: true }), loadProfiles(res.conversation.member_ids)]);
     return { conversation: res.conversation };
-  }, [userId, pinMembers, mergeConversations, loadPeers, loadProfiles]);
+  }, [userId, device, pinMembers, mergeConversations, loadPeers, loadProfiles]);
 
   /** Needs a signature from this device. Only the people you named are pinned as known. */
   const addMembers = useCallback(async (conversation, usernames) => {
@@ -373,10 +387,14 @@ export function ChatProvider({ children }) {
     return p ? p.display_name || p.username : "Member";
   }, [profiles, userId]);
 
+  /** The unique @username. Display names are chosen freely, so anyone can pick someone else's. */
+  const handleOf = useCallback((id) => (profiles[id]?.username ? `@${profiles[id].username}` : ""), [profiles]);
+
+  /** Only a group name whose signature checks out is shown; anything else falls back to who's in it. */
   const conversationName = useCallback((c) => {
     if (c.kind === "group") {
       const t = titles[c.id];
-      if (t && (t.status === "ok" || t.status === "unverified") && t.text) return t.text;
+      if (t && t.status === "ok" && t.text) return t.text;
       const others = c.member_ids.filter((m) => m !== userId).map(nameOf);
       return others.length ? others.slice(0, 3).join(", ") + (others.length > 3 ? ` +${others.length - 3}` : "") : "Just you";
     }
@@ -405,12 +423,13 @@ export function ChatProvider({ children }) {
     deleteMessage,
     refreshConversation,
     nameOf,
+    handleOf,
     conversationName,
     loadProfiles,
     newMembersOf,
     acknowledgeMembers,
     membershipProblem,
-  }), [loaded, conversations, messages, hasMore, opened, titles, profiles, openConversation, loadOlder, markRead, isUnread, send, setTitle, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem]);
+  }), [loaded, conversations, messages, hasMore, opened, titles, profiles, openConversation, loadOlder, markRead, isUnread, send, setTitle, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem]);
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }
