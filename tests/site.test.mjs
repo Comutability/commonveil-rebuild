@@ -36,9 +36,9 @@ test("site search: every word must appear, titles count most, and markdown doesn
   });
   assert.equal(docs.length, 5);
   const hits = searchContent(docs, "password manager");
-  assert.deepEqual(hits.map((h) => h.doc.title), ["Set up a password manager", "Bitwarden"]);
+  assert.deepEqual(hits.map((h) => h.doc.title), ["Set up a password manager", "A note on passwords", "Bitwarden"], "words match inside longer words too");
   assert.equal(hits[0].doc.url, "/guides/password-manager");
-  assert.equal(hits[1].doc.external, "https://bitwarden.com");
+  assert.equal(hits[2].doc.external, "https://bitwarden.com");
   assert.ok(!hits[0].snippet.includes("**") && !hits[0].snippet.includes("https://"), "snippets are plain text");
   assert.deepEqual(searchContent(docs, "END-TO-END").map((h) => h.doc.title), ["End-to-end encryption", "Back up your phone"]);
   assert.deepEqual(searchContent(docs, "x"), [], "two letters at least");
