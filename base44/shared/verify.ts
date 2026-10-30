@@ -69,8 +69,20 @@ export async function parseStatement(raw: any, userId: string) {
     signed_by_version: raw.signed_by_version as number,
     issued_at: isoTime(raw.issued_at, "issued_at"),
     signature: typeof raw.signature === "string" ? raw.signature : "",
+    recovery_mac: "",
   };
+  // HMAC under a key only the recovery phrase produces. The server can't check it, only its shape.
+  if (raw.recovery_mac !== undefined && raw.recovery_mac !== null && raw.recovery_mac !== "") {
+    const mac = b64Bytes(raw.recovery_mac);
+    if (!mac || mac.length !== 32) throw new ApiError(400, "BAD_STATEMENT", "Invalid recovery anchor.");
+    statement.recovery_mac = raw.recovery_mac;
+  }
   return statement;
+}
+
+/** Statements made with the phrase to hand (setup, reset, a new phrase) must carry its anchor. */
+export function requireRecoveryAnchor(statement: any) {
+  if (!statement.recovery_mac) throw new ApiError(400, "BAD_STATEMENT", "This key statement is missing its recovery anchor.");
 }
 
 export async function verifyStatement(statement: any, signerPub: string): Promise<boolean> {
@@ -206,10 +218,11 @@ export function parseEnvelopeShape(envelopeJson: string, maxChars: number) {
     throw new ApiError(400, "BAD_ENVELOPE", "The encrypted message is malformed.");
   }
   const bad = () => new ApiError(400, "BAD_ENVELOPE", "The encrypted message is malformed.");
-  if (!env || env.v !== 1) throw bad();
+  if (!env || env.v !== 2) throw bad();
   const iv = b64Bytes(env.iv);
   const ct = b64Bytes(env.ct);
-  if (!iv || iv.length !== 12 || !ct || ct.length < 17) throw bad();
+  const kc = b64Bytes(env.kc);
+  if (!iv || iv.length !== 12 || !ct || ct.length < 17 || !kc || kc.length !== 32) throw bad();
   if (!Array.isArray(env.wraps) || env.wraps.length === 0 || env.wraps.length > LIMITS.maxGroupMembers) throw bad();
   const wraps: { u: string; kv: number }[] = [];
   const seen = new Set<string>();
