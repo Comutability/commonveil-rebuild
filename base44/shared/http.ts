@@ -18,6 +18,11 @@ export const LIMITS = Object.freeze({
   conversationsPerHour: 30,
   reportsPerDay: 20,
   resetsPerDay: 3,
+  // A reset waits this long, so the account's own devices (or the phrase) can stop it.
+  resetDelayHours: 168,
+  registrationsPerDay: 10,
+  // Keyrings hold at most 256 versions; stop well short.
+  maxKeyVersions: 250,
   pageSize: 50,
   pollLimit: 200,
 });
