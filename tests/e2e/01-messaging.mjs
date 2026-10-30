@@ -7,7 +7,9 @@ const A = await open("ann1", annUrl);
 const B = await open("ben1", benUrl);
 await goto(A.page);
 await goto(B.page);
-savePhrase("ann", await setUp(A.page, PEOPLE.ann));
+// On a re-run the accounts are already set up, and Ann's phrase from the first run is kept.
+const annPhrase = await setUp(A.page, PEOPLE.ann);
+if (annPhrase) savePhrase("ann", annPhrase);
 await setUp(B.page, PEOPLE.ben);
 check(true, "both accounts set up encryption");
 
