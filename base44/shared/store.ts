@@ -1,6 +1,6 @@
 // Common data access, always through the service role and always scoped by the
 // caller's own user id. Entities are backend-only, so this is the only way in.
-import { ApiError, LIMITS, parsePlatformTime, platformTime } from "./http.ts";
+import { ApiError, LIMITS, parsePlatformTime } from "./http.ts";
 
 /** Oldest first; ties broken by id, so every request agrees on the order. */
 export const byAge = (a: any, b: any) =>
@@ -191,31 +191,12 @@ export async function withinRate(sr: any, entity: string, query: any, windowMs: 
   return rank !== -1 && rank < cap;
 }
 
-// ---------- when each member joined a conversation ----------
-
-export function memberSince(conv: any, userId: string): string | null {
-  for (const entry of conv.member_since || []) {
-    const i = String(entry).lastIndexOf("|");
-    if (i > 0 && entry.slice(0, i) === userId) return entry.slice(i + 1);
-  }
-  return null;
-}
-
 /**
- * member_since for this member list: anyone new joins now, existing entries are kept,
- * and anyone gone drops out. In a conversation from before join times were recorded,
- * existing members keep their whole history (an empty time).
+ * Messages a member may list: only those whose key was sealed to them, so someone added
+ * to a group isn't even shown that earlier messages exist. (Messages from before this
+ * was recorded have no recipient list and stay visible to every member.)
  */
-export function withMemberSince(conv: any, memberIds: string[], now: Date) {
-  const at = platformTime(now);
-  const legacy = Boolean(conv) && !(conv.member_since || []).length;
-  const before = new Set(conv?.member_ids || []);
-  return memberIds.map((m) => {
-    const known = conv ? memberSince(conv, m) : null;
-    if (known !== null) return `${m}|${known}`;
-    return `${m}|${legacy && before.has(m) ? "" : at}`;
-  });
-}
+export const addressedTo = (userId: string) => ({ $or: [{ recipient_ids: userId }, { recipient_ids: null }] });
 
 export const conversationOut = (c: any) => ({
   id: c.id,
