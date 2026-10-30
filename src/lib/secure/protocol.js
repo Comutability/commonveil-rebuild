@@ -451,21 +451,6 @@ function messageContent(payload) {
   return null;
 }
 
-/** Kept for callers that only send plain text. */
-export async function buildPlainMessage(args) {
-  const clean = cleanMessageText(args.text);
-  const item = await buildItem({ ...args, kind: "message", payload: { type: "text", text: clean } });
-  return {
-    action: "send",
-    conversation_id: conversation.id,
-    msg_id: item.itemId,
-    envelope: item.envelope,
-    signature: item.signature,
-    device_id: device.device_id,
-    sent_at: item.sentAt,
-  };
-}
-
 export async function buildTitle({ userId, device, conversation, chains, title, keyring = null }) {
   const clean = String(title || "").trim().slice(0, 80);
   const item = await buildItem({ kind: "title", userId, device, conversation, chains, payload: { type: "title", title: clean }, keyring });
