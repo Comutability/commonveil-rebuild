@@ -1,13 +1,37 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, Info, Lock, MoreHorizontal, SendHorizontal, ShieldCheck, ShieldQuestion, Trash2, UserPlus } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CornerUpLeft,
+  Info,
+  Lock,
+  MoreHorizontal,
+  Pencil,
+  SendHorizontal,
+  ShieldCheck,
+  ShieldQuestion,
+  Timer,
+  Trash2,
+  UserPlus,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useChat } from "@/lib/secure/ChatContext";
 import { useSecure } from "@/lib/secure/SecureContext";
-import { MAX_MESSAGE_CHARS } from "@/lib/secure/protocol.js";
+import { MAX_MESSAGE_CHARS, REACTIONS } from "@/lib/secure/protocol.js";
+import { hideAt, timerLabel } from "@/lib/secure/thread.js";
 import { formatTime, Loading } from "@/components/site/bits";
 import Avatar from "./Avatar";
+
+const REACTION_NAMES = ["Thumbs up", "Heart", "Laughing", "Surprised", "Sad", "Thank you"];
+const reactionName = (emoji) => REACTION_NAMES[REACTIONS.indexOf(emoji)] || "Reaction";
+const toMs = (value) => Date.parse(/Z$|[+-]\d{2}:\d{2}$/.test(String(value)) ? value : `${value}Z`);
+const snippet = (text, max = 90) => {
+  const flat = String(text || "").replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+};
 
 /** Why a decrypted message isn't vouched for, in a few words. */
 function Caution({ result }) {
@@ -30,8 +54,50 @@ function Caution({ result }) {
   return null;
 }
 
-function Bubble({ m, result, mine, showName, name, handle, onDelete }) {
-  const base = `max-w-[min(34rem,85%)] rounded-2xl px-3.5 py-2 text-[0.95rem] leading-relaxed ${mine ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted"}`;
+/** The message a reply answers, if it's here: a short quote you can jump to. */
+function ReplyQuote({ replyTo, mine, nameOf, onJump }) {
+  if (!replyTo) return null;
+  const tone = mine ? "border-primary-foreground/50 text-primary-foreground/85" : "border-primary/50 text-muted-foreground";
+  if (replyTo.missing) {
+    return <span className={`mb-1 block border-l-2 pl-2 text-xs italic ${tone}`}>Replying to an earlier message</span>;
+  }
+  const target = replyTo.row;
+  const gone = target.m.deleted || (target.result?.status !== "ok" && target.result?.status !== "unverified");
+  return (
+    <button type="button" onClick={() => onJump(target.m.id)} className={`mb-1 block w-full border-l-2 pl-2 text-left text-xs ${tone} hover:underline`}>
+      <span className="font-medium">{nameOf(target.m.sender_id)}</span>{" "}
+      {gone ? <span className="italic">message no longer available</span> : snippet(target.text)}
+    </button>
+  );
+}
+
+function Reactions({ reactions, mine, nameOf, onToggle, disabled }) {
+  if (!reactions.length) return null;
+  return (
+    <div className={`mt-1 flex flex-wrap gap-1 ${mine ? "justify-end" : ""}`}>
+      {reactions.map((r) => (
+        <button
+          key={r.emoji}
+          type="button"
+          disabled={disabled}
+          onClick={() => onToggle(r.emoji, r.mine)}
+          aria-pressed={r.mine}
+          aria-label={`${reactionName(r.emoji)}, ${r.count}. ${r.mine ? "Remove yours" : "Add yours"}`}
+          title={r.people.map(nameOf).join(", ")}
+          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors ${r.mine ? "border-primary/60 bg-primary/10" : "border-border bg-background hover:bg-muted"}`}
+        >
+          <span aria-hidden="true">{r.emoji}</span>
+          <span>{r.count}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canAct, onReply, onReact, onEdit, onDelete, onJump }) {
+  const { m, result } = row;
+  const base = `max-w-[min(34rem,85%)] rounded-2xl px-3.5 py-2 text-[0.95rem] leading-relaxed ${mine ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted"} ${highlighted ? "ring-2 ring-[hsl(var(--warning))] ring-offset-2 ring-offset-background" : ""}`;
+  const readable = result && (result.status === "ok" || result.status === "unverified");
   let body;
   if (!result) body = <span className="opacity-70">Decrypting…</span>;
   else if (result.status === "deleted") body = <span className="italic opacity-70">Message deleted</span>;
@@ -41,66 +107,145 @@ function Bubble({ m, result, mine, showName, name, handle, onDelete }) {
         <Lock className="h-3.5 w-3.5" aria-hidden="true" /> Can't be read on this device
       </span>
     );
-  } else body = <span className="whitespace-pre-wrap break-words">{result.text}</span>;
+  } else {
+    body = (
+      <>
+        <ReplyQuote replyTo={row.replyTo} mine={mine} nameOf={nameOf} onJump={onJump} />
+        <span className="whitespace-pre-wrap break-words">{row.text}</span>
+      </>
+    );
+  }
+  const disappearsAt = hideAt(m, result);
 
   return (
-    <div className={`group flex flex-col ${mine ? "items-end" : "items-start"}`}>
+    <div id={`msg-${m.id}`} className={`group flex flex-col ${mine ? "items-end" : "items-start"}`}>
       {showName && !mine && (
         <span className="mb-1 ml-1 text-xs font-medium text-muted-foreground">
           {name} {handle && <span className="font-normal opacity-80">{handle}</span>}
         </span>
       )}
-      <div className={`flex items-center gap-1 ${mine ? "flex-row-reverse" : ""}`}>
+      <div className={`flex max-w-full items-center gap-1 ${mine ? "flex-row-reverse" : ""}`}>
         <div className={base}>{body}</div>
-        {mine && result && result.status !== "deleted" && (
+        {readable && canAct && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button type="button" className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted focus:opacity-100 group-hover:opacity-100" aria-label="Message options">
+              <button
+                type="button"
+                className="rounded-md p-1 text-muted-foreground opacity-60 transition-opacity hover:bg-muted focus:opacity-100 group-hover:opacity-100 sm:opacity-0"
+                aria-label="Message options"
+              >
                 <MoreHorizontal className="h-4 w-4" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={onDelete} className="text-destructive">
-                <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" /> Delete for everyone
+            <DropdownMenuContent align={mine ? "end" : "start"}>
+              <div className="flex gap-0.5 px-1 py-1" role="group" aria-label="React">
+                {REACTIONS.map((emoji) => {
+                  const already = row.reactions.find((r) => r.emoji === emoji)?.mine;
+                  return (
+                    <DropdownMenuItem
+                      key={emoji}
+                      onSelect={() => onReact(emoji, Boolean(already))}
+                      className={`justify-center rounded-md px-1.5 text-lg ${already ? "bg-primary/10" : ""}`}
+                      aria-label={`${already ? "Remove" : "React with"} ${reactionName(emoji)}`}
+                    >
+                      <span aria-hidden="true">{emoji}</span>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onReply}>
+                <CornerUpLeft className="mr-2 h-4 w-4" aria-hidden="true" /> Reply
               </DropdownMenuItem>
+              {row.canEdit && (
+                <DropdownMenuItem onSelect={onEdit}>
+                  <Pencil className="mr-2 h-4 w-4" aria-hidden="true" /> Edit
+                </DropdownMenuItem>
+              )}
+              {mine && (
+                <DropdownMenuItem onSelect={onDelete} className="text-destructive">
+                  <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" /> Delete for everyone
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
+        {mine && !readable && result?.status === "locked" && canAct && (
+          <button type="button" onClick={onDelete} className="rounded-md p-1 text-muted-foreground opacity-0 hover:bg-muted focus:opacity-100 group-hover:opacity-100" aria-label="Delete for everyone">
+            <Trash2 className="h-4 w-4" />
+          </button>
+        )}
       </div>
+      <Reactions reactions={row.reactions} mine={mine} nameOf={nameOf} disabled={!canAct} onToggle={(emoji, already) => onReact(emoji, already)} />
       <span className={`mt-1 flex items-center gap-1 text-[0.7rem] text-muted-foreground ${mine ? "mr-1" : "ml-1"}`}>
         {formatTime(m.created_date)}
+        {row.edited && <span title={row.editedAt ? `Edited ${formatTime(row.editedAt)}` : "Edited"}>· edited</span>}
+        {disappearsAt && (
+          <span className="inline-flex items-center" title={`Disappears ${new Date(disappearsAt).toLocaleString("en-GB")}`}>
+            <Timer className="h-3 w-3" aria-hidden="true" />
+            <span className="sr-only">Disappears {new Date(disappearsAt).toLocaleString("en-GB")}</span>
+          </span>
+        )}
         <Caution result={result} />
       </span>
     </div>
   );
 }
 
+/** A line in the conversation saying who last changed the timer. */
+function TimerNote({ conversation, nameOf }) {
+  const by = conversation.expiry_set_by;
+  const seconds = conversation.expire_seconds;
+  const who = by ? nameOf(by) : "Someone";
+  return (
+    <p className="mx-auto flex w-fit items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-center text-xs text-muted-foreground">
+      <Timer className="h-3.5 w-3.5" aria-hidden="true" />
+      {seconds
+        ? `${who} set messages to disappear after ${timerLabel(seconds).replace(/^1 /, "a ")}.`
+        : `${who} turned off disappearing messages.`}
+      <span className="opacity-70">{formatTime(conversation.expiry_set_at)}</span>
+    </p>
+  );
+}
+
 export default function ConversationView({ conversation, onBack, onInfo }) {
-  const { messages, opened, hasMore, openConversation, loadOlder, markRead, send, deleteMessage, nameOf, handleOf, conversationName, newMembersOf, acknowledgeMembers } = useChat();
+  const {
+    threads, messages, opened, hasMore, openConversation, closeConversation, loadOlder, markRead, send, react, editMessage, deleteMessage,
+    nameOf, handleOf, conversationName, newMembersOf, acknowledgeMembers,
+  } = useChat();
   const { userId, peers, loadPeers } = useSecure();
-  const list = messages[conversation.id] || [];
+  const rows = threads[conversation.id] || [];
+  const stored = messages[conversation.id] || [];
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [initialLoad, setInitialLoad] = useState(true);
+  const [replyTo, setReplyTo] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [highlight, setHighlight] = useState(null);
   const scroller = useRef(null);
+  const input = useRef(null);
   const nearBottom = useRef(true);
 
   useEffect(() => {
     let cancelled = false;
     setInitialLoad(true);
     setError("");
+    setReplyTo(null);
+    setEditing(null);
+    setText("");
     openConversation(conversation.id)
       .catch((err) => !cancelled && setError(err.message))
       .finally(() => !cancelled && setInitialLoad(false));
     return () => {
       cancelled = true;
+      closeConversation(conversation.id);
     };
-  }, [conversation.id, openConversation]);
+  }, [conversation.id, openConversation, closeConversation]);
 
   useEffect(() => {
     markRead(conversation.id);
-  }, [conversation.id, list.length, markRead]);
+  }, [conversation.id, stored.length, markRead]);
 
   // Keep members' keys fresh while the conversation is open, so a key change shows up before you
   // send. loadPeers only asks again once its cached copy is a few minutes old.
@@ -117,11 +262,29 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
   useLayoutEffect(() => {
     const el = scroller.current;
     if (el && nearBottom.current) el.scrollTop = el.scrollHeight;
-  }, [list.length, opened]);
+  }, [rows.length, opened]);
+
+  // If the message being answered or edited disappears, so does the bar.
+  useEffect(() => {
+    if (replyTo && !rows.some((r) => r.m.id === replyTo.m.id)) setReplyTo(null);
+    if (editing && !rows.some((r) => r.m.id === editing.m.id && r.canEdit)) {
+      setEditing(null);
+      setText("");
+    }
+  }, [rows, replyTo, editing]);
 
   const onScroll = () => {
     const el = scroller.current;
     if (el) nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  };
+
+  const jumpTo = (id) => {
+    const el = document.getElementById(`msg-${id}`);
+    if (!el) return;
+    nearBottom.current = false;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    setHighlight(id);
+    setTimeout(() => setHighlight((h) => (h === id ? null : h)), 1600);
   };
 
   const others = conversation.member_ids.filter((m) => m !== userId);
@@ -137,6 +300,24 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
         : null;
   const allVerified = others.length > 0 && others.every((m) => peers[m]?.verified);
   const other = conversation.kind === "dm" ? others[0] : null;
+  const timer = Number(conversation.expire_seconds) || 0;
+
+  const startReply = (row) => {
+    setEditing(null);
+    setReplyTo(row);
+    input.current?.focus();
+  };
+  const startEdit = (row) => {
+    setReplyTo(null);
+    setEditing(row);
+    setText(row.text);
+    input.current?.focus();
+  };
+  const cancelBars = () => {
+    if (editing) setText("");
+    setEditing(null);
+    setReplyTo(null);
+  };
 
   const submit = async (e) => {
     e?.preventDefault();
@@ -145,14 +326,33 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
     setError("");
     nearBottom.current = true;
     try {
-      await send(conversation, text);
+      if (editing) {
+        if (text !== editing.text) await editMessage(conversation, editing.m, text);
+      } else {
+        await send(conversation, text, { replyTo: replyTo?.m.msg_id || null });
+      }
       setText("");
+      setReplyTo(null);
+      setEditing(null);
     } catch (err) {
       setError(err.message);
     } finally {
       setSending(false);
     }
   };
+
+  const reactTo = (row, emoji, already) => {
+    setError("");
+    react(conversation, row.m, emoji, already).catch((err) => setError(err.message));
+  };
+
+  // Where the note about the timer goes: among the messages, at the time it was changed.
+  const setAt = conversation.expiry_set_at ? toMs(conversation.expiry_set_at) : null;
+  const noteIndex = setAt === null ? -1 : (() => {
+    const i = rows.findIndex((r) => toMs(r.m.created_date) > setAt);
+    return i === -1 ? rows.length : i;
+  })();
+  const timerNote = <TimerNote key="timer-note" conversation={conversation} nameOf={nameOf} />;
 
   return (
     <section className="flex h-full min-h-0 flex-col" aria-label={`Conversation: ${conversationName(conversation)}`}>
@@ -163,11 +363,16 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
         <Avatar id={other} name={nameOf(other)} group={conversation.kind === "group"} size="h-9 w-9" />
         <div className="min-w-0 flex-1">
           <h2 className="truncate font-semibold">{conversationName(conversation)}</h2>
-          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+          <p className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
             {allVerified ? (
               <><ShieldCheck className="h-3.5 w-3.5 text-primary" aria-hidden="true" /> Verified · end-to-end encrypted</>
             ) : (
               <><Lock className="h-3.5 w-3.5" aria-hidden="true" /> End-to-end encrypted{conversation.kind === "group" ? ` · ${conversation.member_ids.length} people` : ""}</>
+            )}
+            {timer > 0 && (
+              <span className="inline-flex items-center gap-1" title="New messages disappear after this long">
+                · <Timer className="h-3.5 w-3.5" aria-hidden="true" /> {timerLabel(timer)}
+              </span>
             )}
           </p>
         </div>
@@ -211,52 +416,88 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
       <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-4 sm:px-6" aria-live="polite">
         {hasMore[conversation.id] && (
           <div className="text-center">
-            <Button variant="ghost" size="sm" onClick={() => { nearBottom.current = false; loadOlder(conversation.id); }}>Load earlier messages</Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                nearBottom.current = false;
+                loadOlder(conversation.id).catch((err) => setError(err.message));
+              }}
+            >
+              Load earlier messages
+            </Button>
           </div>
         )}
-        {initialLoad && list.length === 0 ? (
+        {initialLoad && rows.length === 0 ? (
           <Loading label="Loading messages" />
-        ) : list.length === 0 ? (
+        ) : rows.length === 0 ? (
           <div className="mx-auto max-w-sm py-12 text-center text-sm text-muted-foreground">
             <Lock className="mx-auto h-6 w-6 text-primary" aria-hidden="true" />
             <p className="mt-3">Messages here are end-to-end encrypted. Only the people in this conversation can read them.</p>
+            {conversation.expiry_set_at && <div className="mt-4">{timerNote}</div>}
           </div>
         ) : (
-          list.map((m, i) => (
-            <Bubble
-              key={m.id}
-              m={m}
-              result={opened[m.id]}
-              mine={m.sender_id === userId}
-              showName={conversation.kind === "group" && list[i - 1]?.sender_id !== m.sender_id}
-              name={nameOf(m.sender_id)}
-              handle={handleOf(m.sender_id)}
-              onDelete={() => deleteMessage(m).catch((err) => setError(err.message))}
-            />
-          ))
+          rows.flatMap((row, i) => {
+            const bubble = (
+              <Bubble
+                key={row.m.id}
+                row={row}
+                mine={row.m.sender_id === userId}
+                showName={conversation.kind === "group" && rows[i - 1]?.m.sender_id !== row.m.sender_id}
+                name={nameOf(row.m.sender_id)}
+                handle={handleOf(row.m.sender_id)}
+                nameOf={nameOf}
+                highlighted={highlight === row.m.id}
+                canAct={!pausedReason}
+                onReply={() => startReply(row)}
+                onReact={(emoji, already) => reactTo(row, emoji, already)}
+                onEdit={() => startEdit(row)}
+                onDelete={() => deleteMessage(row.m).catch((err) => setError(err.message))}
+                onJump={jumpTo}
+              />
+            );
+            return i === noteIndex ? [timerNote, bubble] : [bubble];
+          }).concat(noteIndex === rows.length && rows.length > 0 ? [timerNote] : [])
         )}
       </div>
 
       <form onSubmit={submit} className="border-t border-border p-3 sm:p-4">
         {error && <p className="mb-2 text-sm text-destructive" role="alert">{error}</p>}
+        {(replyTo || editing) && (
+          <div className="mb-2 flex items-start gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm">
+            {editing ? <Pencil className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" /> : <CornerUpLeft className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
+            <p className="min-w-0 flex-1">
+              <span className="font-medium">{editing ? "Editing your message" : `Replying to ${nameOf(replyTo.m.sender_id)}`}</span>
+              {!editing && <span className="block truncate text-muted-foreground">{snippet(replyTo.text, 120)}</span>}
+              {editing && <span className="block text-xs text-muted-foreground">Everyone will see that it was edited.</span>}
+            </p>
+            <button type="button" onClick={cancelBars} className="rounded-md p-0.5 text-muted-foreground hover:bg-muted" aria-label={editing ? "Cancel editing" : "Cancel reply"}>
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
         <div className="flex items-end gap-2">
           <Textarea
+            ref={input}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 submit();
+              } else if (e.key === "Escape" && (replyTo || editing)) {
+                e.preventDefault();
+                cancelBars();
               }
             }}
             rows={1}
             maxLength={MAX_MESSAGE_CHARS}
-            placeholder={pausedReason || "Write a message"}
+            placeholder={pausedReason || (editing ? "Edit your message" : "Write a message")}
             disabled={Boolean(pausedReason)}
             className="max-h-40 min-h-[2.75rem] resize-none"
             aria-label="Message"
           />
-          <Button type="submit" size="icon" className="h-11 w-11 shrink-0" disabled={!text.trim() || sending || Boolean(pausedReason)} aria-label="Send">
+          <Button type="submit" size="icon" className="h-11 w-11 shrink-0" disabled={!text.trim() || sending || Boolean(pausedReason)} aria-label={editing ? "Save edit" : "Send"}>
             <SendHorizontal className="h-5 w-5" />
           </Button>
         </div>
