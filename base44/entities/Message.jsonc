@@ -31,6 +31,13 @@
     },
     "deleted_at": {
       "type": "string"
+    },
+    "recipient_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Accounts the message key was sealed to. Members only ever see messages addressed to them, so newcomers don't see what came before."
     }
   },
   "required": [
