@@ -17,6 +17,32 @@ export function useChat() {
 const byCreated = (a, b) => String(a.created_date).localeCompare(String(b.created_date));
 const RETRYABLE = new Set(["STALE_KEYS", "RECIPIENTS_CHANGED"]);
 
+// Base44 caps how many queries an app makes each minute, shared by everyone using it, so
+// polling is frugal: quick while a conversation is active, slower when it's quiet, slow in the
+// background, and backing off whenever the service says it's busy.
+const POLL_ACTIVE_MS = 5_000;
+const POLL_QUIET_MS = 15_000;
+const POLL_HIDDEN_MS = 60_000;
+const ACTIVE_FOR_MS = 2 * 60_000;
+const CONVERSATIONS_EVERY_MS = 30_000;
+const BACKOFF_MAX_MS = 60_000;
+// A message that couldn't be delivered because the service was busy is sent again as the same
+// message (same id), so it can't arrive twice.
+const SEND_RETRY_MS = [1_500, 4_000, 8_000];
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const isTransient = (err) => err instanceof ApiError && (err.code === "UPSTREAM_BUSY" || err.code === "NETWORK");
+
+async function deliver(body) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await callFn("messages", body);
+    } catch (err) {
+      if (!isTransient(err) || attempt >= SEND_RETRY_MS.length) throw err;
+      await sleep(SEND_RETRY_MS[attempt]);
+    }
+  }
+}
+
 export function ChatProvider({ children }) {
   const { userId, device, keyring, peers, loadPeers, chainsFor, chainOf, devicesOf, ownMinCertVersion, refresh: refreshSecure } = useSecure();
   const [conversations, setConversations] = useState([]);
@@ -32,6 +58,11 @@ export function ChatProvider({ children }) {
   // Groups started from this browser: their members were chosen here, so they're pinned as they are.
   const startedHere = useRef(new Set());
   const cursor = useRef(null);
+  const convCursor = useRef(null);
+  const convCheckedAt = useRef(0);
+  const needConversations = useRef(false);
+  const lastActivity = useRef(Date.now());
+  const conversationsRef = useRef([]);
   const polling = useRef(false);
   // Sender devices we've already re-fetched keys for, so an unknown device triggers one refresh, not a loop.
   const refetchedDevices = useRef(new Set());
@@ -119,61 +150,110 @@ export function ChatProvider({ children }) {
     });
   }, [profiles]);
 
-  // Initial load.
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  /** Starting cursors and the conversation list. Returns false if the service couldn't be reached. */
+  const loadStart = useCallback(async () => {
+    try {
       const start = await callFn("messages", { action: "poll" });
-      cursor.current = start.cursor;
       const { conversations: list } = await callFn("conversations", { action: "list" });
       const pins = await S.loadMemberPins(userId);
-      if (cancelled) return;
       memberPinsRef.current = pins;
       setMemberPins(pins);
       mergeConversations(list, { replace: true });
       setReadState(await S.loadReadState(userId));
-      setLoaded(true);
+      cursor.current = start.cursor;
+      convCursor.current = start.conversations_cursor || start.cursor;
+      convCheckedAt.current = Date.now();
       const memberIds = list.flatMap((c) => c.member_ids);
-      await Promise.all([loadPeers(memberIds), loadProfiles(memberIds)]);
-    })().catch(() => setLoaded(true));
-    return () => {
-      cancelled = true;
-    };
+      loadPeers(memberIds).catch(() => {});
+      loadProfiles(memberIds).catch(() => {});
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setLoaded(true);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // Poll for changes: often while visible, rarely while hidden.
+  // Poll for changes. The first round loads the start; after that, messages every few seconds
+  // and conversation changes every half minute (sooner if a message arrives for one we don't have).
   useEffect(() => {
     let timer;
+    let stopped = false;
+    let backoff = 0;
+    const delay = () => {
+      if (backoff) return backoff;
+      if (document.visibilityState !== "visible") return POLL_HIDDEN_MS;
+      return Date.now() - lastActivity.current < ACTIVE_FOR_MS ? POLL_ACTIVE_MS : POLL_QUIET_MS;
+    };
+    const schedule = (ms) => {
+      clearTimeout(timer);
+      if (!stopped) timer = setTimeout(tick, ms);
+    };
+    const pollOnce = async () => {
+      let page;
+      do {
+        const withConversations = needConversations.current || Date.now() - convCheckedAt.current > CONVERSATIONS_EVERY_MS;
+        page = await callFn("messages", {
+          action: "poll",
+          since: cursor.current,
+          ...(withConversations ? { conversations_since: convCursor.current } : {}),
+        });
+        cursor.current = page.cursor;
+        if (page.conversation_ids) {
+          needConversations.current = false;
+          convCheckedAt.current = Date.now();
+          convCursor.current = page.conversations_cursor;
+          if (page.conversations.length) {
+            mergeConversations(page.conversations);
+            const ids = page.conversations.flatMap((c) => c.member_ids);
+            loadPeers(ids).catch(() => {});
+            loadProfiles(ids).catch(() => {});
+          }
+          // Drop conversations we've left or been removed from.
+          setConversations((prev) => prev.filter((c) => page.conversation_ids.includes(c.id)));
+        }
+        if (page.messages.length) {
+          const known = new Set(conversationsRef.current.map((c) => c.id));
+          if (!page.conversation_ids && page.messages.some((m) => !known.has(m.conversation_id))) needConversations.current = true;
+          if (page.messages.some((m) => m.sender_id !== userId)) lastActivity.current = Date.now();
+          mergeMessages(page.messages);
+        }
+      } while (page.has_more || (needConversations.current && !page.conversation_ids));
+    };
     const tick = async () => {
-      if (!polling.current && cursor.current) {
+      if (!polling.current) {
         polling.current = true;
         try {
-          let page;
-          do {
-            page = await callFn("messages", { action: "poll", since: cursor.current });
-            cursor.current = page.cursor;
-            if (page.conversations.length) {
-              mergeConversations(page.conversations);
-              const ids = page.conversations.flatMap((c) => c.member_ids);
-              loadPeers(ids);
-              loadProfiles(ids);
-            }
-            mergeMessages(page.messages);
-            // Drop conversations we've left or been removed from.
-            setConversations((prev) => prev.filter((c) => page.conversation_ids.includes(c.id)));
-          } while (page.has_more);
+          if (!cursor.current) {
+            if (!(await loadStart())) throw new Error("not started");
+          } else {
+            await pollOnce();
+          }
+          backoff = 0;
         } catch {
-          /* try again next tick */
+          backoff = Math.min(BACKOFF_MAX_MS, backoff ? backoff * 2 : POLL_QUIET_MS);
         } finally {
           polling.current = false;
         }
       }
-      timer = setTimeout(tick, document.visibilityState === "visible" ? 4000 : 20000);
+      schedule(delay());
     };
-    timer = setTimeout(tick, 4000);
-    return () => clearTimeout(timer);
-  }, [mergeConversations, mergeMessages, loadPeers, loadProfiles]);
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && !backoff) schedule(500);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    schedule(0);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [userId, loadStart, mergeConversations, mergeMessages, loadPeers, loadProfiles]);
 
   // Decrypt anything new once the sender's keys are known.
   useEffect(() => {
@@ -267,6 +347,7 @@ export function ChatProvider({ children }) {
   }, [conversations, saveMemberPins, userId]);
 
   const openConversation = useCallback(async (conversationId) => {
+    lastActivity.current = Date.now();
     const res = await callFn("messages", { action: "list", conversation_id: conversationId });
     mergeMessages(res.messages);
     setHasMore((prev) => ({ ...prev, [conversationId]: res.has_more }));
@@ -306,6 +387,7 @@ export function ChatProvider({ children }) {
   }, [mergeConversations, loadPeers]);
 
   const send = useCallback(async (conversation, text) => {
+    lastActivity.current = Date.now();
     let conv = conversation;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       // Checked on every attempt: a refresh after a rejected send must not quietly add recipients.
@@ -313,7 +395,7 @@ export function ChatProvider({ children }) {
       if (problem) throw new Error(problem);
       try {
         const body = await P.buildMessage({ userId, device, conversation: conv, chains: chainsFor(conv.member_ids), text, keyring });
-        const res = await callFn("messages", body);
+        const res = await deliver(body);
         mergeMessages([res.message]);
         mergeConversations([{ ...conv, last_message_at: res.message.created_date }]);
         return res.message;
