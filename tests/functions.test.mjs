@@ -1246,7 +1246,7 @@ test("statements without the phrase's anchor are refused where the phrase is to 
 
 const DAY_MS = 24 * 3600_000;
 const dayString = (ms) => new Date(ms).toISOString().slice(0, 10);
-const conversationCall = (member, action, payload) => member.call("conversations", signed(member, action, payload));
+const conversationCall = async (member, action, payload) => member.call("conversations", await signed(member, action, payload));
 
 /** Run a scheduled task as the automation does: no user, the app's own access. */
 async function maintenance(w, task, at = new Date()) {
