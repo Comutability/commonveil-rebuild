@@ -25,11 +25,18 @@ test("no entity defines a field Base44 already adds to every record", () => {
   }
 });
 
-test("member data is reachable only through the backend functions", () => {
+test("member data can't be changed directly, and only these reads are open, each to the people it's for", () => {
   const PUBLIC_CONTENT = new Set(["BlogPost", "Guide", "LearningPath", "Resource", "WikiPage"]);
+  // Polling reads these with the member's own access, so it counts against their allowance, not
+  // the app's shared one. Each person can read only rows that name them.
+  const OPEN_READS = {
+    Message: { "data.recipient_ids": "{{user.id}}" },
+    Conversation: { "data.member_ids": "{{user.id}}" },
+  };
   for (const [file, schema] of schemas) {
     if (PUBLIC_CONTENT.has(schema.name)) continue;
-    assert.deepEqual(schema.rls, { read: false, create: false, update: false, delete: false }, `${file} must be closed to direct access`);
+    const read = OPEN_READS[schema.name] ?? false;
+    assert.deepEqual(schema.rls, { read, create: false, update: false, delete: false }, `${file} has the wrong access rules`);
   }
 });
 
