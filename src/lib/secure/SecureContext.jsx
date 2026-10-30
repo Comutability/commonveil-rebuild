@@ -142,7 +142,7 @@ export function SecureProvider({ children }) {
 
   /** A reset this browser asked for: wait, finish it, or learn that it was stopped. Returns true if it took over. */
   const settleReset = useCallback(async (saved, statusData) => {
-    const mine = statusData.resets.find((r) => r.id === saved.request_id);
+    let mine = statusData.resets.find((r) => r.id === saved.request_id);
     if (mine?.status === "waiting" && Date.now() < Date.parse(mine.effective_at)) {
       setPhase("reset-waiting");
       return true;
@@ -150,11 +150,13 @@ export function SecureProvider({ children }) {
     if (mine?.status === "waiting") {
       try {
         await callFn("keys", await P.prepareFinishReset({ userId, device: saved.device, requestId: saved.request_id }));
+        mine = { ...mine, status: "done" };
       } catch (err) {
-        if (err?.code !== "RESET_ENDED") throw err;
+        if (err?.code !== "RESET_ENDED" && err?.code !== "RESET_STALE") throw err;
+        mine = (await callFn("keys", { action: "status" })).resets.find((r) => r.id === saved.request_id);
       }
     }
-    if (mine?.status === "waiting" || mine?.status === "done") {
+    if (mine?.status === "done") {
       await forgetLocal();
       await setDevice(saved.device);
       await setKeyring(parseKeyring(saved.keyring, userId));
