@@ -3,7 +3,7 @@
 // and it never includes your keys.
 import { ApiError, callFn } from "@/lib/api";
 import * as P from "./protocol.js";
-import { buildThread } from "./thread.js";
+import { buildThread, timerLabel } from "./thread.js";
 
 const PAUSE_MS = 150;
 const RETRY_MS = [2_000, 5_000, 10_000, 20_000];
@@ -99,7 +99,7 @@ export async function buildExport(sec, { email = null, onProgress = () => {} } =
       started: c.created_date,
       members: c.member_ids.map(person),
       admins: c.kind === "group" ? (c.admin_ids || []).map(label) : undefined,
-      disappearing_messages: c.expire_seconds ? `after ${c.expire_seconds / 3600} hours` : "off",
+      disappearing_messages: c.expire_seconds ? `after ${timerLabel(c.expire_seconds)}` : "off",
       messages: rows.map((row) => ({
         sent: row.m.sent_at,
         from: label(row.m.sender_id),
