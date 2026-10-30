@@ -8,6 +8,7 @@ import {
   accountKeysOf,
   assertWrapsMatchMembers,
   blockedEitherWay,
+  byAge,
   conversationForMember,
   conversationOut,
   enforceRate,
@@ -16,6 +17,7 @@ import {
   rateLimited,
   requireActiveDevice,
   withinRate,
+  withRow,
 } from "../store.ts";
 
 const USERNAME_RE = /^[A-Za-z0-9_]{3,20}$/;
