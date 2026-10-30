@@ -1,0 +1,75 @@
+{
+  "name": "ResetRequest",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "device_id": {
+      "type": "string",
+      "description": "The new browser that asked for the reset."
+    },
+    "device_label": {
+      "type": "string"
+    },
+    "device_sign_pub": {
+      "type": "string"
+    },
+    "device_box_pub": {
+      "type": "string"
+    },
+    "statement": {
+      "type": "string",
+      "description": "The new, self-signed key statement (JSON), published only when the reset completes."
+    },
+    "cert": {
+      "type": "string",
+      "description": "Certificate for the new browser under the new key (JSON)."
+    },
+    "recovery_sealed": {
+      "type": "string",
+      "description": "The new keyring sealed to the new phrase's recovery key."
+    },
+    "recovery_pub": {
+      "type": "string"
+    },
+    "key_sign_pub": {
+      "type": "string"
+    },
+    "effective_at": {
+      "type": "string",
+      "description": "The reset can't complete before this time."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "waiting",
+        "cancelled",
+        "withdrawn",
+        "stale",
+        "done"
+      ],
+      "default": "waiting"
+    },
+    "ended_by": {
+      "type": "string",
+      "description": "device, recovery, requester or keys_changed."
+    },
+    "ended_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "device_id",
+    "statement",
+    "effective_at",
+    "status"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}
