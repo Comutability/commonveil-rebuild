@@ -445,7 +445,7 @@ test("passcode lock: the keyring is stored encrypted, opens only with the passco
   assert.deepEqual(Object.keys(record).sort(), ["check", "idle_minutes", "iterations", "kdf", "salt", "v"]);
   assert.ok(!JSON.stringify(record).includes("lantern"), "the passcode itself is never stored");
 
-  const keyring = serializeKeyring(newKeyring(await createKeyVersion(1)));
+  const keyring = serializeKeyring(newKeyring("user_a", await createKeyVersion(1)));
   const sealed = await sealKeyringText(key, "user_a", keyring);
   assert.equal(isSealedKeyring(sealed), true);
   assert.equal(isSealedKeyring(keyring), false);
