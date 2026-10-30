@@ -3,11 +3,16 @@
 // recipient account's current encryption key. Everything is bound to the exact
 // conversation, item, sender and device it belongs to, so nothing can be moved
 // between messages or conversations without failing to decrypt.
-import { CryptoFormatError, fromB64, fromUtf8, randomBytes, toB64, utf8 } from "./encoding.js";
+//
+// AES-GCM doesn't commit to its key: a dishonest sender could seal different content
+// keys to different members that open one ciphertext to different texts. So the
+// envelope carries a hash of the content key (kc), covered by the sender's signature,
+// and every recipient checks the key they unwrapped against it.
+import { CryptoFormatError, concatBytes, equalBytes, fromB64, fromUtf8, randomBytes, sha256, toB64, utf8 } from "./encoding.js";
 import { aesDecrypt, aesEncrypt, aesKeyFromBytes, importEcdhPrivate, openSealed, sealTo } from "./primitives.js";
 import { keyForVersion } from "./keyring.js";
 
-export const ENVELOPE_VERSION = 1;
+export const ENVELOPE_VERSION = 2;
 export const MAX_RECIPIENTS = 32;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -36,6 +41,10 @@ const contentContext = (s) =>
 const wrapContext = (s, userId, keyVersion) =>
   `commonveil/wrap/v1|${s.kind}|${s.conversation_id}|${s.item_id}|${userId}|${keyVersion}`;
 
+async function keyCommitment(scope, contentKeyBytes) {
+  return sha256(concatBytes(utf8(`commonveil/key-commitment/v1|${contentContext(scope)}|`), contentKeyBytes));
+}
+
 function b64Length(value, exact, min) {
   const bytes = fromB64(value);
   if (exact !== undefined && bytes.length !== exact) throw new CryptoFormatError("Wrong length");
@@ -48,6 +57,7 @@ export function validateEnvelope(envelope) {
     if (!envelope || typeof envelope !== "object" || envelope.v !== ENVELOPE_VERSION) throw new Error("version");
     b64Length(envelope.iv, 12);
     b64Length(envelope.ct, undefined, 17);
+    b64Length(envelope.kc, 32);
     if (!Array.isArray(envelope.wraps) || envelope.wraps.length === 0 || envelope.wraps.length > MAX_RECIPIENTS) {
       throw new Error("wraps");
     }
@@ -100,7 +110,8 @@ export async function encryptEnvelope({ scope, recipients, payload }) {
       const sealed = await sealTo(r.ecdh_pub, contentKeyBytes, wrapContext(scope, r.user_id, r.key_version));
       wraps.push({ u: r.user_id, kv: r.key_version, epk: sealed.epk, iv: sealed.iv, wk: sealed.ct });
     }
-    return { v: ENVELOPE_VERSION, iv: toB64(iv), ct: toB64(ct), wraps };
+    const kc = toB64(await keyCommitment(scope, contentKeyBytes));
+    return { v: ENVELOPE_VERSION, iv: toB64(iv), ct: toB64(ct), kc, wraps };
   } finally {
     contentKeyBytes.fill(0);
   }
@@ -143,6 +154,11 @@ export async function decryptEnvelope({ scope, envelope, userId, keyring }) {
     throw new EnvelopeError("UNWRAP_FAILED", "This item's key failed its integrity check.");
   }
   if (contentKeyBytes.length !== 32) throw new EnvelopeError("UNWRAP_FAILED", "This item's key is malformed.");
+  // Everyone must be opening the same message: the key has to match the one the sender committed to.
+  if (!equalBytes(await keyCommitment(scope, contentKeyBytes), fromB64(env.kc))) {
+    contentKeyBytes.fill(0);
+    throw new EnvelopeError("KEY_COMMITMENT_FAILED", "This item's key doesn't match the one its sender committed to.");
+  }
   const contentKey = await aesKeyFromBytes(contentKeyBytes);
   contentKeyBytes.fill(0);
   let plaintext;
