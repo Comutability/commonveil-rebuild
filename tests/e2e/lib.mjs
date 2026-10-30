@@ -10,11 +10,16 @@ const ROOT = process.env.CV_E2E_DIR || "/tmp/cv-e2e";
 export const SHOTS = path.join(ROOT, "shots");
 fs.mkdirSync(SHOTS, { recursive: true });
 
-/** Test people. Usernames must match the accounts you provisioned and signed in. */
+/**
+ * Test people. Deleted and erased accounts retire their usernames for good, so give each run its
+ * own with CV_E2E_TAG (letters and numbers, up to 8): e2e_ann_<tag> and so on.
+ */
+const TAG = (process.env.CV_E2E_TAG || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 8);
+const handle = (name) => (TAG ? `e2e_${name}_${TAG}` : `e2e_${name}`);
 export const PEOPLE = {
-  ann: { username: "e2e_ann", display: "Ann Test" },
-  ben: { username: "e2e_ben", display: "Ben Test" },
-  cat: { username: "e2e_cat", display: "Cat Test" },
+  ann: { username: handle("ann"), display: "Ann Test" },
+  ben: { username: handle("ben"), display: "Ben Test" },
+  cat: { username: handle("cat"), display: "Cat Test" },
 };
 
 /** Open a browser profile that persists between scripts (one per device). */
