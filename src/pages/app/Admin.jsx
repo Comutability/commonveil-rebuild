@@ -450,7 +450,7 @@ export default function Admin() {
       <main className="mx-auto w-full max-w-5xl px-4 py-8">
         <h1 className="text-3xl font-semibold">Admin</h1>
         <Tabs defaultValue="reports" className="mt-6">
-          <TabsList>
+          <TabsList className="h-auto flex-wrap justify-start">
             <TabsTrigger value="reports"><Flag className="mr-1.5 h-4 w-4" aria-hidden="true" /> Reports</TabsTrigger>
             <TabsTrigger value="security"><Bug className="mr-1.5 h-4 w-4" aria-hidden="true" /> Security</TabsTrigger>
             <TabsTrigger value="accounts"><UserX className="mr-1.5 h-4 w-4" aria-hidden="true" /> Accounts</TabsTrigger>
