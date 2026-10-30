@@ -50,7 +50,7 @@ What Commonveil protects, against whom, and what it doesn't. Read with `PROTOCOL
   which @username is signed in, in the header on wider screens and in Settings. This is platform behaviour Commonveil
   can't change.
 - **Display names aren't unique.** Anyone can call themselves anything. The app shows @usernames beside names in groups,
-  in new-member and first-look notices, and in safety-number screens; check those.
+  in new-member and first-look notices, and in conversation details beside each safety number; check those.
 - **Email notices are best effort.** If the email service fails, a reset request still shows on the account's devices.
 - **Shared query allowance.** On Base44, everything the backend does as its service role shares one per-minute allowance
   for the whole app. Frequent reads use each member's own allowance instead, but a burst of activity across many members
