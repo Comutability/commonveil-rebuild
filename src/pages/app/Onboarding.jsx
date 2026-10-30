@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { AtSign, KeyRound, Laptop, Loader2, LifeBuoy, ShieldAlert, Smartphone } from "lucide-react";
+import { AtSign, Clock, KeyRound, Laptop, Loader2, LifeBuoy, ShieldAlert, ShieldOff, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,6 +29,14 @@ function Panel({ icon: Icon, eyebrow, title, children }) {
 }
 
 const USERNAME_RE = /^[A-Za-z0-9_]{3,20}$/;
+
+/** "30 October, 14:05" in the reader's time zone. Platform times carry no zone and are UTC. */
+export function formatWhen(value) {
+  if (!value) return "";
+  const d = new Date(/Z$|[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-GB", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+}
 
 export function Welcome() {
   const { claimUsername } = useSecure();
@@ -272,7 +280,7 @@ function ResetAccount({ onBack }) {
         setBusy(false);
       }
     };
-    return <PhraseCheckpoint phrase={phrase} onConfirmed={finish} confirmLabel="Reset and finish" busy={busy} error={error} />;
+    return <PhraseCheckpoint phrase={phrase} onConfirmed={finish} confirmLabel="Ask for the reset" busy={busy} error={error} />;
   }
 
   return (
@@ -280,11 +288,15 @@ function ResetAccount({ onBack }) {
       <div className="flex gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm">
         <ShieldAlert className="h-5 w-5 shrink-0 text-destructive" aria-hidden="true" />
         <div className="space-y-2">
-          <p className="font-semibold">This starts a new encryption identity.</p>
+          <p className="font-semibold">This starts a new encryption identity, after a week's wait.</p>
           <ul className="list-disc space-y-1 pl-5">
-            <li>Every message sent to you before now becomes permanently unreadable.</li>
+            <li>Every message sent to you before then becomes permanently unreadable.</li>
             <li>All your other devices are removed.</li>
             <li>The people you talk to will see a warning that your keys changed.</li>
+            <li>
+              The reset waits seven days. Your devices show the request and we email you, so if someone else has your password, you have
+              time to stop them. Keep this browser: your new keys wait in it.
+            </li>
           </ul>
         </div>
       </div>
@@ -314,6 +326,79 @@ function ResetAccount({ onBack }) {
         <Button variant="ghost" onClick={onBack}>Back</Button>
       </div>
     </div>
+  );
+}
+
+/** A reset this browser asked for, waiting out its week. */
+export function ResetWaiting() {
+  const { pendingReset, withdrawReset, refresh } = useSecure();
+  const [busy, setBusy] = useState(false);
+  return (
+    <Panel icon={Clock} eyebrow="Reset requested" title="Your reset is waiting">
+      <div className="space-y-4 text-muted-foreground">
+        <p>
+          It completes on <strong className="text-foreground">{formatWhen(pendingReset?.effective_at)}</strong>. Come back to this browser after
+          that to finish: the new keys are waiting here, so don't clear its data or use a private window.
+        </p>
+        <p>
+          Until then nothing changes. If your devices or your recovery phrase turn up, use them instead: that cancels the reset and keeps
+          your messages.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <Button variant="outline" disabled={busy} onClick={() => refresh()}>Check again</Button>
+          <Button
+            variant="ghost"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              await withdrawReset();
+              setBusy(false);
+            }}
+          >
+            {busy ? "Working…" : "Withdraw the request"}
+          </Button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+/**
+ * The server says this browser was removed, or the account reset. Its keys stay until the
+ * person decides: a server can claim either, and deleting keys can't be undone.
+ */
+export function BrowserRemoved() {
+  const { removal, discardKeys, refresh } = useSecure();
+  const [busy, setBusy] = useState(false);
+  const reset = removal === "reset";
+  return (
+    <Panel icon={ShieldOff} eyebrow="This browser" title={reset ? "Your encryption was reset elsewhere" : "This browser was removed from your account"}>
+      <div className="space-y-4 text-muted-foreground">
+        <p>
+          {reset
+            ? "Your account now has new keys, made on another device. The keys in this browser no longer apply, so it can't send anything."
+            : "It was removed from your account, so it can't send anything. That's normally done from Settings on another of your devices."}
+        </p>
+        <p>
+          If you didn't do this, check your devices from another browser and change your password. This browser's keys are still here until
+          you delete them.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <Button variant="outline" disabled={busy} onClick={() => refresh()}>Check again</Button>
+          <Button
+            variant="destructive"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              await discardKeys();
+              setBusy(false);
+            }}
+          >
+            {busy ? "Working…" : "Delete this browser's keys and start again"}
+          </Button>
+        </div>
+      </div>
+    </Panel>
   );
 }
 
