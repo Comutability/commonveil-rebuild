@@ -11,6 +11,7 @@ import {
   conversationForMember,
   conversationOut,
   enforceRate,
+  isLive,
   messageOut,
   myConversations,
   rateLimited,
@@ -61,6 +62,8 @@ export const messageActions: Actions = {
       return { message: messageOut(duplicate[0]), duplicate: true };
     }
     await enforceRate(own, "Message", { sender_id: user.id }, 60_000, LIMITS.messagesPerMinute, now, "sending messages");
+    // Disappearing messages: the conversation's timer when the message arrives decides when it's deleted.
+    const lifetime = Number(conv.expire_seconds) || 0;
     const message = await sr.entities.Message.create({
       conversation_id: conv.id,
       msg_id: msgId,
@@ -71,6 +74,7 @@ export const messageActions: Actions = {
       sent_at: sentAt,
       recipient_ids: wraps.map((w) => w.u),
       deleted: false,
+      ...(lifetime > 0 ? { expires_at: new Date(now.getTime() + lifetime * 1000).toISOString() } : {}),
     });
     if (!(await withinRate(own, "Message", { sender_id: user.id }, 60_000, LIMITS.messagesPerMinute, now, message))) {
       await sr.entities.Message.update(message.id, BLANK_MESSAGE);
@@ -82,13 +86,19 @@ export const messageActions: Actions = {
   },
 
   /** Page backwards through one conversation. Read with the caller's own access (see Ctx). */
-  async list({ own, user, body }) {
+  async list({ own, user, body, now }) {
     const conv = await conversationForMember(own, user.id, id(body.conversation_id, "conversation"));
     const limit = body.limit === undefined ? LIMITS.pageSize : int(body.limit, "limit", 1, LIMITS.pageSize);
     const query: any = { conversation_id: conv.id, ...addressedTo(user.id) };
     if (body.before !== undefined) query.created_date = { $lt: str(body.before, "cursor", 40) };
     const rows = await own.entities.Message.filter(query, "-created_date", limit + 1);
-    return { messages: rows.slice(0, limit).map(messageOut).reverse(), has_more: rows.length > limit };
+    // Paging follows the rows as stored; any whose time is up are left out of what's shown.
+    const page = rows.slice(0, limit);
+    return {
+      messages: page.filter((m: any) => isLive(m, now)).map(messageOut).reverse(),
+      has_more: rows.length > limit,
+      ...(rows.length > limit || page.length ? { before: page.length ? page[page.length - 1].created_date : null } : {}),
+    };
   },
 
   /**
@@ -116,7 +126,7 @@ export const messageActions: Actions = {
     let cursor = since;
     for (const m of page) if (String(m.updated_date) > cursor) cursor = String(m.updated_date);
     if (!hasMore && cursor > settled) cursor = settled > since ? settled : since;
-    const out: Record<string, unknown> = { cursor, messages: page.map(messageOut), has_more: hasMore };
+    const out: Record<string, unknown> = { cursor, messages: page.filter((m: any) => isLive(m, now)).map(messageOut), has_more: hasMore };
 
     if (body.conversations_since !== undefined) {
       const convSince = str(body.conversations_since, "cursor", 40);
