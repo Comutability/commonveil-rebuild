@@ -5,12 +5,12 @@ import { ApiError, LIMITS, id, int, isoTime, platformTime, randomIdField, str, t
 import { parseEnvelopeShape, verifyItemSignature } from "../verify.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
 import {
+  addressedTo,
   assertWrapsMatchMembers,
   blockedEitherWay,
   conversationForMember,
   conversationOut,
   enforceRate,
-  memberSince,
   messageOut,
   myConversations,
   rateLimited,
@@ -18,7 +18,9 @@ import {
   withinRate,
 } from "../store.ts";
 
-const BLANK_MESSAGE = { conversation_id: "", msg_id: "", sender_id: "", device_id: "", envelope: "", signature: "", sent_at: "", deleted: true };
+const BLANK_MESSAGE = {
+  conversation_id: "", msg_id: "", sender_id: "", device_id: "", envelope: "", signature: "", sent_at: "", recipient_ids: [], deleted: true,
+};
 
 export const messageActions: Actions = {
   async send({ sr, user, body, now }) {
@@ -52,6 +54,7 @@ export const messageActions: Actions = {
       envelope,
       signature: body.signature,
       sent_at: sentAt,
+      recipient_ids: wraps.map((w) => w.u),
       deleted: false,
     });
     if (!(await withinRate(sr, "Message", { sender_id: user.id }, 60_000, LIMITS.messagesPerMinute, now, message))) {
@@ -67,13 +70,8 @@ export const messageActions: Actions = {
   async list({ sr, user, body }) {
     const conv = await conversationForMember(sr, user.id, id(body.conversation_id, "conversation"));
     const limit = body.limit === undefined ? LIMITS.pageSize : int(body.limit, "limit", 1, LIMITS.pageSize);
-    const query: any = { conversation_id: conv.id };
-    const created: any = {};
-    if (body.before !== undefined) created.$lt = str(body.before, "cursor", 40);
-    // Only what was sent after you joined: not even when earlier messages were sent.
-    const since = memberSince(conv, user.id);
-    if (since) created.$gte = since;
-    if (Object.keys(created).length) query.created_date = created;
+    const query: any = { conversation_id: conv.id, ...addressedTo(user.id) };
+    if (body.before !== undefined) query.created_date = { $lt: str(body.before, "cursor", 40) };
     const rows = await sr.entities.Message.filter(query, "-created_date", limit + 1);
     return { messages: rows.slice(0, limit).map(messageOut).reverse(), has_more: rows.length > limit };
   },
@@ -91,19 +89,12 @@ export const messageActions: Actions = {
     let rows: any[] = [];
     if (ids.length) {
       rows = await sr.entities.Message.filter(
-        { conversation_id: { $in: ids }, updated_date: { $gte: since } },
+        { conversation_id: { $in: ids }, updated_date: { $gte: since }, ...addressedTo(user.id) },
         "updated_date",
         LIMITS.pollLimit + 1,
       );
     }
-    const joined = new Map(convs.map((c: any) => [c.id, memberSince(c, user.id)]));
-    const messages = rows
-      .slice(0, LIMITS.pollLimit)
-      .filter((m: any) => {
-        const at = joined.get(m.conversation_id);
-        return !at || String(m.created_date) >= at;
-      })
-      .map(messageOut);
+    const messages = rows.slice(0, LIMITS.pollLimit).map(messageOut);
     let cursor = since;
     for (const m of rows.slice(0, LIMITS.pollLimit)) if (String(m.updated_date) > cursor) cursor = String(m.updated_date);
     for (const c of conversations) if (String(c.updated_date) > cursor) cursor = String(c.updated_date);
