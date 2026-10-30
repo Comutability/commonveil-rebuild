@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, FileText, Flag, Plus } from "lucide-react";
+import { Bug, FileText, Flag, Plus, UserX } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -148,6 +148,74 @@ function SecurityReports() {
       ) : (
         <ul className="space-y-3">{q.data.reports.map((r) => <SecurityReportRow key={r.id} r={r} onSaved={() => q.refetch()} />)}</ul>
       )}
+    </div>
+  );
+}
+
+// ---------- Removed accounts ----------
+
+function RemovedAccountRow({ account, onErased }) {
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const inputId = `erase-${account.user_id}`;
+  const erase = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      // A big account takes more than one call; each picks up where the last stopped.
+      for (let i = 0; i < 40; i += 1) {
+        const res = await callFn("admin", { action: "erase_removed_account", user_id: account.user_id, confirm: "ERASE" });
+        if (res.done) {
+          onErased();
+          return;
+        }
+      }
+      setError("This is taking a while. Press the button again to carry on.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <li className="card-cv space-y-3 p-4">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <strong>@{account.username}</strong>
+        {account.display_name && account.display_name !== account.username && <span>{account.display_name}</span>}
+        <span className="text-muted-foreground">joined {formatDate(account.created_date)}</span>
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="space-y-1.5">
+          <Label htmlFor={inputId}>Type ERASE to confirm</Label>
+          <Input id={inputId} className="w-40" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
+        </div>
+        <Button variant="destructive" disabled={busy || typed !== "ERASE"} onClick={erase}>
+          {busy ? "Erasing…" : "Erase what they left"}
+        </Button>
+      </div>
+      <ErrorNote>{error}</ErrorNote>
+    </li>
+  );
+}
+
+function RemovedAccounts() {
+  const q = useQuery({ queryKey: ["admin-removed-accounts"], queryFn: () => callFn("admin", { action: "list_removed_accounts" }) });
+  return (
+    <div className="space-y-4">
+      <p className="max-w-3xl text-sm text-muted-foreground">
+        Members delete their own accounts in Settings. If someone's sign-in is removed in Base44 instead, their profile, keys and the
+        messages they sent stay here until you erase them. Erasing works exactly like a member deleting their own account: their direct
+        conversations go for the other person too, they leave their groups, and their username can't be used again.
+      </p>
+      {q.isLoading ? <Loading /> : q.error ? <ErrorNote>{q.error.message}</ErrorNote> : q.data.accounts.length === 0 ? (
+        <p className="text-muted-foreground">No removed sign-ins have left anything here.</p>
+      ) : (
+        <ul className="space-y-3">
+          {q.data.accounts.map((a) => <RemovedAccountRow key={a.user_id} account={a} onErased={() => q.refetch()} />)}
+        </ul>
+      )}
+      {q.data && !q.data.complete && <p className="text-sm text-muted-foreground">Only the first 5,000 accounts were checked.</p>}
     </div>
   );
 }
@@ -385,10 +453,12 @@ export default function Admin() {
           <TabsList>
             <TabsTrigger value="reports"><Flag className="mr-1.5 h-4 w-4" aria-hidden="true" /> Reports</TabsTrigger>
             <TabsTrigger value="security"><Bug className="mr-1.5 h-4 w-4" aria-hidden="true" /> Security</TabsTrigger>
+            <TabsTrigger value="accounts"><UserX className="mr-1.5 h-4 w-4" aria-hidden="true" /> Accounts</TabsTrigger>
             <TabsTrigger value="content"><FileText className="mr-1.5 h-4 w-4" aria-hidden="true" /> Content</TabsTrigger>
           </TabsList>
           <TabsContent value="reports" className="pt-4"><Reports /></TabsContent>
           <TabsContent value="security" className="pt-4"><SecurityReports /></TabsContent>
+          <TabsContent value="accounts" className="pt-4"><RemovedAccounts /></TabsContent>
           <TabsContent value="content" className="pt-4"><Content /></TabsContent>
         </Tabs>
       </main>
