@@ -854,7 +854,12 @@ test("a reset nobody stops completes after the wait: new identity, old devices r
   // Someone else's device can't finish it, and nor can a stray session.
   assert.equal((await alice.call("keys", await prepareFinishReset({ userId: alice.id, device: bob.device, requestId: request.id }))).body.code, "PROOF_INVALID");
   w.rows("ResetRequest")[0].effective_at = new Date(Date.now() - 1000).toISOString();
-  await alice.ok("keys", await prepareFinishReset({ userId: alice.id, device: fresh, requestId: request.id }));
+  const finished = await alice.ok("keys", await prepareFinishReset({ userId: alice.id, device: fresh, requestId: request.id }));
+  assert.equal(finished.emailed, true);
+  assert.deepEqual(w.emails.map((e) => e.subject), [
+    "Commonveil: someone asked to reset your encryption keys",
+    "Commonveil: your encryption keys were reset",
+  ], "the account's address hears when it's asked for and when it's done");
 
   const status = await alice.status();
   assert.equal(status.devices.find((d) => d.device_id === alice.device.device_id).status, "revoked");
