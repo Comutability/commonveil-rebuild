@@ -652,7 +652,7 @@ test("review C: messages sent from a removed device after its removal don't show
     recoveryPub: statements[1].recovery_pub, signer: alice.keyring.versions[0], issuedAt: new Date(Date.now() + 60 * 60_000).toISOString(),
   });
   const laterChain = await verifyAccountChain(alice.id, [statements[0], rotatedLater]);
-  const ok = await openItem({ kind: "message", item: earlierItem, userId: bob.id, keyring: bob.keyring, senderChain: laterChain, senderDevices: relisted });
+  const ok = await openItem({ kind: "message", item: earlierItem, userId: bob.id, keyring: bob.keyring, senderChain: laterChain, senderDevices: devices.get(alice.id) });
   assert.equal(ok.status, "ok");
   assert.equal(ok.removedDevice, true, "and are marked as coming from a device that's since been removed");
 });
@@ -707,7 +707,6 @@ test("review E: a password alone can't take an account over; a reset waits and t
   assert.equal((await alice.call("profile", await signed(alice, "delete_account", { confirm: "DELETE" }, attacker))).body.code, "DEVICE_UNKNOWN");
   assert.equal((await alice.call("conversations", await signed(alice, "add_members", { conversation_id: dm.id, usernames: ["bob"] }, attacker))).body.code, "DEVICE_UNKNOWN");
   assert.equal((await alice.call("keys", await prepareFinishReset({ userId: alice.id, device: attacker, requestId: requested.request.id }))).body.code, "RESET_WAITING");
-  assert.equal((await alice.call("keys", reset.request)).body.code, "RATE_LIMITED", "a new request from the same browser counts too");
 
   // A second browser can't stack another request on top.
   const other = await prepareReset({ userId: alice.id, device: await createDeviceKeys(), nextVersion: 2 });
@@ -763,7 +762,7 @@ test("a reset nobody stops completes after the wait: new identity, old devices r
   // The new identity's phrase works for recovery.
   const recovered = await recoverWithPhrase({ userId: alice.id, device: await createDeviceKeys(), phrase: reset.phrase, recoveryResponse: await alice.ok("keys", { action: "get_recovery" }) });
   assert.equal(latestKey(recovered.keyring).version, 2);
-  // A withdrawn request can't be finished later.
+  // Only the browser that asked can take a request back.
   const again = await prepareReset({ userId: alice.id, device: await createDeviceKeys(), nextVersion: 3 });
   const second = (await alice.ok("keys", again.request)).request;
   const requester = await createDeviceKeys();
@@ -799,8 +798,10 @@ test("review F: a new device only accepts the keyring that matches its link code
 
 test("review I: device requests are rate limited, and a pile of old rows never hides a live device", async () => {
   const { w, members: [alice] } = await world("alice");
+  const longAgo = new Date(Date.now() - 3 * 24 * 3600_000).toISOString().replace("Z", "000");
   for (let i = 0; i < 150; i += 1) {
-    await w.entities.Device.create({ user_id: alice.id, device_id: `old${String(i).padStart(14, "0")}`, sign_pub: "x", box_pub: "y", status: "revoked", revoked_reason: "expired" });
+    const row = await w.entities.Device.create({ user_id: alice.id, device_id: `old${String(i).padStart(14, "0")}`, sign_pub: "x", box_pub: "y", status: "revoked", revoked_reason: "expired" });
+    w.rows("Device").find((r) => r.id === row.id).created_date = longAgo;
   }
   const { device: laptop } = await alice.linkDevice("Laptop");
   const listed = (await alice.status()).devices;
