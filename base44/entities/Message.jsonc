@@ -50,7 +50,9 @@
     "sent_at"
   ],
   "rls": {
-    "read": false,
+    "read": {
+      "data.recipient_ids": "{{user.id}}"
+    },
     "create": false,
     "update": false,
     "delete": false
