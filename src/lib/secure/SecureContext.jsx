@@ -23,7 +23,9 @@ export function useSecure() {
   return ctx;
 }
 
-const PEER_TTL_MS = 60_000;
+// How long other members' keys are trusted from cache. A change is also caught when sending: the
+// server refuses a message sealed to old keys, and the keys are fetched again before retrying.
+const PEER_TTL_MS = 3 * 60_000;
 
 const RESET_ENDED = {
   device: "Your reset was cancelled from one of your devices, so nothing changed.",
@@ -279,9 +281,11 @@ export function SecureProvider({ children }) {
   // While waiting on another device, check every few seconds. Once set up, check now and then,
   // so a reset someone asks for (or this browser's removal) shows up without a reload.
   useEffect(() => {
-    const every = phase === "awaiting-approval" || phase === "awaiting-keys" ? 4000 : phase === "ready" ? 5 * 60_000 : 0;
+    const every = phase === "awaiting-approval" || phase === "awaiting-keys" ? 5000 : phase === "ready" ? 5 * 60_000 : 0;
     if (!every) return undefined;
-    const t = setInterval(() => refresh({ silent: true }), every);
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") refresh({ silent: true });
+    }, every);
     return () => clearInterval(t);
   }, [phase, refresh]);
 
