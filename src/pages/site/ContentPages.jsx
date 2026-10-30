@@ -1,9 +1,11 @@
 import React, { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Clock, ExternalLink } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Clock, ExternalLink } from "lucide-react";
 import { contentBySlug, listContent } from "@/lib/api";
 import Markdown from "@/components/site/Markdown";
+import { DoneButton, SaveButton } from "@/components/site/SaveButton";
+import { useSaved } from "@/lib/site/saved.js";
 import { EmptyState, Loading, PageHeader, Pill, formatDate } from "@/components/site/bits";
 
 function useList(entity, sort) {
@@ -107,6 +109,7 @@ export function BlogArticle() {
         <p className="mt-4 text-sm text-muted-foreground">
           {[post.author_name, formatDate(post.published_at || post.created_date), post.reading_time].filter(Boolean).join(" · ")}
         </p>
+        <SaveButton kind="blog" slug={post.slug} title={post.title} className="mt-4" />
       </header>
       {post.cover_image && <img src={post.cover_image} alt="" referrerPolicy="no-referrer" className="mt-8 aspect-[16/8] w-full max-w-4xl rounded-xl border border-border object-cover" />}
       <div className="mt-10"><Markdown>{post.body}</Markdown></div>
@@ -121,6 +124,7 @@ export function BlogArticle() {
 
 export function GuidesIndex() {
   const { data = [], isLoading } = useList("Guide", "title");
+  const { isDone } = useSaved();
   const [cat, setCat] = useState(null);
   const guides = data.filter((g) => !cat || g.category === cat);
   return (
@@ -139,6 +143,7 @@ export function GuidesIndex() {
                         <Pill tone="accent">{g.difficulty || "Beginner"}</Pill>
                         <Pill>{g.category}</Pill>
                         {g.estimated_time && <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Clock className="h-3.5 w-3.5" aria-hidden="true" />{g.estimated_time}</span>}
+                        {isDone(g.slug) && <span className="inline-flex items-center gap-1 text-xs font-medium text-primary"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />Done</span>}
                       </div>
                       <h2 className="mt-3 text-xl font-semibold group-hover:text-primary">{g.title}</h2>
                       {g.summary && <p className="mt-2 text-sm text-muted-foreground">{g.summary}</p>}
@@ -188,6 +193,11 @@ export function GuideArticle() {
           <FactList title="You'll need" items={guide.requirements} />
           <FactList title="Before you start" items={guide.prerequisites} />
           {guide.last_tested && <p className="text-xs text-muted-foreground">Last tested {formatDate(guide.last_tested)}</p>}
+          <div className="flex flex-wrap gap-2 border-t border-border pt-4">
+            <DoneButton slug={guide.slug} />
+            <SaveButton kind="guide" slug={guide.slug} title={guide.title} />
+          </div>
+          <p className="text-xs text-muted-foreground">Kept on this browser only. <a href="/saved" className="underline hover:text-foreground">See what's saved</a>.</p>
         </aside>
       </div>
     </article>
@@ -198,6 +208,7 @@ export function GuideArticle() {
 
 export function PathsIndex() {
   const { data = [], isLoading } = useList("LearningPath", "title");
+  const { isDone } = useSaved();
   return (
     <>
       <PageHeader eyebrow="Learning paths" title="A sensible order to learn things in" intro="Short sequences of guides, for when you don't know where to start." />
@@ -211,7 +222,9 @@ export function PathsIndex() {
                   <h2 className="mt-3 text-2xl font-semibold group-hover:text-primary">{p.title}</h2>
                   <p className="mt-2 flex-1 text-sm text-muted-foreground">{p.summary}</p>
                   <p className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-primary">
-                    {(p.guide_slugs || []).length} guides <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    {(p.guide_slugs || []).length} guides
+                    {(p.guide_slugs || []).some(isDone) && ` · ${(p.guide_slugs || []).filter(isDone).length} done`}
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </p>
                 </Link>
               </li>
@@ -227,9 +240,11 @@ export function PathDetail() {
   const { slug } = useParams();
   const { data: path, isLoading } = useOne("LearningPath", slug);
   const { data: guides = [] } = useList("Guide", "title");
+  const { isDone } = useSaved();
   if (isLoading) return <Loading />;
   if (!path) return <NotFoundBlock backTo="/paths" backLabel="Back to paths" />;
   const steps = (path.guide_slugs || []).map((s) => guides.find((g) => g.slug === s)).filter(Boolean);
+  const finished = steps.filter((g) => isDone(g.slug)).length;
   return (
     <div className="container-cv py-10">
       <BackLink to="/paths">All paths</BackLink>
@@ -237,19 +252,36 @@ export function PathDetail() {
         <p className="eyebrow">{path.category}</p>
         <h1 className="mt-3 text-4xl font-semibold">{path.title}</h1>
         <p className="mt-4 text-lg text-muted-foreground">{path.description || path.summary}</p>
+        <SaveButton kind="path" slug={path.slug} title={path.title} className="mt-4" />
       </header>
-      <ol className="mt-10 max-w-3xl space-y-3">
-        {steps.map((g, i) => (
-          <li key={g.id}>
-            <Link to={`/guides/${g.slug}`} className="card-cv group flex items-start gap-4 p-5 hover:shadow-md">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary font-heading text-lg text-primary-foreground">{i + 1}</span>
-              <span>
-                <span className="block text-lg font-semibold group-hover:text-primary">{g.title}</span>
-                <span className="mt-1 block text-sm text-muted-foreground">{g.summary}</span>
-              </span>
-            </Link>
-          </li>
-        ))}
+      {steps.length > 0 && (
+        <div className="mt-8 max-w-3xl">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-medium">{finished === steps.length ? "All done. Nicely done." : `${finished} of ${steps.length} done`}</span>
+            <span className="text-xs text-muted-foreground">Progress is kept on this browser only.</span>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label="Guides done" aria-valuemin={0} aria-valuemax={steps.length} aria-valuenow={finished}>
+            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${(finished / steps.length) * 100}%` }} />
+          </div>
+        </div>
+      )}
+      <ol className="mt-8 max-w-3xl space-y-3">
+        {steps.map((g, i) => {
+          const done = isDone(g.slug);
+          return (
+            <li key={g.id}>
+              <Link to={`/guides/${g.slug}`} className="card-cv group flex items-start gap-4 p-5 hover:shadow-md">
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-heading text-lg ${done ? "bg-primary/15 text-primary" : "bg-primary text-primary-foreground"}`}>
+                  {done ? <CheckCircle2 className="h-5 w-5" aria-label="Done" /> : i + 1}
+                </span>
+                <span>
+                  <span className="block text-lg font-semibold group-hover:text-primary">{g.title}</span>
+                  <span className="mt-1 block text-sm text-muted-foreground">{g.summary}</span>
+                </span>
+              </Link>
+            </li>
+          );
+        })}
       </ol>
     </div>
   );
@@ -332,6 +364,7 @@ export function WikiArticle() {
       <p className="eyebrow mt-6">{page.category}</p>
       <h1 className="mt-3 text-4xl font-semibold">{page.title}</h1>
       {page.summary && <p className="mt-4 max-w-2xl text-lg text-muted-foreground">{page.summary}</p>}
+      <SaveButton kind="wiki" slug={page.slug} title={page.title} className="mt-4" />
       <div className="mt-10"><Markdown>{page.body}</Markdown></div>
       <p className="mt-10 text-xs text-muted-foreground">Last updated {formatDate(page.updated_date)}</p>
     </article>
