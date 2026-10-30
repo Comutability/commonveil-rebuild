@@ -9,6 +9,17 @@ import { isRetiredUsername, purgeAccount, removePlatformUser } from "../accountD
 /** How long one call may spend deleting before it returns and asks to be called again. */
 const DELETION_BUDGET_MS = 45_000;
 
+/** Delete the account after this many days without use: off, about six months, a year. */
+export const AUTO_DELETE_DAYS = Object.freeze([0, 183, 365]);
+
+/** A day, "2026-10-30": all that's kept of when an account was last used, and only while auto-delete is on. */
+export const dayOf = (d: Date) => d.toISOString().slice(0, 10);
+
+function autoDeleteOut(p: any) {
+  const days = Number(p?.delete_after_days) || 0;
+  return { days, last_active_on: days ? p.last_active_at || null : null, warned: Boolean(days && p.inactive_warned_at) };
+}
+
 const USERNAME_RE = /^[A-Za-z0-9_]{3,20}$/;
 const RESERVED = new Set([
   "admin", "administrator", "root", "system", "support", "help", "staff", "moderator", "mod", "mods",
@@ -26,14 +37,43 @@ function normaliseUsername(value: unknown) {
 
 export const profileActions: Actions = {
   /** Read with the member's own access (see Ctx): every page load asks. */
-  async me({ own, user }) {
+  async me({ sr, own, user, now }) {
     const profile = await profileOf(own, user.id);
     const keys = await accountKeysOf(own, user.id);
+    // Only accounts set to delete themselves after a stretch without use note when they were
+    // last used: the day, at most once a day. Coming back also withdraws any warning sent.
+    const today = dayOf(now);
+    if (profile && Number(profile.delete_after_days) > 0 && (profile.last_active_at !== today || profile.inactive_warned_at)) {
+      await sr.entities.Profile.update(profile.id, { last_active_at: today, inactive_warned_at: "" });
+      Object.assign(profile, { last_active_at: today, inactive_warned_at: "" });
+    }
     return {
       user: { id: user.id, role: user.role === "admin" ? "admin" : "user" },
       profile: profile ? publicProfile(profile) : null,
       encryption_ready: keys.length > 0,
+      auto_delete: profile ? autoDeleteOut(profile) : null,
     };
+  },
+
+  /**
+   * Opt in to (or out of) deleting the account after a stretch without use. A week before,
+   * the account's sign-in address is emailed; signing in in the meantime keeps the account.
+   * Turning it off clears the last-used day. Needs a device signature.
+   */
+  async set_auto_delete(ctx) {
+    const { sr, own, user, now } = ctx;
+    if (user.role === "admin") {
+      throw new ApiError(403, "STAFF_ACCOUNT", "Staff accounts can't be set to delete themselves.");
+    }
+    const { data } = await signedByActiveDevice(ctx, "set_auto_delete");
+    if (!AUTO_DELETE_DAYS.includes(data.days)) throw new ApiError(400, "BAD_FIELD", "Choose one of the offered periods.");
+    const profile = await profileOf(own, user.id);
+    if (!profile) throw new ApiError(409, "PROFILE_REQUIRED", "Choose a username first.");
+    const fields = data.days
+      ? { delete_after_days: data.days, last_active_at: dayOf(now), inactive_warned_at: "" }
+      : { delete_after_days: 0, last_active_at: "", inactive_warned_at: "" };
+    const updated = await sr.entities.Profile.update(profile.id, fields);
+    return { auto_delete: autoDeleteOut({ ...profile, ...fields, ...updated }) };
   },
 
   async claim_username({ sr, user, body }) {
