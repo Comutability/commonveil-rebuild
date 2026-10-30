@@ -1,6 +1,7 @@
-// Blocking and reporting, plus the staff side of reports.
+// Blocking and reporting, plus the staff side: reports, and erasing what removed sign-ins left behind.
 import { ApiError, LIMITS, cleanText, id, type Actions } from "../http.ts";
 import { conversationForMember, enforceRate, profileOf, publicProfile, rateLimited, withinRate } from "../store.ts";
+import { purgeAccount } from "../accountDeletion.ts";
 
 const REASONS = new Set(["spam", "harassment", "impersonation", "illegal", "other"]);
 const STATUSES = new Set(["open", "reviewing", "resolved", "dismissed"]);
@@ -63,6 +64,41 @@ export const safetyActions: Actions = {
 
 function requireAdmin(user: any) {
   if (user.role !== "admin") throw new ApiError(403, "FORBIDDEN", "Staff only.");
+}
+
+/** How long one erase call may run before it returns and asks to be called again. */
+const ERASE_BUDGET_MS = 45_000;
+const SCAN_PAGE = 200;
+const SCAN_LIMIT = 5000;
+
+const checkFailed = () =>
+  new ApiError(503, "CHECK_FAILED", "Couldn't check which sign-ins still exist, so nothing was changed. Please try again later.");
+
+/**
+ * Which of these user ids still have a Base44 sign-in. The staff member's own id is always asked
+ * about too: if the platform can't find them, its answers mean nothing, and nothing may be erased.
+ */
+async function signInsAmong(sr: any, staffId: string, ids: string[]): Promise<Set<string>> {
+  const wanted = [...new Set([staffId, ...ids])];
+  let rows: any[];
+  try {
+    rows = await sr.entities.User.filter({ id: { $in: wanted } }, "created_date", wanted.length);
+  } catch {
+    throw checkFailed();
+  }
+  const found = new Set<string>((rows || []).map((r: any) => r?.id).filter((v: unknown): v is string => typeof v === "string"));
+  if (!found.has(staffId)) throw checkFailed();
+  return found;
+}
+
+/** A second, separate check for one id. Only a clear "not found" counts as gone. */
+async function signInGone(sr: any, userId: string): Promise<boolean> {
+  try {
+    return !(await sr.entities.User.get(userId));
+  } catch (err: any) {
+    if (err?.status === 404) return false === true || true;
+    throw checkFailed();
+  }
 }
 
 export const adminActions: Actions = {
@@ -130,5 +166,52 @@ export const adminActions: Actions = {
     const status = typeof body.status === "string" && SECURITY_STATUSES.has(body.status) ? body.status : report.status;
     await sr.entities.SecurityReport.update(report.id, { status, staff_note: cleanText(body.staff_note, 2000) });
     return { report: { id: report.id, status } };
+  },
+
+  /**
+   * Members whose Base44 sign-in was removed outside Commonveil (in the Base44 dashboard), so
+   * their profile, keys and messages were left behind.
+   */
+  async list_removed_accounts({ sr, user }) {
+    requireAdmin(user);
+    const accounts: any[] = [];
+    const seen = new Set<string>();
+    let after = "";
+    let scanned = 0;
+    while (scanned < SCAN_LIMIT) {
+      const page = await sr.entities.Profile.filter(after ? { created_date: { $gte: after } } : {}, "created_date", SCAN_PAGE);
+      const fresh = page.filter((p: any) => !seen.has(p.id));
+      if (!fresh.length) break;
+      for (const p of fresh) seen.add(p.id);
+      scanned += fresh.length;
+      const present = await signInsAmong(sr, user.id, fresh.map((p: any) => p.user_id).filter(Boolean));
+      for (const p of fresh) {
+        if (p.user_id && !present.has(p.user_id)) {
+          accounts.push({ user_id: p.user_id, username: p.username, display_name: p.display_name || "", created_date: p.created_date });
+        }
+      }
+      after = page[page.length - 1].created_date;
+      if (page.length < SCAN_PAGE) break;
+    }
+    return { accounts, complete: scanned < SCAN_LIMIT };
+  },
+
+  /**
+   * Erase what a removed sign-in left behind, exactly as if the member had deleted their own
+   * account. Refused while the sign-in exists: members delete their own accounts.
+   */
+  async erase_removed_account({ sr, user, body }) {
+    requireAdmin(user);
+    const target = id(body.user_id, "account");
+    if (body.confirm !== "ERASE") throw new ApiError(400, "CONFIRM_REQUIRED", "Type ERASE to confirm.");
+    const present = await signInsAmong(sr, user.id, [target]);
+    if (present.has(target) || !(await signInGone(sr, target))) {
+      throw new ApiError(
+        409,
+        "SIGN_IN_EXISTS",
+        "That account can still sign in. Members delete their own accounts in Settings; to remove someone, remove their sign-in in Base44 first.",
+      );
+    }
+    return { done: await purgeAccount(sr, target, Date.now() + ERASE_BUDGET_MS) };
   },
 };
