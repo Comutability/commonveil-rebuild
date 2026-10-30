@@ -1,6 +1,10 @@
 // Common data access, always through the service role and always scoped by the
 // caller's own user id. Entities are backend-only, so this is the only way in.
-import { ApiError, LIMITS, parsePlatformTime } from "./http.ts";
+import { ApiError, LIMITS, parsePlatformTime, platformTime } from "./http.ts";
+
+/** Oldest first; ties broken by id, so every request agrees on the order. */
+export const byAge = (a: any, b: any) =>
+  String(a.created_date).localeCompare(String(b.created_date)) || String(a.id).localeCompare(String(b.id));
 
 export async function profileOf(sr: any, userId: string) {
   const rows = await sr.entities.Profile.filter({ user_id: userId }, "created_date", 5);
@@ -19,6 +23,18 @@ export async function accountKeysOf(sr: any, userId: string) {
   return rows.sort((a: any, b: any) => a.version - b.version || String(a.created_date).localeCompare(String(b.created_date)));
 }
 
+/** One statement per version: a lost publishing race can leave a duplicate for a moment, and the oldest wins. */
+export function uniqueVersions(rows: any[]) {
+  const seen = new Set<number>();
+  const out: any[] = [];
+  for (const k of [...rows].sort(byAge)) {
+    if (seen.has(k.version)) continue;
+    seen.add(k.version);
+    out.push(k);
+  }
+  return out.sort((a, b) => a.version - b.version);
+}
+
 export function latestKeyOf(keys: any[]) {
   return keys.length ? keys[keys.length - 1] : null;
 }
@@ -35,6 +51,9 @@ export const statementOut = (k: any) => ({
   is_reset: Boolean(k.is_reset),
 });
 
+/** The account's own view also carries the recovery anchors (useless to anyone without the phrase). */
+export const ownStatementOut = (k: any) => ({ ...statementOut(k), recovery_mac: k.recovery_mac || "" });
+
 /** Latest key version for each user. Throws if any user has no keys yet. */
 export async function latestVersionsFor(sr: any, userIds: string[]) {
   const rows = await sr.entities.AccountKey.filter({ user_id: { $in: userIds } }, "version", 5000);
@@ -43,8 +62,16 @@ export async function latestVersionsFor(sr: any, userIds: string[]) {
   return latest;
 }
 
+/**
+ * Every live device (active or pending) and the most recent removed ones. Live devices are
+ * fetched on their own, so however many requests pile up, a real device is never left off.
+ */
 export async function devicesOf(sr: any, userId: string) {
-  return sr.entities.Device.filter({ user_id: userId }, "created_date", 200);
+  const [live, past] = await Promise.all([
+    sr.entities.Device.filter({ user_id: userId, status: { $in: ["active", "pending"] } }, "created_date", 100),
+    sr.entities.Device.filter({ user_id: userId, status: "revoked" }, "-created_date", 100),
+  ]);
+  return [...live, ...past];
 }
 
 export async function deviceOf(sr: any, userId: string, deviceId: string) {
@@ -138,9 +165,46 @@ export async function countSince(sr: any, entity: string, query: any, since: Dat
   return rows.filter((r: any) => parsePlatformTime(r.created_date) >= since.getTime()).length;
 }
 
+export function rateLimited(what: string) {
+  return new ApiError(429, "RATE_LIMITED", `You're ${what} too quickly. Please wait a moment.`);
+}
+
 export async function enforceRate(sr: any, entity: string, query: any, windowMs: number, cap: number, now: Date, what: string) {
   const n = await countSince(sr, entity, query, new Date(now.getTime() - windowMs), cap);
-  if (n >= cap) throw new ApiError(429, "RATE_LIMITED", `You're ${what} too quickly. Please wait a moment.`);
+  if (n >= cap) throw rateLimited(what);
+}
+
+/**
+ * Checked again after inserting: requests arriving together all pass the first count, so
+ * each one looks for its own row among the oldest `cap` in the window. False means undo it.
+ */
+export async function withinRate(sr: any, entity: string, query: any, windowMs: number, cap: number, now: Date, created: any) {
+  const since = new Date(now.getTime() - windowMs - 60_000);
+  const rows = await sr.entities[entity].filter(
+    { ...query, created_date: { $gte: since.toISOString().replace("Z", "") } },
+    "created_date",
+    cap * 2 + 20,
+  );
+  const windowStart = now.getTime() - windowMs;
+  const ordered = rows.filter((r: any) => parsePlatformTime(r.created_date) >= windowStart || r.id === created.id).sort(byAge);
+  const rank = ordered.findIndex((r: any) => r.id === created.id);
+  return rank !== -1 && rank < cap;
+}
+
+// ---------- when each member joined a conversation ----------
+
+export function memberSince(conv: any, userId: string): string | null {
+  for (const entry of conv.member_since || []) {
+    const i = String(entry).lastIndexOf("|");
+    if (i > 0 && entry.slice(0, i) === userId) return entry.slice(i + 1);
+  }
+  return null;
+}
+
+/** member_since with these members joining now (existing entries kept), and anyone gone dropped. */
+export function withMemberSince(conv: any, memberIds: string[], now: Date) {
+  const at = platformTime(now);
+  return memberIds.map((m) => `${m}|${(conv && memberSince(conv, m)) || at}`);
 }
 
 export const conversationOut = (c: any) => ({
