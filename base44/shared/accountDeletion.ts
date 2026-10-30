@@ -12,6 +12,8 @@
 //    username is retired first, on its own: otherwise someone could claim it and pose as this
 //    member to people who knew them.
 
+import { withoutMember } from "./store.ts";
+
 const PAGE = 100;
 const CONCURRENCY = 5;
 
@@ -27,24 +29,32 @@ async function inChunks<T>(items: T[], fn: (item: T) => Promise<unknown>) {
   }
 }
 
-/** Blank, then delete, every record matching the query. */
-async function blankAndDeleteAll(sr: any, entity: string, query: any, blank: Record<string, unknown>, deadline: number) {
+/**
+ * Blank, then delete, every record matching the query. The blanks must stop a record matching
+ * the query, so a record left behind by a failed delete isn't picked up again. Returns how many.
+ */
+export async function blankAndDeleteAll(sr: any, entity: string, query: any, blank: Record<string, unknown>, deadline: number) {
+  let count = 0;
   for (;;) {
     checkTime(deadline);
     const rows = await sr.entities[entity].filter(query, "created_date", PAGE);
-    if (!rows.length) return;
+    if (!rows.length) return count;
     await inChunks(rows, async (row: any) => {
       await sr.entities[entity].update(row.id, blank);
       await sr.entities[entity].delete(row.id);
     });
+    count += rows.length;
   }
 }
 
-const BLANK = {
-  Message: { conversation_id: "", msg_id: "", sender_id: "", device_id: "", envelope: "", signature: "", sent_at: "", recipient_ids: [], deleted: true },
+export const BLANK = {
+  Message: {
+    conversation_id: "", msg_id: "", sender_id: "", device_id: "", envelope: "", signature: "", sent_at: "", recipient_ids: [],
+    deleted: true, expires_at: "",
+  },
   Conversation: {
-    member_ids: [], dm_key: "", creator_id: "", title_envelope: "", title_item_id: "", title_sender_id: "",
-    title_device_id: "", title_sent_at: "", title_signature: "", last_message_at: "",
+    member_ids: [], admin_ids: [], dm_key: "", creator_id: "", title_envelope: "", title_item_id: "", title_sender_id: "",
+    title_device_id: "", title_sent_at: "", title_signature: "", last_message_at: "", expiry_set_by: "", expiry_set_at: "",
   },
   Block: { user_id: "", blocked_user_id: "" },
   Report: { reporter_id: "", reported_user_id: "", conversation_id: "", details: "", resolution_note: "", handled_by: "" },
@@ -58,7 +68,9 @@ const BLANK = {
     user_id: "", device_id: "", label: "", sign_pub: "", box_pub: "", cert_issued_at: "", cert_signature: "",
     approved_by_device_id: "", approved_at: "", pending_expires_at: "", revoked_at: "", last_seen_at: "",
   },
-  Profile: { user_id: "", username: "", username_key: "", display_name: "", bio: "" },
+  Profile: {
+    user_id: "", username: "", username_key: "", display_name: "", bio: "", delete_after_days: 0, last_active_at: "", inactive_warned_at: "",
+  },
 };
 
 export async function isRetiredUsername(sr: any, key: string) {
@@ -88,12 +100,14 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
       const convs = await sr.entities.Conversation.filter({ member_ids: userId }, "created_date", PAGE);
       if (!convs.length) break;
       for (const c of convs) {
-        const rest = (c.member_ids || []).filter((m: string) => m !== userId);
-        if (c.kind === "dm" || rest.length === 0) {
+        const rest = withoutMember(c, userId);
+        if (c.kind === "dm" || rest.member_ids.length === 0) {
           await eraseConversation(sr, c.id, deadline);
         } else {
-          const changes: Record<string, unknown> = { member_ids: rest };
+          // Another member takes over as admin if this was the last one.
+          const changes: Record<string, unknown> = { ...rest };
           if (c.creator_id === userId) changes.creator_id = "";
+          if (c.expiry_set_by === userId) changes.expiry_set_by = "";
           // A group name set by this member can't be verified once their keys are gone.
           if (c.title_sender_id === userId) {
             Object.assign(changes, { title_envelope: "", title_item_id: "", title_sender_id: "", title_device_id: "", title_sent_at: "", title_signature: "" });
