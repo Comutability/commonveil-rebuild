@@ -197,7 +197,7 @@ export function GuideArticle() {
             <DoneButton slug={guide.slug} />
             <SaveButton kind="guide" slug={guide.slug} title={guide.title} />
           </div>
-          <p className="text-xs text-muted-foreground">Kept on this browser only. <a href="/saved" className="underline hover:text-foreground">See what's saved</a>.</p>
+          <p className="text-xs text-muted-foreground">Kept on this browser only. <Link to="/saved" className="underline hover:text-foreground">See what's saved</Link>.</p>
         </aside>
       </div>
     </article>
