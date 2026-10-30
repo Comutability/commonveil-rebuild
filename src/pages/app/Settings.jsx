@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Bell, CalendarClock, Download, KeyRound, Laptop, Lock, LogOut, ShieldCheck, Smartphone, Trash2, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -453,14 +453,20 @@ function DataSection() {
   const secure = useSecure();
   const { user } = useAuth();
   const [state, setState] = useState({ busy: false, progress: "", error: "", done: false });
+  // If the page goes away (say it locks) before the file is ready, it isn't saved.
+  const alive = useRef(true);
+  useEffect(() => () => {
+    alive.current = false;
+  }, []);
   const start = async () => {
     setState({ busy: true, progress: "Starting", error: "", done: false });
     try {
-      const data = await buildExport(secure, { email: user?.email || null, onProgress: (progress) => setState((s) => ({ ...s, progress })) });
+      const data = await buildExport(secure, { email: user?.email || null, onProgress: (progress) => alive.current && setState((s) => ({ ...s, progress })) });
+      if (!alive.current) return;
       downloadJson(data, `commonveil-data-${new Date().toISOString().slice(0, 10)}.json`);
       setState({ busy: false, progress: "", error: "", done: true });
     } catch (err) {
-      setState({ busy: false, progress: "", error: err.message, done: false });
+      if (alive.current) setState({ busy: false, progress: "", error: err.message, done: false });
     }
   };
   return (
