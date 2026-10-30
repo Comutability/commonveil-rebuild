@@ -20,6 +20,7 @@ not part of `npm test` because they need signed-in test accounts and create real
 | `10-policy-report-delete.mjs` | A production build under its Content Security Policy: the policy and `security.txt` are served; public pages; an anonymous security report; a new member sets up and deletes their account; staff close the report; nothing of the app's own is blocked |
 | `11-erase-test-accounts.mjs` | Cleaning up: Admin → Accounts lists deprovisioned test people and erases what they left (only usernames starting `e2e_`) |
 | `12-access-rules.mjs` | Every table's read rule on the real platform: two new members each read only rows naming them and can't fetch the other's by id; visitors read nothing; private tables are closed |
+| `13-features.mjs` | Replies, reactions and edits between Ann and Ben; disappearing messages (who set the timer, then gone everywhere once due, with `--expired`); group admins; message search on the device; a notification that says only "New message" and the unread count in the tab title; the passcode lock (locked after a reload, wrong passcode refused, Lock now); the data download (decrypted, no keys); auto-delete on and off; site search, saved pages and guide progress |
 
 ## Running them
 
@@ -46,7 +47,13 @@ node tests/e2e/07-admin.mjs "<admin link>"
 node tests/e2e/08-public-pages.mjs
 node tests/e2e/09-accessibility.mjs
 node tests/e2e/12-access-rules.mjs "<new member link>" "<another new member link>"
+node tests/e2e/13-features.mjs            # CV_BEN_PROFILE=ben1 if 05 didn't run
+# It prints a message to make disappear: set that Message's expires_at an hour back, then
+node tests/e2e/13-features.mjs --expired <conversation path> "<that message>"
 ```
+
+The scheduled clean-up behind disappearing messages can be run by hand against the preview:
+`curl -X POST <api>/api/apps/<app-id>/functions/maintenance -H "Base44-Functions-Version: preview" -d '{"args":{"task":"expire"}}'`.
 
 `10-policy-report-delete.mjs` needs a production build, because the policy only exists there (the editor preview runs
 Vite's dev server). Build, serve `dist/` with `serve-dist.mjs`, and point the script at it with a newly provisioned member
