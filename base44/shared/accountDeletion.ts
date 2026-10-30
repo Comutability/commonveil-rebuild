@@ -43,13 +43,17 @@ async function blankAndDeleteAll(sr: any, entity: string, query: any, blank: Rec
 const BLANK = {
   Message: { conversation_id: "", msg_id: "", sender_id: "", device_id: "", envelope: "", signature: "", sent_at: "", deleted: true },
   Conversation: {
-    member_ids: [], dm_key: "", created_by: "", title_envelope: "", title_item_id: "", title_sender_id: "",
+    member_ids: [], member_since: [], dm_key: "", created_by: "", title_envelope: "", title_item_id: "", title_sender_id: "",
     title_device_id: "", title_sent_at: "", title_signature: "", last_message_at: "",
   },
   Block: { user_id: "", blocked_user_id: "" },
   Report: { reporter_id: "", reported_user_id: "", conversation_id: "", details: "", resolution_note: "", handled_by: "" },
   KeyEnvelope: { user_id: "", device_id: "", recovery_pub: "", key_sign_pub: "", sealed: "", created_by_device_id: "" },
-  AccountKey: { user_id: "", ecdh_pub: "", sign_pub: "", recovery_pub: "", signature: "", issued_at: "" },
+  AccountKey: { user_id: "", ecdh_pub: "", sign_pub: "", recovery_pub: "", recovery_mac: "", signature: "", issued_at: "" },
+  ResetRequest: {
+    user_id: "", device_id: "", device_label: "", device_sign_pub: "", device_box_pub: "", statement: "", cert: "",
+    recovery_sealed: "", recovery_pub: "", key_sign_pub: "", ended_by: "",
+  },
   Device: {
     user_id: "", device_id: "", label: "", sign_pub: "", box_pub: "", cert_issued_at: "", cert_signature: "",
     approved_by_device_id: "", approved_at: "", pending_expires_at: "", revoked_at: "", last_seen_at: "",
@@ -88,7 +92,10 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
         if (c.kind === "dm" || rest.length === 0) {
           await eraseConversation(sr, c.id, deadline);
         } else {
-          const changes: Record<string, unknown> = { member_ids: rest };
+          const changes: Record<string, unknown> = {
+            member_ids: rest,
+            member_since: (c.member_since || []).filter((e: string) => !String(e).startsWith(`${userId}|`)),
+          };
           if (c.created_by === userId) changes.created_by = "";
           // A group name set by this member can't be verified once their keys are gone.
           if (c.title_sender_id === userId) {
@@ -102,8 +109,10 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
     await blankAndDeleteAll(sr, "Message", { sender_id: userId }, BLANK.Message, deadline);
     await blankAndDeleteAll(sr, "Block", { user_id: userId }, BLANK.Block, deadline);
     await blankAndDeleteAll(sr, "Block", { blocked_user_id: userId }, BLANK.Block, deadline);
+    // Reports this account made go. Reports other people made about it stay, so a deletion
+    // can't wipe the record of abuse; they only ever held the reporter's own words.
     await blankAndDeleteAll(sr, "Report", { reporter_id: userId }, BLANK.Report, deadline);
-    await blankAndDeleteAll(sr, "Report", { reported_user_id: userId }, BLANK.Report, deadline);
+    await blankAndDeleteAll(sr, "ResetRequest", { user_id: userId }, BLANK.ResetRequest, deadline);
     // Security reports are about the app, not the person: keep them, but unlink the account.
     for (const r of await sr.entities.SecurityReport.filter({ reporter_user_id: userId }, "created_date", 500)) {
       await sr.entities.SecurityReport.update(r.id, { reporter_user_id: "" });
