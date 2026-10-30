@@ -65,10 +65,14 @@ export class FakeWorld {
     return (Math.floor(this.clock / 1000).toString(16) + this.counter.toString(16).padStart(16, "0")).slice(-24).padStart(24, "0");
   }
 
-  /** Record times follow the real clock (as handlers compare them with it), never repeating. */
+  /**
+   * Record times follow the real clock, as handlers compare them with it. Like the platform's,
+   * they have microseconds, so a burst of writes never runs ahead of real time.
+   */
   tick() {
-    this.clock = Math.max(this.clock + 1, Date.now());
-    return new Date(this.clock).toISOString().replace("Z", "000");
+    this.micros = Math.max((this.micros || 0) + 1, Date.now() * 1000);
+    this.clock = Math.floor(this.micros / 1000);
+    return new Date(this.clock).toISOString().replace("Z", String(this.micros % 1000).padStart(3, "0"));
   }
 
   rows(name) {
