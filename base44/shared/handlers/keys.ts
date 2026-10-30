@@ -35,6 +35,20 @@ import {
 
 const DAY = 24 * 3600_000;
 
+/** The most rows Base44 returns from one query. */
+const QUERY_CAP = 5000;
+
+/**
+ * Rows for several people in one query. If it comes back full, someone's history may have been
+ * cut short, so ask person by person instead (at most perPerson rows each).
+ */
+async function forEveryone(sr: any, entity: string, query: any, sort: string, perPerson: number, userIds: string[]) {
+  const rows = await sr.entities[entity].filter({ ...query, user_id: { $in: userIds } }, sort, QUERY_CAP);
+  if (rows.length < QUERY_CAP) return rows;
+  const parts = await Promise.all(userIds.map((uid) => sr.entities[entity].filter({ ...query, user_id: uid }, sort, perPerson)));
+  return parts.flat();
+}
+
 /** The request is signed by the new device it describes (proves it holds that key). */
 async function signedByNewDevice(ctx: Ctx, action: string) {
   const { json, data } = payloadOf(ctx.body);
@@ -135,12 +149,13 @@ async function emailResetNotice(sr: any, user: any, effectiveAt: Date): Promise<
 }
 
 export const keysActions: Actions = {
-  async status({ sr, user, now }) {
+  /** The account's own keys, devices and resets, read with the member's own access (see Ctx). */
+  async status({ sr, own, user, now }) {
     const [keyRows, devices, envelopes, resets] = await Promise.all([
-      accountKeysOf(sr, user.id),
-      devicesOf(sr, user.id),
-      sr.entities.KeyEnvelope.filter({ user_id: user.id }, "-created_date", 300),
-      sr.entities.ResetRequest.filter({ user_id: user.id }, "-created_date", 5),
+      accountKeysOf(own, user.id),
+      devicesOf(own, user.id),
+      own.entities.KeyEnvelope.filter({ user_id: user.id }, "-created_date", 300),
+      own.entities.ResetRequest.filter({ user_id: user.id }, "-created_date", 5),
     ]);
     await expireStalePending(sr, devices, now);
     const keys = uniqueVersions(keyRows);
@@ -617,25 +632,28 @@ export const keysActions: Actions = {
     return { ok: true, cancelled: waiting.length };
   },
 
-  /** Public keys and device certificates for people you share a conversation with. */
-  async peer_keys({ sr, user, body }) {
+  /**
+   * Public keys and device certificates for people you share a conversation with. Three
+   * queries however many people (they come out of the app's shared allowance, see Ctx).
+   */
+  async peer_keys({ sr, own, user, body }) {
     const ids = idList(body.user_ids, "user ids", 50);
-    const allowed = await contactsOf(sr, user.id);
+    const allowed = await contactsOf(own, user.id);
     const wanted = ids.filter((i) => allowed.has(i));
     const out: Record<string, { statements: any[]; devices: any[] }> = {};
-    // One query per person, so nobody's long history can crowd out anyone else's.
-    await Promise.all(wanted.map(async (uid) => {
-      const [keyRows, active, removed] = await Promise.all([
-        sr.entities.AccountKey.filter({ user_id: uid }, "version", 300),
-        sr.entities.Device.filter({ user_id: uid, status: "active" }, "created_date", 50),
-        // Devices removed after holding keys: needed to check what they sent before.
-        sr.entities.Device.filter({ user_id: uid, status: "revoked", revoked_reason: { $in: ["removed", "account_reset"] } }, "-created_date", 100),
-      ]);
+    if (!wanted.length) return { keys: out };
+    const [keyRows, active, removed] = await Promise.all([
+      forEveryone(sr, "AccountKey", {}, "version", 300, wanted),
+      forEveryone(sr, "Device", { status: "active" }, "created_date", 50, wanted),
+      // Devices removed after holding keys: needed to check what they sent before.
+      forEveryone(sr, "Device", { status: "revoked", revoked_reason: { $in: ["removed", "account_reset"] } }, "-created_date", 100, wanted),
+    ]);
+    for (const uid of wanted) {
       out[uid] = {
-        statements: uniqueVersions(keyRows).map(statementOut),
-        devices: [...active, ...removed].filter((d: any) => d.cert_signature).map(peerDeviceOut),
+        statements: uniqueVersions(keyRows.filter((k: any) => k.user_id === uid)).map(statementOut),
+        devices: [...active, ...removed].filter((d: any) => d.user_id === uid && d.cert_signature).map(peerDeviceOut),
       };
-    }));
+    }
     return { keys: out };
   },
 };
