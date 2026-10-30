@@ -9,16 +9,14 @@ await M.page.waitForSelector('h1:has-text("Admin")', { timeout: 60000 });
 const report = M.page.locator(`li:has-text("@${PEOPLE.ben.username} reported")`).first();
 await report.waitFor({ timeout: 60000 });
 check(true, "the report from 05-reset-warning is listed");
-await report.getByRole("combobox", { name: "Status" }).click();
-await M.page.getByRole("option", { name: "resolved" }).click();
+await report.getByRole("combobox", { name: "Status" }).selectOption("resolved");
 await report.getByRole("textbox", { name: "Resolution note" }).fill("Test only");
 await report.getByRole("button", { name: "Save" }).click();
 await M.page.waitForTimeout(3000);
 check((await M.page.locator(`li:has-text("@${PEOPLE.ben.username} reported")`).count()) === 0, "resolved reports leave the open list");
 
 await M.page.getByRole("tab", { name: /Content/ }).click();
-await M.page.getByRole("combobox", { name: "Content type" }).click();
-await M.page.getByRole("option", { name: "Guides" }).click();
+await M.page.getByRole("combobox", { name: "Content type" }).selectOption({ label: "Guides" });
 await M.page.waitForSelector('button:has-text("Docker for beginners")', { timeout: 60000 });
 await M.page.locator('button:has-text("Docker for beginners")').click();
 await M.page.getByRole("button", { name: "Preview" }).click();
