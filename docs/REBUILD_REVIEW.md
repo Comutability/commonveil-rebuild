@@ -34,7 +34,7 @@ encrypted existed.
 | Device-signed requests for key changes, group additions, leaving and deleting | Stops someone with only a password from doing damage that matters. |
 | Client-side "who's new" pause | The server controls membership; members see new people before their words reach them. |
 | No member directory | Exact-username lookup only. |
-| 6 backend functions | Each a small set of named actions over shared, tested modules. |
+| 7 backend functions | Each a small set of named actions over shared, tested modules (the seventh, for anonymous security reports, was added before launch). |
 | Messaging core first | Public site plus encrypted DMs and small groups. Everything else waits until this is reviewed. |
 
 ## Independent review and fixes (29–30 October)
@@ -68,8 +68,11 @@ Live testing against Base44 also found three platform behaviours the unit tests 
   open browsers polling through the backend caused "service is busy" errors. Polling and page loads now read with each
   member's own access, under row rules that allow only rows naming them; polling is one query and slows down when quiet;
   sends that hit a busy service are retried as the same message.
-- **A query straight after a write may not include the new row.** "Oldest wins" checks (usernames, direct messages, key
-  versions) and post-write rate checks now place the new row themselves, comparing times as numbers.
+- **Record times come back in two formats.** A record just created reports its time with microseconds and a `Z`; read
+  back later, the same time has milliseconds and no zone. "Oldest wins" checks (usernames, direct messages, key versions)
+  compared them as text, which could let two simultaneous requests each decide the other had won. Times are now compared
+  as numbers, and the new row is placed in the comparison directly, so a query that doesn't show it yet can't change the
+  outcome either.
 
 Staff also gained a tool to erase what an account leaves behind when its sign-in is removed in Base44 rather than deleted
 in the app.
