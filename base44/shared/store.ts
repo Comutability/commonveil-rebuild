@@ -202,7 +202,7 @@ export const conversationOut = (c: any) => ({
   id: c.id,
   kind: c.kind,
   member_ids: c.member_ids || [],
-  created_by: c.created_by,
+  creator_id: c.creator_id || "",
   created_date: c.created_date,
   updated_date: c.updated_date,
   last_message_at: c.last_message_at || null,
