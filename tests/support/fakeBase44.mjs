@@ -12,6 +12,18 @@ function compare(a, b) {
   return a < b ? -1 : 1;
 }
 
+/**
+ * Base44 answers queries on its own record fields (who created a record) with its own values,
+ * whatever a schema stores under the same name, so handlers must never filter on them.
+ */
+const PLATFORM_ONLY = new Set(["created_by", "created_by_id"]);
+function assertQueryable(query) {
+  for (const [key, cond] of Object.entries(query || {})) {
+    if (PLATFORM_ONLY.has(key)) throw new Error(`Queries on ${key} don't match stored values on Base44`);
+    if (key === "$or" || key === "$and") cond.forEach(assertQueryable);
+  }
+}
+
 function matches(record, query) {
   for (const [key, cond] of Object.entries(query || {})) {
     if (key === "$or") {
@@ -88,6 +100,7 @@ export class FakeWorld {
     return {
       _rows: rows,
       async filter(query = {}, sort = "-created_date", limit = 5000) {
+        assertQueryable(query);
         const field = String(sort || "-created_date").replace(/^-/, "");
         const dir = String(sort || "").startsWith("-") ? -1 : 1;
         const found = rows
