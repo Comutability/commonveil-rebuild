@@ -31,6 +31,21 @@ export const safetyActions: Actions = {
     return { blocked: profiles.map(publicProfile) };
   },
 
+  /** Reports you've made, for your own copy of your data. Reports about you are the reporters' words, not yours. */
+  async my_reports({ sr, user }) {
+    const rows = await sr.entities.Report.filter({ reporter_id: user.id }, "-created_date", 500);
+    return {
+      reports: rows.map((r: any) => ({
+        reported_user_id: r.reported_user_id,
+        conversation_id: r.conversation_id || null,
+        reason: r.reason,
+        details: r.details || "",
+        status: r.status,
+        created_date: r.created_date,
+      })),
+    };
+  },
+
   /** Reports carry only what the reporter chooses to share; staff can't read your messages. */
   async report({ sr, user, body, now }) {
     const target = id(body.user_id, "member");
