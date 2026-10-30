@@ -19,8 +19,9 @@
       "type": "string",
       "description": "Sorted pair of user ids, so a pair has one DM."
     },
-    "created_by": {
-      "type": "string"
+    "creator_id": {
+      "type": "string",
+      "description": "User id of whoever started it. Not created_by: Base44 reserves that name, and queries on it never match."
     },
     "title_envelope": {
       "type": "string",
@@ -48,7 +49,7 @@
   "required": [
     "kind",
     "member_ids",
-    "created_by"
+    "creator_id"
   ],
   "rls": {
     "read": false,
