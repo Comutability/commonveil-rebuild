@@ -18,6 +18,9 @@ import {
   withinRate,
 } from "../store.ts";
 
+/** How far behind "now" a poll cursor stays, so rows that show up late in queries aren't skipped. */
+const SETTLE_MS = 5_000;
+
 const BLANK_MESSAGE = {
   conversation_id: "", msg_id: "", sender_id: "", device_id: "", envelope: "", signature: "", sent_at: "", recipient_ids: [], deleted: true,
 };
@@ -43,8 +46,15 @@ export const messageActions: Actions = {
       envelope, sent_at: sentAt, signature: body.signature, signPub: device.sign_pub,
     });
     if (!ok) throw new ApiError(403, "SIGNATURE_INVALID", "The message signature didn't verify, so it wasn't sent.");
+    // A retry of a send that was stored but whose answer got lost: same message id, same message.
     const duplicate = await sr.entities.Message.filter({ conversation_id: conv.id, msg_id: msgId }, "created_date", 1);
-    if (duplicate.length) return { message: messageOut(duplicate[0]), duplicate: true };
+    if (duplicate.length) {
+      if (duplicate[0].sender_id !== user.id) throw new ApiError(409, "DUPLICATE_ID", "That message id is already taken. Please try again.");
+      if (String(conv.last_message_at || "") < String(duplicate[0].created_date)) {
+        await sr.entities.Conversation.update(conv.id, { last_message_at: duplicate[0].created_date });
+      }
+      return { message: messageOut(duplicate[0]), duplicate: true };
+    }
     await enforceRate(sr, "Message", { sender_id: user.id }, 60_000, LIMITS.messagesPerMinute, now, "sending messages");
     const message = await sr.entities.Message.create({
       conversation_id: conv.id,
@@ -77,28 +87,42 @@ export const messageActions: Actions = {
   },
 
   /**
-   * Everything that changed since a cursor, across all your conversations.
-   * Without a cursor, returns a starting cursor and nothing else.
+   * Messages addressed to you that changed since a cursor: one query, as this runs every few
+   * seconds for everyone and Base44 limits how many queries an app makes. Pass
+   * conversations_since now and then to get conversation changes too (their own cursor).
+   * Without a cursor, returns starting cursors and nothing else.
    */
   async poll({ sr, user, body, now }) {
-    if (body.since === undefined) return { cursor: platformTime(new Date(now.getTime() - 5_000)), messages: [], conversations: [], conversation_ids: [] };
-    const since = str(body.since, "cursor", 40);
-    const convs = await myConversations(sr, user.id);
-    const ids = convs.map((c: any) => c.id);
-    const conversations = convs.filter((c: any) => String(c.updated_date) >= since).map(conversationOut);
-    let rows: any[] = [];
-    if (ids.length) {
-      rows = await sr.entities.Message.filter(
-        { conversation_id: { $in: ids }, updated_date: { $gte: since }, ...addressedTo(user.id) },
-        "updated_date",
-        LIMITS.pollLimit + 1,
-      );
+    if (body.since === undefined) {
+      const start = platformTime(new Date(now.getTime() - 5_000));
+      return { cursor: start, conversations_cursor: start, messages: [], conversations: [], conversation_ids: [] };
     }
-    const messages = rows.slice(0, LIMITS.pollLimit).map(messageOut);
+    const since = str(body.since, "cursor", 40);
+    // A row can turn up in queries a moment after it's written, so the cursor never passes
+    // "a few seconds ago": anything that recent comes again next time, and the client merges it.
+    const settled = platformTime(new Date(now.getTime() - SETTLE_MS));
+    const rows = await sr.entities.Message.filter(
+      { recipient_ids: user.id, updated_date: { $gte: since } },
+      "updated_date",
+      LIMITS.pollLimit + 1,
+    );
+    const page = rows.slice(0, LIMITS.pollLimit);
+    const hasMore = rows.length > LIMITS.pollLimit;
     let cursor = since;
-    for (const m of rows.slice(0, LIMITS.pollLimit)) if (String(m.updated_date) > cursor) cursor = String(m.updated_date);
-    for (const c of conversations) if (String(c.updated_date) > cursor) cursor = String(c.updated_date);
-    return { cursor, messages, conversations, conversation_ids: ids, has_more: rows.length > LIMITS.pollLimit };
+    for (const m of page) if (String(m.updated_date) > cursor) cursor = String(m.updated_date);
+    if (!hasMore && cursor > settled) cursor = settled > since ? settled : since;
+    const out: Record<string, unknown> = { cursor, messages: page.map(messageOut), has_more: hasMore };
+
+    if (body.conversations_since !== undefined) {
+      const convSince = str(body.conversations_since, "cursor", 40);
+      const convs = await myConversations(sr, user.id);
+      const changed = convs.filter((c: any) => String(c.updated_date) >= convSince);
+      let convCursor = convSince;
+      for (const c of changed) if (String(c.updated_date) > convCursor) convCursor = String(c.updated_date);
+      if (convCursor > settled) convCursor = settled > convSince ? settled : convSince;
+      Object.assign(out, { conversations: changed.map(conversationOut), conversation_ids: convs.map((c: any) => c.id), conversations_cursor: convCursor });
+    }
+    return out;
   },
 
   /** Delete your own message for everyone. People may already have read it. Needs a device signature. */
