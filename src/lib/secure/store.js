@@ -25,7 +25,7 @@ export async function saveKeyring(userId, keyring) {
   await set(key(userId, "keyring"), serializeKeyring(keyring), store);
 }
 
-/** Trust-on-first-use pins: { [userId]: { version, sign_pub, verified, pinned_at } } */
+/** Trust-on-first-use pins: { [userId]: { version, digest, sign_pub, statements, verified, pinned_at } } */
 export async function loadPins(userId) {
   return (await get(key(userId, "pins"), store)) || {};
 }
@@ -56,9 +56,41 @@ export async function saveMemberPins(userId, pins) {
   await set(key(userId, "members"), pins, store);
 }
 
+/**
+ * While a new browser waits for approval: the account history it showed in its link code
+ * ({ version, digest }). The keys it's sent must belong to that history.
+ */
+export async function loadLinkPin(userId) {
+  return (await get(key(userId, "linkpin"), store)) || null;
+}
+
+export async function saveLinkPin(userId, pin) {
+  await set(key(userId, "linkpin"), pin, store);
+}
+
+export async function clearLinkPin(userId) {
+  await del(key(userId, "linkpin"), store);
+}
+
+/**
+ * A reset this browser asked for: { request_id, effective_at, device, keyring }. The new keys
+ * wait here until the reset completes. device keeps its non-extractable keys.
+ */
+export async function loadPendingReset(userId) {
+  return (await get(key(userId, "reset"), store)) || null;
+}
+
+export async function savePendingReset(userId, pending) {
+  await set(key(userId, "reset"), pending, store);
+}
+
+export async function clearPendingReset(userId) {
+  await del(key(userId, "reset"), store);
+}
+
 /** Remove every key and record for this account from this browser. */
 export async function wipeLocal(userId) {
-  for (const name of ["device", "keyring", "pins", "read", "members"]) await del(key(userId, name), store);
+  for (const name of ["device", "keyring", "pins", "read", "members", "linkpin", "reset"]) await del(key(userId, name), store);
 }
 
 export function storageAvailable() {
