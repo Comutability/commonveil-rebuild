@@ -491,6 +491,41 @@ test("polling returns what changed after the cursor, including deletions", async
   assert.equal(deleted.envelope, null);
 });
 
+test("a poll is one query unless conversations are asked for, and only returns messages sealed to you", async () => {
+  const { w, members: [alice, bob, carol] } = await world("alice", "bob", "carol");
+  const group = await alice.group(["bob"]);
+  const start = await carol.ok("messages", { action: "poll" });
+  assert.ok(start.conversations_cursor);
+  const before = (await alice.send(group, "before carol")).body.message.id;
+  await alice.ok("conversations", await signed(alice, "add_members", { conversation_id: group.id, usernames: ["carol"] }));
+  const bigger = (await alice.ok("conversations", { action: "get", conversation_id: group.id })).conversation;
+  const after = (await alice.send(bigger, "after carol")).body.message.id;
+
+  const queries = [];
+  for (const name of ["Message", "Conversation"]) {
+    const entity = w.entities[name];
+    const original = entity.filter;
+    entity.filter = async (...args) => {
+      queries.push(name);
+      return original(...args);
+    };
+  }
+  const quick = await carol.ok("messages", { action: "poll", since: start.cursor });
+  assert.deepEqual(queries, ["Message"], "one query");
+  assert.equal(quick.conversation_ids, undefined);
+  assert.deepEqual(quick.messages.map((m) => m.id), [after], "nothing from before she joined");
+  assert.ok(!quick.messages.some((m) => m.id === before));
+
+  const full = await carol.ok("messages", { action: "poll", since: start.cursor, conversations_since: start.conversations_cursor });
+  assert.deepEqual(full.conversation_ids, [group.id]);
+  assert.deepEqual(full.conversations.map((c) => [c.id, c.member_ids.length]), [[group.id, 3]]);
+  assert.ok(full.conversations_cursor >= start.conversations_cursor);
+  // Bob saw both, and the cursor never runs past "a few seconds ago", so a late row isn't skipped.
+  const bobs = await bob.ok("messages", { action: "poll", since: start.cursor });
+  assert.deepEqual(bobs.messages.map((m) => m.id).sort(), [before, after].sort());
+  assert.ok(Date.parse(`${bobs.cursor}Z`) <= Date.now() - 4_000);
+});
+
 test("peer keys are only shared with people you have a conversation with", async () => {
   const { members: [alice, bob, eve] } = await world("alice", "bob", "eve");
   assert.deepEqual((await eve.ok("keys", { action: "peer_keys", user_ids: [alice.id] })).keys, {});
