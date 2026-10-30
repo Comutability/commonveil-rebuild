@@ -94,7 +94,7 @@ function Reactions({ reactions, mine, nameOf, onToggle, disabled }) {
   );
 }
 
-function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canAct, onReply, onReact, onEdit, onDelete, onJump }) {
+function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSend, onReply, onReact, onEdit, onDelete, onJump }) {
   const { m, result } = row;
   const base = `max-w-[min(34rem,85%)] rounded-2xl px-3.5 py-2 text-[0.95rem] leading-relaxed ${mine ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted"} ${highlighted ? "ring-2 ring-[hsl(var(--warning))] ring-offset-2 ring-offset-background" : ""}`;
   const readable = result && (result.status === "ok" || result.status === "unverified");
@@ -126,7 +126,7 @@ function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canAct
       )}
       <div className={`flex max-w-full items-center gap-1 ${mine ? "flex-row-reverse" : ""}`}>
         <div className={base}>{body}</div>
-        {readable && canAct && (
+        {(readable || (mine && result?.status === "locked")) && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -138,29 +138,34 @@ function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canAct
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align={mine ? "end" : "start"}>
-              <div className="flex gap-0.5 px-1 py-1" role="group" aria-label="React">
-                {REACTIONS.map((emoji) => {
-                  const already = row.reactions.find((r) => r.emoji === emoji)?.mine;
-                  return (
-                    <DropdownMenuItem
-                      key={emoji}
-                      onSelect={() => onReact(emoji, Boolean(already))}
-                      className={`justify-center rounded-md px-1.5 text-lg ${already ? "bg-primary/10" : ""}`}
-                      aria-label={`${already ? "Remove" : "React with"} ${reactionName(emoji)}`}
-                    >
-                      <span aria-hidden="true">{emoji}</span>
+              {readable && (
+                <>
+                  <div className="flex gap-0.5 px-1 py-1" role="group" aria-label="React">
+                    {REACTIONS.map((emoji) => {
+                      const already = row.reactions.find((r) => r.emoji === emoji)?.mine;
+                      return (
+                        <DropdownMenuItem
+                          key={emoji}
+                          disabled={!canSend}
+                          onSelect={() => onReact(emoji, Boolean(already))}
+                          className={`justify-center rounded-md px-1.5 text-lg ${already ? "bg-primary/10" : ""}`}
+                          aria-label={`${already ? "Remove" : "React with"} ${reactionName(emoji)}`}
+                        >
+                          <span aria-hidden="true">{emoji}</span>
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </div>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem disabled={!canSend} onSelect={onReply}>
+                    <CornerUpLeft className="mr-2 h-4 w-4" aria-hidden="true" /> Reply
+                  </DropdownMenuItem>
+                  {row.canEdit && (
+                    <DropdownMenuItem disabled={!canSend} onSelect={onEdit}>
+                      <Pencil className="mr-2 h-4 w-4" aria-hidden="true" /> Edit
                     </DropdownMenuItem>
-                  );
-                })}
-              </div>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onReply}>
-                <CornerUpLeft className="mr-2 h-4 w-4" aria-hidden="true" /> Reply
-              </DropdownMenuItem>
-              {row.canEdit && (
-                <DropdownMenuItem onSelect={onEdit}>
-                  <Pencil className="mr-2 h-4 w-4" aria-hidden="true" /> Edit
-                </DropdownMenuItem>
+                  )}
+                </>
               )}
               {mine && (
                 <DropdownMenuItem onSelect={onDelete} className="text-destructive">
@@ -170,13 +175,8 @@ function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canAct
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {mine && !readable && result?.status === "locked" && canAct && (
-          <button type="button" onClick={onDelete} className="rounded-md p-1 text-muted-foreground opacity-0 hover:bg-muted focus:opacity-100 group-hover:opacity-100" aria-label="Delete for everyone">
-            <Trash2 className="h-4 w-4" />
-          </button>
-        )}
       </div>
-      <Reactions reactions={row.reactions} mine={mine} nameOf={nameOf} disabled={!canAct} onToggle={(emoji, already) => onReact(emoji, already)} />
+      <Reactions reactions={row.reactions} mine={mine} nameOf={nameOf} disabled={!canSend} onToggle={(emoji, already) => onReact(emoji, already)} />
       <span className={`mt-1 flex items-center gap-1 text-[0.7rem] text-muted-foreground ${mine ? "mr-1" : "ml-1"}`}>
         {formatTime(m.created_date)}
         {row.edited && <span title={row.editedAt ? `Edited ${formatTime(row.editedAt)}` : "Edited"}>· edited</span>}
@@ -448,7 +448,7 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
                 handle={handleOf(row.m.sender_id)}
                 nameOf={nameOf}
                 highlighted={highlight === row.m.id}
-                canAct={!pausedReason}
+                canSend={!pausedReason}
                 onReply={() => startReply(row)}
                 onReact={(emoji, already) => reactTo(row, emoji, already)}
                 onEdit={() => startEdit(row)}
