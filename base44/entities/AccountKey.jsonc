@@ -29,6 +29,10 @@
     "signature": {
       "type": "string"
     },
+    "recovery_mac": {
+      "type": "string",
+      "description": "HMAC under a key only the recovery phrase produces, on statements made with the phrase to hand. Lets a recovering device trust these keys."
+    },
     "is_reset": {
       "type": "boolean",
       "default": false
