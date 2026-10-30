@@ -9,7 +9,9 @@ const T0 = Date.parse("2026-10-30T12:00:00.000Z");
 let n = 0;
 
 /** One stored message and how it opened. */
-function msg(sender, content, { at = T0 + (n += 1) * 1000, status = "ok", deleted = false, expires_at = null } = {}) {
+function msg(sender, content, { at = null, status = "ok", deleted = false, expires_at = null } = {}) {
+  n += 1;
+  if (at === null) at = T0 + n * 1000;
   const id = `row${String(n).padStart(4, "0")}`;
   const msg_id = `msg_${String(n).padStart(16, "0")}`;
   const m = { id, msg_id, sender_id: sender, sent_at: new Date(at).toISOString(), created_date: new Date(at).toISOString().replace("Z", ""), deleted, expires_at };

@@ -45,7 +45,7 @@ import { publicDevice } from "../crypto/device.js";
 export const MAX_MESSAGE_CHARS = 4000;
 
 /** The reactions on offer. Anything else in a reaction is ignored, so a reaction can't carry a message. */
-export const REACTIONS = Object.freeze(["\u{1F44D}", "❤️", "\u{1F602}", "\u{1F62E}", "\u{1F622}", "\u{1F64F}"]);
+export const REACTIONS = Object.freeze(["\u{1F44D}", "\u2764\uFE0F", "\u{1F602}", "\u{1F62E}", "\u{1F622}", "\u{1F64F}"]);
 
 /** Message ids are random, chosen by the sender, and bound into each message's encryption. */
 const ITEM_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
