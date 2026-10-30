@@ -65,8 +65,9 @@ export class FakeWorld {
     return (Math.floor(this.clock / 1000).toString(16) + this.counter.toString(16).padStart(16, "0")).slice(-24).padStart(24, "0");
   }
 
+  /** Record times follow the real clock (as handlers compare them with it), never repeating. */
   tick() {
-    this.clock += 1;
+    this.clock = Math.max(this.clock + 1, Date.now());
     return new Date(this.clock).toISOString().replace("Z", "000");
   }
 
