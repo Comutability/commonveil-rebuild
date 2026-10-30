@@ -11,7 +11,9 @@ export function plainText(markdown) {
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/<[^>]+>/g, " ")
-    .replace(/[#>*_`~|-]+/g, " ")
+    .replace(/^\s*(?:[-*+]|\d+\.)\s+/gm, "")
+    .replace(/^\s*-{3,}\s*$/gm, " ")
+    .replace(/[#>*_`~|]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
