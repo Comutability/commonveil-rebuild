@@ -12,10 +12,10 @@ What Commonveil protects, against whom, and what it doesn't. Read with `PROTOCOL
 
 | Adversary | Can't | Can |
 |---|---|---|
-| **Server operator, hosting platform, or someone with the database** | Read messages or group names. Add a device that receives keys. Sign as a member. Swap any of a contact's keys, present or past, after the first contact without the app warning (pins and safety numbers cover the whole key history). Hand a new device a forged account (link codes cover the account's history; recovery needs a statement only the phrase can make). Silently add someone to a conversation (members are shown who's new before they send). | See metadata: who talks to whom, when, how much, profiles, device lists, which accounts each message was sealed to. Drop, delay or reorder messages. Deny service. Swap keys **before** two people first talk (trust on first use), unless they compare safety numbers. Push a reset through without the 7-day wait (it's enforced by the server), though contacts are still warned. Serve malicious app code (see below). |
-| **Someone with a member's password or session** | Read messages. Approve a device. Sign messages. Start conversations, add people to groups, leave groups, delete messages or delete the account (these need a device signature). Take over the account's encryption quickly. | Ask for a reset. It waits 7 days, the account's devices show it and can cancel it, the phrase cancels it, and the sign-in email is told; if nobody acts, it completes (contacts are warned and old messages become unreadable to the new identity). Block or report people, edit the profile, see the conversation list and contacts' profiles, and fetch encrypted rows addressed to the account. |
-| **A member of a conversation** | Forge other members' messages. Read conversations they aren't in, or see messages from before they joined. | Read and share everything sent while they're a member. Add people to a group they're in (others are shown who's new before they send). |
-| **Thief of an unlocked device** | Keep reading new messages once the device is removed from another device (keys rotate). Have what it sends after removal shown as verified, unless it backdates it (see below). | Read everything already on it, and everything until it's removed. |
+| **Server operator, hosting platform, or someone with the database** | Read messages or group names, or tell a reply, reaction or edit from any other message. Add a device that receives keys. Sign as a member. Swap any of a contact's keys, present or past, after the first contact without the app warning (pins and safety numbers cover the whole key history). Hand a new device a forged account (link codes cover the account's history; recovery needs a statement only the phrase can make). Silently add someone to a conversation (members are shown who's new before they send). Keep a disappearing message showing past its sender's timer (the timer is also inside the signed message). | See metadata: who talks to whom, when, how much, profiles, device lists, which accounts each message was sealed to, group admins, timers and who set them, and (only for members who turned auto-delete on) the day they last opened the app. Drop, delay or reorder messages. Keep the ciphertext of a disappearing message instead of deleting it. Deny service. Swap keys **before** two people first talk (trust on first use), unless they compare safety numbers. Push a reset through without the 7-day wait (it's enforced by the server), though contacts are still warned. Serve malicious app code (see below). |
+| **Someone with a member's password or session** | Read messages. Approve a device. Sign messages. Start conversations, add or remove people, choose admins, change timers, leave groups, delete messages, turn auto-delete on or off, or delete the account (these need a device signature). Take over the account's encryption quickly. | Ask for a reset. It waits 7 days, the account's devices show it and can cancel it, the phrase cancels it, and the sign-in email is told; if nobody acts, it completes (contacts are warned and old messages become unreadable to the new identity). Block or report people, edit the profile, see the conversation list and contacts' profiles, and fetch encrypted rows addressed to the account. |
+| **A member of a conversation** | Forge other members' messages, edits or reactions. Edit anyone else's message. Read conversations they aren't in, or see messages from before they joined. Add or remove people, rename a group or change its timer, unless they're one of its admins. | Read and share everything sent while they're a member, including disappearing messages before they go. An admin can add people (others are shown who's new before they send) and remove them. |
+| **Thief of an unlocked device** | Keep reading new messages once the device is removed from another device (keys rotate). Have what it sends after removal shown as verified, unless it backdates it (see below). Open the keys once a passcode lock has locked, without the passcode. | Read everything already on it, and everything until it's removed or locks. Copy the browser's files and try passcodes offline. |
 | **Someone who learns the recovery phrase** | Use it without also being able to sign in as the member. | With a session too: restore the keyring and read everything sent to the account's current and past key versions, and cancel resets. Change the phrase to stop this. |
 | **Network attacker** | Anything beyond what TLS exposes. | Observe that a device talks to Commonveil. |
 | **Malicious script on the page, browser extension or compromised browser** | Nothing is protected. | Everything the member can do or see. |
@@ -33,6 +33,8 @@ What Commonveil protects, against whom, and what it doesn't. Read with `PROTOCOL
 - **Deniability.** Messages are signed, so a recipient can prove who sent them.
 - **Code integrity.** It's a web app: each visit trusts the code served. The Content Security Policy below limits what
   injected content can do, but not what the server itself serves. Installable builds with reproducible hashes would.
+- **Guaranteed deletion.** Disappearing messages and deletions remove what Commonveil stores and shows, but a member can
+  copy a message first, and the hosting platform may keep backups or change history for a time.
 
 ## Known limitations
 
@@ -51,7 +53,21 @@ What Commonveil protects, against whom, and what it doesn't. Read with `PROTOCOL
   can't change.
 - **Display names aren't unique.** Anyone can call themselves anything. The app shows @usernames beside names in groups,
   in new-member and first-look notices, and in conversation details beside each safety number; check those.
-- **Email notices are best effort.** If the email service fails, a reset request still shows on the account's devices.
+- **Email notices are best effort.** If the email service fails, a reset request still shows on the account's devices,
+  and new devices still show in Settings. An auto-delete warning that can't be sent is tried again daily; the account is
+  deleted a week after its date even if no warning got through, because the member chose that.
+- **The passcode lock covers the message keys, not the device's signing key.** That key is a browser-held key that can't
+  be exported, so it can't be wrapped either; code running in the browser profile can use it while the app is locked (for
+  example to remove the device). Someone who copies the browser's files can try passcodes offline at the speed of their
+  hardware (600,000 PBKDF2 rounds each), so passcodes must be at least 8 characters and longer is better.
+- **Notifications** are shown by the browser and operating system, which may keep a history. They never contain message
+  text, and name the sender only if the member chooses. There are no push notifications: nothing is sent to a browser
+  maker's push service.
+- **Edits and reactions are ordered by their sender's own signed time.** A member can make their own edit or reaction look
+  older or newer than it is, but can't affect anyone else's, and an edit dated more than a day after the original is ignored.
+- **The scheduled clean-up has a public address**, like every function. It takes no instructions beyond a task name and
+  only does what's already due by the server's clock, so the worst a caller can do is use a little of the app's query
+  allowance (repeat calls within a minute are skipped).
 - **Shared query allowance.** On Base44, everything the backend does as its service role shares one per-minute allowance
   for the whole app. Frequent reads use each member's own allowance instead, but a burst of activity across many members
   can still produce "the service is busy" errors; sends are retried as the same message, so nothing is sent twice.
@@ -76,8 +92,11 @@ Done in October 2026:
 Still to do:
 1. An independent review of version 2 by someone who hasn't worked on it, before anyone relies on it for their safety.
 2. Repeat the Content Security Policy browser test on the published domain once the app is published.
-3. Planned improvements, in rough order: forward secrecy (per-conversation ratchet), a signed membership and device log,
-   group admin roles, a post-quantum hybrid (ML-KEM-768) for message keys, installable builds.
+3. Planned improvements, in rough order: forward secrecy (per-conversation ratchet), a signed membership and device log
+   (which would also make admin changes verifiable by every member), a post-quantum hybrid (ML-KEM-768) for message keys,
+   installable builds.
+4. Check on the published app that the scheduled clean-up (`maintenance`) runs on time: Base44 runs automations for the
+   published app, and the editor preview can't show it.
 
 ## Known platform behaviour worth noting
 
