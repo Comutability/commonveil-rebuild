@@ -8,6 +8,8 @@ export const CONTEXTS = Object.freeze({
   deviceCert: "device-cert/v1",
   deviceProof: "device-proof/v1",
   item: "item/v1",
+  // Keyed with a secret only the recovery phrase produces, so the server can't check it.
+  recoveryAnchor: "recovery-anchor/v1",
 });
 
 export function canonical(context: string, fields: string[]): string {
