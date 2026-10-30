@@ -79,6 +79,8 @@ export async function runAction(base44: any, rawBody: string, actions: Actions, 
     if (error instanceof ApiError) return json(error.status, { error: error.message, code: error.code });
     const message = String((error as any)?.message || "");
     if (/rate limit|too many requests|429/i.test(message)) {
+      // Base44 limits how many queries an app makes per minute. Logged so the owner can see it happening.
+      console.warn("commonveil upstream busy");
       return json(429, { error: "The service is busy. Please try again in a moment.", code: "UPSTREAM_BUSY" });
     }
     // Log a category only: no request bodies, keys or user data.
