@@ -61,7 +61,11 @@ function ReportRow({ r, onSaved }) {
 
 function Reports() {
   const [filter, setFilter] = useState("open");
-  const q = useQuery({ queryKey: ["admin-reports", filter], queryFn: () => callFn("admin", { action: "list_reports", status: filter === "all" ? undefined : filter }) });
+  const q = useQuery({
+    queryKey: ["admin-reports", filter],
+    queryFn: () => callFn("admin", { action: "list_reports", status: filter === "all" ? undefined : filter }),
+    staleTime: 0,
+  });
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
@@ -134,6 +138,7 @@ function SecurityReports() {
   const q = useQuery({
     queryKey: ["admin-security-reports", filter],
     queryFn: () => callFn("admin", { action: "list_security_reports", status: filter === "all" ? undefined : filter }),
+    staleTime: 0,
   });
   return (
     <div className="space-y-4">
@@ -200,7 +205,7 @@ function RemovedAccountRow({ account, onErased }) {
 }
 
 function RemovedAccounts() {
-  const q = useQuery({ queryKey: ["admin-removed-accounts"], queryFn: () => callFn("admin", { action: "list_removed_accounts" }) });
+  const q = useQuery({ queryKey: ["admin-removed-accounts"], queryFn: () => callFn("admin", { action: "list_removed_accounts" }), staleTime: 0 });
   return (
     <div className="space-y-4">
       <p className="max-w-3xl text-sm text-muted-foreground">
@@ -392,7 +397,7 @@ function Editor({ type, record, onClose }) {
 function Content() {
   const [type, setType] = useState("BlogPost");
   const [editing, setEditing] = useState(null);
-  const q = useQuery({ queryKey: ["admin-content", type], queryFn: () => base44.entities[type].list("-updated_date", 500) });
+  const q = useQuery({ queryKey: ["admin-content", type], queryFn: () => base44.entities[type].list("-updated_date", 500), staleTime: 0 });
   const titleField = TYPES[type].titleField;
   const rows = useMemo(() => q.data || [], [q.data]);
 
