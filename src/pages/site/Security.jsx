@@ -13,6 +13,11 @@ const PIECES = [
   ["Safety numbers", "A 60-digit number for each pair of people, covering every key each of you has ever had. If it matches when you compare in person, nobody has swapped any of them. If a contact's keys change unexpectedly, the app tells you before you send."],
   ["Who's in a group", "The server keeps member lists, so starting a conversation or adding someone needs a signature from one of your devices, not just your password. When you're added to a group you're shown who's in it before you can send, everyone else's app pauses until they've seen who's new, and newcomers don't see earlier messages."],
   ["If you lose everything", "With every device and your phrase gone, you can reset your encryption. It waits seven days: your devices show the request and can cancel it, using your phrase cancels it, and we email your sign-in address. So someone who only has your password can't take your account over."],
+  ["Security emails", "Your sign-in address is told when a device is added, when your recovery phrase is used and when a reset is asked for or completes. If that wasn't you, you'll know to act."],
+  ["Replies, reactions and edits", "Each is an ordinary encrypted, signed message, so the server can't tell them from any other. Your app only accepts an edit from the person who sent the original, within a day of sending it, and shows that it was edited. Reactions are limited to six fixed emoji, so a reaction can't carry a hidden message."],
+  ["Disappearing messages", "The timer goes inside each encrypted, signed message as well as on the server, so the server can't keep a message showing longer than its sender chose. Either person in a direct message, or a group's admins, can set it, and everyone sees who did."],
+  ["Group admins", "Whoever starts a group runs it and can make others admins. Only admins can add or remove people, rename the group or change its timer, and the server enforces it with a signature from one of their devices. A group always keeps at least one admin."],
+  ["Passcode lock", "Optional, per browser. Your keys there are encrypted with a key made from your passcode (PBKDF2-SHA-256, 600,000 rounds, then AES-256-GCM). Locked, the keys aren't in memory and nothing is shown. It locks after the time you choose, and locking one tab locks the others."],
 ];
 
 const LIMITS = [
@@ -20,7 +25,9 @@ const LIMITS = [
   "There's no forward secrecy yet. Anyone who steals an account key can read past messages sent to that key. Removing a device or changing your phrase rotates keys, which limits what a stolen key can read from then on.",
   "The server can delay, drop or reorder messages. Each message is checked on its own, but the conversation as a whole isn't.",
   "A compromised device, browser extension or malicious script on the page can read what you can read. Keep your browser up to date and extensions few.",
-  "Keys are stored in this browser's storage. Anyone with full access to your unlocked browser profile can use them. On shared computers, sign out with \"remove this device\".",
+  "Keys are stored in this browser's storage. Anyone with full access to your unlocked browser profile can use them. On shared computers, sign out with \"remove this device\". A passcode lock keeps the message keys encrypted while it's locked, but someone who copies the browser's files can try passcodes offline, so use a long one. Each browser's own signing key can't be exported, which also means it can't be locked: code running in your browser profile could still use it.",
+  "Disappearing messages can't stop anyone copying, photographing or screenshotting a message before it goes, and the hosting platform may keep backups of deleted records for a time.",
+  "Notifications are shown by your browser and operating system, which may keep them in a notification history. They say \"New message\" and, only if you choose, who it's from.",
   "Web apps are delivered fresh on every visit, so you are trusting the code served to you each time. Native apps with reproducible builds would reduce that; they're not built yet.",
   "Encryption doesn't use post-quantum algorithms yet.",
   "Display names aren't unique, so anyone can call themselves anything. Check the @username, shown beside names in groups and in conversation details.",
