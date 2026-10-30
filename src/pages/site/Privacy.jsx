@@ -60,8 +60,8 @@ export default function Privacy() {
               If your sign-in is removed in Base44 rather than here, staff can erase what's left in exactly the same way.
             </p>
             <p className="mt-2">
-              Messages other people sent to a group while you were in it stay in that group. Their encryption lists every recipient's account
-              number, so yours stays in them; once Base44 erases your sign-in, that number no longer points to anyone.
+              Messages other people sent to a group while you were in it stay in that group. Each one records the account numbers it was
+              encrypted for, so yours stays in them; once Base44 erases your sign-in, that number no longer points to anyone.
             </p>
             <p className="mt-2">
               Two things are outside our control. Base44 keeps removed sign-ins for 30 days before erasing them, along with the email address.
