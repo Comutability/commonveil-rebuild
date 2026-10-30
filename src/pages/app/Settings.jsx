@@ -117,8 +117,12 @@ function DevicesSection() {
   const [error, setError] = useState("");
   const [showHistory, setShowHistory] = useState(false);
 
+  // A new device asking to join shows up here without a reload. Only while the page is in view:
+  // every check is a handful of queries against the app's per-minute allowance.
   useEffect(() => {
-    const t = setInterval(() => refresh({ silent: true }), 15000);
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") refresh({ silent: true });
+    }, 20_000);
     return () => clearInterval(t);
   }, [refresh]);
 
