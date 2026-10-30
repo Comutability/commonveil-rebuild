@@ -2,9 +2,23 @@
 // caller's own user id. Entities are backend-only, so this is the only way in.
 import { ApiError, LIMITS, parsePlatformTime } from "./http.ts";
 
+/**
+ * When a record was created, in milliseconds. A record just created comes back as
+ * "2026-10-29T11:37:14.587123Z" and the same record read later as "2026-10-29T11:37:14.587000",
+ * so times are compared as numbers, never as text.
+ */
+export const createdAt = (r: any) => parsePlatformTime(String(r?.created_date || ""));
+
 /** Oldest first; ties broken by id, so every request agrees on the order. */
-export const byAge = (a: any, b: any) =>
-  String(a.created_date).localeCompare(String(b.created_date)) || String(a.id).localeCompare(String(b.id));
+export const byAge = (a: any, b: any) => createdAt(a) - createdAt(b) || String(a.id).localeCompare(String(b.id));
+
+/**
+ * A query made straight after a write may not include the new row yet. Put it in (once) and
+ * sort oldest first, so "oldest wins" checks and rate limits see what was actually written.
+ */
+export function withRow(rows: any[], created: any) {
+  return [...rows.filter((r: any) => r.id !== created.id), created].sort(byAge);
+}
 
 export async function profileOf(sr: any, userId: string) {
   const rows = await sr.entities.Profile.filter({ user_id: userId }, "created_date", 5);
@@ -186,9 +200,8 @@ export async function withinRate(sr: any, entity: string, query: any, windowMs: 
     cap * 2 + 20,
   );
   const windowStart = now.getTime() - windowMs;
-  const ordered = rows.filter((r: any) => parsePlatformTime(r.created_date) >= windowStart || r.id === created.id).sort(byAge);
-  const rank = ordered.findIndex((r: any) => r.id === created.id);
-  return rank !== -1 && rank < cap;
+  const ordered = withRow(rows.filter((r: any) => createdAt(r) >= windowStart), created);
+  return ordered.findIndex((r: any) => r.id === created.id) < cap;
 }
 
 /**
