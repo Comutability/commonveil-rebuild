@@ -122,6 +122,10 @@ await item.getByRole("button", { name: "Save" }).click();
 await A.page.waitForTimeout(3000);
 check((await A.page.locator(`li:has-text("${reportTitle}")`).count()) === 0, "a closed report leaves the new list");
 
+await A.page.getByRole("tab", { name: /Accounts/ }).click();
+await A.page.waitForSelector("text=/No removed sign-ins|Type ERASE to confirm/", { timeout: 90000 });
+check(true, "the removed-accounts list loads");
+
 await A.page.getByRole("tab", { name: /Content/ }).click();
 await A.page.getByRole("button", { name: /New/ }).click();
 await A.page.fill("#f-body", "## Fish &amp; chips\n\nCopyright &copy; 2026 &mdash; a test.");
