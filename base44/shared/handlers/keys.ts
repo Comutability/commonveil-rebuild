@@ -16,7 +16,6 @@ import { parseDevice, parseStatement, requireRecoveryAnchor, requireSealed, veri
 import { payloadOf, signedByActiveDevice } from "../deviceAuth.ts";
 import {
   accountKeysOf,
-  byAge,
   contactsOf,
   deviceOf,
   deviceOut,
@@ -31,6 +30,7 @@ import {
   statementOut,
   uniqueVersions,
   withinRate,
+  withRow,
 } from "../store.ts";
 
 const DAY = 24 * 3600_000;
@@ -66,8 +66,8 @@ function requireKeyringEnvelope(raw: any, version: number, signPub: string, name
 
 async function publishKey(sr: any, userId: string, statement: any, isReset: boolean) {
   const key = await sr.entities.AccountKey.create({ ...statement, is_reset: isReset });
-  const sameVersion = (await sr.entities.AccountKey.filter({ user_id: userId, version: statement.version }, "created_date", 10)).sort(byAge);
-  if (sameVersion[0]?.id !== key.id) {
+  const sameVersion = withRow(await sr.entities.AccountKey.filter({ user_id: userId, version: statement.version }, "created_date", 10), key);
+  if (sameVersion[0].id !== key.id) {
     await sr.entities.AccountKey.delete(key.id);
     return null;
   }
