@@ -276,10 +276,12 @@ export function SecureProvider({ children }) {
     refresh();
   }, [refresh]);
 
-  // While waiting on another device, check every few seconds.
+  // While waiting on another device, check every few seconds. Once set up, check now and then,
+  // so a reset someone asks for (or this browser's removal) shows up without a reload.
   useEffect(() => {
-    if (phase !== "awaiting-approval" && phase !== "awaiting-keys") return undefined;
-    const t = setInterval(() => refresh({ silent: true }), 4000);
+    const every = phase === "awaiting-approval" || phase === "awaiting-keys" ? 4000 : phase === "ready" ? 5 * 60_000 : 0;
+    if (!every) return undefined;
+    const t = setInterval(() => refresh({ silent: true }), every);
     return () => clearInterval(t);
   }, [phase, refresh]);
 
