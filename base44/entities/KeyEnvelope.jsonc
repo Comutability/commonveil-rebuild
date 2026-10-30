@@ -42,7 +42,9 @@
     "sealed"
   ],
   "rls": {
-    "read": false,
+    "read": {
+      "data.user_id": "{{user.id}}"
+    },
     "create": false,
     "update": false,
     "delete": false
