@@ -92,12 +92,13 @@ export const messageActions: Actions = {
     const query: any = { conversation_id: conv.id, ...addressedTo(user.id) };
     if (body.before !== undefined) query.created_date = { $lt: str(body.before, "cursor", 40) };
     const rows = await own.entities.Message.filter(query, "-created_date", limit + 1);
-    // Paging follows the rows as stored; any whose time is up are left out of what's shown.
+    // Paging follows the rows as stored, so `before` is the cursor for the next page even when
+    // messages whose time is up were left out of this one.
     const page = rows.slice(0, limit);
     return {
       messages: page.filter((m: any) => isLive(m, now)).map(messageOut).reverse(),
       has_more: rows.length > limit,
-      ...(rows.length > limit || page.length ? { before: page.length ? page[page.length - 1].created_date : null } : {}),
+      before: page.length ? page[page.length - 1].created_date : null,
     };
   },
 
