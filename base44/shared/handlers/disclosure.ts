@@ -3,7 +3,7 @@
 // allowance so the channel can't be used to fill the database; signed-in reporters get
 // their own allowance, so a flood of anonymous reports can't shut them out.
 import { ApiError, cleanText, type Actions } from "../http.ts";
-import { countSince } from "../store.ts";
+import { countSince, withinRate } from "../store.ts";
 
 export const DISCLOSURE_LIMITS = Object.freeze({
   anonymousPerHour: 10,
@@ -34,7 +34,7 @@ export const disclosureActions: Actions = {
       if (day >= DISCLOSURE_LIMITS.anonymousPerDay) throw busy();
     }
 
-    await sr.entities.SecurityReport.create({
+    const created = await sr.entities.SecurityReport.create({
       summary,
       details,
       contact,
@@ -42,6 +42,15 @@ export const disclosureActions: Actions = {
       status: "new",
       staff_note: "",
     });
+    // Counted again now it's in: reports sent at the same moment can't all slip under the limit.
+    const ok = user
+      ? await withinRate(sr, "SecurityReport", { reporter_user_id: user.id }, DAY, DISCLOSURE_LIMITS.perUserPerDay, now, created)
+      : (await withinRate(sr, "SecurityReport", { reporter_user_id: "" }, HOUR, DISCLOSURE_LIMITS.anonymousPerHour, now, created)) &&
+        (await withinRate(sr, "SecurityReport", { reporter_user_id: "" }, DAY, DISCLOSURE_LIMITS.anonymousPerDay, now, created));
+    if (!ok) {
+      await sr.entities.SecurityReport.delete(created.id);
+      throw busy();
+    }
     return { ok: true };
   },
 };
