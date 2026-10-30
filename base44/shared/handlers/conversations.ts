@@ -7,6 +7,7 @@ import { OutOfTime, eraseConversation } from "../accountDeletion.ts";
 import {
   EXPIRY_CHOICES,
   accountKeysOf,
+  adminsOf,
   assertWrapsMatchMembers,
   blockedEitherWay,
   byAge,
@@ -171,7 +172,7 @@ export const conversationActions: Actions = {
     const target = id(data.user_id, "member");
     if (!conv.member_ids.includes(target)) throw new ApiError(404, "NOT_MEMBER", "That person isn't in this group.");
     if (typeof data.admin !== "boolean") throw new ApiError(400, "BAD_FIELD", "Say whether they should be an admin.");
-    const current: string[] = conv.admin_ids || [];
+    const current = adminsOf(conv);
     const admin_ids = data.admin ? [...new Set([...current, target])] : current.filter((a) => a !== target);
     if (!admin_ids.length) throw new ApiError(409, "LAST_ADMIN", "A group needs at least one admin. Make someone else an admin first.");
     const updated = await sr.entities.Conversation.update(conv.id, { admin_ids });
