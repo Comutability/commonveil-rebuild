@@ -758,7 +758,9 @@ test("a reset nobody stops completes after the wait: new identity, old devices r
   assert.equal(compareWithPin((await bob.chainsFor(dm)).chains.get(alice.id), bobPin), "changed");
   const newAlice = alice.as(fresh, reset.keyring);
   assert.equal((await newAlice.read(dm))[0].status, "locked", "messages to the old identity can't be read after a reset");
-  assert.equal((await alice.send(dm, "old device", alice.device)).body.code, "DEVICE_NOT_ACTIVE");
+  const fromOld = await buildMessage({ userId: alice.id, device: alice.device, conversation: dm, chains: (await alice.chainsFor(dm)).chains, text: "old device" });
+  assert.equal((await alice.call("messages", fromOld)).body.code, "DEVICE_NOT_ACTIVE");
+  await assert.rejects(alice.send(dm, "old device"), { code: "KEYRING_MISMATCH" }, "and the old keys know they no longer apply");
   // The new identity's phrase works for recovery.
   const recovered = await recoverWithPhrase({ userId: alice.id, device: await createDeviceKeys(), phrase: reset.phrase, recoveryResponse: await alice.ok("keys", { action: "get_recovery" }) });
   assert.equal(latestKey(recovered.keyring).version, 2);
