@@ -30,8 +30,11 @@ import {
 } from "../src/lib/crypto/identity.js";
 import { fromB64, toB64 } from "../src/lib/crypto/encoding.js";
 import {
+  REACTIONS,
   acceptKeyringEnvelope,
+  buildEdit,
   buildMessage,
+  buildReaction,
   buildTitle,
   linkPinFor,
   openItem,
@@ -1499,4 +1502,33 @@ test("members can get a copy of the reports they made, and only those", async ()
   const mine = await alice.ok("safety", { action: "my_reports" });
   assert.deepEqual(mine.reports.map((r) => [r.reported_user_id, r.conversation_id, r.reason, r.details, r.status]), [[bob.id, dm.id, "spam", "Kept sending links", "open"]]);
   assert.deepEqual((await bob.ok("safety", { action: "my_reports" })).reports, [], "nobody sees reports about them");
+});
+
+test("replies, reactions and edits travel as ordinary encrypted messages: the server can't tell them apart", async () => {
+  const { w, members: [alice, bob] } = await world("alice", "bob");
+  const dm = await alice.dm(bob);
+  const first = (await alice.send(dm, "Lunch on Friday?")).body.message;
+  const timed = (await conversationCall(bob, "set_expiry", { conversation_id: dm.id, seconds: 604_800 })).body.conversation;
+  const { chains } = await bob.chainsFor(timed);
+  const reply = await buildMessage({ userId: bob.id, device: bob.device, conversation: timed, chains, text: "Yes please", replyTo: first.msg_id, keyring: bob.keyring });
+  const reaction = await buildReaction({ userId: bob.id, device: bob.device, conversation: timed, chains, target: first.msg_id, emoji: REACTIONS[1], keyring: bob.keyring });
+  for (const body of [reply, reaction]) assert.equal((await bob.call("messages", body)).status, 200);
+  const edit = await buildEdit({ userId: alice.id, device: alice.device, conversation: timed, chains: (await alice.chainsFor(timed)).chains, target: first.msg_id, text: "Lunch on Saturday?", keyring: alice.keyring });
+  assert.equal((await alice.call("messages", edit)).status, 200);
+  await assert.rejects(buildReaction({ userId: bob.id, device: bob.device, conversation: timed, chains, target: first.msg_id, emoji: "free text" }), /offered reactions/);
+
+  const stored = w.rows("Message");
+  assert.equal(stored.length, 4);
+  for (const r of stored) {
+    const row = JSON.stringify(r);
+    for (const secret of ["Lunch", "Yes please", "Saturday", "reaction", "edit", "reply", REACTIONS[1]]) assert.ok(!row.includes(secret), `${secret} is visible to the server`);
+    if (r.id !== first.id) assert.ok(!row.includes(first.msg_id), "what a message points at is encrypted too");
+  }
+
+  const read = await alice.read(timed);
+  assert.deepEqual(read.map((r) => [r.status, r.content.type]), [["ok", "text"], ["ok", "text"], ["ok", "reaction"], ["ok", "edit"]]);
+  assert.equal(read[0].content.expire_seconds, undefined, "sent before the timer");
+  assert.deepEqual(read[1].content, { type: "text", text: "Yes please", reply_to: first.msg_id, expire_seconds: 604_800 }, "the sender's timer is signed inside");
+  assert.deepEqual(read[2].content, { type: "reaction", target: first.msg_id, emoji: REACTIONS[1], remove: false, expire_seconds: 604_800 });
+  assert.deepEqual(read[3].content, { type: "edit", target: first.msg_id, text: "Lunch on Saturday?", expire_seconds: 604_800 });
 });
