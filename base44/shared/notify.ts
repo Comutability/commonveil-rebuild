@@ -72,7 +72,7 @@ export const resetDoneEmail = (when: Date) => ({
     "If that was you, there's nothing to do.",
     "",
     "If it wasn't, someone with your password has taken over your keys. Change your password straight away,",
-    "then use Report a security problem on the Commonveil Security page so we can help.",
+    "then tell us through \"Report a security problem\", linked at the bottom of every Commonveil page.",
   ],
 });
 
