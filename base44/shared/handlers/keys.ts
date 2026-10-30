@@ -14,6 +14,7 @@
 import { ApiError, LIMITS, id, idList, int, parsePlatformTime, randomIdField, type Actions, type Ctx } from "../http.ts";
 import { parseDevice, parseStatement, requireRecoveryAnchor, requireSealed, verifyCert, verifyProof, verifyStatement } from "../verify.ts";
 import { payloadOf, signedByActiveDevice } from "../deviceAuth.ts";
+import { emailNotice, newDeviceEmail, phraseUsedEmail, resetDoneEmail, resetRequestedEmail } from "../notify.ts";
 import {
   accountKeysOf,
   contactsOf,
@@ -119,33 +120,11 @@ async function signedByResetDevice(ctx: Ctx, action: string) {
 }
 
 /**
- * Best effort: the account's own devices also show the request, and can cancel it there.
- * Returns whether the email service accepted the message.
+ * Security emails (see notify.ts) are best effort and never stop the change they describe:
+ * the account's own devices show the same thing in the app.
  */
-async function emailResetNotice(sr: any, user: any, effectiveAt: Date): Promise<boolean> {
-  try {
-    const send = sr?.integrations?.Core?.SendEmail;
-    if (typeof send !== "function" || typeof user.email !== "string" || !user.email.includes("@")) return false;
-    const when = effectiveAt.toUTCString().replace(" GMT", " UTC");
-    await send({
-      to: user.email,
-      subject: "Commonveil: someone asked to reset your encryption keys",
-      body: [
-        "Someone signed in to your Commonveil account and asked to reset its encryption keys.",
-        "",
-        `If that was you, there's nothing to do. The reset completes on ${when}.`,
-        "",
-        "If it wasn't you: open Commonveil on one of your devices, where you'll see the request and can cancel it,",
-        "or unlock your keys with your recovery phrase, which cancels it too. Then change your password.",
-        "",
-        "Until the reset completes, nothing changes: your devices, keys and messages stay as they are.",
-      ].join("\n"),
-    });
-    return true;
-  } catch {
-    // In-app notices still show.
-    return false;
-  }
+async function tell(sr: any, user: any, email: { subject: string; lines: string[] }): Promise<boolean> {
+  return emailNotice(sr, user.email, email.subject, email.lines);
 }
 
 export const keysActions: Actions = {
@@ -279,7 +258,8 @@ export const keysActions: Actions = {
       approved_via: "device_approval",
       approved_at: now.toISOString(),
     });
-    return { device: deviceOut({ ...target, ...updated }, now) };
+    const emailed = await tell(sr, user, newDeviceEmail(now));
+    return { device: deviceOut({ ...target, ...updated }, now), emailed };
   },
 
   async deny_device(ctx) {
@@ -404,7 +384,8 @@ export const keysActions: Actions = {
     }
     // Whoever holds the phrase is the account's owner: a reset someone asked for stops here.
     await endResets(sr, await waitingResets(sr, user.id), "cancelled", "recovery", now);
-    return { device: deviceOut(row, now) };
+    const emailed = await tell(sr, user, phraseUsedEmail(now));
+    return { device: deviceOut(row, now), emailed };
   },
 
   /** Remove a device. The caller should rotate keys straight after if the device may be in someone else's hands. */
@@ -547,7 +528,7 @@ export const keysActions: Actions = {
       await sr.entities.ResetRequest.delete(row.id);
       throw rateLimited("requesting resets");
     }
-    const emailed = await emailResetNotice(sr, user, effective);
+    const emailed = await tell(sr, user, resetRequestedEmail(effective));
     return { request: resetOut(row), emailed };
   },
 
@@ -612,7 +593,8 @@ export const keysActions: Actions = {
       key_sign_pub: request.key_sign_pub, sealed: request.recovery_sealed, created_by_device_id: request.device_id,
     });
     await endResets(sr, [request], "done", "requester", now);
-    return { ok: true, version: statement.version };
+    const emailed = await tell(sr, user, resetDoneEmail(now));
+    return { ok: true, version: statement.version, emailed };
   },
 
   /** From the browser that asked: take the request back. */
