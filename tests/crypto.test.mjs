@@ -4,6 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import * as clientCanon from "../src/lib/crypto/canonical.js";
+import { LOCK_ITERATIONS, createLock, isSealedKeyring, openKeyringText, sealKeyringText, unlock } from "../src/lib/crypto/lock.js";
 import * as serverCanon from "../base44/shared/canonical.ts";
 import { fromB64, randomId, toB64 } from "../src/lib/crypto/encoding.js";
 import { generateEcdh, exportRaw, sealTo, openSealed } from "../src/lib/crypto/primitives.js";
@@ -432,4 +433,28 @@ test("generic sealing round trip and context binding", async () => {
   const sealed = await sealTo(pub, new TextEncoder().encode("secret"), "ctx/a");
   assert.equal(new TextDecoder().decode(await openSealed(kp.privateKey, pub, sealed, "ctx/a")), "secret");
   await assert.rejects(openSealed(kp.privateKey, pub, sealed, "ctx/b"));
+});
+
+test("passcode lock: the keyring is stored encrypted, opens only with the passcode, and only for its own account", async () => {
+  const fast = { iterations: 100_000 };
+  await assert.rejects(createLock("short", 15, fast), { code: "TOO_SHORT" });
+  await assert.rejects(createLock("long enough passcode", 7, fast), { code: "BAD_IDLE" });
+  assert.equal(LOCK_ITERATIONS, 600_000);
+
+  const { record, key } = await createLock("café lantern harbour", 15, fast);
+  assert.deepEqual(Object.keys(record).sort(), ["check", "idle_minutes", "iterations", "kdf", "salt", "v"]);
+  assert.ok(!JSON.stringify(record).includes("lantern"), "the passcode itself is never stored");
+
+  const keyring = serializeKeyring(newKeyring(await createKeyVersion(1)));
+  const sealed = await sealKeyringText(key, "user_a", keyring);
+  assert.equal(isSealedKeyring(sealed), true);
+  assert.equal(isSealedKeyring(keyring), false);
+  assert.ok(!JSON.stringify(sealed).includes(JSON.parse(keyring).versions[0].ecdh_priv), "no key material in the clear");
+
+  // The same characters typed another way (decomposed é) still match.
+  const again = await unlock("café lantern harbour", record);
+  assert.equal(await openKeyringText(again, "user_a", sealed), keyring);
+  await assert.rejects(unlock("cafe lantern harbour", record), { code: "WRONG_PASSCODE" });
+  await assert.rejects(openKeyringText(again, "user_b", sealed), { code: "WRONG_PASSCODE" }, "bound to the account it belongs to");
+  await assert.rejects(unlock("café lantern harbour", { ...record, iterations: 1000 }), { code: "BAD_LOCK" }, "a weakened record isn't accepted");
 });
