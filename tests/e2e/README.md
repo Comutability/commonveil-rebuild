@@ -45,6 +45,7 @@ node tests/e2e/06-groups.mjs "<cat link>"
 node tests/e2e/07-admin.mjs "<admin link>"
 node tests/e2e/08-public-pages.mjs
 node tests/e2e/09-accessibility.mjs
+node tests/e2e/12-access-rules.mjs "<new member link>" "<another new member link>"
 ```
 
 `10-policy-report-delete.mjs` needs a production build, because the policy only exists there (the editor preview runs
