@@ -1,11 +1,17 @@
 // 24-word recovery phrase (standard BIP-39 English wordlist, 256 bits of entropy).
 // The phrase deterministically derives a P-256 recovery key pair. Devices seal the
 // keyring to the public half; only someone holding the phrase can open it.
+//
+// Anyone can seal something to a public key, the server included, so the phrase also
+// derives a second, secret "anchor" key. Key statements made while the phrase is to hand
+// (first setup, a new phrase, a reset) carry an HMAC under it. On recovery, that HMAC is
+// how the device knows the published keys, and so the backup, are really the account's.
 // The phrase itself is never stored or sent anywhere.
 import { p256 } from "@noble/curves/nist.js";
 import { generateMnemonic, mnemonicToEntropy, validateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
-import { CryptoFormatError, fromB64, fromUtf8, toB64, utf8 } from "./encoding.js";
+import { CONTEXTS, accountKeyFields, canonical } from "./canonical.js";
+import { CryptoFormatError, equalBytes, fromB64, fromUtf8, toB64, utf8 } from "./encoding.js";
 import { aesDecrypt, hkdfBytes, parseSealed, sealedKeyFromSecret } from "./primitives.js";
 import { assertKeyringConsistent, latestKey, parseKeyring, recoveryContext } from "./keyring.js";
 
@@ -44,7 +50,10 @@ export function isValidPhrase(input) {
   return words.length === RECOVERY_WORD_COUNT && validateMnemonic(words.join(" "), wordlist);
 }
 
-/** Derive the recovery key pair. Same phrase, same key, on any device. */
+/**
+ * Derive the recovery keys. Same phrase, same keys, on any device.
+ * Returns { secret, publicKey, anchorKey }. Wipe secret and anchorKey after use.
+ */
 export async function deriveRecoveryKey(phrase) {
   const words = phraseWords(phrase);
   if (words.length !== RECOVERY_WORD_COUNT || !validateMnemonic(words.join(" "), wordlist)) {
@@ -53,16 +62,46 @@ export async function deriveRecoveryKey(phrase) {
   const entropy = mnemonicToEntropy(words.join(" "), wordlist);
   const salt = utf8("commonveil/recovery/v1");
   try {
+    const anchorKey = await hkdfBytes(entropy, salt, "anchor-hmac", 32);
     for (let counter = 0; counter < 8; counter += 1) {
       const secret = await hkdfBytes(entropy, salt, `p256-secret|${counter}`, 32);
       if (p256.utils.isValidSecretKey(secret)) {
-        return { secret, publicKey: toB64(p256.getPublicKey(secret, false)) };
+        return { secret, publicKey: toB64(p256.getPublicKey(secret, false)), anchorKey };
       }
     }
+    anchorKey.fill(0);
   } finally {
     entropy.fill(0);
   }
   throw new RecoveryError("DERIVATION_FAILED", "Could not derive a recovery key.");
+}
+
+export function wipeRecoveryKey(keys) {
+  keys?.secret?.fill(0);
+  keys?.anchorKey?.fill(0);
+}
+
+async function anchorHmac(anchorKey, statement) {
+  const key = await globalThis.crypto.subtle.importKey("raw", anchorKey, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const text = canonical(CONTEXTS.recoveryAnchor, accountKeyFields(statement));
+  return new Uint8Array(await globalThis.crypto.subtle.sign("HMAC", key, utf8(text)));
+}
+
+/** The anchor for a key statement made while the phrase is to hand. */
+export async function recoveryAnchorMac(anchorKey, statement) {
+  return toB64(await anchorHmac(anchorKey, statement));
+}
+
+/** True if this statement was made by someone holding the phrase these keys came from. */
+export async function verifyRecoveryAnchor(anchorKey, statement) {
+  if (typeof statement?.recovery_mac !== "string" || !statement.recovery_mac) return false;
+  let given;
+  try {
+    given = fromB64(statement.recovery_mac);
+  } catch {
+    return false;
+  }
+  return equalBytes(await anchorHmac(anchorKey, statement), given);
 }
 
 /** Open a value sealed (with primitives.sealTo) to the recovery public key. */
@@ -75,23 +114,32 @@ export async function openWithRecoverySecret(secret, recoveryPubB64, sealed, con
   return aesDecrypt(key, iv, ct, utf8(context));
 }
 
-export async function openKeyringWithPhrase({ phrase, userId, keyringVersion, recoveryPub, sealed }) {
-  const { secret, publicKey } = await deriveRecoveryKey(phrase);
+/**
+ * Open the recovery backup with already-derived keys. On its own this proves nothing
+ * about where the backup came from: check the published keys with verifyRecoveryAnchor
+ * and the keyring against them (protocol.recoverWithPhrase does both).
+ */
+export async function openKeyringWithRecoveryKey({ keys, userId, keyringVersion, recoveryPub, sealed }) {
+  if (keys.publicKey !== recoveryPub) {
+    throw new RecoveryError("WRONG_PHRASE", "That phrase is valid, but it isn't the recovery phrase for this account.");
+  }
+  let bytes;
   try {
-    if (publicKey !== recoveryPub) {
-      throw new RecoveryError("WRONG_PHRASE", "That phrase is valid, but it isn't the recovery phrase for this account.");
-    }
-    let bytes;
-    try {
-      bytes = await openWithRecoverySecret(secret, recoveryPub, sealed, recoveryContext(userId, keyringVersion));
-    } catch {
-      throw new RecoveryError("BACKUP_UNREADABLE", "The encrypted backup could not be opened with this phrase.");
-    }
-    const keyring = parseKeyring(fromUtf8(bytes), userId);
-    if (latestKey(keyring).version !== keyringVersion) throw new CryptoFormatError("Keyring version mismatch");
-    await assertKeyringConsistent(keyring);
-    return keyring;
+    bytes = await openWithRecoverySecret(keys.secret, recoveryPub, sealed, recoveryContext(userId, keyringVersion));
+  } catch {
+    throw new RecoveryError("BACKUP_UNREADABLE", "The encrypted backup could not be opened with this phrase.");
+  }
+  const keyring = parseKeyring(fromUtf8(bytes), userId);
+  if (latestKey(keyring).version !== keyringVersion) throw new CryptoFormatError("Keyring version mismatch");
+  await assertKeyringConsistent(keyring);
+  return keyring;
+}
+
+export async function openKeyringWithPhrase({ phrase, userId, keyringVersion, recoveryPub, sealed }) {
+  const keys = await deriveRecoveryKey(phrase);
+  try {
+    return await openKeyringWithRecoveryKey({ keys, userId, keyringVersion, recoveryPub, sealed });
   } finally {
-    secret.fill(0);
+    wipeRecoveryKey(keys);
   }
 }
