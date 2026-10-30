@@ -28,8 +28,12 @@ check((await B.page.locator("text=new security keys").count()) === 0, "a chained
 
 const A2 = await open("ann2");
 await goto(A2.page);
+await A2.page.waitForSelector("text=This browser was removed from your account", { timeout: 60000 });
+check(true, "the removed browser is locked out and told why");
+check((await A2.page.getByRole("button", { name: /Delete this browser's keys/ }).count()) === 1, "its keys stay until the person chooses to delete them");
+await A2.page.getByRole("button", { name: /Delete this browser's keys/ }).click();
 await A2.page.waitForSelector("text=Set up encryption on this device", { timeout: 60000 });
-check((await A2.page.locator("text=was removed from your account").count()) > 0, "the removed browser is locked out and told why");
+check(true, "after deleting them it can be set up again");
 await shot(A1.page, "03-after-removal");
 await A1.ctx.close();
 await A2.ctx.close();
