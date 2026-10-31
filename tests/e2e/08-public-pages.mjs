@@ -2,7 +2,7 @@
 import { chromium } from "playwright";
 import { BASE, SHOTS, check } from "./lib.mjs";
 
-const PAGES = ["/", "/blog", "/blog/nostr-in-plain-english", "/guides", "/guides/docker-for-beginners", "/paths", "/paths/self-host-your-data", "/resources", "/wiki", "/wiki/what-is-end-to-end-encryption", "/privacy", "/security", "/login", "/register", "/no-such-page"];
+const PAGES = ["/", "/blog", "/blog/nostr-in-plain-english", "/guides", "/guides/docker-for-beginners", "/paths", "/paths/self-host-your-data", "/resources", "/wiki", "/wiki/what-is-end-to-end-encryption", "/privacy", "/security", "/search", "/saved", "/login", "/register", "/no-such-page"];
 const RUNS = [
   { name: "desktop-light", viewport: { width: 1280, height: 900 }, colorScheme: "light" },
   { name: "phone-dark", viewport: { width: 390, height: 844 }, colorScheme: "dark", isMobile: true },

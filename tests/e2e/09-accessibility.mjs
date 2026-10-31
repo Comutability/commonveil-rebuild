@@ -22,7 +22,7 @@ let total = 0;
 for (const colorScheme of ["light", "dark"]) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme });
   const page = await ctx.newPage();
-  for (const p of ["/", "/blog", "/guides", "/guides/docker-for-beginners", "/resources", "/security", "/privacy", "/login", "/register"]) {
+  for (const p of ["/", "/blog", "/guides", "/guides/docker-for-beginners", "/paths/self-host-your-data", "/resources", "/security", "/privacy", "/search", "/saved", "/login", "/register"]) {
     await page.goto(BASE + p, { waitUntil: "networkidle", timeout: 90000 });
     total += await audit(page, `${colorScheme} ${p}`);
   }
@@ -34,6 +34,11 @@ for (const colorScheme of ["light", "dark"]) {
   await ap.locator(`a:has-text("${PEOPLE.ben.display}")`).first().click();
   await ap.waitForTimeout(4000);
   total += await audit(ap, `${colorScheme} /app conversation`);
+  await ap.getByRole("button", { name: /Conversation details/ }).click();
+  await ap.getByRole("dialog").waitFor({ timeout: 30000 });
+  await ap.waitForTimeout(1000);
+  total += await audit(ap, `${colorScheme} /app conversation details`);
+  await ap.keyboard.press("Escape");
   await ap.goto(`${BASE}/app/settings`, { waitUntil: "networkidle", timeout: 90000 });
   await ap.waitForTimeout(3000);
   total += await audit(ap, `${colorScheme} /app/settings`);
