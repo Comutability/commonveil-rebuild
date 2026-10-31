@@ -37,6 +37,13 @@ async function openDm(page, username) {
   return new URL(page.url()).pathname;
 }
 
+/** Set a checkbox to on or off, whatever it was before (re-runs start from where the last one stopped). */
+async function setToggle(page, id, on) {
+  const box = page.locator(`#${id}`);
+  if (((await box.getAttribute("data-state")) === "checked") !== on) await box.click();
+  await page.waitForFunction(([sel, want]) => document.querySelector(sel)?.getAttribute("data-state") === want, [`#${id}`, on ? "checked" : "unchecked"], { timeout: 10000 });
+}
+
 async function details(page) {
   await page.getByRole("button", { name: /Conversation details/ }).click();
   await page.getByRole("dialog").waitFor({ timeout: 30000 });
@@ -162,10 +169,9 @@ check(promoted, "once Ann makes him an admin, Ben can rename the group and add p
 
 // ---------- notifications and the unread count (Ann) ----------
 await goto(A.page, "/app/settings");
-await A.page.locator("#alert-notify").click();
-await A.page.locator("#alert-title").click();
-await A.page.waitForTimeout(1000);
-check((await A.page.locator("#alert-notify").getAttribute("data-state")) === "checked", "notifications switch on once the browser allows them");
+await setToggle(A.page, "alert-notify", true);
+await setToggle(A.page, "alert-title", true);
+check(true, "notifications switch on once the browser allows them");
 await goto(A.page);
 await A.page.waitForSelector('h1:has-text("Messages")', { timeout: 90000 });
 await A.page.waitForTimeout(3000);
@@ -174,11 +180,13 @@ await goto(B.page, dmPath);
 await sendText(B.page, ping);
 await A.page.waitForFunction(() => /^\(\d+\) Commonveil$/.test(document.title), null, { timeout: 90000 });
 check(true, `the tab title counts unread conversations: ${await A.page.title()}`);
+// The notification comes once the message is decrypted, which can be a moment after the count.
+await A.page.waitForFunction(() => (window.__alerts || []).length > 0, null, { timeout: 60000 }).catch(() => {});
 const alerts = await A.page.evaluate(() => window.__alerts || []);
 check(alerts.length >= 1 && alerts.every((n) => n.body === "New message"), `a notification said only "New message" (${JSON.stringify(alerts)})`);
 await goto(A.page, "/app/settings");
-await A.page.locator("#alert-notify").click();
-await A.page.locator("#alert-title").click();
+await setToggle(A.page, "alert-notify", false);
+await setToggle(A.page, "alert-title", false);
 
 // ---------- passcode lock (Ann) ----------
 const passcode = `correct horse battery ${RUN}`;
