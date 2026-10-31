@@ -2,6 +2,7 @@
 // edits, the timer, the passcode lock (WebCrypto PBKDF2 and AES-GCM), the data download and
 // auto-delete. Run it like 10: against dist/ served by serve-dist.mjs, or the published site.
 // Args: <embed url for a freshly provisioned member>. It starts a conversation with Ann (from 01).
+import { chromium } from "playwright";
 import fs from "node:fs";
 import { BASE, PEOPLE, check, expectText, setUp, sendText } from "./lib.mjs";
 
