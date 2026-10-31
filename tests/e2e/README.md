@@ -20,6 +20,7 @@ not part of `npm test` because they need signed-in test accounts and create real
 | `10-policy-report-delete.mjs` | A production build under its Content Security Policy: the policy and `security.txt` are served; public pages; an anonymous security report; a new member sets up and deletes their account; staff close the report; nothing of the app's own is blocked |
 | `11-erase-test-accounts.mjs` | Cleaning up: Admin → Accounts lists deprovisioned test people and erases what they left (only usernames starting `e2e_`) |
 | `12-access-rules.mjs` | Every table's read rule on the real platform: two new members each read only rows naming them and can't fetch the other's by id; visitors read nothing; private tables are closed |
+| `14-policy-features.mjs` | The newer in-app features on a production build under its Content Security Policy: reactions, edits, the timer, the passcode lock, the data download and auto-delete, with nothing blocked |
 | `13-features.mjs` | Replies, reactions and edits between Ann and Ben; disappearing messages (who set the timer, then gone everywhere once due, with `--expired`); group admins; message search on the device; a notification that says only "New message" and the unread count in the tab title; the passcode lock (locked after a reload, wrong passcode refused, Lock now); the data download (decrypted, no keys); auto-delete on and off; site search, saved pages and guide progress |
 
 ## Running them
@@ -63,6 +64,7 @@ Vite's dev server). Build, serve `dist/` with `serve-dist.mjs`, and point the sc
 npm run build
 CV_API_HOST=preview-sandbox--<app-id>.base44.app node tests/e2e/serve-dist.mjs 4173 &
 CV_BASE_URL=http://localhost:4173 node tests/e2e/10-policy-report-delete.mjs "<new member link>" "<admin link>"
+CV_BASE_URL=http://localhost:4173 node tests/e2e/14-policy-features.mjs "<another new member link>"
 ```
 
 Scripts 01 and 06 claim the usernames `e2e_ann`, `e2e_ben` and `e2e_cat`. Deleted and erased accounts retire their usernames
