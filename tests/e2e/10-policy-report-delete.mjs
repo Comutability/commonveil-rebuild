@@ -45,6 +45,9 @@ async function watched(name) {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => errors.push(`[${name}] ${e.message}`));
   page.on("console", (m) => {
+    // Inline scripts are the platform's own (the app's HTML has none: see check-bundle.mjs); they're
+    // counted with the violations below rather than as errors.
+    if (/Refused to execute inline script/i.test(m.text())) return;
     if (m.type() === "error" && /content security|trusted|refused to/i.test(m.text())) errors.push(`[${name}] ${m.text()}`);
   });
   return { ctx, page };
