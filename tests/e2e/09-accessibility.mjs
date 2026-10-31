@@ -9,9 +9,10 @@ const require = createRequire(import.meta.url);
 const axeSource = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
 const ROOT = process.env.CV_E2E_DIR || "/tmp/cv-e2e";
 
-async function audit(page, label) {
+/** within: a selector to audit just that part (a dialog, not the page dimmed behind it). */
+async function audit(page, label, within = null) {
   await page.addScriptTag({ content: axeSource });
-  const result = await page.evaluate(async () => window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa"] }));
+  const result = await page.evaluate(async (sel) => window.axe.run(sel ? document.querySelector(sel) : document, { runOnly: ["wcag2a", "wcag2aa"] }), within);
   const problems = result.violations.map((v) => `${v.id} (${v.impact}) x${v.nodes.length}: ${v.nodes[0]?.target.join(" ")}`);
   if (problems.length) console.log(`  ${label}:\n    ${problems.join("\n    ")}`);
   return problems.length;
@@ -37,7 +38,7 @@ for (const colorScheme of ["light", "dark"]) {
   await ap.getByRole("button", { name: /Conversation details/ }).click();
   await ap.getByRole("dialog").waitFor({ timeout: 30000 });
   await ap.waitForTimeout(1000);
-  total += await audit(ap, `${colorScheme} /app conversation details`);
+  total += await audit(ap, `${colorScheme} /app conversation details`, '[role="dialog"]');
   await ap.keyboard.press("Escape");
   await ap.goto(`${BASE}/app/settings`, { waitUntil: "networkidle", timeout: 90000 });
   await ap.waitForTimeout(3000);
