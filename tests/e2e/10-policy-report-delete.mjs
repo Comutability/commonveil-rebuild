@@ -67,7 +67,7 @@ check(/^Contact: https:\/\/commonveil\.online\/security\/report$/m.test(security
 // ---- Public pages ----
 const PAGES = [
   "/", "/blog", "/blog/nostr-in-plain-english", "/guides", "/guides/docker-for-beginners", "/paths", "/paths/self-host-your-data",
-  "/resources", "/wiki", "/wiki/what-is-end-to-end-encryption", "/privacy", "/security", "/security/report", "/login", "/register", "/no-such-page",
+  "/resources", "/wiki", "/wiki/what-is-end-to-end-encryption", "/privacy", "/security", "/security/report", "/search", "/saved", "/login", "/register", "/no-such-page",
 ];
 const V = await watched("visitor");
 for (const p of PAGES) {
