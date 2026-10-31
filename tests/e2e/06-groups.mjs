@@ -29,7 +29,7 @@ await openConversation(B.page, GROUP);
 await B.page.waitForSelector("text=First group message", { timeout: 60000 });
 check((await countUnverified(B.page)) === 0, "Ben sees the encrypted group name and a verified message");
 await B.page.waitForSelector("text=You're in a group you haven't checked yet", { timeout: 30000 });
-check(await B.page.getByRole("textbox", { name: "Message" }).isDisabled(), "a group someone else made waits until Ben has looked at who's in it");
+check(await B.page.getByRole("textbox", { name: "Message", exact: true }).isDisabled(), "a group someone else made waits until Ben has looked at who's in it");
 await B.page.getByRole("button", { name: "OK, continue" }).click();
 
 // Ann adds Cat (device-signed). The group name is re-encrypted so Cat can read it.
@@ -45,7 +45,7 @@ await sendText(A.page, "Cat is here now");
 await goto(B.page);
 await openConversation(B.page, GROUP);
 await B.page.waitForSelector("text=New in this conversation", { timeout: 60000 });
-check(await B.page.getByRole("textbox", { name: "Message" }).isDisabled(), "Ben's sending pauses until he has seen that Cat joined");
+check(await B.page.getByRole("textbox", { name: "Message", exact: true }).isDisabled(), "Ben's sending pauses until he has seen that Cat joined");
 await shot(B.page, "06-new-member");
 await B.page.getByRole("button", { name: "OK, continue" }).click();
 await sendText(B.page, "Hi Cat");

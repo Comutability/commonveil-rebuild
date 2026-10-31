@@ -72,7 +72,7 @@ if (args[0] !== "--finish") {
   await goto(A1.page);
   await openConversation(A1.page, PEOPLE.ben.display);
   await A1.page.waitForSelector("text=new security keys", { timeout: 90000 });
-  const composer = A1.page.getByRole("textbox", { name: "Message" });
+  const composer = A1.page.getByRole("textbox", { name: "Message", exact: true });
   check(await composer.isDisabled(), "Ann is warned and sending is paused");
   await shot(A1.page, "05-key-change");
   await A1.page.getByRole("button", { name: "Review" }).click();

@@ -97,7 +97,7 @@ export async function openConversation(page, name) {
  * text alone isn't proof: the composer itself still holds it if sending failed.)
  */
 export async function sendText(page, text) {
-  const box = page.getByRole("textbox", { name: "Message" });
+  const box = page.getByRole("textbox", { name: "Message", exact: true });
   await box.fill(text);
   await box.press("Enter");
   const deadline = Date.now() + 60000;
