@@ -66,13 +66,23 @@ if (args[0] === "--expired") {
 
 const A = await open("ann1");
 const B = await open(BEN);
-// Record what notifications say, without changing what they do.
+// Record what notifications say. Headless Chromium reports notifications as "denied" even once
+// they're allowed, so the permission is reported as granted here; what's checked is what the app
+// asks the browser to show.
 await A.ctx.grantPermissions(["notifications"], { origin: BASE });
 await A.ctx.addInitScript(() => {
   const Original = window.Notification;
   if (!Original) return;
   window.__alerts = [];
   window.Notification = class extends Original {
+    static get permission() {
+      return "granted";
+    }
+
+    static requestPermission() {
+      return Promise.resolve("granted");
+    }
+
     constructor(title, options) {
       window.__alerts.push({ title, body: options?.body || "" });
       super(title, options);
