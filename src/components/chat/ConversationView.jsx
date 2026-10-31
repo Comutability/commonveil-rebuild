@@ -203,7 +203,7 @@ function TimerNote({ conversation, nameOf }) {
       {seconds
         ? `${who} set messages to disappear after ${timerLabel(seconds).replace(/^1 /, "a ")}.`
         : `${who} turned off disappearing messages.`}
-      <span className="opacity-70">{formatTime(conversation.expiry_set_at)}</span>
+      <span>{formatTime(conversation.expiry_set_at)}</span>
     </p>
   );
 }
