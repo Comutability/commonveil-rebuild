@@ -105,7 +105,7 @@ await A.page.waitForTimeout(1500);
 check((await bubble(A.page, reply).getByRole("button", { name: new RegExp(`Lunch tomorrow\\? ${RUN}`) }).count()) === 1, "Ann sees Ben's reply with a quote of what it answers");
 
 await menu(A.page, reply, "React with Thumbs up");
-await B.page.getByRole("button", { name: /^Thumbs up, 1/ }).waitFor({ timeout: 60000 });
+await bubble(B.page, reply).getByRole("button", { name: /^Thumbs up, 1/ }).waitFor({ timeout: 60000 });
 check(true, "Ann's reaction reaches Ben, as a count under his message");
 
 await menu(B.page, reply, "Edit");
