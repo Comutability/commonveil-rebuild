@@ -1,0 +1,93 @@
+{
+  "name": "ServerMessage",
+  "type": "object",
+  "properties": {
+    "server_id": {
+      "type": "string"
+    },
+    "channel_id": {
+      "type": "string"
+    },
+    "audience_id": {
+      "type": "string"
+    },
+    "msg_id": {
+      "type": "string",
+      "description": "Random id chosen by the sender, bound into the encryption."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "message",
+        "reaction",
+        "edit",
+        "post"
+      ],
+      "description": "What the encrypted payload is: the service needs it for channel permissions (announcement channels allow reactions only)."
+    },
+    "thread_id": {
+      "type": "string",
+      "description": "For a reply in a forum post: the post's msg_id."
+    },
+    "sender_id": {
+      "type": "string"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "envelope": {
+      "type": "string"
+    },
+    "signature": {
+      "type": "string"
+    },
+    "sent_at": {
+      "type": "string"
+    },
+    "deleted": {
+      "type": "boolean",
+      "default": false
+    },
+    "deleted_by": {
+      "type": "string"
+    },
+    "deleted_at": {
+      "type": "string"
+    },
+    "expires_at": {
+      "type": "string"
+    },
+    "pinned": {
+      "type": "boolean",
+      "default": false
+    },
+    "last_reply_at": {
+      "type": "string"
+    },
+    "reply_count": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "server_id",
+    "channel_id",
+    "audience_id",
+    "msg_id",
+    "kind",
+    "sender_id",
+    "device_id",
+    "envelope",
+    "signature",
+    "sent_at"
+  ],
+  "rls": {
+    "read": {
+      "data.audience_id": {
+        "$in": "{{user.data.cv_access}}"
+      }
+    },
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

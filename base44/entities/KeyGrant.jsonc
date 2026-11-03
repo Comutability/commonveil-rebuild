@@ -1,0 +1,62 @@
+{
+  "name": "KeyGrant",
+  "type": "object",
+  "properties": {
+    "server_id": {
+      "type": "string"
+    },
+    "chain_id": {
+      "type": "string"
+    },
+    "generation": {
+      "type": "number"
+    },
+    "step": {
+      "type": "number"
+    },
+    "user_id": {
+      "type": "string",
+      "description": "The member this key is sealed to."
+    },
+    "recipient_key_version": {
+      "type": "number"
+    },
+    "sealed": {
+      "type": "string",
+      "description": "The key, sealed to the member's account key (post-quantum where they have one)."
+    },
+    "grantor_id": {
+      "type": "string"
+    },
+    "grantor_device_id": {
+      "type": "string"
+    },
+    "granted_at": {
+      "type": "string"
+    },
+    "signature": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "server_id",
+    "chain_id",
+    "generation",
+    "step",
+    "user_id",
+    "recipient_key_version",
+    "sealed",
+    "grantor_id",
+    "grantor_device_id",
+    "granted_at",
+    "signature"
+  ],
+  "rls": {
+    "read": {
+      "data.user_id": "{{user.id}}"
+    },
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

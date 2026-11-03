@@ -1,0 +1,180 @@
+{
+  "name": "Server",
+  "type": "object",
+  "properties": {
+    "owner_id": {
+      "type": "string",
+      "description": "Who owns the server. Empty for the community server until its first listed admin joins."
+    },
+    "audience_id": {
+      "type": "string",
+      "description": "The server's own id: row rules let members (and only members) read it."
+    },
+    "is_default": {
+      "type": "boolean",
+      "default": false,
+      "description": "The Commonveil community server everyone joins."
+    },
+    "template": {
+      "type": "string",
+      "description": "Template the server started from; names of untouched template channels come from the app."
+    },
+    "join_mode": {
+      "type": "string",
+      "enum": [
+        "invite",
+        "open"
+      ],
+      "default": "invite",
+      "description": "invite: joining needs an invite. open: anyone can join, from Discover."
+    },
+    "discoverable": {
+      "type": "boolean",
+      "default": false,
+      "description": "Listed in Discover. Only then are the public_ fields used."
+    },
+    "public_name": {
+      "type": "string",
+      "description": "Shown in Discover and on invites. Not encrypted: only set when the server is listed."
+    },
+    "public_description": {
+      "type": "string"
+    },
+    "public_tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "public_icon": {
+      "type": "string",
+      "description": "An emoji or up to 3 letters."
+    },
+    "public_color": {
+      "type": "string"
+    },
+    "profile_envelope": {
+      "type": "string",
+      "description": "Encrypted name, description and icon (server key). The service can't read it."
+    },
+    "profile_item_id": {
+      "type": "string"
+    },
+    "profile_sender_id": {
+      "type": "string"
+    },
+    "profile_device_id": {
+      "type": "string"
+    },
+    "profile_sent_at": {
+      "type": "string"
+    },
+    "profile_signature": {
+      "type": "string"
+    },
+    "rules_envelope": {
+      "type": "string",
+      "description": "Encrypted rules (server key). The service can't read it."
+    },
+    "rules_item_id": {
+      "type": "string"
+    },
+    "rules_sender_id": {
+      "type": "string"
+    },
+    "rules_device_id": {
+      "type": "string"
+    },
+    "rules_sent_at": {
+      "type": "string"
+    },
+    "rules_signature": {
+      "type": "string"
+    },
+    "rules_required": {
+      "type": "boolean",
+      "default": false,
+      "description": "Members accept the rules before they can post."
+    },
+    "min_account_minutes": {
+      "type": "number",
+      "description": "How old an account must be to post here."
+    },
+    "min_member_minutes": {
+      "type": "number",
+      "description": "How long someone must have been a member to post."
+    },
+    "invites_paused": {
+      "type": "boolean",
+      "default": false
+    },
+    "joins_paused": {
+      "type": "boolean",
+      "default": false,
+      "description": "Nobody new can join, by invite or otherwise (raid protection)."
+    },
+    "member_list": {
+      "type": "string",
+      "enum": [
+        "opt_in",
+        "staff_only",
+        "count_only"
+      ],
+      "default": "opt_in",
+      "description": "Who appears in the member list: opt_in (members who choose to, plus staff), staff_only, or count_only."
+    },
+    "audit_retention_days": {
+      "type": "number",
+      "description": "How long audit log entries are kept."
+    },
+    "default_history": {
+      "type": "string",
+      "enum": [
+        "full",
+        "joined"
+      ],
+      "default": "joined"
+    },
+    "allow_member_dms": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether members of this server count as people you share a server with, for who can message you."
+    },
+    "member_count": {
+      "type": "number"
+    },
+    "keys_pending_at": {
+      "type": "string",
+      "description": "Someone is waiting to be given the server's keys: members' apps check for work."
+    },
+    "grant_claim_by": {
+      "type": "string"
+    },
+    "grant_claim_until": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "deleting"
+      ],
+      "default": "active"
+    }
+  },
+  "required": [
+    "audience_id",
+    "join_mode",
+    "status"
+  ],
+  "rls": {
+    "read": {
+      "data.audience_id": {
+        "$in": "{{user.data.cv_access}}"
+      }
+    },
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

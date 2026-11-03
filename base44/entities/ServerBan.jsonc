@@ -1,0 +1,45 @@
+{
+  "name": "ServerBan",
+  "type": "object",
+  "properties": {
+    "server_id": {
+      "type": "string"
+    },
+    "user_id": {
+      "type": "string"
+    },
+    "banned_by": {
+      "type": "string"
+    },
+    "reason_envelope": {
+      "type": "string",
+      "description": "Encrypted reason (server key). The service can't read it."
+    },
+    "reason_item_id": {
+      "type": "string"
+    },
+    "reason_sender_id": {
+      "type": "string"
+    },
+    "reason_device_id": {
+      "type": "string"
+    },
+    "reason_sent_at": {
+      "type": "string"
+    },
+    "reason_signature": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "server_id",
+    "user_id",
+    "banned_by"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

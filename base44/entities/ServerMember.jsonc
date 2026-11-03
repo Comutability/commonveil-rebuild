@@ -1,0 +1,74 @@
+{
+  "name": "ServerMember",
+  "type": "object",
+  "properties": {
+    "server_id": {
+      "type": "string"
+    },
+    "user_id": {
+      "type": "string"
+    },
+    "role_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "joined_at": {
+      "type": "string"
+    },
+    "listed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Shown in the member list. Off unless the member turns it on; staff are always shown."
+    },
+    "rules_accepted_at": {
+      "type": "string"
+    },
+    "timeout_until": {
+      "type": "string",
+      "description": "Timed out until then: can't post, react or join calls."
+    },
+    "key_status": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "pending"
+      ],
+      "default": "pending",
+      "description": "pending: waiting to be given some of the server's keys."
+    },
+    "nick_envelope": {
+      "type": "string",
+      "description": "Encrypted nickname (server key). The service can't read it."
+    },
+    "nick_item_id": {
+      "type": "string"
+    },
+    "nick_sender_id": {
+      "type": "string"
+    },
+    "nick_device_id": {
+      "type": "string"
+    },
+    "nick_sent_at": {
+      "type": "string"
+    },
+    "nick_signature": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "server_id",
+    "user_id",
+    "joined_at"
+  ],
+  "rls": {
+    "read": {
+      "data.user_id": "{{user.id}}"
+    },
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "name": "Role",
+  "type": "object",
+  "properties": {
+    "server_id": {
+      "type": "string"
+    },
+    "audience_id": {
+      "type": "string"
+    },
+    "position": {
+      "type": "number"
+    },
+    "permissions": {
+      "type": "number"
+    },
+    "is_everyone": {
+      "type": "boolean",
+      "default": false
+    },
+    "template_key": {
+      "type": "string"
+    },
+    "hoist": {
+      "type": "boolean",
+      "default": false,
+      "description": "Shown separately in the member list."
+    },
+    "mentionable": {
+      "type": "boolean",
+      "default": false
+    },
+    "name_envelope": {
+      "type": "string",
+      "description": "Encrypted name and colour (server key). The service can't read it."
+    },
+    "name_item_id": {
+      "type": "string"
+    },
+    "name_sender_id": {
+      "type": "string"
+    },
+    "name_device_id": {
+      "type": "string"
+    },
+    "name_sent_at": {
+      "type": "string"
+    },
+    "name_signature": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "server_id",
+    "audience_id"
+  ],
+  "rls": {
+    "read": {
+      "data.audience_id": {
+        "$in": "{{user.data.cv_access}}"
+      }
+    },
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

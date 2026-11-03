@@ -1,0 +1,48 @@
+{
+  "name": "Invite",
+  "type": "object",
+  "properties": {
+    "server_id": {
+      "type": "string"
+    },
+    "code": {
+      "type": "string"
+    },
+    "creator_id": {
+      "type": "string"
+    },
+    "channel_id": {
+      "type": "string"
+    },
+    "expires_at": {
+      "type": "string",
+      "description": "Empty: never."
+    },
+    "max_uses": {
+      "type": "number",
+      "description": "0: no limit."
+    },
+    "uses": {
+      "type": "number"
+    },
+    "revoked": {
+      "type": "boolean",
+      "default": false
+    },
+    "preview": {
+      "type": "string",
+      "description": "Server name, description and icon, encrypted under a key only the invite link carries."
+    }
+  },
+  "required": [
+    "server_id",
+    "code",
+    "creator_id"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "name": "KeyChain",
+  "type": "object",
+  "properties": {
+    "server_id": {
+      "type": "string"
+    },
+    "audience_id": {
+      "type": "string"
+    },
+    "chain_id": {
+      "type": "string",
+      "description": "<server>.h, <server>.l or <server>.c.<channel>."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "h",
+        "l",
+        "c"
+      ]
+    },
+    "channel_id": {
+      "type": "string"
+    },
+    "rotation_needed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Someone lost access: a new key generation is due."
+    },
+    "rotation_reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "server_id",
+    "audience_id",
+    "chain_id",
+    "kind"
+  ],
+  "rls": {
+    "read": {
+      "data.audience_id": {
+        "$in": "{{user.data.cv_access}}"
+      }
+    },
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "name": "Channel",
+  "type": "object",
+  "properties": {
+    "server_id": {
+      "type": "string"
+    },
+    "audience_id": {
+      "type": "string",
+      "description": "The server id, or the channel's own id when it's private, so only people who can see it can read it."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "category",
+        "text",
+        "announcement",
+        "rules",
+        "forum",
+        "voice",
+        "tickets"
+      ]
+    },
+    "parent_id": {
+      "type": "string",
+      "description": "Category id, or empty."
+    },
+    "position": {
+      "type": "number"
+    },
+    "template_key": {
+      "type": "string"
+    },
+    "name_envelope": {
+      "type": "string",
+      "description": "Encrypted name and topic (server key). The service can't read it."
+    },
+    "name_item_id": {
+      "type": "string"
+    },
+    "name_sender_id": {
+      "type": "string"
+    },
+    "name_device_id": {
+      "type": "string"
+    },
+    "name_sent_at": {
+      "type": "string"
+    },
+    "name_signature": {
+      "type": "string"
+    },
+    "history": {
+      "type": "string",
+      "enum": [
+        "full",
+        "joined"
+      ],
+      "default": "joined",
+      "description": "full: newcomers can read earlier messages. joined: only from when they joined."
+    },
+    "private": {
+      "type": "boolean",
+      "default": false
+    },
+    "overwrites": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "role_id": {
+            "type": "string"
+          },
+          "allow": {
+            "type": "number"
+          },
+          "deny": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "slowmode_seconds": {
+      "type": "number"
+    },
+    "expire_seconds": {
+      "type": "number",
+      "description": "Disappearing messages in this channel."
+    },
+    "sensitive": {
+      "type": "boolean",
+      "default": false,
+      "description": "Shows a content warning before opening."
+    },
+    "last_message_at": {
+      "type": "string"
+    },
+    "creator_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "server_id",
+    "audience_id",
+    "kind"
+  ],
+  "rls": {
+    "read": {
+      "data.audience_id": {
+        "$in": "{{user.data.cv_access}}"
+      }
+    },
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

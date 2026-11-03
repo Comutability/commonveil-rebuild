@@ -1,0 +1,40 @@
+{
+  "name": "AuditEntry",
+  "type": "object",
+  "properties": {
+    "server_id": {
+      "type": "string"
+    },
+    "actor_id": {
+      "type": "string"
+    },
+    "action": {
+      "type": "string"
+    },
+    "target_kind": {
+      "type": "string"
+    },
+    "target_id": {
+      "type": "string"
+    },
+    "detail": {
+      "type": "string",
+      "description": "What changed, in a few words. Never message content."
+    },
+    "expires_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "server_id",
+    "actor_id",
+    "action",
+    "expires_at"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "name": "KeyGeneration",
+  "type": "object",
+  "properties": {
+    "server_id": {
+      "type": "string"
+    },
+    "audience_id": {
+      "type": "string"
+    },
+    "chain_id": {
+      "type": "string"
+    },
+    "generation": {
+      "type": "number"
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "commit": {
+      "type": "string",
+      "description": "Hash of the generation's first key."
+    },
+    "creator_id": {
+      "type": "string"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "signature": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "server_id",
+    "audience_id",
+    "chain_id",
+    "generation",
+    "started_at",
+    "commit",
+    "creator_id",
+    "device_id",
+    "signature"
+  ],
+  "rls": {
+    "read": {
+      "data.audience_id": {
+        "$in": "{{user.data.cv_access}}"
+      }
+    },
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}
