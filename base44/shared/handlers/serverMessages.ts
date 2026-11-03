@@ -21,6 +21,7 @@ import {
   requireMember,
   requirePerm,
   serverMessageOut,
+  serverOut,
   serverParts,
   stepAt,
 } from "../servers/model.ts";
@@ -184,7 +185,7 @@ export const serverMessageActions: Actions = {
     const { sr, own, user, now } = ctx;
     const { data } = await signedByActiveDevice(ctx, "delete_server_message");
     const serverId = id(data.server_id, "server");
-    const [message] = await own.entities.ServerMessage.filter({ server_id: serverId, id: undefined, msg_id: randomIdField(data.msg_id, "message"), channel_id: id(data.channel_id, "channel") }, "created_date", 1);
+    const [message] = await own.entities.ServerMessage.filter({ server_id: serverId, channel_id: id(data.channel_id, "channel"), msg_id: randomIdField(data.msg_id, "message") }, "created_date", 1);
     if (!message) throw new ApiError(404, "NOT_FOUND", "Message not found.");
     if (message.sender_id !== user.id) {
       const view = await channelView(own, serverId, message.channel_id, user.id);
@@ -231,7 +232,6 @@ export async function pollServers(own: any, userId: string, since: string, settl
   for (const m of page) if (String(m.updated_date) > cursor) cursor = String(m.updated_date);
   for (const s of servers) if (String(s.updated_date) > cursor && !hasMore) cursor = String(s.updated_date);
   if (!hasMore && cursor > settled) cursor = settled > since ? settled : since;
-  const { serverOut } = await import("../servers/model.ts");
   return {
     server_messages: page.filter((m: any) => isLive(m, now)).map(serverMessageOut),
     servers: servers.filter((s: any) => s.status !== "deleting").map(serverOut),
