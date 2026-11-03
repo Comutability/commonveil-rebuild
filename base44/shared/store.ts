@@ -30,7 +30,33 @@ export const publicProfile = (p: any) => ({
   username: p.username,
   display_name: p.display_name || "",
   bio: p.bio || "",
+  pronouns: p.pronouns || "",
+  accent_color: p.accent_color || "",
+  avatar_emoji: p.avatar_emoji || "",
 });
+
+/** A profile with only what the person chose to show this viewer: the username always, the rest if they allow it. */
+export function profileFor(p: any, { contact }: { contact: boolean }) {
+  const visibility = p.profile_visibility || "shared";
+  const full = visibility === "shared" || (visibility === "conversations" && contact);
+  if (full) return publicProfile(p);
+  return { user_id: p.user_id, username: p.username, display_name: "", bio: "", pronouns: "", accent_color: p.accent_color || "", avatar_emoji: "" };
+}
+
+/**
+ * Which of these people share a server with userId (servers set to count members for direct
+ * messages only). One query with the member's own access, one with the service role.
+ */
+export async function serverPeersOf(sr: any, own: any, userId: string, ids: string[]) {
+  const out = new Set<string>();
+  if (!ids.length) return out;
+  const mine = await own.entities.ServerMember.filter({ user_id: userId }, "created_date", 200);
+  const serverIds = [...new Set(mine.map((m: any) => m.server_id))];
+  if (!serverIds.length) return out;
+  const theirs = await sr.entities.ServerMember.filter({ server_id: { $in: serverIds }, user_id: { $in: ids } }, "created_date", 5000);
+  for (const m of theirs) out.add(m.user_id);
+  return out;
+}
 
 export async function accountKeysOf(sr: any, userId: string) {
   const rows = await sr.entities.AccountKey.filter({ user_id: userId }, "version", 300);
