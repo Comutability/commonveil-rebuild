@@ -107,8 +107,11 @@ async function profilesFor(sr: any, userIds: string[]) {
   return sr.entities.Profile.filter({ user_id: { $in: userIds } }, "created_date", userIds.length + 10);
 }
 
-/** Validate grants sent by a member, against what each recipient should have. */
-async function checkGrants(ctx: Ctx, { parts, device, raw, gens, allowChain }: any) {
+/**
+ * Validate grants sent by a member, against what each recipient should have. creating: the
+ * "chain|generation" the caller is making right now (they hold it without a grant of their own yet).
+ */
+async function checkGrants(ctx: Ctx, { parts, device, raw, gens, allowChain, creating = null }: any) {
   const { sr, user, now } = ctx;
   if (!Array.isArray(raw) || raw.length > SERVER_LIMITS.grantsPerRequest) throw new ApiError(400, "BAD_FIELD", "Too many keys in one go.");
   const serverId = parts.server.id;
@@ -130,7 +133,7 @@ async function checkGrants(ctx: Ctx, { parts, device, raw, gens, allowChain }: a
     const gen = gens.find((x: any) => x.chain_id === g.chain_id && Number(x.generation) === generation);
     if (!gen) throw new ApiError(409, "STALE_SERVER_KEYS", "This server's keys changed. Refreshing and trying again.");
     // The grantor must hold this generation at or before the step they're handing on.
-    const held = mine.find((x: any) => grantKey(x) === grantKey(g)) || (g.creating ? { step: 0 } : null);
+    const held = mine.find((x: any) => grantKey(x) === grantKey(g)) || (creating && creating === grantKey(g) ? { step: 0 } : null);
     if (!held || Number(held.step) > step) throw new ApiError(403, "NOT_HELD", "You can only pass on keys you have.");
     const target = members.find((m: any) => m.user_id === recipientId);
     if (!target) {
@@ -209,7 +212,7 @@ async function afterAccessChange(sr: any, serverId: string, userIds: string[], n
     const m = await memberRow(sr, serverId, uid);
     if (!m) continue;
     members.push(m);
-    const [u] = await sr.entities.User.filter({ id: uid }, "created_date", 1).catch(() => []);
+    const u = await sr.entities.User.get(uid).catch(() => null);
     before.set(uid, (u?.cv_access || []).filter((x: string) => parts.channels.some((c: any) => c.id === x)));
   }
   const lost = new Set<string>();
@@ -371,10 +374,11 @@ export function serverActions(config: ServerConfig): Actions {
         throw new ApiError(409, "GENERATION_TAKEN", "Someone else just renewed these keys. Refreshing.");
       }
       const allGens = [...gens, row];
-      const raw = Array.isArray(data.grants) ? data.grants.map((x: any) => ({ ...x, creating: x?.chain_id === chainId && Number(x?.generation) === generation })) : [];
       let checked;
       try {
-        checked = await checkGrants(ctx, { parts, device, raw, gens: allGens, allowChain: (c: string) => c === chainId });
+        checked = await checkGrants(ctx, {
+          parts, device, raw: data.grants, gens: allGens, allowChain: (c: string) => c === chainId, creating: grantKey({ chain_id: chainId, generation }),
+        });
       } catch (error) {
         await sr.entities.KeyGeneration.delete(row.id);
         throw error;
