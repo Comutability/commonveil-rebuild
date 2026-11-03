@@ -7,13 +7,17 @@
 // (first setup, a new phrase, a reset) carry an HMAC under it. On recovery, that HMAC is
 // how the device knows the published keys, and so the backup, are really the account's.
 // The phrase itself is never stored or sent anywhere.
+//
+// The phrase also derives a post-quantum key pair (ML-KEM-768 + P-256, see kem.js). Accounts
+// set up, or given a new phrase, from November 2026 publish it, and their backup is sealed to it.
 import { p256 } from "@noble/curves/nist.js";
 import { generateMnemonic, mnemonicToEntropy, validateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
-import { CONTEXTS, accountKeyFields, canonical } from "./canonical.js";
+import { anchorText } from "./canonical.js";
 import { CryptoFormatError, equalBytes, fromB64, fromUtf8, toB64, utf8 } from "./encoding.js";
 import { aesDecrypt, hkdfBytes, parseSealed, sealedKeyFromSecret } from "./primitives.js";
 import { assertKeyringConsistent, latestKey, parseKeyring, recoveryContext } from "./keyring.js";
+import { isKemSealed, kemKeygen, kemOpen } from "./kem.js";
 
 export const RECOVERY_WORD_COUNT = 24;
 
@@ -52,7 +56,7 @@ export function isValidPhrase(input) {
 
 /**
  * Derive the recovery keys. Same phrase, same keys, on any device.
- * Returns { secret, publicKey, anchorKey }. Wipe secret and anchorKey after use.
+ * Returns { secret, publicKey, anchorKey, kemSecret, kemPublicKey }. Wipe them with wipeRecoveryKey after use.
  */
 export async function deriveRecoveryKey(phrase) {
   const words = phraseWords(phrase);
@@ -63,10 +67,13 @@ export async function deriveRecoveryKey(phrase) {
   const salt = utf8("commonveil/recovery/v1");
   try {
     const anchorKey = await hkdfBytes(entropy, salt, "anchor-hmac", 32);
+    const kemSeed = await hkdfBytes(entropy, salt, "mlkem768-p256-seed", 32);
+    const kem = kemKeygen(kemSeed);
+    kemSeed.fill(0);
     for (let counter = 0; counter < 8; counter += 1) {
       const secret = await hkdfBytes(entropy, salt, `p256-secret|${counter}`, 32);
       if (p256.utils.isValidSecretKey(secret)) {
-        return { secret, publicKey: toB64(p256.getPublicKey(secret, false)), anchorKey };
+        return { secret, publicKey: toB64(p256.getPublicKey(secret, false)), anchorKey, kemSecret: kem.kem_priv, kemPublicKey: kem.kem_pub };
       }
     }
     anchorKey.fill(0);
@@ -79,12 +86,12 @@ export async function deriveRecoveryKey(phrase) {
 export function wipeRecoveryKey(keys) {
   keys?.secret?.fill(0);
   keys?.anchorKey?.fill(0);
+  if (keys) keys.kemSecret = null;
 }
 
 async function anchorHmac(anchorKey, statement) {
   const key = await globalThis.crypto.subtle.importKey("raw", anchorKey, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const text = canonical(CONTEXTS.recoveryAnchor, accountKeyFields(statement));
-  return new Uint8Array(await globalThis.crypto.subtle.sign("HMAC", key, utf8(text)));
+  return new Uint8Array(await globalThis.crypto.subtle.sign("HMAC", key, utf8(anchorText(statement))));
 }
 
 /** The anchor for a key statement made while the phrase is to hand. */
@@ -117,15 +124,17 @@ export async function openWithRecoverySecret(secret, recoveryPubB64, sealed, con
 /**
  * Open the recovery backup with already-derived keys. On its own this proves nothing
  * about where the backup came from: check the published keys with verifyRecoveryAnchor
- * and the keyring against them (protocol.recoverWithPhrase does both).
+ * and the keyring against them (protocol.recoverWithPhrase does both). A backup sealed to
+ * the phrase's post-quantum key opens with that; an older one with the classical key.
  */
-export async function openKeyringWithRecoveryKey({ keys, userId, keyringVersion, recoveryPub, sealed }) {
-  if (keys.publicKey !== recoveryPub) {
+export async function openKeyringWithRecoveryKey({ keys, userId, keyringVersion, recoveryPub, recoveryKemPub = "", sealed }) {
+  if (keys.publicKey !== recoveryPub || (recoveryKemPub && keys.kemPublicKey !== recoveryKemPub)) {
     throw new RecoveryError("WRONG_PHRASE", "That phrase is valid, but it isn't the recovery phrase for this account.");
   }
   let bytes;
   try {
-    bytes = await openWithRecoverySecret(keys.secret, recoveryPub, sealed, recoveryContext(userId, keyringVersion));
+    const context = recoveryContext(userId, keyringVersion);
+    bytes = isKemSealed(sealed) ? await kemOpen(keys.kemSecret, sealed, context) : await openWithRecoverySecret(keys.secret, recoveryPub, sealed, context);
   } catch {
     throw new RecoveryError("BACKUP_UNREADABLE", "The encrypted backup could not be opened with this phrase.");
   }
