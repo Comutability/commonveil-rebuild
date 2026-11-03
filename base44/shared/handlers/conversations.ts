@@ -29,6 +29,31 @@ const TITLE_CLEARED = { title_envelope: "", title_item_id: "", title_sender_id: 
 
 const USERNAME_RE = /^[A-Za-z0-9_]{3,20}$/;
 
+/**
+ * Whether someone accepts a new conversation from me: anyone who knows their username (the
+ * default), only people they share a server with (one that counts for this), or nobody new.
+ */
+async function acceptsFrom(sr: any, own: any, me: string, profile: any) {
+  const policy = profile?.dm_policy || "anyone";
+  if (policy === "anyone") return true;
+  if (policy === "nobody") return false;
+  const mine = await own.entities.ServerMember.filter({ user_id: me }, "created_date", 200);
+  const serverIds = [...new Set(mine.map((m: any) => m.server_id))];
+  if (!serverIds.length) return false;
+  const theirs = await sr.entities.ServerMember.filter({ server_id: { $in: serverIds }, user_id: profile.user_id }, "created_date", 200);
+  if (!theirs.length) return false;
+  const servers = await sr.entities.Server.filter({ audience_id: { $in: theirs.map((m: any) => m.server_id) } }, "created_date", 200);
+  return servers.some((s: any) => s.allow_member_dms !== false && s.status !== "deleting");
+}
+
+async function requireAccepts(sr: any, own: any, me: string, userIds: string[]) {
+  if (!userIds.length) return;
+  const profiles = await sr.entities.Profile.filter({ user_id: { $in: userIds } }, "created_date", userIds.length + 5);
+  for (const p of profiles) {
+    if (!(await acceptsFrom(sr, own, me, p))) throw new ApiError(403, "NOT_ACCEPTING", `${p.username} isn't accepting new conversations.`);
+  }
+}
+
 async function requireSelfReady(sr: any, userId: string) {
   if (!(await profileOf(sr, userId))) throw new ApiError(409, "PROFILE_REQUIRED", "Choose a username first.");
   if (!(await accountKeysOf(sr, userId)).length) throw new ApiError(409, "SETUP_REQUIRED", "Finish setting up encryption first.");
@@ -80,6 +105,7 @@ export const conversationActions: Actions = {
     const dmKey = [user.id, other].sort().join(":");
     const existing = (await sr.entities.Conversation.filter({ dm_key: dmKey }, "created_date", 5)).sort(byAge);
     if (existing[0]) return { conversation: conversationOut(existing[0]), created: false };
+    await requireAccepts(sr, ctx.own, user.id, [other]);
     await enforceRate(sr, "Conversation", { creator_id: user.id }, 3600_000, LIMITS.conversationsPerHour, now, "starting conversations");
     const members = [user.id, other];
     const created = await sr.entities.Conversation.create({ kind: "dm", member_ids: members, dm_key: dmKey, creator_id: user.id });
@@ -101,6 +127,7 @@ export const conversationActions: Actions = {
     await requireSelfReady(sr, user.id);
     const others = await resolveUsernames(sr, user.id, data.usernames, LIMITS.maxGroupMembers - 1);
     if (!others.length) throw new ApiError(400, "BAD_FIELD", "Add at least one other person.");
+    await requireAccepts(sr, ctx.own, user.id, others);
     await enforceRate(sr, "Conversation", { creator_id: user.id }, 3600_000, LIMITS.conversationsPerHour, now, "starting conversations");
     const members = [user.id, ...others];
     const created = await sr.entities.Conversation.create({ kind: "group", member_ids: members, admin_ids: [user.id], creator_id: user.id });
@@ -119,6 +146,7 @@ export const conversationActions: Actions = {
     if (conv.kind !== "group") throw new ApiError(400, "NOT_GROUP", "You can only add people to a group.");
     requireGroupAdmin(conv, user.id, "add people");
     const ids = await resolveUsernames(sr, user.id, data.usernames, LIMITS.maxGroupMembers);
+    await requireAccepts(sr, ctx.own, user.id, ids.filter((i) => !conv.member_ids.includes(i)));
     const next = [...new Set([...conv.member_ids, ...ids])];
     if (next.length > LIMITS.maxGroupMembers) throw new ApiError(409, "GROUP_FULL", `Groups can have up to ${LIMITS.maxGroupMembers} people.`);
     const updated = await sr.entities.Conversation.update(conv.id, { member_ids: next });
