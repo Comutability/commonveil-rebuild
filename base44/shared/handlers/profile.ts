@@ -26,7 +26,7 @@ function privacyOut(p: any) {
 /** Profile colours on offer. Anything else is refused, so a colour can't carry a message. */
 export const ACCENT_COLORS = Object.freeze(["", "teal", "sky", "indigo", "violet", "rose", "amber", "lime", "slate"]);
 
-const EMOJI_RE = /^\p{Extended_Pictographic}(‍\p{Extended_Pictographic}|️|[\u{1f3fb}-\u{1f3ff}])*$/u;
+const EMOJI_RE = /^\p{Extended_Pictographic}(\u200d\p{Extended_Pictographic}|\ufe0f|[\u{1f3fb}-\u{1f3ff}])*$/u;
 
 const USERNAME_RE = /^[A-Za-z0-9_]{3,20}$/;
 const RESERVED = new Set([
