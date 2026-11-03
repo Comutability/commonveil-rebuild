@@ -34,9 +34,11 @@ import {
   makeAccountStatement,
   makeDeviceCert,
   makeDeviceProof,
+  signDeviceKem,
   signItem,
   verifyAccountChain,
   verifyDeviceCert,
+  verifyDeviceKem,
   verifyItem,
 } from "../crypto/identity.js";
 import { decryptEnvelope, encryptEnvelope } from "../crypto/envelope.js";
@@ -64,11 +66,13 @@ export async function signedRequest({ userId, device, action, payload }) {
   return { action, payload: payloadJson, proof };
 }
 
+/** A device row's certificate. cert_has_kem says whether it covers the device's post-quantum key too. */
 const certOf = (userId, d) => ({
   user_id: userId,
   device_id: d.device_id,
   sign_pub: d.sign_pub,
   box_pub: d.box_pub,
+  ...(d.cert_has_kem && d.kem_pub ? { kem_pub: d.kem_pub } : {}),
   key_version: d.cert_key_version,
   issued_at: d.cert_issued_at,
   signature: d.cert_signature,
@@ -86,10 +90,30 @@ export async function deviceIsCertified(userId, deviceRow, chain, { currentOnly 
   return verifyDeviceCert(certOf(userId, deviceRow), chain);
 }
 
+/**
+ * A device's post-quantum key, if it can be vouched for: covered by its certificate, or signed
+ * by the device itself (devices set up before they had one). Otherwise null, and keyrings are
+ * sealed to it the classical way. The server's word alone is never enough.
+ */
+export async function verifiedDeviceKem(userId, deviceRow, chain) {
+  if (!deviceRow?.kem_pub) return null;
+  if (!(await deviceIsCertified(userId, deviceRow, chain))) return null;
+  if (deviceRow.cert_has_kem) return deviceRow.kem_pub;
+  if (!deviceRow.kem_sig) return null;
+  const ok = await verifyDeviceKem({ userId, deviceId: deviceRow.device_id, signPub: deviceRow.sign_pub, kemPub: deviceRow.kem_pub, signature: deviceRow.kem_sig });
+  return ok ? deviceRow.kem_pub : null;
+}
+
 /** What a new device shows in its link code, and later holds the keys it's sent to. */
 export function linkPinFor(chain) {
   return { version: chain.latest.version, digest: headDigest(chain) };
 }
+
+/** True once this account's current key has a post-quantum key. */
+export const chainIsPostQuantum = (chain) => Boolean(chain?.latest?.kem_pub);
+
+/** True once the account's recovery backup is sealed to a post-quantum key from the phrase. */
+export const recoveryIsPostQuantum = (chain) => Boolean(chain?.latest?.recovery_kem_pub);
 
 // ---------- first device ----------
 
@@ -103,10 +127,12 @@ export async function prepareNewAccount({ userId, device }) {
   try {
     const v1 = await createKeyVersion(1);
     const keyring = newKeyring(userId, v1);
-    const statement = await makeAccountStatement({ userId, keyVersion: v1, recoveryPub: recovery.publicKey, signer: v1 });
+    const statement = await makeAccountStatement({
+      userId, keyVersion: v1, recoveryPub: recovery.publicKey, recoveryKemPub: recovery.kemPublicKey, signer: v1,
+    });
     statement.recovery_mac = await recoveryAnchorMac(recovery.anchorKey, statement);
-    const cert = await makeDeviceCert({ userId, device, keyVersion: v1 });
-    const sealedRecovery = await sealKeyringForRecovery(keyring, recovery.publicKey);
+    const cert = await makeDeviceCert({ userId, device, keyVersion: v1, kemPub: device.kem_pub || "" });
+    const sealedRecovery = await sealKeyringForRecovery(keyring, recovery.publicKey, recovery.kemPublicKey);
     const request = await signedRequest({
       userId,
       device,
@@ -131,8 +157,10 @@ export function prepareRegisterDevice({ userId, device }) {
  */
 export async function prepareApproval({ userId, device, keyring, target }) {
   const latest = latestKey(keyring);
-  const cert = await makeDeviceCert({ userId, device: target, keyVersion: latest });
-  const envelope = await sealKeyringToDevice(keyring, target);
+  // The link code the person compared covers the new device's post-quantum key too.
+  const kemPub = target.kem_pub || "";
+  const cert = await makeDeviceCert({ userId, device: target, keyVersion: latest, kemPub });
+  const envelope = await sealKeyringToDevice(keyring, target, kemPub || null);
   return signedRequest({
     userId,
     device,
@@ -148,7 +176,7 @@ export async function prepareKeyringResend({ userId, device, keyring, target, ch
     throw new IdentityError("UNCERTIFIED_DEVICE", "That device isn't certified for your current keys, so they weren't sent to it.");
   }
   const latest = latestKey(keyring);
-  const envelope = await sealKeyringToDevice(keyring, target);
+  const envelope = await sealKeyringToDevice(keyring, target, await verifiedDeviceKem(userId, target, chain));
   return signedRequest({
     userId,
     device,
@@ -169,6 +197,7 @@ export async function acceptKeyringEnvelope({ userId, device, envelope, statemen
   const keyring = await openKeyringFromDevice({
     boxPriv: device.box_priv,
     boxPub: device.box_pub,
+    kemPriv: device.kem_priv || null,
     userId,
     deviceId: device.device_id,
     keyringVersion: envelope.keyring_version,
@@ -225,10 +254,11 @@ export async function recoverWithPhrase({ userId, device, phrase, recoveryRespon
       userId,
       keyringVersion: recovery.keyring_version,
       recoveryPub: chain.latest.recovery_pub,
+      recoveryKemPub: chain.latest.recovery_kem_pub || "",
       sealed: recovery.sealed,
     });
     assertKeyringMatchesChain(keyring, chain);
-    const cert = await makeDeviceCert({ userId, device, keyVersion: latestKey(keyring) });
+    const cert = await makeDeviceCert({ userId, device, keyVersion: latestKey(keyring), kemPub: device.kem_pub || "" });
     const request = await signedRequest({ userId, device, action: "recover_device", payload: { device: publicDevice(device), cert } });
     return { keyring, chain, request };
   } finally {
@@ -267,25 +297,31 @@ export async function prepareRotation({ userId, device, keyring, chain, activeDe
   let recovery = null;
   try {
     let recoveryPub = chain.latest.recovery_pub;
+    // An ordinary rotation keeps the phrase, so it keeps the phrase's post-quantum key, if the
+    // account has one; only a new phrase can add one (it's derived from the phrase).
+    let recoveryKemPub = chain.latest.recovery_kem_pub || "";
     if (newPhrase) {
       phrase = generateRecoveryPhrase();
       recovery = await deriveRecoveryKey(phrase);
       recoveryPub = recovery.publicKey;
+      recoveryKemPub = recovery.kemPublicKey;
     }
     const prev = latestKey(keyring);
     const next = await createKeyVersion(prev.version + 1);
-    const statement = await makeAccountStatement({ userId, keyVersion: next, recoveryPub, signer: prev });
+    const statement = await makeAccountStatement({ userId, keyVersion: next, recoveryPub, recoveryKemPub, signer: prev });
     if (recovery) statement.recovery_mac = await recoveryAnchorMac(recovery.anchorKey, statement);
     const nextKeyring = withVersion(keyring, next);
     const certs = [];
     const envelopes = [];
     for (const d of keep) {
-      certs.push(await makeDeviceCert({ userId, device: d, keyVersion: next }));
+      // This device's own post-quantum key is known; others' only count if they can be vouched for.
+      const kemPub = d.device_id === device.device_id ? device.kem_pub || "" : (await verifiedDeviceKem(userId, d, chain)) || "";
+      certs.push(await makeDeviceCert({ userId, device: d, keyVersion: next, kemPub }));
       if (d.device_id !== device.device_id) {
-        envelopes.push({ device_id: d.device_id, ...(await sealKeyringToDevice(nextKeyring, d)), key_sign_pub: next.sign_pub });
+        envelopes.push({ device_id: d.device_id, ...(await sealKeyringToDevice(nextKeyring, d, kemPub || null)), key_sign_pub: next.sign_pub });
       }
     }
-    const backup = { ...(await sealKeyringForRecovery(nextKeyring, recoveryPub)), key_sign_pub: next.sign_pub };
+    const backup = { ...(await sealKeyringForRecovery(nextKeyring, recoveryPub, recoveryKemPub)), key_sign_pub: next.sign_pub };
     const request = await signedRequest({ userId, device, action: "rotate_keys", payload: { statement, certs, envelopes, recovery: backup } });
     return { keyring: nextKeyring, phrase, request };
   } finally {
@@ -304,10 +340,12 @@ export async function prepareReset({ userId, device, nextVersion }) {
   try {
     const key = await createKeyVersion(nextVersion);
     const keyring = newKeyring(userId, key);
-    const statement = await makeAccountStatement({ userId, keyVersion: key, recoveryPub: recovery.publicKey, signer: key });
+    const statement = await makeAccountStatement({
+      userId, keyVersion: key, recoveryPub: recovery.publicKey, recoveryKemPub: recovery.kemPublicKey, signer: key,
+    });
     statement.recovery_mac = await recoveryAnchorMac(recovery.anchorKey, statement);
-    const cert = await makeDeviceCert({ userId, device, keyVersion: key });
-    const backup = { ...(await sealKeyringForRecovery(keyring, recovery.publicKey)), key_sign_pub: key.sign_pub };
+    const cert = await makeDeviceCert({ userId, device, keyVersion: key, kemPub: device.kem_pub || "" });
+    const backup = { ...(await sealKeyringForRecovery(keyring, recovery.publicKey, recovery.kemPublicKey)), key_sign_pub: key.sign_pub };
     const request = await signedRequest({
       userId,
       device,
@@ -335,6 +373,15 @@ export function prepareCancelReset({ userId, device }) {
   return signedRequest({ userId, device, action: "cancel_reset", payload: {} });
 }
 
+/**
+ * A device set up before post-quantum keys publishes the one it just made, with its own
+ * signature, so the next key rotation can certify it and seal keys to it.
+ */
+export async function prepareSetDeviceKem({ userId, device }) {
+  const kem_sig = await signDeviceKem({ userId, device });
+  return signedRequest({ userId, device, action: "set_device_kem", payload: { kem_pub: device.kem_pub, kem_sig } });
+}
+
 // ---------- conversations ----------
 
 export function prepareCreateDm({ userId, device, username }) {
@@ -351,7 +398,7 @@ function recipientsFor(memberIds, chains) {
   return memberIds.map((uid) => {
     const chain = chains.get(uid);
     if (!chain) throw new IdentityError("MISSING_KEYS", "Someone in this conversation has no verified keys yet.");
-    return { user_id: uid, key_version: chain.latest.version, ecdh_pub: chain.latest.ecdh_pub };
+    return { user_id: uid, key_version: chain.latest.version, ecdh_pub: chain.latest.ecdh_pub, kem_pub: chain.latest.kem_pub || null };
   });
 }
 
