@@ -36,6 +36,14 @@
     "is_reset": {
       "type": "boolean",
       "default": false
+    },
+    "kem_pub": {
+      "type": "string",
+      "description": "Post-quantum hybrid public key (ML-KEM-768 + P-256), 1249 bytes, base64. Empty on statements from before November 2026."
+    },
+    "recovery_kem_pub": {
+      "type": "string",
+      "description": "Post-quantum key derived from the recovery phrase, if the account has one."
     }
   },
   "required": [
