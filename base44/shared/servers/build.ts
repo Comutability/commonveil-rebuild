@@ -1,6 +1,6 @@
 // Making a server from a template, joining one, and taking someone out of one.
 import { ApiError } from "../http.ts";
-import { P, channelIsPrivate, has } from "../permissions.ts";
+import { P, channelIsPrivate, channelPermissions, has } from "../permissions.ts";
 import { byAge, withRow } from "../store.ts";
 import { COMMUNITY, type Template } from "./template.ts";
 import {
@@ -193,9 +193,19 @@ export async function removeMember(sr: any, serverId: string, userId: string, { 
   return true;
 }
 
-/** Members who can see a channel (for access changes): everyone with a role that lets them, plus admins and the owner. */
+/**
+ * Members who can see a private channel: those with a role whose overwrite lets them in, or an
+ * administrator role, and the owner. (@everyone can't, or it wouldn't be private.)
+ */
 export async function membersWhoCanSee(sr: any, parts: any, channel: any) {
-  const members = await sr.entities.ServerMember.filter({ server_id: parts.server.id }, "joined_at", SERVER_LIMITS.membersPerServer);
-  const { channelPermissions } = await import("../permissions.ts");
-  return members.filter((m: any) => has(channelPermissions(parts.server, parts.roles, m, channel), P.VIEW_CHANNEL));
+  const overwriteRoles = (channel.overwrites || []).filter((o: any) => (Number(o.allow) & P.VIEW_CHANNEL) !== 0).map((o: any) => o.role_id);
+  const adminRoles = parts.roles.filter((r: any) => !r.is_everyone && (Number(r.permissions) & P.ADMINISTRATOR) !== 0).map((r: any) => r.id);
+  const roleIds = [...new Set([...overwriteRoles, ...adminRoles])];
+  const found: any[] = [];
+  if (roleIds.length) found.push(...(await sr.entities.ServerMember.filter({ server_id: parts.server.id, role_ids: { $in: roleIds } }, "joined_at", 5000)));
+  if (parts.server.owner_id && !found.some((m) => m.user_id === parts.server.owner_id)) {
+    const owner = await memberRow(sr, parts.server.id, parts.server.owner_id);
+    if (owner) found.push(owner);
+  }
+  return found.filter((m: any) => has(channelPermissions(parts.server, parts.roles, m, channel), P.VIEW_CHANNEL));
 }
