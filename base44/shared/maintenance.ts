@@ -26,12 +26,20 @@ const lastStarted = new Map<string, number>();
 
 const startOfDay = (day: string) => Date.parse(`${day}T00:00:00Z`);
 
-/** Delete disappearing messages whose time is up. */
+const BLANK_SERVER_MESSAGE = { envelope: "", signature: "", deleted: true, msg_id: "", sender_id: "", device_id: "", sent_at: "", expires_at: "", pinned: false };
+
+/**
+ * Delete disappearing messages whose time is up, in conversations and in server channels, and
+ * server audit log entries past their server's retention period.
+ */
 export async function expireMessages(sr: any, now: Date, deadline: number) {
   // Blanking clears expires_at, so a message whose delete failed isn't picked up again.
   const due = { expires_at: { $gt: "", $lte: now.toISOString() } };
   try {
-    return { removed: await blankAndDeleteAll(sr, "Message", due, BLANK.Message, deadline), done: true };
+    const removed = await blankAndDeleteAll(sr, "Message", due, BLANK.Message, deadline);
+    const serverRemoved = await blankAndDeleteAll(sr, "ServerMessage", due, BLANK_SERVER_MESSAGE, deadline);
+    const audit = await blankAndDeleteAll(sr, "AuditEntry", due, { expires_at: "", actor_id: "", target_id: "", detail: "" }, deadline);
+    return { removed, server_removed: serverRemoved, audit_removed: audit, done: true };
   } catch (error) {
     if (error instanceof OutOfTime) return { removed: null, done: false };
     throw error;
