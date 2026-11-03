@@ -18,6 +18,10 @@
     "device_box_pub": {
       "type": "string"
     },
+    "device_kem_pub": {
+      "type": "string",
+      "description": "The new browser's post-quantum key, if it has one."
+    },
     "statement": {
       "type": "string",
       "description": "The new, self-signed key statement (JSON), published only when the reset completes."
