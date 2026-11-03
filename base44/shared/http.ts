@@ -5,8 +5,9 @@
 
 export const LIMITS = Object.freeze({
   maxBodyBytes: 256 * 1024,
+  // A post-quantum wrap is about 1.6 KB, so a 32-person envelope is about 55 KB.
   maxEnvelopeChars: 96 * 1024,
-  maxTitleEnvelopeChars: 16 * 1024,
+  maxTitleEnvelopeChars: 96 * 1024,
   maxSealedChars: 96 * 1024,
   maxGroupMembers: 32,
   maxDevices: 10,
