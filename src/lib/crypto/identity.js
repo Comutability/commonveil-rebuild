@@ -3,15 +3,17 @@
 import { sha256 as syncSha256 } from "@noble/hashes/sha2.js";
 import {
   CONTEXTS,
-  accountKeyFields,
   canonical,
-  deviceCertFields,
+  certText,
+  deviceKemFields,
   deviceProofFields,
   itemFields,
+  statementText,
 } from "./canonical.js";
 import { concatBytes, randomId, sha256B64, toB64, utf8 } from "./encoding.js";
 import { importSignPrivate, signBytes, verifyWithRaw } from "./primitives.js";
 import { latestKey } from "./keyring.js";
+import { isKemPublic } from "./kem.js";
 
 export class IdentityError extends Error {
   constructor(code, message) {
@@ -31,8 +33,10 @@ async function signWithPkcs8(pkcs8, text) {
  * Publishable statement for one account key version.
  * signer = the same key version for a first key or a reset (self-signed),
  *          or the previous version for a rotation (chained).
+ * A key version with a post-quantum key publishes it too, with the recovery phrase's
+ * post-quantum key if the account has one (recoveryKemPub), in the account-key/v2 form.
  */
-export async function makeAccountStatement({ userId, keyVersion, recoveryPub, signer }) {
+export async function makeAccountStatement({ userId, keyVersion, recoveryPub, recoveryKemPub = "", signer }) {
   const statement = {
     user_id: userId,
     version: keyVersion.version,
@@ -42,15 +46,21 @@ export async function makeAccountStatement({ userId, keyVersion, recoveryPub, si
     signed_by_version: signer.version,
     issued_at: nowIso(),
   };
-  statement.signature = await signWithPkcs8(signer.sign_priv, canonical(CONTEXTS.accountKey, accountKeyFields(statement)));
+  if (keyVersion.kem_pub) {
+    statement.kem_pub = keyVersion.kem_pub;
+    statement.recovery_kem_pub = recoveryKemPub || "";
+  }
+  statement.signature = await signWithPkcs8(signer.sign_priv, statementText(statement));
   return statement;
 }
 
 /** One link of the hash chain over an account's published key history. */
 function nextDigest(previous, statement) {
-  const body = canonical(CONTEXTS.accountKey, accountKeyFields(statement));
-  return toB64(syncSha256(utf8(`commonveil/chain-digest/v1\n${previous}\n${body}\n${statement.signature}`)));
+  return toB64(syncSha256(utf8(`commonveil/chain-digest/v1\n${previous}\n${statementText(statement)}\n${statement.signature}`)));
 }
+
+/** True if this statement publishes a post-quantum key. */
+export const statementHasKem = (st) => typeof st?.kem_pub === "string" && st.kem_pub.length > 0;
 
 /**
  * Verify an account's full published key history.
@@ -78,8 +88,11 @@ export async function verifyAccountChain(userId, statements) {
     if (!selfSigned && st.signed_by_version !== st.version - 1) {
       throw new IdentityError("BAD_CHAIN", "This member's key history is out of order.");
     }
+    if (statementHasKem(st) && (!isKemPublic(st.kem_pub) || (st.recovery_kem_pub && !isKemPublic(st.recovery_kem_pub)))) {
+      throw new IdentityError("BAD_KEY", "A published post-quantum key is malformed.");
+    }
     const signer = selfSigned ? st : byVersion.get(st.signed_by_version);
-    const ok = await verifyWithRaw(signer.sign_pub, st.signature, canonical(CONTEXTS.accountKey, accountKeyFields(st)));
+    const ok = await verifyWithRaw(signer.sign_pub, st.signature, statementText(st));
     if (!ok) throw new IdentityError("BAD_SIGNATURE", "A published key statement failed its signature check.");
     byVersion.set(st.version, st);
     digest = nextDigest(digest, st);
@@ -141,7 +154,7 @@ export function anchorChain(chain, { keyring = null, pin = null } = {}) {
       if (!st) {
         throw new IdentityError("KEYS_ROLLED_BACK", "Your account's published keys are older than the keys on this device. Don't send anything until this is sorted out.");
       }
-      if (st.ecdh_pub !== v.ecdh_pub || st.sign_pub !== v.sign_pub) {
+      if (!sameKeys(st, v)) {
         throw new IdentityError("KEYRING_MISMATCH", "Your account's published keys don't match the keys on this device. Don't send anything until this is sorted out.");
       }
     }
@@ -160,11 +173,16 @@ export function anchorChain(chain, { keyring = null, pin = null } = {}) {
   return anchorVersion;
 }
 
+/** A published statement and a keyring version carry the same public keys, post-quantum key included. */
+export function sameKeys(st, v) {
+  return Boolean(st && v) && st.ecdh_pub === v.ecdh_pub && st.sign_pub === v.sign_pub && (st.kem_pub || "") === (v.kem_pub || "");
+}
+
 /** Check a keyring against the account's verified published keys. */
 export function assertKeyringMatchesChain(keyring, chain) {
   for (const v of keyring.versions) {
     const st = chain.byVersion.get(v.version);
-    if (!st || st.ecdh_pub !== v.ecdh_pub || st.sign_pub !== v.sign_pub) {
+    if (!sameKeys(st, v)) {
       throw new IdentityError("KEYRING_MISMATCH", "These keys don't match the keys published for this account.");
     }
   }
@@ -173,7 +191,12 @@ export function assertKeyringMatchesChain(keyring, chain) {
   }
 }
 
-export async function makeDeviceCert({ userId, device, keyVersion }) {
+/**
+ * Certificate for a device's keys under one account key version. kemPub: the device's
+ * post-quantum key, only when the caller has verified it belongs to the device (it came from
+ * the device itself, was in the link code, or carries the device's own signature).
+ */
+export async function makeDeviceCert({ userId, device, keyVersion, kemPub = device.kem_pub || "" }) {
   const cert = {
     user_id: userId,
     device_id: device.device_id,
@@ -182,14 +205,30 @@ export async function makeDeviceCert({ userId, device, keyVersion }) {
     key_version: keyVersion.version,
     issued_at: nowIso(),
   };
-  cert.signature = await signWithPkcs8(keyVersion.sign_priv, canonical(CONTEXTS.deviceCert, deviceCertFields(cert)));
+  if (kemPub) cert.kem_pub = kemPub;
+  cert.signature = await signWithPkcs8(keyVersion.sign_priv, certText(cert));
   return cert;
 }
 
 export async function verifyDeviceCert(cert, chain) {
   const signer = chain.byVersion.get(cert.key_version);
   if (!signer || cert.user_id !== chain.userId) return false;
-  return verifyWithRaw(signer.sign_pub, cert.signature, canonical(CONTEXTS.deviceCert, deviceCertFields(cert)));
+  return verifyWithRaw(signer.sign_pub, cert.signature, certText(cert));
+}
+
+/**
+ * A device's own signature over its post-quantum key. Devices set up before post-quantum keys
+ * add one this way; it's certified at the account's next key rotation.
+ */
+export async function signDeviceKem({ userId, device }) {
+  const text = canonical(CONTEXTS.deviceKem, deviceKemFields({ user_id: userId, device_id: device.device_id, kem_pub: device.kem_pub }));
+  return signBytes(device.sign_priv, utf8(text));
+}
+
+export async function verifyDeviceKem({ userId, deviceId, signPub, kemPub, signature }) {
+  if (!isKemPublic(kemPub)) return false;
+  const text = canonical(CONTEXTS.deviceKem, deviceKemFields({ user_id: userId, device_id: deviceId, kem_pub: kemPub }));
+  return verifyWithRaw(signPub, signature, text);
 }
 
 /** Proof that a request comes from this device. payloadJson is sent verbatim. */
@@ -251,13 +290,15 @@ export function safetyNumber(a, b) {
 
 /**
  * 20-digit code shown on both devices during linking. It covers the new device's keys,
- * so they can't be swapped, and the account's key history as each side sees it, so the
- * new device can't be handed a forged account.
+ * its post-quantum key included, so none can be swapped, and the account's key history as
+ * each side sees it, so the new device can't be handed a forged account.
  */
-export function linkCode({ userId, deviceId, signPub, boxPub, accountDigest }) {
+export function linkCode({ userId, deviceId, signPub, boxPub, kemPub = "", accountDigest }) {
   if (typeof accountDigest !== "string" || !accountDigest) throw new IdentityError("NO_ANCHOR", "No account history for the link code.");
-  const h = syncSha256(utf8(`commonveil/link-code/v2|${userId}|${deviceId}|${signPub}|${boxPub}|${accountDigest}`));
-  return digitGroups(h, 5, 2, 10000, 4);
+  const text = kemPub
+    ? `commonveil/link-code/v3|${userId}|${deviceId}|${signPub}|${boxPub}|${kemPub}|${accountDigest}`
+    : `commonveil/link-code/v2|${userId}|${deviceId}|${signPub}|${boxPub}|${accountDigest}`;
+  return digitGroups(syncSha256(utf8(text)), 5, 2, 10000, 4);
 }
 
 export function groupDigits(digits, size) {
