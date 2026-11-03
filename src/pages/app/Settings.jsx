@@ -103,7 +103,7 @@ function PendingDevice({ d }) {
         <Checkbox
           checked={match}
           disabled={!code}
-          onCheckedChange={(v) => setCompared(v ? { device_id: d.device_id, sign_pub: d.sign_pub, box_pub: d.box_pub, label: d.label } : null)}
+          onCheckedChange={(v) => setCompared(v ? { device_id: d.device_id, sign_pub: d.sign_pub, box_pub: d.box_pub, ...(d.kem_pub ? { kem_pub: d.kem_pub } : {}), label: d.label } : null)}
         />{" "}
         The codes match, and this is my device
       </label>
