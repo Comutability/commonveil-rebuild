@@ -1,7 +1,18 @@
 // Signature and format checks done on the server. The server never holds a
 // private key; it only verifies signatures and the shape of ciphertext.
 import { ApiError, LIMITS, randomIdField, isoTime } from "./http.ts";
-import { CONTEXTS, canonical, certText, deviceKemFields, deviceProofFields, itemFields, statementText } from "./canonical.ts";
+import {
+  CONTEXTS,
+  canonical,
+  certText,
+  chainGenerationFields,
+  deviceKemFields,
+  deviceProofFields,
+  itemFields,
+  keyGrantFields,
+  serverItemFields,
+  statementText,
+} from "./canonical.ts";
 
 /** Post-quantum hybrid keys (ML-KEM-768 + P-256, MLKEM768-P256): public key and ciphertext sizes. */
 export const KEM_PUBLIC_BYTES = 1249;
@@ -227,6 +238,36 @@ export async function verifyItemSignature(item: {
     }),
   );
   return verifySig(item.signPub, item.signature, text);
+}
+
+/** Signature over an encrypted server item (server-item/v1). */
+export async function verifyServerItemSignature(item: {
+  kind: string;
+  server_id: string;
+  channel_id: string;
+  item_id: string;
+  sender_id: string;
+  device_id: string;
+  envelope: string;
+  sent_at: string;
+  signature: unknown;
+  signPub: string;
+}) {
+  const text = canonical(
+    CONTEXTS.serverItem,
+    serverItemFields({ ...item, envelope_hash: await sha256B64(item.envelope) }),
+  );
+  return verifySig(item.signPub, item.signature, text);
+}
+
+/** Signature over a new key generation (chain-gen/v1), by the device that made it. */
+export async function verifyGenerationSignature(g: any, signPub: string) {
+  return verifySig(signPub, g.signature, canonical(CONTEXTS.chainGeneration, chainGenerationFields(g)));
+}
+
+/** Signature over a key grant (key-grant/v1), by the device that sealed it. */
+export async function verifyGrantSignature(g: any, signPub: string) {
+  return verifySig(signPub, g.signature, canonical(CONTEXTS.keyGrant, keyGrantFields({ ...g, sealed_hash: await sha256B64(g.sealed) })));
 }
 
 // ---------- ciphertext shapes ----------
