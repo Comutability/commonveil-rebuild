@@ -31,6 +31,43 @@
     "inactive_warned_at": {
       "type": "string",
       "description": "When the member was emailed that the account will be deleted soon."
+    },
+    "pronouns": {
+      "type": "string"
+    },
+    "accent_color": {
+      "type": "string",
+      "description": "Profile colour, one of the app's palette."
+    },
+    "avatar_emoji": {
+      "type": "string",
+      "description": "An emoji shown instead of initials. No photos are uploaded."
+    },
+    "profile_visibility": {
+      "type": "string",
+      "description": "Who sees display name, pronouns and bio: shared (anyone you share a server or conversation with), conversations (only people you have a conversation with), nobody.",
+      "enum": [
+        "shared",
+        "conversations",
+        "nobody"
+      ]
+    },
+    "dm_policy": {
+      "type": "string",
+      "description": "Who can start a conversation with you: anyone who knows your username, only people you share a server with, or nobody new.",
+      "enum": [
+        "anyone",
+        "servers",
+        "nobody"
+      ]
+    },
+    "default_listed": {
+      "type": "boolean",
+      "description": "Shown in member lists of servers you join, unless changed per server. Off unless chosen."
+    },
+    "default_server_done": {
+      "type": "boolean",
+      "description": "The member has been added to the community server once (and may have left it)."
     }
   },
   "required": [
