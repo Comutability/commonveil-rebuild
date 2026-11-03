@@ -82,7 +82,7 @@ function PendingDevice({ d }) {
   const [compared, setCompared] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const code = chainDigest ? linkCode({ userId, deviceId: d.device_id, signPub: d.sign_pub, boxPub: d.box_pub, accountDigest: chainDigest }) : null;
+  const code = chainDigest ? linkCode({ userId, deviceId: d.device_id, signPub: d.sign_pub, boxPub: d.box_pub, kemPub: d.kem_pub || "", accountDigest: chainDigest }) : null;
   const match = Boolean(compared);
   const act = async (fn) => {
     setBusy(true);
