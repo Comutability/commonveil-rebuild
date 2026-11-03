@@ -196,7 +196,7 @@ export function assertKeyringMatchesChain(keyring, chain) {
  * post-quantum key, only when the caller has verified it belongs to the device (it came from
  * the device itself, was in the link code, or carries the device's own signature).
  */
-export async function makeDeviceCert({ userId, device, keyVersion, kemPub = device.kem_pub || "" }) {
+export async function makeDeviceCert({ userId, device, keyVersion, kemPub = "" }) {
   const cert = {
     user_id: userId,
     device_id: device.device_id,
