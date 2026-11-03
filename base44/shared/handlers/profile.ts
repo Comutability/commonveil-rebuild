@@ -1,8 +1,8 @@
 // Usernames and profiles. There is no member directory: you can look someone up
 // only by their exact username, and see profiles of people you share a
-// conversation with.
+// conversation or a server with, as far as each person chose to show them.
 import { ApiError, cleanText, idList, type Actions } from "../http.ts";
-import { AUTO_DELETE_DAYS, accountKeysOf, blockedEitherWay, contactsOf, dayOf, profileOf, publicProfile, withRow } from "../store.ts";
+import { AUTO_DELETE_DAYS, accountKeysOf, blockedEitherWay, contactsOf, dayOf, profileFor, profileOf, publicProfile, serverPeersOf, withRow } from "../store.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
 import { isRetiredUsername, purgeAccount, removePlatformUser } from "../accountDeletion.ts";
 
@@ -13,6 +13,20 @@ function autoDeleteOut(p: any) {
   const days = Number(p?.delete_after_days) || 0;
   return { days, last_active_on: days ? p.last_active_at || null : null, warned: Boolean(days && p.inactive_warned_at) };
 }
+
+/** Your own privacy choices, as you set them. */
+function privacyOut(p: any) {
+  return {
+    profile_visibility: p?.profile_visibility || "shared",
+    dm_policy: p?.dm_policy || "anyone",
+    default_listed: Boolean(p?.default_listed),
+  };
+}
+
+/** Profile colours on offer. Anything else is refused, so a colour can't carry a message. */
+export const ACCENT_COLORS = Object.freeze(["", "teal", "sky", "indigo", "violet", "rose", "amber", "lime", "slate"]);
+
+const EMOJI_RE = /^\p{Extended_Pictographic}(‍\p{Extended_Pictographic}|️|[\u{1f3fb}-\u{1f3ff}])*$/u;
 
 const USERNAME_RE = /^[A-Za-z0-9_]{3,20}$/;
 const RESERVED = new Set([
@@ -44,6 +58,7 @@ export const profileActions: Actions = {
     return {
       user: { id: user.id, role: user.role === "admin" ? "admin" : "user" },
       profile: profile ? publicProfile(profile) : null,
+      privacy: profile ? privacyOut(profile) : null,
       encryption_ready: keys.length > 0,
       auto_delete: profile ? autoDeleteOut(profile) : null,
     };
@@ -92,14 +107,38 @@ export const profileActions: Actions = {
     return { profile: publicProfile(created) };
   },
 
+  /** Your profile and privacy choices. Only what's offered is accepted. */
   async update({ sr, user, body }) {
     const profile = await profileOf(sr, user.id);
     if (!profile) throw new ApiError(409, "PROFILE_REQUIRED", "Choose a username first.");
-    const changes: Record<string, string> = {};
+    const changes: Record<string, unknown> = {};
     if (body.display_name !== undefined) changes.display_name = cleanText(body.display_name, 50) || profile.username;
     if (body.bio !== undefined) changes.bio = cleanText(body.bio, 280);
+    if (body.pronouns !== undefined) changes.pronouns = cleanText(body.pronouns, 30);
+    if (body.accent_color !== undefined) {
+      if (!ACCENT_COLORS.includes(body.accent_color)) throw new ApiError(400, "BAD_FIELD", "Choose one of the offered colours.");
+      changes.accent_color = body.accent_color;
+    }
+    if (body.avatar_emoji !== undefined) {
+      const emoji = typeof body.avatar_emoji === "string" ? body.avatar_emoji.trim() : "";
+      if (emoji && (emoji.length > 16 || !EMOJI_RE.test(emoji))) throw new ApiError(400, "BAD_FIELD", "Choose a single emoji.");
+      changes.avatar_emoji = emoji;
+    }
+    if (body.profile_visibility !== undefined) {
+      if (!["shared", "conversations", "nobody"].includes(body.profile_visibility)) throw new ApiError(400, "BAD_FIELD", "Invalid choice.");
+      changes.profile_visibility = body.profile_visibility;
+    }
+    if (body.dm_policy !== undefined) {
+      if (!["anyone", "servers", "nobody"].includes(body.dm_policy)) throw new ApiError(400, "BAD_FIELD", "Invalid choice.");
+      changes.dm_policy = body.dm_policy;
+    }
+    if (body.default_listed !== undefined) {
+      if (typeof body.default_listed !== "boolean") throw new ApiError(400, "BAD_FIELD", "Invalid choice.");
+      changes.default_listed = body.default_listed;
+    }
     const updated = Object.keys(changes).length ? await sr.entities.Profile.update(profile.id, changes) : profile;
-    return { profile: publicProfile({ ...profile, ...updated }) };
+    const merged = { ...profile, ...updated, ...changes };
+    return { profile: publicProfile(merged), privacy: privacyOut(merged) };
   },
 
   /** Exact-match lookup. Blocked pairs can't find each other. */
@@ -142,13 +181,17 @@ export const profileActions: Actions = {
     return { done: true, sign_in_removed: await removePlatformUser(sr, user.id) };
   },
 
-  /** Profiles for people you share a conversation with. Others are left out. */
+  /**
+   * Profiles for people you share a conversation or a server with, as much of each as that
+   * person chose to show (see profileFor). Others are left out.
+   */
   async get_many({ sr, own, user, body }) {
     const ids = idList(body.user_ids, "user ids", 100);
-    const allowed = await contactsOf(own, user.id);
-    const wanted = ids.filter((i) => allowed.has(i));
+    const contacts = await contactsOf(own, user.id);
+    const peers = await serverPeersOf(sr, own, user.id, ids.filter((i) => !contacts.has(i)));
+    const wanted = ids.filter((i) => contacts.has(i) || peers.has(i));
     if (!wanted.length) return { profiles: [] };
     const rows = await sr.entities.Profile.filter({ user_id: { $in: wanted } }, "created_date", 200);
-    return { profiles: rows.map(publicProfile) };
+    return { profiles: rows.map((p: any) => (p.user_id === user.id ? publicProfile(p) : profileFor(p, { contact: contacts.has(p.user_id) }))) };
   },
 };
