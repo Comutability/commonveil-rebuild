@@ -12,7 +12,17 @@
 //   for one, but can't take the account over before its owner has had time to stop it.
 // - Sensitive actions carry a proof signed by an active device's own key.
 import { ApiError, LIMITS, id, idList, int, parsePlatformTime, randomIdField, type Actions, type Ctx } from "../http.ts";
-import { parseDevice, parseStatement, requireRecoveryAnchor, requireSealed, verifyCert, verifyProof, verifyStatement } from "../verify.ts";
+import {
+  parseDevice,
+  parseStatement,
+  requireKemKey,
+  requireRecoveryAnchor,
+  requireSealed,
+  verifyCert,
+  verifyDeviceKemSig,
+  verifyProof,
+  verifyStatement,
+} from "../verify.ts";
 import { payloadOf, signedByActiveDevice } from "../deviceAuth.ts";
 import { emailNotice, newDeviceEmail, phraseUsedEmail, resetDoneEmail, resetRequestedEmail } from "../notify.ts";
 import {
@@ -180,6 +190,7 @@ export const keysActions: Actions = {
       cert_key_version: 1,
       cert_issued_at: cert.issued_at,
       cert_signature: cert.signature,
+      cert_has_kem: cert.has_kem,
       approved_via: "first_device",
       approved_at: at,
       synced_key_version: 1,
@@ -254,6 +265,7 @@ export const keysActions: Actions = {
       cert_key_version: latest.version,
       cert_issued_at: cert.issued_at,
       cert_signature: cert.signature,
+      cert_has_kem: cert.has_kem,
       approved_by_device_id: approver.device_id,
       approved_via: "device_approval",
       approved_at: now.toISOString(),
@@ -363,6 +375,7 @@ export const keysActions: Actions = {
       cert_key_version: latest.version,
       cert_issued_at: cert.issued_at,
       cert_signature: cert.signature,
+      cert_has_kem: cert.has_kem,
       approved_via: "recovery_phrase",
       approved_at: at,
       synced_key_version: latest.version,
@@ -372,7 +385,8 @@ export const keysActions: Actions = {
     let row;
     if (existing) {
       // A pending link request from this same browser can be completed by recovery instead.
-      if (existing.status !== "pending" || existing.sign_pub !== device.sign_pub || existing.box_pub !== device.box_pub) {
+      const sameKeys = existing.sign_pub === device.sign_pub && existing.box_pub === device.box_pub && (existing.kem_pub || "") === (device.kem_pub || "");
+      if (existing.status !== "pending" || !sameKeys) {
         throw new ApiError(409, "DEVICE_EXISTS", "This device is already registered.");
       }
       row = { ...existing, ...(await sr.entities.Device.update(existing.id, fields)) };
@@ -419,9 +433,16 @@ export const keysActions: Actions = {
       throw new ApiError(409, "STALE_KEYS", "Your keys changed on another device. Refresh and try again.");
     }
     if (!(await verifyStatement(statement, latest.sign_pub))) throw new ApiError(403, "STATEMENT_INVALID", "The new key wasn't signed by your current key.");
-    // A new phrase is anchored with the phrase itself; an ordinary rotation carries no anchor.
+    // A new phrase is anchored with the phrase itself; an ordinary rotation carries no anchor, and
+    // keeps the phrase's keys as they were (a post-quantum recovery key comes only with a new phrase).
     if (statement.recovery_pub !== latest.recovery_pub) requireRecoveryAnchor(statement);
-    else statement.recovery_mac = "";
+    else {
+      statement.recovery_mac = "";
+      if (statement.kem_pub && statement.recovery_kem_pub !== (latest.recovery_kem_pub || "")) {
+        throw new ApiError(400, "BAD_STATEMENT", "A recovery key can only change with a new recovery phrase.");
+      }
+    }
+    if (latest.kem_pub && !statement.kem_pub) throw new ApiError(400, "BAD_STATEMENT", "New keys must include a post-quantum key.");
 
     const active = (await devicesOf(sr, user.id)).filter((d: any) => d.status === "active");
     const certs = Array.isArray(data.certs) ? data.certs : [];
@@ -464,7 +485,7 @@ export const keysActions: Actions = {
     }
     for (const d of active) {
       const c = verifiedCerts.get(d.device_id);
-      const fields: any = { cert_key_version: statement.version, cert_issued_at: c.issued_at, cert_signature: c.signature };
+      const fields: any = { cert_key_version: statement.version, cert_issued_at: c.issued_at, cert_signature: c.signature, cert_has_kem: c.has_kem };
       if (d.device_id === actor.device_id) fields.synced_key_version = statement.version;
       await sr.entities.Device.update(d.id, fields);
     }
@@ -514,6 +535,7 @@ export const keysActions: Actions = {
       device_label: device.label,
       device_sign_pub: device.sign_pub,
       device_box_pub: device.box_pub,
+      device_kem_pub: device.kem_pub || "",
       statement: JSON.stringify(statement),
       cert: JSON.stringify(cert),
       recovery_sealed: recoverySealed,
@@ -569,22 +591,23 @@ export const keysActions: Actions = {
       cert_key_version: statement.version,
       cert_issued_at: cert.issued_at,
       cert_signature: cert.signature,
+      cert_has_kem: Boolean(cert.kem_pub),
       approved_via: "account_reset",
       approved_at: at,
       synced_key_version: statement.version,
       last_seen_at: at,
       pending_expires_at: "",
     };
+    const keysOfRequest = { sign_pub: request.device_sign_pub, box_pub: request.device_box_pub, kem_pub: request.device_kem_pub || "", kem_sig: "" };
     const existing = await deviceOf(sr, user.id, request.device_id);
     if (existing) {
-      await sr.entities.Device.update(existing.id, { ...fields, sign_pub: request.device_sign_pub, box_pub: request.device_box_pub });
+      await sr.entities.Device.update(existing.id, { ...fields, ...keysOfRequest });
     } else {
       await sr.entities.Device.create({
         user_id: user.id,
         device_id: request.device_id,
         label: request.device_label || "Device",
-        sign_pub: request.device_sign_pub,
-        box_pub: request.device_box_pub,
+        ...keysOfRequest,
         ...fields,
       });
     }
@@ -603,6 +626,25 @@ export const keysActions: Actions = {
     const request = await signedByResetDevice(ctx, "withdraw_reset");
     if (request.status === "waiting") await endResets(sr, [request], "withdrawn", "requester", now);
     return { ok: true };
+  },
+
+  /**
+   * A device set up before post-quantum keys publishes one, signed with its own key. It's used
+   * for keyrings sent to the device once the next key rotation certifies it. Set once.
+   */
+  async set_device_kem(ctx) {
+    const { sr, user, now } = ctx;
+    const { device, data } = await signedByActiveDevice(ctx, "set_device_kem");
+    const kemPub = await requireKemKey(data.kem_pub, "post-quantum key");
+    if (device.kem_pub) {
+      if (device.kem_pub === kemPub) return { device: deviceOut(device, now) };
+      throw new ApiError(409, "ALREADY_SET", "This device already has a post-quantum key.");
+    }
+    if (!(await verifyDeviceKemSig(user.id, device, kemPub, data.kem_sig))) {
+      throw new ApiError(403, "SIGNATURE_INVALID", "The post-quantum key's signature didn't verify.");
+    }
+    const updated = await sr.entities.Device.update(device.id, { kem_pub: kemPub, kem_sig: data.kem_sig, cert_has_kem: false });
+    return { device: deviceOut({ ...device, ...updated }, now) };
   },
 
   /** From any active device: stop every waiting reset. */
