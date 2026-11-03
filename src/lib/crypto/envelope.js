@@ -8,11 +8,17 @@
 // keys to different members that open one ciphertext to different texts. So the
 // envelope carries a hash of the content key (kc), covered by the sender's signature,
 // and every recipient checks the key they unwrapped against it.
+//
+// Version 3 seals the content key with the post-quantum hybrid (kem.js) to every recipient whose
+// current key has one ({u, kv, kct, iv, wk}); anyone else still gets a classical wrap
+// ({u, kv, epk, iv, wk}). Version 2 envelopes, all classical, still open.
 import { CryptoFormatError, concatBytes, equalBytes, fromB64, fromUtf8, randomBytes, sha256, toB64, utf8 } from "./encoding.js";
 import { aesDecrypt, aesEncrypt, aesKeyFromBytes, importEcdhPrivate, openSealed, sealTo } from "./primitives.js";
 import { keyForVersion } from "./keyring.js";
+import { KEM_CIPHERTEXT_BYTES, kemOpen, kemSeal } from "./kem.js";
 
-export const ENVELOPE_VERSION = 2;
+export const ENVELOPE_VERSION = 3;
+const READABLE_VERSIONS = new Set([2, 3]);
 export const MAX_RECIPIENTS = 32;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -54,7 +60,7 @@ function b64Length(value, exact, min) {
 
 export function validateEnvelope(envelope) {
   try {
-    if (!envelope || typeof envelope !== "object" || envelope.v !== ENVELOPE_VERSION) throw new Error("version");
+    if (!envelope || typeof envelope !== "object" || !READABLE_VERSIONS.has(envelope.v)) throw new Error("version");
     b64Length(envelope.iv, 12);
     b64Length(envelope.ct, undefined, 17);
     b64Length(envelope.kc, 32);
@@ -65,7 +71,12 @@ export function validateEnvelope(envelope) {
     for (const w of envelope.wraps) {
       if (!w || typeof w.u !== "string" || !ID_RE.test(w.u) || seen.has(w.u)) throw new Error("wrap user");
       if (!Number.isInteger(w.kv) || w.kv < 1) throw new Error("wrap version");
-      b64Length(w.epk, 65);
+      if (w.kct !== undefined) {
+        if (envelope.v < 3 || w.epk !== undefined) throw new Error("wrap kind");
+        b64Length(w.kct, KEM_CIPHERTEXT_BYTES);
+      } else {
+        b64Length(w.epk, 65);
+      }
       b64Length(w.iv, 12);
       b64Length(w.wk, 48);
       seen.add(w.u);
@@ -87,8 +98,9 @@ export function parseEnvelope(text) {
 }
 
 /**
- * recipients: [{ user_id, key_version, ecdh_pub }] - one entry per member account,
- * including the sender's own account so their other devices can read it.
+ * recipients: [{ user_id, key_version, ecdh_pub, kem_pub? }] - one entry per member account,
+ * including the sender's own account so their other devices can read it. kem_pub (from the
+ * recipient's verified key history) means a post-quantum wrap.
  */
 export async function encryptEnvelope({ scope, recipients, payload }) {
   checkScope(scope);
@@ -107,11 +119,17 @@ export async function encryptEnvelope({ scope, recipients, payload }) {
       }
       if (seen.has(r.user_id)) throw new EnvelopeError("BAD_RECIPIENTS", "Duplicate recipient");
       seen.add(r.user_id);
-      const sealed = await sealTo(r.ecdh_pub, contentKeyBytes, wrapContext(scope, r.user_id, r.key_version));
-      wraps.push({ u: r.user_id, kv: r.key_version, epk: sealed.epk, iv: sealed.iv, wk: sealed.ct });
+      const context = wrapContext(scope, r.user_id, r.key_version);
+      if (r.kem_pub) {
+        const sealed = await kemSeal(r.kem_pub, contentKeyBytes, context);
+        wraps.push({ u: r.user_id, kv: r.key_version, kct: sealed.kct, iv: sealed.iv, wk: sealed.ct });
+      } else {
+        const sealed = await sealTo(r.ecdh_pub, contentKeyBytes, context);
+        wraps.push({ u: r.user_id, kv: r.key_version, epk: sealed.epk, iv: sealed.iv, wk: sealed.ct });
+      }
     }
     const kc = toB64(await keyCommitment(scope, contentKeyBytes));
-    return { v: ENVELOPE_VERSION, iv: toB64(iv), ct: toB64(ct), kc, wraps };
+    return { v: wraps.some((w) => w.kct) ? ENVELOPE_VERSION : 2, iv: toB64(iv), ct: toB64(ct), kc, wraps };
   } finally {
     contentKeyBytes.fill(0);
   }
@@ -141,15 +159,15 @@ export async function decryptEnvelope({ scope, envelope, userId, keyring }) {
   if (!keyVersion) {
     throw new EnvelopeError("KEY_VERSION_MISSING", "This item was encrypted to an account key this device doesn't hold.");
   }
-  const privateKey = await cachedEcdhPrivate(keyVersion);
   let contentKeyBytes;
   try {
-    contentKeyBytes = await openSealed(
-      privateKey,
-      keyVersion.ecdh_pub,
-      { epk: wrap.epk, iv: wrap.iv, ct: wrap.wk },
-      wrapContext(scope, userId, wrap.kv),
-    );
+    const context = wrapContext(scope, userId, wrap.kv);
+    if (wrap.kct) {
+      if (!keyVersion.kem_priv) throw new Error("no post-quantum key");
+      contentKeyBytes = await kemOpen(keyVersion.kem_priv, { kct: wrap.kct, iv: wrap.iv, ct: wrap.wk }, context);
+    } else {
+      contentKeyBytes = await openSealed(await cachedEcdhPrivate(keyVersion), keyVersion.ecdh_pub, { epk: wrap.epk, iv: wrap.iv, ct: wrap.wk }, context);
+    }
   } catch {
     throw new EnvelopeError("UNWRAP_FAILED", "This item's key failed its integrity check.");
   }
