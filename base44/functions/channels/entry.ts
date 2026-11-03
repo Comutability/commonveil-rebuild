@@ -1,0 +1,7 @@
+import { createClientFromRequest } from "npm:@base44/sdk@0.8.57";
+import { serve } from "../../shared/http.ts";
+import { serverMessageActions } from "../../shared/handlers/serverMessages.ts";
+
+export default async function (req: Request): Promise<Response> {
+  return serve(req, createClientFromRequest, serverMessageActions);
+}
