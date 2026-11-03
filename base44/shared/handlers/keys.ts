@@ -38,6 +38,7 @@ import {
   pendingExpired,
   profileOf,
   rateLimited,
+  serverPeersOf,
   statementOut,
   uniqueVersions,
   withinRate,
@@ -657,12 +658,13 @@ export const keysActions: Actions = {
   },
 
   /**
-   * Public keys and device certificates for people you share a conversation with. Three
-   * queries however many people (they come out of the app's shared allowance, see Ctx).
+   * Public keys and device certificates for people you share a conversation or a server with.
+   * A few queries however many people (they come out of the app's shared allowance, see Ctx).
    */
   async peer_keys({ sr, own, user, body }) {
     const ids = idList(body.user_ids, "user ids", 50);
     const allowed = await contactsOf(own, user.id);
+    for (const p of await serverPeersOf(sr, own, user.id, ids.filter((i) => !allowed.has(i)))) allowed.add(p);
     const wanted = ids.filter((i) => allowed.has(i));
     const out: Record<string, { statements: any[]; devices: any[] }> = {};
     if (!wanted.length) return { keys: out };
