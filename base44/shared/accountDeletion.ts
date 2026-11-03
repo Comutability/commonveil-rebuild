@@ -13,6 +13,7 @@
 //    member to people who knew them.
 
 import { withoutMember } from "./store.ts";
+import { eraseServerTraces } from "./servers/erase.ts";
 
 const PAGE = 100;
 const CONCURRENCY = 5;
@@ -55,21 +56,23 @@ export const BLANK = {
   Conversation: {
     member_ids: [], admin_ids: [], dm_key: "", creator_id: "", title_envelope: "", title_item_id: "", title_sender_id: "",
     title_device_id: "", title_sent_at: "", title_signature: "", last_message_at: "", expiry_set_by: "", expiry_set_at: "",
+    server_id: "", ticket_channel_id: "", ticket_opened_by: "",
   },
   Block: { user_id: "", blocked_user_id: "" },
   Report: { reporter_id: "", reported_user_id: "", conversation_id: "", details: "", resolution_note: "", handled_by: "" },
   KeyEnvelope: { user_id: "", device_id: "", recovery_pub: "", key_sign_pub: "", sealed: "", created_by_device_id: "" },
-  AccountKey: { user_id: "", ecdh_pub: "", sign_pub: "", recovery_pub: "", recovery_mac: "", signature: "", issued_at: "" },
+  AccountKey: { user_id: "", ecdh_pub: "", sign_pub: "", recovery_pub: "", recovery_mac: "", signature: "", issued_at: "", kem_pub: "", recovery_kem_pub: "" },
   ResetRequest: {
-    user_id: "", device_id: "", device_label: "", device_sign_pub: "", device_box_pub: "", statement: "", cert: "",
+    user_id: "", device_id: "", device_label: "", device_sign_pub: "", device_box_pub: "", device_kem_pub: "", statement: "", cert: "",
     recovery_sealed: "", recovery_pub: "", key_sign_pub: "", ended_by: "",
   },
   Device: {
-    user_id: "", device_id: "", label: "", sign_pub: "", box_pub: "", cert_issued_at: "", cert_signature: "",
+    user_id: "", device_id: "", label: "", sign_pub: "", box_pub: "", kem_pub: "", kem_sig: "", cert_issued_at: "", cert_signature: "",
     approved_by_device_id: "", approved_at: "", pending_expires_at: "", revoked_at: "", last_seen_at: "",
   },
   Profile: {
     user_id: "", username: "", username_key: "", display_name: "", bio: "", delete_after_days: 0, last_active_at: "", inactive_warned_at: "",
+    pronouns: "", accent_color: "", avatar_emoji: "",
   },
 };
 
@@ -116,6 +119,8 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
         }
       }
     }
+    // 1b. Servers: out of each (with its copies of their keys), messages blanked, owned servers handed on.
+    if (!(await eraseServerTraces(sr, userId, deadline, new Date()))) throw new OutOfTime("deletion paused");
     // 2. Everything else the account sent or is named in.
     await blankAndDeleteAll(sr, "Message", { sender_id: userId }, BLANK.Message, deadline);
     await blankAndDeleteAll(sr, "Block", { user_id: userId }, BLANK.Block, deadline);
