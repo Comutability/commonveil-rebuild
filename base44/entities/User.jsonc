@@ -7,6 +7,20 @@
         "admin",
         "user"
       ]
+    },
+    "cv_access": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Servers and private channels this member can read. Set only by the backend; row rules on server tables trust it, so members can't change it.",
+      "rls": {
+        "update": {
+          "user_condition": {
+            "collaborator_role": "editor"
+          }
+        }
+      }
     }
   },
   "required": [
