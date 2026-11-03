@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { callFn } from "@/lib/api";
 import * as P from "./protocol.js";
 import * as S from "./store.js";
-import { createDeviceKeys, defaultDeviceLabel } from "../crypto/device.js";
+import { createDeviceKeys, defaultDeviceLabel, withDeviceKem } from "../crypto/device.js";
 import { anchorChain, assertKeyringMatchesChain, compareWithPin, headDigest, linkCode, pinFromChain, verifyAccountChain } from "../crypto/identity.js";
 import { latestKey, parseKeyring, serializeKeyring } from "../crypto/keyring.js";
 import { clearEnvelopeKeyCache } from "../crypto/envelope.js";
@@ -65,6 +65,7 @@ export function SecureProvider({ children }) {
   const pendingRef = useRef(null);
   const peerFetchedAt = useRef({});
   const repairAt = useRef(0);
+  const upgradeAt = useRef(0);
   const pinsLock = useRef(Promise.resolve());
 
   const [device, setDeviceState] = useState(null);
@@ -150,6 +151,39 @@ export function SecureProvider({ children }) {
       }
     }
   }, [userId]);
+
+  /**
+   * Post-quantum upgrade for accounts and browsers set up before November 2026, once per
+   * session at most every few minutes, in the background. First this browser gives itself a
+   * post-quantum key and publishes it, signed with its own key; then, if the account's current
+   * key has no post-quantum half, it rotates the account's keys (an ordinary rotation: contacts'
+   * apps follow it silently). Returns true if the keys changed, so the caller reloads them.
+   * Failures are left for the next try (another browser may be doing the same).
+   */
+  const upgradeToPostQuantum = useCallback(async (statusData, ownChain) => {
+    if (Date.now() - upgradeAt.current < 5 * 60_000) return false;
+    upgradeAt.current = Date.now();
+    let d = deviceRef.current;
+    if (!d || !keyringRef.current) return false;
+    try {
+      const row = statusData.devices.find((x) => x.device_id === d.device_id);
+      if (!d.kem_pub || !d.kem_priv) {
+        d = withDeviceKem(d);
+        await setDevice(d);
+      }
+      if (row && !row.kem_pub) await callFn("keys", await P.prepareSetDeviceKem({ userId, device: d }));
+      if (P.chainIsPostQuantum(ownChain)) return false;
+      const fresh = await callFn("keys", { action: "status" });
+      const rotation = await P.prepareRotation({
+        userId, device: d, keyring: keyringRef.current, chain: ownChain, activeDevices: fresh.devices.filter((x) => x.status === "active"),
+      });
+      await callFn("keys", rotation.request);
+      await setKeyring(rotation.keyring);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [userId, setDevice, setKeyring]);
 
   /** A reset this browser asked for: wait, finish it, or learn that it was stopped. Returns true if it took over. */
   const settleReset = useCallback(async (saved, statusData) => {
@@ -299,12 +333,20 @@ export function SecureProvider({ children }) {
       setChain(serverChain);
       setPhase("ready");
       repairDevices(statusData, serverChain);
+      upgradeToPostQuantum(statusData, serverChain).then((changed) => {
+        if (changed) refreshRef.current?.({ silent: true });
+      });
     } catch (err) {
       if (silent && err?.name !== "IdentityError") return;
       setError(err?.message || "Something went wrong.");
       setPhase("error");
     }
-  }, [userId, forgetLocal, syncKeyring, repairDevices, settleReset]);
+  }, [userId, forgetLocal, syncKeyring, repairDevices, settleReset, upgradeToPostQuantum]);
+
+  const refreshRef = useRef(null);
+  useEffect(() => {
+    refreshRef.current = refresh;
+  }, [refresh]);
 
   useEffect(() => {
     setPhase("loading");
@@ -535,7 +577,7 @@ export function SecureProvider({ children }) {
 
   const myLinkCode = useMemo(() => {
     if (!device || !userId || !linkPin) return null;
-    return linkCode({ userId, deviceId: device.device_id, signPub: device.sign_pub, boxPub: device.box_pub, accountDigest: linkPin.digest });
+    return linkCode({ userId, deviceId: device.device_id, signPub: device.sign_pub, boxPub: device.box_pub, kemPub: device.kem_pub || "", accountDigest: linkPin.digest });
   }, [device, userId, linkPin]);
 
   /** Unlock the keys with the phrase. A pending link request from this browser is completed instead of duplicated. */
