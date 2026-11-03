@@ -1,7 +1,11 @@
 // Signature and format checks done on the server. The server never holds a
 // private key; it only verifies signatures and the shape of ciphertext.
 import { ApiError, LIMITS, randomIdField, isoTime } from "./http.ts";
-import { CONTEXTS, accountKeyFields, canonical, deviceCertFields, deviceProofFields, itemFields } from "./canonical.ts";
+import { CONTEXTS, canonical, certText, deviceKemFields, deviceProofFields, itemFields, statementText } from "./canonical.ts";
+
+/** Post-quantum hybrid keys (ML-KEM-768 + P-256, MLKEM768-P256): public key and ciphertext sizes. */
+export const KEM_PUBLIC_BYTES = 1249;
+export const KEM_CIPHERTEXT_BYTES = 1153;
 
 const B64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
@@ -41,6 +45,27 @@ export async function requireP256Key(value: unknown, name: string): Promise<stri
   return value as string;
 }
 
+/**
+ * A hybrid public key: ML-KEM-768's 1184 bytes, then an uncompressed P-256 point. The server can
+ * check the point and the length; the ML-KEM half is checked by whoever encapsulates to it.
+ */
+export async function isKemKey(value: unknown): Promise<boolean> {
+  const raw = b64Bytes(value);
+  if (!raw || raw.length !== KEM_PUBLIC_BYTES) return false;
+  return isP256Key(bytesToB64(raw.subarray(KEM_PUBLIC_BYTES - 65)));
+}
+
+export async function requireKemKey(value: unknown, name: string): Promise<string> {
+  if (!(await isKemKey(value))) throw new ApiError(400, "BAD_KEY", `Invalid ${name}.`);
+  return value as string;
+}
+
+/** "" when absent, else a valid hybrid key. */
+async function optionalKemKey(value: unknown, name: string): Promise<string> {
+  if (value === undefined || value === null || value === "") return "";
+  return requireKemKey(value, name);
+}
+
 export async function verifySig(publicKeyB64: string, signatureB64: unknown, text: string): Promise<boolean> {
   const raw = b64Bytes(publicKeyB64);
   const sig = b64Bytes(signatureB64);
@@ -70,7 +95,12 @@ export async function parseStatement(raw: any, userId: string) {
     issued_at: isoTime(raw.issued_at, "issued_at"),
     signature: typeof raw.signature === "string" ? raw.signature : "",
     recovery_mac: "",
+    // Post-quantum keys (account-key/v2). A statement without one is the v1 form.
+    kem_pub: await optionalKemKey(raw.kem_pub, "post-quantum key"),
+    recovery_kem_pub: "",
   };
+  if (statement.kem_pub) statement.recovery_kem_pub = await optionalKemKey(raw.recovery_kem_pub, "post-quantum recovery key");
+  else if (raw.recovery_kem_pub) throw new ApiError(400, "BAD_STATEMENT", "A post-quantum recovery key needs a post-quantum account key.");
   // HMAC under a key only the recovery phrase produces. The server can't check it, only its shape.
   if (raw.recovery_mac !== undefined && raw.recovery_mac !== null && raw.recovery_mac !== "") {
     const mac = b64Bytes(raw.recovery_mac);
@@ -86,25 +116,32 @@ export function requireRecoveryAnchor(statement: any) {
 }
 
 export async function verifyStatement(statement: any, signerPub: string): Promise<boolean> {
-  return verifySig(signerPub, statement.signature, canonical(CONTEXTS.accountKey, accountKeyFields(statement)));
+  return verifySig(signerPub, statement.signature, statementText(statement));
 }
 
 // ---------- devices ----------
 
 export async function parseDevice(raw: any) {
   if (!raw || typeof raw !== "object") throw new ApiError(400, "BAD_DEVICE", "Missing device.");
-  return {
+  const device: any = {
     device_id: randomIdField(raw.device_id, "device id"),
     label: typeof raw.label === "string" ? raw.label.replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 60) || "Device" : "Device",
     sign_pub: await requireP256Key(raw.sign_pub, "device signing key"),
     box_pub: await requireP256Key(raw.box_pub, "device box key"),
   };
+  const kem = await optionalKemKey(raw.kem_pub, "device post-quantum key");
+  if (kem) device.kem_pub = kem;
+  return device;
 }
 
-/** Certificate must name exactly these device keys and be signed by the given account key. */
+/**
+ * Certificate must name exactly these device keys and be signed by the given account key.
+ * It may also cover the device's post-quantum key (device-cert/v2), which must then be the one
+ * stored for the device. Returns the certificate with has_kem saying which form it is.
+ */
 export async function verifyCert(rawCert: any, userId: string, device: any, keyVersion: number, accountSignPub: string) {
   if (!rawCert || typeof rawCert !== "object") throw new ApiError(400, "BAD_CERT", "Missing device certificate.");
-  const cert = {
+  const cert: any = {
     user_id: rawCert.user_id,
     device_id: rawCert.device_id,
     sign_pub: rawCert.sign_pub,
@@ -113,16 +150,23 @@ export async function verifyCert(rawCert: any, userId: string, device: any, keyV
     issued_at: isoTime(rawCert.issued_at, "certificate time"),
     signature: rawCert.signature,
   };
+  if (rawCert.kem_pub !== undefined && rawCert.kem_pub !== "") cert.kem_pub = rawCert.kem_pub;
   const matches =
     cert.user_id === userId &&
     cert.device_id === device.device_id &&
     cert.sign_pub === device.sign_pub &&
     cert.box_pub === device.box_pub &&
-    cert.key_version === keyVersion;
+    cert.key_version === keyVersion &&
+    (cert.kem_pub === undefined || cert.kem_pub === device.kem_pub);
   if (!matches) throw new ApiError(400, "CERT_MISMATCH", "The device certificate doesn't match the device.");
-  const ok = await verifySig(accountSignPub, cert.signature, canonical(CONTEXTS.deviceCert, deviceCertFields(cert)));
+  const ok = await verifySig(accountSignPub, cert.signature, certText(cert));
   if (!ok) throw new ApiError(403, "CERT_INVALID", "The device certificate failed its signature check.");
-  return cert;
+  return { ...cert, has_kem: cert.kem_pub !== undefined };
+}
+
+/** A device's own signature over its post-quantum key (device-kem/v1). */
+export async function verifyDeviceKemSig(userId: string, device: any, kemPub: string, signature: unknown) {
+  return verifySig(device.sign_pub, signature, canonical(CONTEXTS.deviceKem, deviceKemFields({ user_id: userId, device_id: device.device_id, kem_pub: kemPub })));
 }
 
 /** Proof that this request was signed by the device holding signPub. */
@@ -187,18 +231,27 @@ export async function verifyItemSignature(item: {
 
 // ---------- ciphertext shapes ----------
 
+/** A sealed value: classical {epk, iv, ct} or post-quantum {kct, iv, ct}. */
 export function validSealed(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const s = value as any;
-  const epk = b64Bytes(s.epk);
   const iv = b64Bytes(s.iv);
   const ct = b64Bytes(s.ct);
-  return Boolean(epk && epk.length === 65 && epk[0] === 4 && iv && iv.length === 12 && ct && ct.length >= 17);
+  if (!iv || iv.length !== 12 || !ct || ct.length < 17) return false;
+  if (s.kct !== undefined) {
+    const kct = b64Bytes(s.kct);
+    return s.epk === undefined && Boolean(kct && kct.length === KEM_CIPHERTEXT_BYTES);
+  }
+  const epk = b64Bytes(s.epk);
+  return Boolean(epk && epk.length === 65 && epk[0] === 4);
 }
+
+export const isKemSealed = (value: any) => Boolean(value && typeof value === "object" && typeof value.kct === "string");
 
 export function requireSealed(value: unknown, name: string): string {
   if (!validSealed(value)) throw new ApiError(400, "BAD_CIPHERTEXT", `Invalid ${name}.`);
-  const out = JSON.stringify({ epk: (value as any).epk, iv: (value as any).iv, ct: (value as any).ct });
+  const v = value as any;
+  const out = JSON.stringify(isKemSealed(v) ? { kct: v.kct, iv: v.iv, ct: v.ct } : { epk: v.epk, iv: v.iv, ct: v.ct });
   if (out.length > LIMITS.maxSealedChars) throw new ApiError(413, "TOO_LARGE", `${name} is too large.`);
   return out;
 }
@@ -218,22 +271,30 @@ export function parseEnvelopeShape(envelopeJson: string, maxChars: number) {
     throw new ApiError(400, "BAD_ENVELOPE", "The encrypted message is malformed.");
   }
   const bad = () => new ApiError(400, "BAD_ENVELOPE", "The encrypted message is malformed.");
-  if (!env || env.v !== 2) throw bad();
+  // Version 2: every wrap classical. Version 3: post-quantum wraps ({kct}) for those who have the keys.
+  if (!env || (env.v !== 2 && env.v !== 3)) throw bad();
   const iv = b64Bytes(env.iv);
   const ct = b64Bytes(env.ct);
   const kc = b64Bytes(env.kc);
   if (!iv || iv.length !== 12 || !ct || ct.length < 17 || !kc || kc.length !== 32) throw bad();
   if (!Array.isArray(env.wraps) || env.wraps.length === 0 || env.wraps.length > LIMITS.maxGroupMembers) throw bad();
-  const wraps: { u: string; kv: number }[] = [];
+  const wraps: { u: string; kv: number; kem: boolean }[] = [];
   const seen = new Set<string>();
   for (const w of env.wraps) {
     if (!w || typeof w.u !== "string" || seen.has(w.u) || !Number.isInteger(w.kv) || w.kv < 1) throw bad();
-    const epk = b64Bytes(w.epk);
     const wiv = b64Bytes(w.iv);
     const wk = b64Bytes(w.wk);
-    if (!epk || epk.length !== 65 || !wiv || wiv.length !== 12 || !wk || wk.length !== 48) throw bad();
+    if (!wiv || wiv.length !== 12 || !wk || wk.length !== 48) throw bad();
+    const kem = w.kct !== undefined;
+    if (kem) {
+      const kct = b64Bytes(w.kct);
+      if (env.v !== 3 || w.epk !== undefined || !kct || kct.length !== KEM_CIPHERTEXT_BYTES) throw bad();
+    } else {
+      const epk = b64Bytes(w.epk);
+      if (!epk || epk.length !== 65) throw bad();
+    }
     seen.add(w.u);
-    wraps.push({ u: w.u, kv: w.kv });
+    wraps.push({ u: w.u, kv: w.kv, kem });
   }
   return wraps;
 }
