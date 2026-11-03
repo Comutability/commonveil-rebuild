@@ -62,6 +62,26 @@
     },
     "expiry_set_at": {
       "type": "string"
+    },
+    "server_id": {
+      "type": "string",
+      "description": "For a support ticket: the server it was opened in."
+    },
+    "ticket_channel_id": {
+      "type": "string"
+    },
+    "ticket_number": {
+      "type": "number"
+    },
+    "ticket_status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "closed"
+      ]
+    },
+    "ticket_opened_by": {
+      "type": "string"
     }
   },
   "required": [
