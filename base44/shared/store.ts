@@ -63,6 +63,8 @@ export const statementOut = (k: any) => ({
   issued_at: k.issued_at,
   signature: k.signature,
   is_reset: Boolean(k.is_reset),
+  // Post-quantum keys, on statements made from November 2026 (account-key/v2).
+  ...(k.kem_pub ? { kem_pub: k.kem_pub, recovery_kem_pub: k.recovery_kem_pub || "" } : {}),
 });
 
 /** The account's own view also carries the recovery anchors (useless to anyone without the phrase). */
@@ -70,9 +72,17 @@ export const ownStatementOut = (k: any) => ({ ...statementOut(k), recovery_mac: 
 
 /** Latest key version for each user. Throws if any user has no keys yet. */
 export async function latestVersionsFor(sr: any, userIds: string[]) {
+  return new Map([...(await latestKeysFor(sr, userIds))].map(([u, k]) => [u, k.version]));
+}
+
+/** Each user's latest key statement (oldest row wins a duplicate version). */
+export async function latestKeysFor(sr: any, userIds: string[]) {
   const rows = await sr.entities.AccountKey.filter({ user_id: { $in: userIds } }, "version", 5000);
-  const latest = new Map<string, number>();
-  for (const r of rows) latest.set(r.user_id, Math.max(latest.get(r.user_id) || 0, r.version));
+  const latest = new Map<string, any>();
+  for (const r of [...rows].sort(byAge)) {
+    const seen = latest.get(r.user_id);
+    if (!seen || r.version > seen.version) latest.set(r.user_id, r);
+  }
   return latest;
 }
 
@@ -114,7 +124,11 @@ export const deviceOut = (d: any, now: Date) => ({
   synced_key_version: d.synced_key_version ?? null,
   last_seen_at: d.last_seen_at || null,
   created_date: d.created_date,
+  ...devicePqOut(d),
 });
+
+/** A device's post-quantum key, its own signature over it, and whether its certificate covers it. */
+const devicePqOut = (d: any) => (d.kem_pub ? { kem_pub: d.kem_pub, kem_sig: d.kem_sig || "", cert_has_kem: Boolean(d.cert_has_kem) } : {});
 
 /** What other members see about your devices: keys and certificate, no labels or timings. */
 export const peerDeviceOut = (d: any) => ({
@@ -125,6 +139,7 @@ export const peerDeviceOut = (d: any) => ({
   cert_key_version: d.cert_key_version,
   cert_issued_at: d.cert_issued_at,
   cert_signature: d.cert_signature,
+  ...devicePqOut(d),
 });
 
 /** Active device owned by this user, or a 403. */
@@ -294,16 +309,20 @@ export const messageOut = (m: any) => ({
   deleted: Boolean(m.deleted),
 });
 
-/** Every member must be covered exactly once, each at their current key version. */
-export async function assertWrapsMatchMembers(sr: any, wraps: { u: string; kv: number }[], memberIds: string[]) {
-  const latest = await latestVersionsFor(sr, memberIds);
+/**
+ * Every member must be covered exactly once, each at their current key version, and with a
+ * post-quantum wrap whenever that key has a post-quantum half.
+ */
+export async function assertWrapsMatchMembers(sr: any, wraps: { u: string; kv: number; kem?: boolean }[], memberIds: string[]) {
+  const latest = await latestKeysFor(sr, memberIds);
   const wrapUsers = new Set(wraps.map((w) => w.u));
   const exact = wrapUsers.size === memberIds.length && memberIds.every((m) => wrapUsers.has(m));
   if (!exact) throw new ApiError(409, "RECIPIENTS_CHANGED", "The people in this conversation changed. Refreshing and trying again.");
   for (const w of wraps) {
     const current = latest.get(w.u);
     if (!current) throw new ApiError(409, "MEMBER_NOT_READY", "Someone here hasn't finished setting up encryption.");
-    if (w.kv !== current) throw new ApiError(409, "STALE_KEYS", "Someone's keys changed. Refreshing and trying again.");
+    if (w.kv !== current.version) throw new ApiError(409, "STALE_KEYS", "Someone's keys changed. Refreshing and trying again.");
+    if (current.kem_pub && !w.kem) throw new ApiError(409, "STALE_KEYS", "Someone's keys changed. Refreshing and trying again.");
   }
 }
 
