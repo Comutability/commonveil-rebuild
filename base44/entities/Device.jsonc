@@ -75,6 +75,18 @@
     },
     "last_seen_at": {
       "type": "string"
+    },
+    "kem_pub": {
+      "type": "string",
+      "description": "Device post-quantum hybrid public key, used to deliver the keyring to it."
+    },
+    "kem_sig": {
+      "type": "string",
+      "description": "The device's own signature over kem_pub, for devices that added one after setup."
+    },
+    "cert_has_kem": {
+      "type": "boolean",
+      "description": "Whether the certificate covers kem_pub (device-cert/v2)."
     }
   },
   "required": [
