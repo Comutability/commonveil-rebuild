@@ -21,29 +21,44 @@ const RULES = Object.fromEntries(
 /**
  * Turn a row level security rule into a query for this person: {} matches everything, null
  * nothing. Only the rule shapes this app uses are understood; anything else fails the test.
+ * userData reads a field of the person's stored User record, at query time, as Base44 does
+ * for {{user.data.<field>}} (checked against the live platform).
  */
-function ruleToQuery(rule, user) {
+function ruleToQuery(rule, user, userData = () => undefined) {
   if (rule === true) return {};
   if (rule === false || rule === undefined) return null;
   if (!user) return null; // a rule that refers to the user blocks anonymous callers outright
+  const resolve = (value) => {
+    if (value === "{{user.id}}") return user.id;
+    if (value === "{{user.email}}") return user.email;
+    const m = typeof value === "string" ? /^\{\{user\.data\.([a-z_]+)\}\}$/.exec(value) : null;
+    if (m) return userData(m[1]);
+    if (typeof value === "string" && value.includes("{{")) throw new Error(`Fake RLS doesn't understand ${value}`);
+    return value;
+  };
   const parts = [];
   for (const [key, value] of Object.entries(rule)) {
     if (key === "$or") {
-      const subs = value.map((r) => ruleToQuery(r, user));
+      const subs = value.map((r) => ruleToQuery(r, user, userData));
       if (subs.some((s) => s && !Object.keys(s).length)) continue;
       const live = subs.filter(Boolean);
       if (!live.length) return null;
       parts.push({ $or: live });
     } else if (key === "$and") {
-      const subs = value.map((r) => ruleToQuery(r, user));
+      const subs = value.map((r) => ruleToQuery(r, user, userData));
       if (subs.some((s) => s === null)) return null;
       parts.push(...subs);
     } else if (key === "user_condition") {
       for (const [field, expected] of Object.entries(value)) if (user[field] !== expected) return null;
     } else if (key.startsWith("data.")) {
-      const resolved = value === "{{user.id}}" ? user.id : value === "{{user.email}}" ? user.email : value;
-      if (typeof resolved === "string" && resolved.includes("{{")) throw new Error(`Fake RLS doesn't understand ${value}`);
-      parts.push({ [key.slice(5)]: resolved });
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        // Only the whole-operand $in form resolves on Base44: { "$in": "{{user.data.list}}" }.
+        if (Object.keys(value).length !== 1 || !("$in" in value)) throw new Error("Fake RLS only understands $in rules");
+        const list = resolve(value.$in);
+        parts.push({ [key.slice(5)]: { $in: Array.isArray(list) ? list : [] } });
+      } else {
+        parts.push({ [key.slice(5)]: resolve(value) });
+      }
     } else {
       throw new Error(`Fake RLS doesn't understand the rule key ${key}`);
     }
@@ -170,6 +185,33 @@ export class FakeWorld {
         rows.push(row);
         return clone(row);
       },
+      async bulkCreate(list) {
+        const out = [];
+        for (const data of list) out.push(await this.create(data));
+        return out;
+      },
+      async updateMany(query, ops) {
+        const set = ops?.$set;
+        if (!set || Object.keys(ops).length !== 1) throw new Error("Fake store only supports updateMany with $set");
+        let n = 0;
+        for (const row of rows) {
+          if (!matches(row, query)) continue;
+          Object.assign(row, clone(set), { updated_date: world.tick() });
+          world.writes += 1;
+          n += 1;
+        }
+        return { modifiedCount: n };
+      },
+      async deleteMany(query) {
+        let n = 0;
+        for (let i = rows.length - 1; i >= 0; i -= 1) {
+          if (!matches(rows[i], query)) continue;
+          rows.splice(i, 1);
+          world.writes += 1;
+          n += 1;
+        }
+        return { deletedCount: n };
+      },
       async update(id, data) {
         world.writes += 1;
         const row = rows.find((r) => r.id === id);
@@ -186,10 +228,23 @@ export class FakeWorld {
     };
   }
 
+  /** A test person's stored User record (created on first use, as signing in does on Base44). */
+  userRow(user) {
+    const rows = this.entities.User._rows;
+    let row = rows.find((r) => r.id === user.id);
+    if (!row) {
+      const at = this.tick();
+      row = { id: user.id, email: user.email, role: user.role, full_name: user.full_name, created_date: at, updated_date: at };
+      rows.push(row);
+    }
+    return row;
+  }
+
   /** Entities as the signed-in person sees them: the service store, filtered by each entity's rules. */
   #asPerson(user) {
     const world = this;
     const denied = (status, message) => Object.assign(new Error(message), { status });
+    const userData = (field) => (user ? clone(world.userRow(user)[field]) : undefined);
     return new Proxy({}, {
       get: (_target, name) => {
         if (typeof name !== "string") return undefined;
@@ -197,12 +252,12 @@ export class FakeWorld {
         const store = world.entities[name];
         return {
           async filter(query = {}, sort, limit) {
-            const allowed = ruleToQuery(rules.read, user);
+            const allowed = ruleToQuery(rules.read, user, userData);
             if (!allowed) return [];
             return store.filter(Object.keys(allowed).length ? { $and: [query, allowed] } : query, sort, limit);
           },
           async get(id) {
-            const allowed = ruleToQuery(rules.read, user);
+            const allowed = ruleToQuery(rules.read, user, userData);
             const row = await store.get(id);
             if (!allowed || !matches(row, allowed)) throw denied(404, "Not found");
             return row;
@@ -241,15 +296,32 @@ export class FakeWorld {
             return store.get(...args);
           },
           create: (...args) => store.create(...args),
-          update: (...args) => store.update(...args),
+          bulkCreate: (...args) => store.bulkCreate(...args),
+          update: (...args) => {
+            if (name === "User") world.userRowById(args[0]);
+            return store.update(...args);
+          },
+          updateMany: (...args) => store.updateMany(...args),
           delete: (...args) => store.delete(...args),
+          deleteMany: (...args) => store.deleteMany(...args),
         };
       },
     });
   }
 
+  /** Make sure a User row exists for a known test person before the backend updates it. */
+  userRowById(id) {
+    const person = this.people?.get(id);
+    if (person) this.userRow(person);
+  }
+
   /** What createClientFromRequest returns inside a function, for a given caller. */
   clientFor(user) {
+    if (user) {
+      if (!this.people) this.people = new Map();
+      this.people.set(user.id, user);
+      this.userRow(user);
+    }
     return {
       entities: this.#asPerson(user),
       auth: {
