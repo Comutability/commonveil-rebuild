@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { AlertTriangle, Ban, Flag, LogOut, MoreHorizontal, ShieldCheck, Timer, UserMinus, UserCog } from "lucide-react";
+import { Bomb, AlertTriangle, Ban, Flag, LogOut, MoreHorizontal, ShieldCheck, Timer, UserMinus, UserCog } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,40 @@ import { groupDigits, headDigest, safetyNumber } from "@/lib/crypto/identity.js"
 import { EXPIRY_CHOICES } from "@/lib/secure/protocol.js";
 import { timerLabel } from "@/lib/secure/thread.js";
 import Avatar from "./Avatar";
+
+const DESTRUCT = [[0, "Off"], [1, "In 1 hour"], [6, "In 6 hours"], [24, "In 1 day"], [72, "In 3 days"], [168, "In 1 week"], [720, "In 30 days"]];
+
+/** Self-destruct: the whole conversation goes, for everyone, at a set time. */
+function SelfDestruct({ conversation, canChange, busy, run, setMessage }) {
+  const { setSelfDestruct, nameOf } = useChat();
+  if (conversation.server_id) return null;
+  const at = conversation.destroy_at ? new Date(conversation.destroy_at) : null;
+  return (
+    <div className="space-y-1.5 border-t border-border pt-4">
+      <Label htmlFor="self-destruct" className="flex items-center gap-1.5"><Bomb className="h-4 w-4" aria-hidden="true" /> Self-destruct</Label>
+      <NativeSelect
+        id="self-destruct"
+        value=""
+        disabled={!canChange || busy}
+        onChange={(e) => {
+          const hours = Number(e.target.value);
+          run(async () => {
+            await setSelfDestruct(conversation, hours);
+            setMessage(hours ? "This conversation will be deleted for everyone at that time." : "Self-destruct is off.");
+          });
+        }}
+      >
+        <option value="" disabled>{at ? `Set for ${at.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}` : "Off"}</option>
+        {DESTRUCT.map(([h, l]) => <option key={h} value={String(h)}>{l}</option>)}
+      </NativeSelect>
+      <p className="text-xs text-muted-foreground">
+        At that time the whole conversation (every message and file, and the conversation itself) is deleted for everyone, from the server and from each member's app.
+        {conversation.destroy_set_by && at && <> Set by {nameOf(conversation.destroy_set_by)}.</>}
+        {!canChange && " Only the group's admins can change it."}
+      </p>
+    </div>
+  );
+}
 
 /** Disappearing messages: either person in a direct message, or a group's admins, can change it. */
 function DisappearingMessages({ conversation, canChange, busy, run, setMessage }) {
@@ -242,6 +276,7 @@ export default function ConversationInfoDialog({ conversation, open, onOpenChang
         </ul>
 
         <DisappearingMessages conversation={conversation} canChange={canManage} busy={busy} run={run} setMessage={setMessage} />
+        <SelfDestruct conversation={conversation} canChange={canManage} busy={busy} run={run} setMessage={setMessage} />
 
         {isGroup && (
           <div className="space-y-4 border-t border-border pt-4">
