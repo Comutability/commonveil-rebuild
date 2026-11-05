@@ -23,6 +23,8 @@ export const SERVER_LIMITS = Object.freeze({
   messagesPerMinute: 30,
   pageSize: 50,
   maxItemEnvelopeChars: 16 * 1024,
+  /** Emoji and sticker sets carry small images, so their items can be bigger. */
+  maxImageSetEnvelopeChars: 180 * 1024,
   maxMessageEnvelopeChars: 24 * 1024,
   maxPreviewChars: 4096,
   auditRetentionChoices: [30, 90, 180],
@@ -86,6 +88,9 @@ export const serverOut = (s: any) => ({
   public: s.discoverable || s.is_default ? { name: s.public_name || "", description: s.public_description || "", tags: s.public_tags || [], icon: s.public_icon || "", color: s.public_color || "" } : null,
   profile: itemOut(s, "profile"),
   rules: itemOut(s, "rules"),
+  emoji: itemOut(s, "emoji"),
+  stickers: itemOut(s, "stickers"),
+  automod: itemOut(s, "automod"),
   settings: {
     rules_required: Boolean(s.rules_required),
     min_account_minutes: Number(s.min_account_minutes) || 0,
@@ -412,10 +417,10 @@ export async function needRotation(sr: any, serverId: string, chainIds: string[]
  * reason): its envelope's shape, the sending device, the clock, and the device's signature.
  * The envelope must be encrypted with the server's history chain, current generation.
  */
-export async function acceptItem(ctx: any, { kind, serverId, channelId = "", item, gens, chainId }: any) {
+export async function acceptItem(ctx: any, { kind, serverId, channelId = "", item, gens, chainId, maxChars = SERVER_LIMITS.maxItemEnvelopeChars }: any) {
   const { own, user, now } = ctx;
   if (!item || typeof item !== "object") throw new ApiError(400, "BAD_FIELD", "Missing encrypted item.");
-  const envelope = str(item.envelope, "encrypted item", SERVER_LIMITS.maxItemEnvelopeChars);
+  const envelope = str(item.envelope, "encrypted item", maxChars);
   const itemId = randomIdField(item.item_id, "item id");
   const sentAt = isoTime(item.sent_at, "sent time");
   if (Math.abs(now.getTime() - Date.parse(sentAt)) > LIMITS.sentAtSkewMs) {

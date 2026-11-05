@@ -91,6 +91,63 @@
     "rules_signature": {
       "type": "string"
     },
+    "emoji_envelope": {
+      "type": "string",
+      "description": "The server's own emoji, encrypted (server key)."
+    },
+    "emoji_item_id": {
+      "type": "string"
+    },
+    "emoji_sender_id": {
+      "type": "string"
+    },
+    "emoji_device_id": {
+      "type": "string"
+    },
+    "emoji_sent_at": {
+      "type": "string"
+    },
+    "emoji_signature": {
+      "type": "string"
+    },
+    "stickers_envelope": {
+      "type": "string",
+      "description": "The server's own stickers, encrypted (server key)."
+    },
+    "stickers_item_id": {
+      "type": "string"
+    },
+    "stickers_sender_id": {
+      "type": "string"
+    },
+    "stickers_device_id": {
+      "type": "string"
+    },
+    "stickers_sent_at": {
+      "type": "string"
+    },
+    "stickers_signature": {
+      "type": "string"
+    },
+    "automod_envelope": {
+      "type": "string",
+      "description": "AutoMod rules, encrypted (server key): members' apps enforce them; the service can't read them."
+    },
+    "automod_item_id": {
+      "type": "string"
+    },
+    "automod_sender_id": {
+      "type": "string"
+    },
+    "automod_device_id": {
+      "type": "string"
+    },
+    "automod_sent_at": {
+      "type": "string"
+    },
+    "automod_signature": {
+      "type": "string"
+    },
     "rules_required": {
       "type": "boolean",
       "default": false,
