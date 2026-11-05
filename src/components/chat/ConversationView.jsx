@@ -8,6 +8,8 @@ import {
   MoreHorizontal,
   Pencil,
   SendHorizontal,
+  Smile,
+  SmilePlus,
   ShieldCheck,
   ShieldQuestion,
   Timer,
@@ -20,13 +22,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useChat } from "@/lib/secure/ChatContext";
 import { useSecure } from "@/lib/secure/SecureContext";
-import { MAX_MESSAGE_CHARS, REACTIONS } from "@/lib/secure/protocol.js";
+import { MAX_MESSAGE_CHARS } from "@/lib/secure/protocol.js";
+import { QUICK_REACTIONS, emojiName } from "@/lib/emoji";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import EmojiPicker from "./EmojiPicker";
+import PollCard from "./PollCard";
+import ComposerPlus from "./ComposerPlus";
+import CreatePollDialog from "./CreatePollDialog";
+import RichText from "./RichText";
 import { hideAt, timerLabel } from "@/lib/secure/thread.js";
 import { formatTime, Loading } from "@/components/site/bits";
 import Avatar from "./Avatar";
 
-const REACTION_NAMES = ["Thumbs up", "Heart", "Laughing", "Surprised", "Sad", "Thank you"];
-const reactionName = (emoji) => REACTION_NAMES[REACTIONS.indexOf(emoji)] || "Reaction";
+const reactionName = emojiName;
 const toMs = (value) => Date.parse(/Z$|[+-]\d{2}:\d{2}$/.test(String(value)) ? value : `${value}Z`);
 const snippet = (text, max = 90) => {
   const flat = String(text || "").replace(/\s+/g, " ").trim();
@@ -94,7 +102,8 @@ function Reactions({ reactions, mine, nameOf, onToggle, disabled }) {
   );
 }
 
-function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSend, onReply, onReact, onEdit, onDelete, onJump }) {
+function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSend, onReply, onReact, onVote, onEdit, onDelete, onJump }) {
+  const [picker, setPicker] = useState(false);
   const { m, result } = row;
   const base = `max-w-[min(34rem,85%)] rounded-2xl px-3.5 py-2 text-[0.95rem] leading-relaxed ${mine ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted"} ${highlighted ? "ring-2 ring-[hsl(var(--warning))] ring-offset-2 ring-offset-background" : ""}`;
   const readable = result && (result.status === "ok" || result.status === "unverified");
@@ -111,7 +120,13 @@ function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSen
     body = (
       <>
         <ReplyQuote replyTo={row.replyTo} mine={mine} nameOf={nameOf} onJump={onJump} />
-        <span className="whitespace-pre-wrap break-words">{row.text}</span>
+        {row.poll ? (
+          <div className="text-foreground">
+            <PollCard poll={row.poll} nameOf={nameOf} disabled={!canSend} onVote={onVote} />
+          </div>
+        ) : (
+          <span className="whitespace-pre-wrap break-words"><RichText text={row.text} ctx={{}} /></span>
+        )}
       </>
     );
   }
@@ -125,7 +140,26 @@ function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSen
         </span>
       )}
       <div className={`flex max-w-full items-center gap-1 ${mine ? "flex-row-reverse" : ""}`}>
-        <div className={base}>{body}</div>
+        <div className={row.poll ? "max-w-[min(30rem,92%)]" : base}>{body}</div>
+        {readable && canSend && (
+          <Popover open={picker} onOpenChange={setPicker}>
+            <PopoverTrigger asChild>
+              <button type="button" className="rounded-md p-1 text-muted-foreground opacity-60 transition-opacity hover:bg-muted focus:opacity-100 group-hover:opacity-100 sm:opacity-0" aria-label="Add a reaction">
+                <SmilePlus className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align={mine ? "end" : "start"} className="w-auto p-0">
+              <EmojiPicker
+                label="Add a reaction"
+                selected={row.reactions.filter((r) => r.mine).map((r) => r.emoji)}
+                onPick={(emoji) => {
+                  setPicker(false);
+                  onReact(emoji, Boolean(row.reactions.find((r) => r.emoji === emoji)?.mine));
+                }}
+              />
+            </PopoverContent>
+          </Popover>
+        )}
         {(readable || (mine && result?.status === "locked")) && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -141,7 +175,7 @@ function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSen
               {readable && (
                 <>
                   <div className="flex gap-0.5 px-1 py-1" role="group" aria-label="React">
-                    {REACTIONS.map((emoji) => {
+                    {QUICK_REACTIONS.map((emoji) => {
                       const already = row.reactions.find((r) => r.emoji === emoji)?.mine;
                       return (
                         <DropdownMenuItem
@@ -341,6 +375,15 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
     }
   };
 
+  const [pollOpen, setPollOpen] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const insertEmoji = (e) => {
+    const el = input.current;
+    const at = el ? el.selectionStart ?? text.length : text.length;
+    setText((t) => `${t.slice(0, at)}${e}${t.slice(at)}`);
+    setEmojiOpen(false);
+    setTimeout(() => input.current?.focus(), 0);
+  };
   const reactTo = (row, emoji, already) => {
     setError("");
     react(conversation, row.m, emoji, already).catch((err) => setError(err.message));
@@ -452,6 +495,7 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
                 canSend={!pausedReason}
                 onReply={() => startReply(row)}
                 onReact={(emoji, already) => reactTo(row, emoji, already)}
+                onVote={(choices) => vote(conversation, row.m, choices)}
                 onEdit={() => startEdit(row)}
                 onDelete={() => deleteMessage(row.m).catch((err) => setError(err.message))}
                 onJump={jumpTo}
@@ -477,7 +521,9 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
             </button>
           </div>
         )}
+        <CreatePollDialog open={pollOpen} onOpenChange={setPollOpen} onCreate={(poll) => sendPoll(conversation, poll)} />
         <div className="flex items-end gap-2">
+          {!editing && !pausedReason && <div className="pb-1.5"><ComposerPlus onPoll={() => setPollOpen(true)} /></div>}
           <Textarea
             ref={input}
             value={text}
@@ -498,6 +544,18 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
             className="max-h-40 min-h-[2.75rem] resize-none"
             aria-label="Message"
           />
+          {!editing && !pausedReason && (
+            <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+              <PopoverTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" className="h-11 w-11 shrink-0" aria-label="Add an emoji">
+                  <Smile className="h-5 w-5" aria-hidden="true" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" side="top" className="w-auto p-0">
+                <EmojiPicker onPick={insertEmoji} label="Add an emoji" />
+              </PopoverContent>
+            </Popover>
+          )}
           <Button type="submit" size="icon" className="h-11 w-11 shrink-0" disabled={!text.trim() || sending || Boolean(pausedReason)} aria-label={editing ? "Save edit" : "Send"}>
             <SendHorizontal className="h-5 w-5" />
           </Button>
