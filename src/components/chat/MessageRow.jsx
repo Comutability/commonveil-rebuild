@@ -1,5 +1,5 @@
 import React from "react";
-import { Bookmark, BookmarkCheck, Copy, MessagesSquare, CornerUpLeft, Forward, Hourglass, Lock, MoreHorizontal, Pencil, Pin, PinOff, ShieldQuestion, SmilePlus, Trash2 } from "lucide-react";
+import { Bookmark, BookmarkCheck, Copy, Flag, MessagesSquare, CornerUpLeft, Forward, Hourglass, Lock, MoreHorizontal, Pencil, Pin, PinOff, ShieldQuestion, SmilePlus, Trash2 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { QUICK_REACTIONS, emojiName } from "@/lib/emoji";
@@ -168,6 +168,7 @@ export default function MessageRow({
   saved = false,
   hiddenReason = null,
   onThread,
+  onReport,
 }) {
   const [picker, setPicker] = React.useState(false);
   const [reveal, setReveal] = React.useState(false);
@@ -311,6 +312,12 @@ export default function MessageRow({
               )}
               {readableNow && row.text && (
                 <DropdownMenuItem onSelect={() => Promise.resolve(navigator.clipboard?.writeText(row.text)).catch(() => {})}><Copy className="mr-2 h-4 w-4" aria-hidden="true" /> Copy text</DropdownMenuItem>
+              )}
+              {readableNow && onReport && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={onReport}><Flag className="mr-2 h-4 w-4" aria-hidden="true" /> Report message</DropdownMenuItem>
+                </>
               )}
               {can.delete && (
                 <>

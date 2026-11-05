@@ -16,6 +16,7 @@ import ComposerPlus from "@/components/chat/ComposerPlus";
 import CreatePollDialog from "@/components/chat/CreatePollDialog";
 import ForwardDialog from "@/components/chat/ForwardDialog";
 import VoiceRecorder from "@/components/chat/VoiceRecorder";
+import ReportDialog from "./ReportDialog";
 import { useStagedFiles } from "@/components/chat/useStagedFiles";
 import ChannelHeader from "./ChannelHeader";
 import MemberList from "./MemberList";
@@ -90,6 +91,7 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
   const [olderBusy, setOlderBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const [forwarding, setForwarding] = useState(null);
+  const [reporting, setReporting] = useState(null);
   const location = useLocation();
   const navigate = useNavigate();
   const threadsHere = !threadId && channel.kind !== "forum";
@@ -232,6 +234,7 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
               onSave={() => s.toggleSaved({ serverId, channelId: channel.id, threadId: row.m.thread_id || "", msgId: row.m.msg_id })}
               saved={s.isSaved(row.m.msg_id)}
               hiddenReason={hiddenBy(row)}
+              onReport={!mine ? () => setReporting({ target: row.m.sender_id, message: { text: row.text, channelId: channel.id, msgId: row.m.msg_id, sentAt: row.m.sent_at } }) : undefined}
               onThread={threadsHere && row.m.kind === "message" && !row.m.deleted && (row.m.reply_count > 0 || has(perms, P.SEND_MESSAGES)) ? () => navigate(`/app/s/${serverId}/${channel.id}/${row.m.msg_id}`) : undefined}
               onReply={() => onReply?.(row)}
               onEdit={() => onEdit?.(row)}
@@ -249,6 +252,7 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
         </p>
       )}
       <ForwardDialog text={forwarding?.text || ""} attachments={forwarding?.attachments || []} open={forwarding !== null} onOpenChange={(v) => !v && setForwarding(null)} />
+      <ReportDialog serverId={serverId} target={reporting?.target} message={reporting?.message} open={reporting !== null} onOpenChange={(v) => !v && setReporting(null)} />
     </div>
   );
 }
