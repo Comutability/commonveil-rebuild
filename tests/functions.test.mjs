@@ -1542,3 +1542,128 @@ test("replies, reactions and edits travel as ordinary encrypted messages: the se
   assert.deepEqual(read[2].content, { type: "reaction", target: first.msg_id, emoji: REACTIONS[1], remove: false, expire_seconds: 604_800 });
   assert.deepEqual(read[3].content, { type: "edit", target: first.msg_id, text: "Lunch on Saturday?", expire_seconds: 604_800 });
 });
+
+// --- Messages that wait, self-destructing conversations, the privacy report ----------------
+
+async function scheduleCall(member, conversation, text, extra) {
+  const { chains } = await member.chainsFor(conversation);
+  const body = await buildMessage({ userId: member.id, device: member.device, conversation, chains, text, keyring: member.keyring });
+  return member.call("messages", { ...body, action: "schedule", ...extra });
+}
+
+test("send later: held unseen until due, then delivered as an ordinary encrypted message", async () => {
+  const { w, members: [alice, bob] } = await world("alice", "bob");
+  const dm = await alice.dm(bob);
+  const soon = new Date(Date.now() + 3600_000).toISOString();
+  assert.equal((await scheduleCall(alice, dm, "too soon", { kind: "later", deliver_at: new Date(Date.now() + 5_000).toISOString() })).body.code, "BAD_FIELD");
+  assert.equal((await scheduleCall(alice, dm, "too late", { kind: "later", deliver_at: new Date(Date.now() + 400 * 86_400_000).toISOString() })).body.code, "BAD_FIELD");
+  const res = await scheduleCall(alice, dm, "happy birthday!", { kind: "later", deliver_at: soon });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const held = w.rows("ScheduledMessage")[0];
+  assert.ok(held.envelope && !held.envelope.includes("birthday"), "held encrypted");
+
+  // Bob sees nothing yet, not even that it exists.
+  assert.equal((await bob.read(dm)).length, 0);
+  assert.equal((await bob.ok("messages", { action: "scheduled" })).scheduled.length, 0);
+  assert.equal((await alice.ok("messages", { action: "scheduled" })).scheduled.length, 1);
+  assert.equal((await maintenance(w, "deliver")).delivered, 0, "not due yet");
+
+  // Due: delivered once, the holding row blanked and gone.
+  held.deliver_at = new Date(Date.now() - 1000).toISOString();
+  const deleted = watchDeletes(w, ["ScheduledMessage"]);
+  assert.deepEqual(await maintenance(w, "deliver"), { task: "deliver", delivered: 1, destroyed: 0, done: true });
+  assert.equal(deleted.length, 1);
+  assert.ok(!deleted[0].row.envelope && !deleted[0].row.recipient_ids.length);
+  const read = await bob.read(dm);
+  assert.deepEqual(read.map((m) => m.text), ["happy birthday!"]);
+  assert.equal(read[0].status, "ok");
+  assert.equal(w.rows("Message")[0].scheduled, true);
+  assert.equal((await maintenance(w, "deliver")).delivered, 0, "never twice");
+});
+
+test("send later: cancelling needs the device, and nothing is delivered to someone who left or blocked", async () => {
+  const { w, members: [alice, bob, carol] } = await world("alice", "bob", "carol");
+  const dm = await alice.dm(bob);
+  const at = new Date(Date.now() + 3600_000).toISOString();
+  const { scheduled } = (await scheduleCall(alice, dm, "later", { kind: "later", deliver_at: at })).body;
+  assert.equal((await alice.call("messages", { action: "cancel_scheduled", id: scheduled.id })).body.code, "PROOF_REQUIRED");
+  assert.equal((await bob.call("messages", await signed(bob, "cancel_scheduled", { id: scheduled.id }))).status, 404, "only the sender's");
+  assert.equal((await alice.call("messages", await signed(alice, "cancel_scheduled", { id: scheduled.id }))).status, 200);
+  assert.equal(w.rows("ScheduledMessage").length, 0);
+
+  await scheduleCall(alice, dm, "after a block", { kind: "later", deliver_at: at });
+  await bob.ok("safety", await signed(bob, "block", { user_id: alice.id })).catch(() => bob.ok("safety", { action: "block", user_id: alice.id }));
+  w.rows("ScheduledMessage")[0].deliver_at = new Date(Date.now() - 1000).toISOString();
+  assert.equal((await maintenance(w, "deliver")).delivered, 0);
+  assert.equal(w.rows("ScheduledMessage").length, 0, "dropped, not kept");
+
+  const g = await alice.group(["bob", "carol"]);
+  await scheduleCall(alice, g, "to the group", { kind: "later", deliver_at: at });
+  w.rows("ScheduledMessage")[0].deliver_at = new Date(Date.now() - 1000).toISOString();
+  await carol.ok("conversations", await signed(carol, "leave", { conversation_id: g.id }));
+  assert.equal((await maintenance(w, "deliver")).delivered, 1);
+  const m = w.rows("Message").find((r) => r.conversation_id === g.id && r.scheduled);
+  assert.ok(m && !m.recipient_ids.includes(carol.id), "not to someone who left");
+});
+
+test("safety check-in: goes out unless you check in, and only your device can check in", async () => {
+  const { w, members: [alice, bob] } = await world("alice", "bob");
+  const dm = await alice.dm(bob);
+  assert.equal((await scheduleCall(alice, dm, "x", { kind: "checkin", checkin_hours: 5 })).body.code, "BAD_FIELD");
+  const { scheduled } = (await scheduleCall(alice, dm, "I haven't checked in. Please call me.", { kind: "checkin", checkin_hours: 2 })).body;
+  assert.ok(Math.abs(Date.parse(scheduled.deliver_at) - Date.now() - 2 * 3600_000) < 60_000);
+
+  assert.equal((await alice.call("messages", { action: "check_in", id: scheduled.id })).body.code, "PROOF_REQUIRED", "a stolen sign-in can't check in");
+  const row = w.rows("ScheduledMessage")[0];
+  row.deliver_at = new Date(Date.now() + 60_000).toISOString();
+  const ok = await alice.ok("messages", await signed(alice, "check_in", { id: scheduled.id }));
+  assert.ok(Date.parse(ok.deliver_at) > Date.now() + 3600_000, "pushed on by its interval");
+  assert.equal((await maintenance(w, "deliver")).delivered, 0);
+
+  row.deliver_at = new Date(Date.now() - 1000).toISOString();
+  assert.equal((await maintenance(w, "deliver")).delivered, 1);
+  assert.deepEqual((await bob.read(dm)).map((m) => m.text), ["I haven't checked in. Please call me."]);
+});
+
+test("self-destructing conversations: set with a device by an admin, erased everywhere when time is up", async () => {
+  const { w, members: [alice, bob, carol] } = await world("alice", "bob", "carol");
+  const g = await alice.group(["bob", "carol"]);
+  await alice.send(g, "burn after reading");
+  assert.equal((await alice.call("conversations", { action: "set_self_destruct", conversation_id: g.id, hours: 24 })).body.code, "PROOF_REQUIRED");
+  assert.equal((await conversationCall(bob, "set_self_destruct", { conversation_id: g.id, hours: 24 })).status, 403, "only admins in a group");
+  assert.equal((await conversationCall(alice, "set_self_destruct", { conversation_id: g.id, hours: 5 })).body.code, "BAD_FIELD");
+  const set = (await conversationCall(alice, "set_self_destruct", { conversation_id: g.id, hours: 24 })).body.conversation;
+  assert.ok(Math.abs(Date.parse(set.destroy_at) - Date.now() - 86_400_000) < 60_000);
+  assert.equal(set.destroy_set_by, alice.id);
+
+  const dm = await bob.dm(carol);
+  assert.equal((await conversationCall(carol, "set_self_destruct", { conversation_id: dm.id, hours: 1 })).status, 200, "either person in a DM");
+  assert.equal((await conversationCall(carol, "set_self_destruct", { conversation_id: dm.id, hours: 0 })).body.conversation.destroy_at || "", "", "and turned off");
+
+  assert.equal((await maintenance(w, "deliver")).destroyed, 0);
+  w.rows("Conversation").find((c) => c.id === g.id).destroy_at = new Date(Date.now() - 1000).toISOString();
+  assert.equal((await maintenance(w, "deliver")).destroyed, 1);
+  assert.equal(w.rows("Message").filter((m) => m.conversation_id === g.id).length, 0);
+  assert.ok(!w.rows("Conversation").some((c) => c.id === g.id));
+  assert.ok(w.rows("Conversation").some((c) => c.id === dm.id), "nothing else touched");
+});
+
+test("privacy report: counts only, about you only, with the sign-in address masked", async () => {
+  const { members: [alice, bob] } = await world("alice", "bob");
+  const dm = await alice.dm(bob);
+  await alice.send(dm, "one");
+  await alice.send(dm, "two");
+  await scheduleCall(alice, dm, "later", { kind: "later", deliver_at: new Date(Date.now() + 3600_000).toISOString() });
+  const r = await alice.ok("profile", { action: "privacy_report" });
+  assert.equal(r.account.username, "alice");
+  assert.ok(!r.account.email_hint.includes("alice@") && r.account.email_hint.endsWith("@example.test"));
+  assert.equal(r.devices.length, 1);
+  assert.equal(r.conversations.direct, 1);
+  assert.equal(r.conversations.people, 1);
+  assert.equal(r.stored.messages_sent.count, 2);
+  assert.equal(r.stored.scheduled.count, 1);
+  assert.ok(!JSON.stringify(r).includes(bob.id), "nothing about anyone else");
+  assert.ok(!JSON.stringify(r).includes("one"), "nothing anyone wrote");
+  const b = await bob.ok("profile", { action: "privacy_report" });
+  assert.equal(b.stored.messages_sent.count, 0);
+});
