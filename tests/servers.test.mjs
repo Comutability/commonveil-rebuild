@@ -648,6 +648,6 @@ test("voice: a pass to join a call needs membership, a voice channel and no time
   member.timeout_until = new Date(Date.now() + 600_000).toISOString();
   await bob.fails("voice", await signed(bob, "voice_ticket", { server_id: sid, channel_id: voice.id }), "TIMED_OUT");
   member.timeout_until = "";
-  for (let i = 0; i < 5; i += 1) await alice.ok("voice", await signed(alice, "voice_ticket", { server_id: sid, channel_id: voice.id }));
+  for (let i = 0; i < 6; i += 1) await alice.ok("voice", await signed(alice, "voice_ticket", { server_id: sid, channel_id: voice.id }));
   await alice.fails("voice", await signed(alice, "voice_ticket", { server_id: sid, channel_id: voice.id }), "RATE_LIMITED");
 });
