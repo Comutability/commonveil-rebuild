@@ -272,7 +272,7 @@ export async function pollServers(
     for (const s of servers) if (String(s.updated_date) > changesCursor) changesCursor = String(s.updated_date);
     if (changesCursor > settled) changesCursor = settled > (changesSince as string) ? settled : (changesSince as string);
     Object.assign(out, {
-      servers: servers.filter((s: any) => s.status !== "deleting").map(serverOut),
+      servers: servers.filter((s: any) => s.status !== "deleting").map((s: any) => serverOut(s, { sets: false })),
       server_ids: [...new Set(memberships.map((m: any) => m.server_id))],
       server_changes_cursor: changesCursor,
     });
