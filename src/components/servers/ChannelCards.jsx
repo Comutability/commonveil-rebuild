@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { ErrorNote } from "@/components/site/bits";
 import { useServers } from "@/lib/secure/ServerContext";
 import { templateServer } from "@/lib/secure/serverTemplates";
+import { P } from "@/lib/secure/permissions";
 import { ChannelIcon, historyNote } from "./channelBits";
 
 /** The top of a channel, once there's nothing earlier to load. */
-export function ChannelStart({ serverId, channel }) {
+export function ChannelStart({ channel }) {
   const { channelName, channelTopic } = useServers();
   return (
     <div className="px-4 pb-4 pt-10">
@@ -21,7 +22,6 @@ export function ChannelStart({ serverId, channel }) {
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
         <span>{historyNote(channel)}</span>
       </p>
-      <span className="hidden">{serverId}</span>
     </div>
   );
 }
@@ -101,7 +101,7 @@ export function RulesCard({ serverId, compact = false }) {
           ))}
         </ol>
       ) : (
-        <p className="mt-3 text-sm text-muted-foreground">This server hasn't written its rules yet.{can(serverId, 1 << 10) ? " Add them in Server settings." : ""}</p>
+        <p className="mt-3 text-sm text-muted-foreground">This server hasn't written its rules yet.{can(serverId, P.MANAGE_SERVER) ? " Add them in Server settings." : ""}</p>
       )}
       {required && (
         <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border pt-4">
