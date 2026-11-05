@@ -1,6 +1,7 @@
 // Scheduled clean-up, run by the app's automations (base44/functions/maintenance):
 // - expire: delete disappearing messages whose time is up. Until then the app already hides
-//   them; this removes them from the database too, blanked first like any deletion.
+//   them; this removes them from the database too, blanked first like any deletion. Also
+//   unused call passes and server audit entries past their retention.
 // - inactive: accounts whose owners chose to have them deleted after a stretch without use.
 //   The sign-in address is emailed a week before; signing in keeps the account.
 //
@@ -39,7 +40,9 @@ export async function expireMessages(sr: any, now: Date, deadline: number) {
     const removed = await blankAndDeleteAll(sr, "Message", due, BLANK.Message, deadline);
     const serverRemoved = await blankAndDeleteAll(sr, "ServerMessage", due, BLANK_SERVER_MESSAGE, deadline);
     const audit = await blankAndDeleteAll(sr, "AuditEntry", due, { expires_at: "", actor_id: "", target_id: "", detail: "" }, deadline);
-    return { removed, server_removed: serverRemoved, audit_removed: audit, done: true };
+    // Call passes nobody used: they last a minute, and nothing about a call is kept after it.
+    const passes = await blankAndDeleteAll(sr, "VoiceTicket", due, { expires_at: "", user_id: "", device_id: "", room: "" }, deadline);
+    return { removed, server_removed: serverRemoved, audit_removed: audit, passes_removed: passes, done: true };
   } catch (error) {
     if (error instanceof OutOfTime) return { removed: null, done: false };
     throw error;
