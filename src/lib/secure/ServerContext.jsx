@@ -128,6 +128,9 @@ export function ServerProvider({ children }) {
   const waits = useRef({});
   const activeChannel = useRef(null);
   const saveReadTimer = useRef(null);
+  // The latest versions of functions that long-lived effects and background work call, so those
+  // don't restart every time someone's keys load (which changes these functions).
+  const latest = useRef({});
 
   // ---------- small state helpers (refs first, so async work always sees the latest) ----------
 
@@ -251,11 +254,8 @@ export function ServerProvider({ children }) {
     }
     await absorbKeys(serverId, st);
     putServer(serverId, { ...st, loadedAt: Date.now(), status: "ready", error: null });
-    // eslint-disable-next-line no-use-before-define
-    scheduleWorker(serverId);
+    latest.current.scheduleWorker?.(serverId);
     return st;
-    // scheduleWorker is stable (defined below with useCallback and refs only).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [absorbKeys, putServer, dropServer]);
 
   /** A new generation of one chain, made here, with a copy for this account. Everyone else gets theirs by hand-out. */
@@ -363,10 +363,7 @@ export function ServerProvider({ children }) {
     }
   }, [applyList, loadState]);
 
-  // The latest versions of functions that long-lived effects call, so those effects don't restart
-  // every time someone's keys load (which changes these functions).
-  const latest = useRef({});
-  latest.current = { loadAll, loadState };
+  latest.current = { loadAll, loadState, scheduleWorker };
 
   useEffect(() => {
     let cancelled = false;
