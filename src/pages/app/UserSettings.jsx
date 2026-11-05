@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { Bell, Database, Eye, KeyRound, LogOut, Palette, Shield, ShieldCheck, UserRound } from "lucide-react";
+import { Bell, ClipboardCheck, Database, Eye, KeyRound, LogOut, Palette, Shield, ShieldCheck, UserRound } from "lucide-react";
+import PrivacyReport from "./PrivacyReport";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +15,7 @@ import Avatar, { ACCENT_HUES } from "@/components/chat/Avatar";
 import SettingsLayout, { ChoiceList, SettingsGroup, SettingsTitle, useCloseSettings } from "@/components/settings/SettingsLayout";
 import {
   AlertsSection,
+  QuietSection,
   AutoDeleteSection,
   BlockedSection,
   DataSection,
@@ -298,6 +300,7 @@ function NotificationSettings() {
     <>
       <SettingsTitle intro="Commonveil has no push notifications: nothing about your messages is ever sent to a phone or browser maker.">Notifications</SettingsTitle>
       <AlertsSection />
+      <div className="mt-5"><QuietSection /></div>
       <p className="mt-4 text-sm text-muted-foreground">To quiet a server or a channel, right-click it (or use its menu) and choose Mute. Muting is remembered on this device only.</p>
     </>
   );
@@ -320,6 +323,7 @@ function DataSettings() {
 const SECTIONS = {
   profile: ProfileSettings,
   privacy: PrivacySettings,
+  "privacy-report": PrivacyReport,
   keys: KeySettings,
   appearance: AppearanceSettings,
   notifications: NotificationSettings,
@@ -346,6 +350,7 @@ export default function UserSettings() {
       items: [
         { id: "profile", label: "My profile", icon: UserRound },
         { id: "privacy", label: "Privacy and safety", icon: Eye },
+        { id: "privacy-report", label: "Privacy report", icon: ClipboardCheck },
         { id: "keys", label: "Devices and keys", icon: KeyRound },
         { id: "data", label: "Data and account", icon: Database },
       ],
