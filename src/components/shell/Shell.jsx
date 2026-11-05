@@ -42,7 +42,7 @@ export default function Shell({ panel, children, mainOpen = true, banner = null 
 
   return (
     <ShellContext.Provider value={ctx}>
-      <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-chat text-foreground">
+      <div className="flex h-full w-full flex-col overflow-hidden bg-chat text-foreground">
         {banner}
         <div className="relative flex min-h-0 flex-1">
           {overlay && <button type="button" className="fixed inset-0 z-30 bg-black/45 md:hidden" onClick={() => setNavOpen(false)} aria-label="Close menu" />}
