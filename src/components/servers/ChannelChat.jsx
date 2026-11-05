@@ -8,6 +8,8 @@ import { useAppearance } from "@/lib/appearance";
 import { P, has } from "@/lib/secure/permissions";
 import MessageRow, { DayDivider, newDay, sameRun, stamp } from "@/components/chat/MessageRow";
 import Composer from "@/components/chat/Composer";
+import ComposerPlus from "@/components/chat/ComposerPlus";
+import CreatePollDialog from "@/components/chat/CreatePollDialog";
 import ChannelHeader from "./ChannelHeader";
 import MemberList from "./MemberList";
 import MemberCard from "./MemberCard";
@@ -196,6 +198,7 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
                 delete: mine || has(perms, P.MANAGE_MESSAGES),
               }}
               onReact={(emoji, already) => act(() => react(serverId, channel, row, emoji, already))}
+              onVote={(choices) => s.vote(serverId, channel, row, choices)}
               onReply={() => onReply?.(row)}
               onEdit={() => onEdit?.(row)}
               onDelete={() => act(() => deleteMessage(serverId, row))}
@@ -217,7 +220,8 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
 
 /** The composer for a channel or a forum post's thread: mentions, replies, edits, and why you can't post if you can't. */
 export function ChannelComposer({ serverId, channel, threadId = "", reply, setReply, editing, setEditing, placeholder }) {
-  const { sendText, edit, channelName } = useServers();
+  const { sendText, sendPoll, edit, channelName } = useServers();
+  const [pollOpen, setPollOpen] = useState(false);
   const { suggest, mentionsIn } = useServerText(serverId, channel.id);
   const block = useSendBlock(serverId, channel);
   const [text, setText] = useState("");
@@ -253,8 +257,11 @@ export function ChannelComposer({ serverId, channel, threadId = "", reply, setRe
   };
 
   return (
+    <>
+    <CreatePollDialog open={pollOpen} onOpenChange={setPollOpen} onCreate={(poll) => sendPoll(serverId, channel, poll, { threadId })} />
     <Composer
       ref={input}
+      tools={editing || block ? null : <ComposerPlus onPoll={() => setPollOpen(true)} />}
       value={text}
       onChange={(v) => {
         setText(v);
@@ -274,6 +281,7 @@ export function ChannelComposer({ serverId, channel, threadId = "", reply, setRe
       suggest={suggest}
       hint={slow ? `Slow mode is on: one message every ${slow >= 60 ? `${slow / 60} min` : `${slow} s`}.` : null}
     />
+    </>
   );
 }
 
