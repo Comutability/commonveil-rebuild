@@ -653,8 +653,8 @@ test("voice: a pass to join a call needs membership, a voice channel and no time
 });
 
 test("files: parts are stored as ciphertext for members who can post, and links go only to people who can see them, while the message exists", async () => {
-  const { fileActions } = await import("../base44/shared/handlers/files.ts");
-  addFunctions({ files: fileActions });
+  const { fileActions, FILES_MAX_BODY } = await import("../base44/shared/handlers/files.ts");
+  addFunctions({ files: fileActions }, { options: { maxBodyBytes: FILES_MAX_BODY } });
   const { w, members: [alice, bob, carol] } = await world("alice", "bobby", "carol");
   const sid = await serverWith(alice, bob);
   const general = await alice.channelNamed(sid, "general");

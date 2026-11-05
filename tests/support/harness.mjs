@@ -32,8 +32,11 @@ import {
 export const FUNCTIONS = { profile: profileActions, keys: keysActions, conversations: conversationActions, messages: messageActions, safety: safetyActions, admin: adminActions };
 export const PUBLIC_FUNCTIONS = { disclose: disclosureActions };
 
-export function addFunctions(more, { anonymous = false } = {}) {
+/** Per-function serve options, as the function's entry passes them (e.g. a larger body for files). */
+const OPTIONS = {};
+export function addFunctions(more, { anonymous = false, options = null } = {}) {
   Object.assign(anonymous ? PUBLIC_FUNCTIONS : FUNCTIONS, more);
+  if (options) for (const fn of Object.keys(more)) OPTIONS[fn] = options;
 }
 
 /** A request signed by one of the member's devices (their current one by default). */
@@ -52,7 +55,7 @@ export class Member {
     const isPublic = Object.hasOwn(PUBLIC_FUNCTIONS, fn);
     const actions = isPublic ? PUBLIC_FUNCTIONS[fn] : FUNCTIONS[fn];
     if (!actions) throw new Error(`No test function ${fn}`);
-    const res = await runAction(this.world.clientFor(anonymous ? null : this.user), JSON.stringify(body), actions, { allowAnonymous: isPublic });
+    const res = await runAction(this.world.clientFor(anonymous ? null : this.user), JSON.stringify(body), actions, { allowAnonymous: isPublic, ...(OPTIONS[fn] || {}) });
     return { status: res.status, body: await res.json() };
   }
 
