@@ -271,7 +271,7 @@ export default function MessageRow({
                   {saved ? <BookmarkCheck className="mr-2 h-4 w-4" aria-hidden="true" /> : <Bookmark className="mr-2 h-4 w-4" aria-hidden="true" />} {saved ? "Remove from saved" : "Save for later"}
                 </DropdownMenuItem>
               )}
-              {readableNow && (
+              {readableNow && row.text && (
                 <DropdownMenuItem onSelect={() => Promise.resolve(navigator.clipboard?.writeText(row.text)).catch(() => {})}><Copy className="mr-2 h-4 w-4" aria-hidden="true" /> Copy text</DropdownMenuItem>
               )}
               {can.delete && (
