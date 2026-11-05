@@ -1,6 +1,8 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { CornerUpLeft, Lock, Pencil, SendHorizontal, X } from "lucide-react";
+import { CornerUpLeft, Lock, Pencil, SendHorizontal, Smile, X } from "lucide-react";
 import { MAX_MESSAGE_CHARS } from "@/lib/secure/protocol.js";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import EmojiPicker from "./EmojiPicker";
 
 const TOKEN_RE = /(^|\s)([@#])([\p{L}\p{N}_-]{0,32})$/u;
 
@@ -10,7 +12,7 @@ const TOKEN_RE = /(^|\s)([@#])([\p{L}\p{N}_-]{0,32})$/u;
  * There's no "typing…" signal: nobody learns you're writing until you send.
  */
 const Composer = forwardRef(function Composer(
-  { value, onChange, onSubmit, placeholder, disabledReason = "", replyTo = null, editing = false, onCancel, suggest, hint = null, sealed = true },
+  { value, onChange, onSubmit, placeholder, disabledReason = "", replyTo = null, editing = false, onCancel, suggest, hint = null, sealed = true, tools = null },
   ref,
 ) {
   const input = useRef(null);
@@ -18,6 +20,14 @@ const Composer = forwardRef(function Composer(
   const [error, setError] = useState("");
   const [caret, setCaret] = useState(0);
   const [pick, setPick] = useState(0);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const insertEmoji = (e) => {
+    const at = Math.min(caret || value.length, value.length);
+    onChange(`${value.slice(0, at)}${e}${value.slice(at)}`);
+    setCaret(at + e.length);
+    setEmojiOpen(false);
+    setTimeout(() => input.current?.focus(), 0);
+  };
   const [dismissed, setDismissed] = useState(false);
 
   useImperativeHandle(ref, () => ({ focus: () => input.current?.focus() }), []);
@@ -133,7 +143,8 @@ const Composer = forwardRef(function Composer(
           </div>
         )}
         <div className="flex items-end gap-2 px-3 py-2">
-          {sealed && <Lock className="mb-2 h-4 w-4 shrink-0 text-primary/70" aria-hidden="true" />}
+          {tools}
+          {sealed && !tools && <Lock className="mb-2 h-4 w-4 shrink-0 text-primary/70" aria-hidden="true" />}
           <textarea
             ref={input}
             value={value}
@@ -151,6 +162,18 @@ const Composer = forwardRef(function Composer(
             aria-label={placeholder}
             className="max-h-56 min-h-[1.75rem] flex-1 resize-none bg-transparent py-1 text-[0.95rem] leading-relaxed outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
           />
+          {!editing && !disabledReason && (
+            <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+              <PopoverTrigger asChild>
+                <button type="button" className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" aria-label="Add an emoji">
+                  <Smile className="h-5 w-5" aria-hidden="true" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" side="top" className="w-auto p-0">
+                <EmojiPicker onPick={insertEmoji} label="Add an emoji" />
+              </PopoverContent>
+            </Popover>
+          )}
           <button
             type="submit"
             disabled={!value.trim() || busy || Boolean(disabledReason)}
