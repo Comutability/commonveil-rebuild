@@ -253,6 +253,8 @@ export function ChannelComposer({ serverId, channel, threadId = "", reply, setRe
   const { sendText, sendPoll, edit, channelName } = useServers();
   const [pollOpen, setPollOpen] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [stickerOpen, setStickerOpen] = useState(false);
+  const stickers = useServers().serverEmoji(serverId).stickers;
   const staged = useStagedFiles();
   const { suggest, mentionsIn } = useServerText(serverId, channel.id);
   const block = useSendBlock(serverId, channel);
@@ -297,10 +299,26 @@ export function ChannelComposer({ serverId, channel, threadId = "", reply, setRe
   return (
     <>
     <CreatePollDialog open={pollOpen} onOpenChange={setPollOpen} onCreate={(poll) => sendPoll(serverId, channel, poll, { threadId })} />
+    <Dialog open={stickerOpen} onOpenChange={setStickerOpen}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Send a sticker</DialogTitle>
+          <DialogDescription>This server's own stickers. Only members can see them.</DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-3 gap-2">
+          {stickers.map((x) => (
+            <button key={x.id} type="button" onClick={() => { setStickerOpen(false); sendText(serverId, channel, "", { threadId, sticker: x.id }).catch(() => {}); }} className="flex flex-col items-center gap-1 rounded-md p-2 hover:bg-muted" aria-label={`Send ${x.name}`}>
+              <img src={x.img} alt="" className="h-24 w-24 object-contain" />
+              <span className="truncate text-xs text-muted-foreground">{x.name}</span>
+            </button>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
     <VoiceRecorder open={recording} onOpenChange={setRecording} onSend={(file, seconds) => sendText(serverId, channel, "", { threadId, files: [{ file, voice: true, duration: seconds }] })} />
     <Composer
       ref={input}
-      tools={editing || block ? null : <ComposerPlus onPoll={() => setPollOpen(true)} onFiles={staged.add} onVoiceNote={() => setRecording(true)} />}
+      tools={editing || block ? null : <ComposerPlus onPoll={() => setPollOpen(true)} onFiles={staged.add} onVoiceNote={() => setRecording(true)} onSticker={stickers.length ? () => setStickerOpen(true) : undefined} />}
       staged={block ? null : staged}
       value={text}
       onChange={(v) => {
