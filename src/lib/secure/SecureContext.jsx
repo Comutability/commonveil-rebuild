@@ -861,6 +861,13 @@ export function SecureProvider({ children }) {
     if (!p?.chain) return null;
     return p.changed ? p.pinnedChain || null : p.chain;
   }, [userId, chain, peers]);
+  /**
+   * Someone's newest verified key history, even while a change waits for review. For servers,
+   * whose membership the service decides anyway, a pin adds nothing to who gets a key; messages
+   * are still checked against the pinned history (chainOf).
+   */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const latestChainOf = useCallback((id) => (id === userId ? chainRef.current : peersRef.current[id]?.chain || null), [userId, chain, peers]);
   /** Only certificates from keys this browser holds count for your own devices. */
   const ownMinCertVersion = keyring?.versions?.[0]?.version ?? 1;
 
@@ -920,6 +927,7 @@ export function SecureProvider({ children }) {
     chainsFor,
     devicesOf,
     chainOf,
+    latestChainOf,
     ownMinCertVersion,
   };
 
