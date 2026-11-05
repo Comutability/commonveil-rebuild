@@ -19,12 +19,21 @@ review is published.
   messages, group admins, notifications and message search on the device, a passcode lock per browser, security emails
   (new device, recovery phrase used, resets), a download of all your data built in the browser, and opt-in deletion after
   six months or a year without use. `docs/PROTOCOL.md` says exactly what each one stores.
+- **Servers, laid out like Discord:** a server rail, channel categories, text, announcement, forum, ticket and voice
+  channels, roles and permissions, invites, Discover, profiles and user settings. Everything inside a server is end-to-end
+  encrypted with shared key chains; nobody is in a member list unless they choose to be (staff always are). Every new
+  account joins the community server, whose admins come from the `DEFAULT_SERVER_ADMINS` secret.
+- **Voice calls:** peer to peer for up to 8, with signed connection keys and every audio frame also encrypted under the
+  channel's keys.
+- **Post-quantum hybrid encryption** (ML-KEM-768 + P-256) wherever a key is sealed to an account or device.
 - **Admin area** (`/admin`): reports, security reports, erasing what removed sign-ins left behind, and content editing. It
   needs the admin role, not encryption keys.
 
 ## Documents
 
 - `docs/PROTOCOL.md`: the encryption protocol (version 2), exactly as implemented.
+- `docs/SERVERS_AND_VOICE.md`: post-quantum keys, servers and voice calls, and platform notes for maintainers (backend
+  changes reach members only after publishing; bump an entry file's revision line when its shared code changes).
 - `docs/THREAT_MODEL.md`: what is and isn't protected, against whom, and the known limitations.
 - `docs/REBUILD_REVIEW.md`: what was wrong with the previous app, the decisions behind this one, and the review findings
   fixed before launch.
