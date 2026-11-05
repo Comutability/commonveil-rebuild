@@ -109,10 +109,12 @@ export function VoiceProvider({ children }) {
     if (c.keys.has(id)) return c.keys.get(id);
     let raw;
     try {
-      raw = serversRef.current.chainKeyAt(c.serverId, c.chainId, generation, step);
+      // A call in a conversation has one key, sent inside the encrypted message that started it.
+      raw = c.callKey ? (generation === 0 && step === 0 ? c.callKey.slice() : null) : serversRef.current.chainKeyAt(c.serverId, c.chainId, generation, step);
     } catch {
       return null;
     }
+    if (!raw) return null;
     const key = await hkdfAesKey(raw, utf8("commonveil/voice-frame/v1"), `${c.roomId}|${c.chainId}|${generation}|${step}`);
     raw.fill(0);
     c.keys.set(id, key);
@@ -121,7 +123,7 @@ export function VoiceProvider({ children }) {
   }, []);
 
   const refreshEpoch = useCallback(async (c) => {
-    const e = serversRef.current.voiceEpoch(c.serverId, c.channel);
+    const e = c.callKey ? { generation: 0, step: 0 } : serversRef.current.voiceEpoch(c.serverId, c.channel);
     const key = await deriveKey(c, e.generation, e.step);
     if (!key) throw new Error("This device doesn't have this channel's keys yet, so it can't join the call.");
     c.current = { generation: e.generation, step: e.step, key };
@@ -231,7 +233,7 @@ export function VoiceProvider({ children }) {
         document.body.appendChild(p.audio);
       }
       p.audio.srcObject = stream;
-      p.audio.muted = c.deafened;
+      p.audio.muted = c.deafened || p.canSpeak === false;
       p.audio.play?.().catch(() => {});
       watchLevel(c, seat, stream);
     };
@@ -313,7 +315,7 @@ export function VoiceProvider({ children }) {
   const addPeer = useCallback(async (c, peer, initiator) => {
     const seat = Number(peer.seat);
     if (c.peers.has(seat)) closePeer(c, seat);
-    const p = { seat, userId: peer.user_id, deviceId: peer.device_id, hello: peer.hello, muted: Boolean(peer.muted), deafened: Boolean(peer.deafened), state: "checking", verified: false, queue: [], candidates: [], pc: null, audio: null };
+    const p = { seat, userId: peer.user_id, deviceId: peer.device_id, hello: peer.hello, muted: Boolean(peer.muted), deafened: Boolean(peer.deafened), canSpeak: peer.can_speak !== false, hand: Boolean(peer.hand), moderator: Boolean(peer.moderator), state: "checking", verified: false, queue: [], candidates: [], pc: null, audio: null };
     c.peers.set(seat, p);
     bump();
     const s = secureRef.current;
@@ -369,9 +371,13 @@ export function VoiceProvider({ children }) {
 
   const getPass = useCallback(async (c) => {
     const s = secureRef.current;
-    const res = await callFn("voice", await SP.serverRequest({ userId: s.userId, device: s.device, action: "voice_ticket", payload: { server_id: c.serverId, channel_id: c.channel.id } }));
+    const res = c.conversationId
+      ? await callFn("voice", await SP.serverRequest({ userId: s.userId, device: s.device, action: "call_ticket", payload: { conversation_id: c.conversationId, call_id: c.callId } }))
+      : await callFn("voice", await SP.serverRequest({ userId: s.userId, device: s.device, action: "voice_ticket", payload: { server_id: c.serverId, channel_id: c.channel.id } }));
     if (res.room !== c.roomId) throw new Error("The call's address didn't match this channel.");
     c.canSpeak = res.can_speak !== false;
+    c.canModerate = res.can_moderate === true;
+    c.stage = res.stage === true;
     return res.ticket;
   }, []);
 
@@ -391,6 +397,8 @@ export function VoiceProvider({ children }) {
       if (c.seat && c.seat !== msg.seat) for (const seat of [...c.peers.keys()]) closePeer(c, seat);
       c.seat = msg.seat;
       if (msg.can_speak === false) c.canSpeak = false;
+      c.canModerate = msg.can_moderate === true;
+      c.stage = msg.stage === true;
       setRoom((r) => (r ? { ...r, status: "connected" } : r));
       const fresh = new Set((msg.peers || []).map((p) => Number(p.seat)));
       for (const seat of [...c.peers.keys()]) if (!fresh.has(seat)) closePeer(c, seat);
@@ -403,10 +411,26 @@ export function VoiceProvider({ children }) {
       closePeer(c, Number(msg.seat));
       bump();
     } else if (msg.type === "peer-state") {
+      if (Number(msg.seat) === c.seat) {
+        // About this device: a moderator brought it up to speak, sent it back, or muted it.
+        if (typeof msg.can_speak === "boolean") c.canSpeak = msg.can_speak;
+        c.hand = Boolean(msg.hand);
+        if (msg.muted && !c.muted) {
+          c.muted = true;
+          for (const t of c.stream?.getAudioTracks() || []) t.enabled = false;
+          setMuted(true);
+        }
+        if (!c.canSpeak && c.videoTrack) setVideoRef.current?.(null);
+        bump();
+        return;
+      }
       const p = c.peers.get(Number(msg.seat));
       if (p) {
         p.muted = Boolean(msg.muted);
         p.deafened = Boolean(msg.deafened);
+        if (typeof msg.can_speak === "boolean") p.canSpeak = msg.can_speak;
+        p.hand = Boolean(msg.hand);
+        if (p.audio) p.audio.muted = c.deafened || p.canSpeak === false;
         bump();
       }
     } else if (msg.type === "signal") {
@@ -426,17 +450,25 @@ export function VoiceProvider({ children }) {
     }
   }, [addPeer, bump, closePeer, getPass, handleSignal, teardown]);
 
-  const join = useCallback(async (serverId, channel) => {
+  /**
+   * Join a call: a server's voice or stage channel ({ serverId, channel }), or a call in a
+   * conversation ({ conversationId, callId, callKey }) whose key came in its encrypted message.
+   */
+  const start = useCallback(async (target) => {
     if (!voiceSupported()) throw new Error("This browser can't join encrypted calls. Try a recent version of Firefox, Safari, Chrome or Edge.");
-    if (serversRef.current.keyState(serverId, channel) !== "ready") throw new Error("This device doesn't have this channel's keys yet. Try again once they arrive.");
+    const { serverId = null, channel = null, conversationId = null, callId = null, callKey = null } = target;
+    if (serverId && serversRef.current.keyState(serverId, channel) !== "ready") throw new Error("This device doesn't have this channel's keys yet. Try again once they arrive.");
     teardown(call.current);
     setError("");
     const c = {
       serverId,
       channel,
-      chainId: SP.chainForChannel(serverId, channel),
-      // The same address the voice function gives out (server id, channel id).
-      roomId: `${serverId}.${channel.id}`,
+      conversationId,
+      callId,
+      callKey,
+      chainId: serverId ? SP.chainForChannel(serverId, channel) : `call.${callId}`,
+      // The same address the voice function gives out.
+      roomId: serverId ? `${serverId}.${channel.id}` : `dm.${conversationId}.${callId}`,
       peers: new Map(),
       keys: new Map(),
       levels: new Map(),
@@ -487,7 +519,7 @@ export function VoiceProvider({ children }) {
       c.muted = !c.canSpeak;
       setMuted(c.muted);
       setDeafened(false);
-      setRoom({ serverId, channelId: channel.id, status: "connecting" });
+      setRoom(serverId ? { serverId, channelId: channel.id, status: "connecting" } : { conversationId, callId, status: "connecting" });
       c.conn = base44.actors.VoiceRoom(c.roomId).connect({ id: randomId(16) });
       c.sub = c.conn.subscribe((msg) => onMessage(c, msg));
     } catch (err) {
@@ -496,6 +528,26 @@ export function VoiceProvider({ children }) {
       throw new Error(message);
     }
   }, [deriveKey, getPass, onMessage, refreshEpoch, teardown, watchLevel, bump]);
+
+  const join = useCallback((serverId, channel) => start({ serverId, channel }), [start]);
+  const joinCall = useCallback((conversationId, callId, callKey) => start({ conversationId, callId, callKey }), [start]);
+
+  // ---------- stage ----------
+
+  const raiseHand = useCallback((raised) => {
+    const c = call.current;
+    if (c?.stage) send(c, { type: "hand", raised });
+  }, []);
+  const setSpeaker = useCallback((userId, speak) => {
+    const c = call.current;
+    if (!c?.canModerate) return;
+    for (const p of c.peers.values()) if (p.userId === userId) send(c, { type: "set-speaker", seat: p.seat, speak });
+  }, []);
+  const mutePeer = useCallback((userId) => {
+    const c = call.current;
+    if (!c?.canModerate) return;
+    for (const p of c.peers.values()) if (p.userId === userId) send(c, { type: "mute-peer", seat: p.seat });
+  }, []);
 
   // ---------- controls ----------
 
@@ -509,7 +561,7 @@ export function VoiceProvider({ children }) {
     c.muted = !c.muted;
     if (!c.muted && c.deafened) {
       c.deafened = false;
-      for (const p of c.peers.values()) if (p.audio) p.audio.muted = false;
+      for (const p of c.peers.values()) if (p.audio) p.audio.muted = p.canSpeak === false;
       setDeafened(false);
     }
     for (const t of c.stream.getAudioTracks()) t.enabled = !c.muted;
@@ -521,7 +573,7 @@ export function VoiceProvider({ children }) {
     const c = call.current;
     if (!c) return;
     c.deafened = !c.deafened;
-    for (const p of c.peers.values()) if (p.audio) p.audio.muted = c.deafened;
+    for (const p of c.peers.values()) if (p.audio) p.audio.muted = c.deafened || p.canSpeak === false;
     // Deafening mutes you too; undeafening restores what you had.
     if (c.deafened) {
       c.mutedBeforeDeafen = c.muted;
@@ -588,9 +640,9 @@ export function VoiceProvider({ children }) {
   const participants = useMemo(() => {
     const c = call.current;
     if (!c || !room) return [];
-    const list = [{ userId: secure.userId, self: true, muted, deafened, speaking: Boolean(c.levels.get("self")?.speaking), state: "connected", video: videoKind, stream: c.localVideo || null }];
+    const list = [{ userId: secure.userId, self: true, muted, deafened, speaking: Boolean(c.levels.get("self")?.speaking), state: "connected", video: videoKind, stream: c.localVideo || null, canSpeak: c.canSpeak !== false, hand: Boolean(c.hand), moderator: Boolean(c.canModerate) }];
     for (const p of c.peers.values()) {
-      list.push({ userId: p.userId, self: false, muted: p.muted, deafened: p.deafened, speaking: Boolean(c.levels.get(p.seat)?.speaking), state: p.state, video: p.video || null, stream: p.video ? p.videoStream || null : null });
+      list.push({ userId: p.userId, self: false, muted: p.muted, deafened: p.deafened, speaking: p.canSpeak !== false && Boolean(c.levels.get(p.seat)?.speaking), state: p.state, video: p.canSpeak === false ? null : p.video || null, stream: p.video && p.canSpeak !== false ? p.videoStream || null : null, canSpeak: p.canSpeak !== false, hand: Boolean(p.hand), moderator: Boolean(p.moderator) });
     }
     return list;
     // tick re-reads the refs.
@@ -600,7 +652,15 @@ export function VoiceProvider({ children }) {
   const value = useMemo(() => ({
     room,
     join,
+    joinCall,
     leave,
+    /** On a stage: whether this device may speak or bring others up, and the stage controls. */
+    stage: Boolean(call.current?.stage),
+    canSpeak: call.current ? call.current.canSpeak !== false : true,
+    canModerate: Boolean(call.current?.canModerate),
+    raiseHand,
+    setSpeaker,
+    mutePeer,
     muted,
     deafened,
     toggleMute,
@@ -614,7 +674,7 @@ export function VoiceProvider({ children }) {
     supported: voiceSupported(),
     /** Frame counts for this call (sealed, opened, dropped), for the call's details. */
     frameStats: () => ({ ...(call.current?.stats || {}) }),
-  }), [room, join, leave, muted, deafened, toggleMute, toggleDeafen, videoKind, toggleCamera, toggleScreen, participants, error]);
+  }), [room, join, joinCall, leave, muted, deafened, toggleMute, toggleDeafen, videoKind, toggleCamera, toggleScreen, participants, error, raiseHand, setSpeaker, mutePeer, tick]);
 
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>;
 }
