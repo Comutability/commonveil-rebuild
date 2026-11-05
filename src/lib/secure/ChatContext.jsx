@@ -9,6 +9,7 @@ import { useSecure } from "./SecureContext.jsx";
 import * as P from "./protocol.js";
 import * as S from "./store.js";
 import { buildThread, hideAt, isShowing, searchThreads } from "./thread.js";
+import { votePayload } from "./polls.js";
 import { DEFAULT_ALERTS, alertText, cleanAlerts, showAlert } from "./alerts.js";
 
 const ChatContext = createContext(null);
@@ -749,6 +750,8 @@ export function ChatProvider({ children }) {
     isUnread,
     send,
     react,
+    sendPoll,
+    vote,
     editMessage,
     setTitle,
     setExpiry,
@@ -769,7 +772,7 @@ export function ChatProvider({ children }) {
     membershipProblem,
     addPollExtension,
     touchActivity,
-  }), [loaded, conversations, messages, threads, hasMore, opened, titles, profiles, alerts, updateAlerts, openConversation, closeConversation, loadOlder, loadHistory, searchMessages, markRead, isUnread, send, react, editMessage, setTitle, setExpiry, setAdmin, removeMember, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem, addPollExtension, touchActivity]);
+  }), [loaded, conversations, messages, threads, hasMore, opened, titles, profiles, alerts, updateAlerts, openConversation, closeConversation, loadOlder, loadHistory, searchMessages, markRead, isUnread, send, react, sendPoll, vote, editMessage, setTitle, setExpiry, setAdmin, removeMember, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem, addPollExtension, touchActivity]);
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }
