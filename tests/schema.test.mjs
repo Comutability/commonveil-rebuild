@@ -46,6 +46,9 @@ test("member data can't be changed directly, and only these reads are open, each
     KeyChain: audience,
     KeyGeneration: audience,
     ServerMessage: audience,
+    // Events and the (encrypted) answers to them.
+    ServerEvent: audience,
+    EventRsvp: audience,
     ServerMember: own,
     KeyGrant: own,
   };
