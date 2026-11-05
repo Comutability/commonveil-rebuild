@@ -1301,12 +1301,12 @@ test("disappearing messages: either person in a DM sets the timer; messages vani
   assert.equal(older.messages.length, 1);
   // ...and the scheduled clean-up deletes it, blanked first. Nothing else is touched.
   const deleted = watchDeletes(w, ["Message"]);
-  assert.deepEqual(await maintenance(w, "expire"), { task: "expire", removed: 1, server_removed: 0, audit_removed: 0, passes_removed: 0, files_removed: 0, done: true });
+  assert.deepEqual(await maintenance(w, "expire"), { task: "expire", removed: 1, server_removed: 0, audit_removed: 0, passes_removed: 0, files_removed: 0, bans_lifted: 0, done: true });
   assert.equal(deleted.length, 1);
   assert.equal(deleted[0].row.id, goneId);
   assert.ok(!deleted[0].row.envelope && !deleted[0].row.sender_id && !deleted[0].row.expires_at && !deleted[0].row.recipient_ids.length);
   assert.equal(w.rows("Message").length, 2);
-  assert.deepEqual(await maintenance(w, "expire"), { task: "expire", removed: 0, server_removed: 0, audit_removed: 0, passes_removed: 0, files_removed: 0, done: true }, "nothing else was due");
+  assert.deepEqual(await maintenance(w, "expire"), { task: "expire", removed: 0, server_removed: 0, audit_removed: 0, passes_removed: 0, files_removed: 0, bans_lifted: 0, done: true }, "nothing else was due");
 
   // Either of them can turn it off; later messages are kept again.
   const off = (await conversationCall(alice, "set_expiry", { conversation_id: dm.id, seconds: 0 })).body.conversation;
