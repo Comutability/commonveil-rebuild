@@ -10,6 +10,8 @@ import * as P from "./protocol.js";
 import * as S from "./store.js";
 import { buildThread, hideAt, isShowing, searchThreads } from "./thread.js";
 import { votePayload } from "./polls.js";
+import { copyAttachments, uploadAttachments } from "./fileTransfer.js";
+import { randomId } from "../crypto/encoding.js";
 import { DEFAULT_ALERTS, alertText, cleanAlerts, showAlert } from "./alerts.js";
 
 const ChatContext = createContext(null);
@@ -618,9 +620,22 @@ export function ChatProvider({ children }) {
     return null;
   }, [chainsFor, mergeMessages, touchConversation, refreshConversation, membershipProblem]);
 
-  const send = useCallback((conversation, text, { replyTo = null } = {}) =>
-    sendBuilt(conversation, (conv, chains) => P.buildMessage({ userId, device, conversation: conv, chains, text, keyring, replyTo })),
-  [sendBuilt, userId, device, keyring]);
+  /** files / forwardFiles / onProgress as in servers' sendText. */
+  const send = useCallback(async (conversation, text, { replyTo = null, forwarded = false, files = [], forwardFiles = [], onProgress = null } = {}) => {
+    if (!files.length && !forwardFiles.length && !forwarded) {
+      return sendBuilt(conversation, (conv, chains) => P.buildMessage({ userId, device, conversation: conv, chains, text, keyring, replyTo }));
+    }
+    const problem = membershipProblem(conversation);
+    if (problem) throw new Error(problem);
+    lastActivity.current = Date.now();
+    const itemId = randomId(16);
+    const place = { scope: "conversation", conversation_id: conversation.id };
+    let attachments = [];
+    if (files.length) attachments = await uploadAttachments({ userId, device, place, msgId: itemId, items: files, onProgress });
+    if (forwardFiles.length) attachments = [...attachments, ...(await copyAttachments({ userId, device, place, msgId: itemId, attachments: forwardFiles }))];
+    const payload = { type: "text", text: String(text || "").trim() ? text : "", ...(replyTo ? { reply_to: replyTo } : {}), ...(forwarded ? { forwarded: true } : {}), ...(attachments.length ? { attachments } : {}) };
+    return sendBuilt(conversation, (conv, chains) => P.buildPayloadMessage({ userId, device, conversation: conv, chains, keyring, payload, itemId }));
+  }, [sendBuilt, userId, device, keyring, membershipProblem]);
 
   const react = useCallback((conversation, message, emoji, remove = false) =>
     sendBuilt(conversation, (conv, chains) => P.buildReaction({ userId, device, conversation: conv, chains, keyring, target: message.msg_id, emoji, remove })),

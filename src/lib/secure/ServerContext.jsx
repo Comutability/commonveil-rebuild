@@ -16,6 +16,8 @@ import { useNavigate } from "react-router-dom";
 import { buildThread } from "./thread.js";
 import { showAlert } from "./alerts.js";
 import { votePayload } from "./polls.js";
+import { copyAttachments, uploadAttachments } from "./fileTransfer.js";
+import { randomId } from "../crypto/encoding.js";
 import { ChainKeys, ServerKeyError, newInviteSecret, openInvitePreview, sealInvitePreview, stepAt } from "../crypto/serverKeys.js";
 import * as S from "./store.js";
 import { templateChannel, templateRole, templateServer } from "./serverTemplates.js";
@@ -786,14 +788,14 @@ export function ServerProvider({ children }) {
     return built.sort((a, b) => ts(b.m.last_reply_at || b.m.created_date) - ts(a.m.last_reply_at || a.m.created_date));
   }, [rows, opened, userId]);
 
-  const sendBuilt = useCallback(async (sid, channel, payload, { kind = "message", threadId = "" } = {}) => {
+  const sendBuilt = useCallback(async (sid, channel, payload, { kind = "message", threadId = "", itemId = null } = {}) => {
     touchActivity();
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const e = serversRef.current[sid];
       const keys = keysRef.current[sid];
       if (!e?.generations || !keys) throw new Error("This server is still loading. Try again in a moment.");
       try {
-        const body = await SP.buildChannelMessage({ serverId: sid, channel, generations: e.generations, keys, userId, device, payload, kind, threadId });
+        const body = await SP.buildChannelMessage({ serverId: sid, channel, generations: e.generations, keys, userId, device, payload, kind, threadId, itemId });
         const res = await withRetry(() => callFn("channels", body));
         mergeRows([res.message]);
         return res.message;
@@ -819,11 +821,25 @@ export function ServerProvider({ children }) {
     saveReadTimer.current = setTimeout(() => S.saveServerRead(userId, readRef.current).catch(() => {}), 800);
   }, [userId]);
 
-  const sendText = useCallback(async (sid, channel, text, { replyTo = null, mentions = null, threadId = "", forwarded = false } = {}) => {
-    const m = await sendBuilt(sid, channel, SP.textPayload(text, { replyTo, mentions, forwarded }), { kind: "message", threadId });
+  /**
+   * files: [{ file, voice?, duration?, spoiler? }] to seal and attach; forwardFiles: attachments
+   * from another message, copied here as they are. onProgress(done, total) while uploading.
+   */
+  const sendText = useCallback(async (sid, channel, text, { replyTo = null, mentions = null, threadId = "", forwarded = false, files = [], forwardFiles = [], onProgress = null } = {}) => {
+    touchActivity();
+    const itemId = randomId(16);
+    const place = { scope: "server", server_id: sid, channel_id: channel.id };
+    let attachments = [];
+    try {
+      if (files.length) attachments = await uploadAttachments({ userId, device, place, msgId: itemId, items: files, onProgress });
+      if (forwardFiles.length) attachments = [...attachments, ...(await copyAttachments({ userId, device, place, msgId: itemId, attachments: forwardFiles }))];
+    } catch (err) {
+      throw friendly(err);
+    }
+    const m = await sendBuilt(sid, channel, SP.textPayload(text, { replyTo, mentions, forwarded, attachments }), { kind: "message", threadId, itemId });
     if (m) markChannelRead(channel.id, m.created_date);
     return m;
-  }, [sendBuilt, markChannelRead]);
+  }, [sendBuilt, markChannelRead, touchActivity, userId, device]);
 
   const sendPost = useCallback(async (sid, channel, title, text, { mentions = null } = {}) => {
     const m = await sendBuilt(sid, channel, SP.postPayload(title, text, { mentions }), { kind: "post" });
