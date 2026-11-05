@@ -641,6 +641,8 @@ const ACTIONS = {
   server_emoji: "changed the emoji",
   server_stickers: "changed the stickers",
   server_automod: "changed AutoMod",
+  thread_lock: "locked a thread",
+  thread_unlock: "unlocked a thread",
   server_settings: "changed settings",
   ownership_transfer: "handed ownership to",
   invite_create: "made an invite",

@@ -219,6 +219,22 @@ export const serverMessageActions: Actions = {
     await audit(sr, parts.server, user.id, pinned ? "message_pin" : "message_unpin", "channel", view.channel.id, "", now);
     return { ok: true };
   },
+
+  /** Lock or unlock a thread (or forum post): while locked, only people who can manage threads reply. */
+  async lock_thread(ctx) {
+    const { sr, own, user, now } = ctx;
+    const { data } = await signedByActiveDevice(ctx, "lock_thread");
+    const serverId = id(data.server_id, "server");
+    const view = await channelView(own, serverId, id(data.channel_id, "channel"), user.id);
+    requirePerm(view.perms, P.MANAGE_THREADS, "lock threads");
+    const [root] = await own.entities.ServerMessage.filter({ channel_id: view.channel.id, msg_id: randomIdField(data.msg_id, "message") }, "created_date", 1);
+    if (!root || root.deleted || root.thread_id || !(root.kind === "post" || root.kind === "message")) throw new ApiError(404, "NOT_FOUND", "Thread not found.");
+    const locked = data.locked !== false;
+    await sr.entities.ServerMessage.update(root.id, { thread_locked: locked });
+    const parts = await serverParts(sr, serverId);
+    await audit(sr, parts.server, user.id, locked ? "thread_lock" : "thread_unlock", "channel", view.channel.id, "", now);
+    return { ok: true };
+  },
 };
 
 /**

@@ -27,7 +27,12 @@
     },
     "thread_id": {
       "type": "string",
-      "description": "For a reply in a forum post: the post's msg_id."
+      "description": "For a reply in a forum post or a thread: the post's (or the thread's first message's) msg_id."
+    },
+    "thread_locked": {
+      "type": "boolean",
+      "default": false,
+      "description": "On a thread's first message: only people who can manage threads can reply."
     },
     "sender_id": {
       "type": "string"

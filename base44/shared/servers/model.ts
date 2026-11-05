@@ -204,6 +204,7 @@ export const serverMessageOut = (m: any) => ({
   pinned: Boolean(m.pinned),
   last_reply_at: m.last_reply_at || null,
   reply_count: Number(m.reply_count) || 0,
+  thread_locked: Boolean(m.thread_locked),
 });
 
 export const BLANK_SERVER_MESSAGE = {
