@@ -9,6 +9,7 @@ import { useSecure } from "@/lib/secure/SecureContext";
 import { useAppearance } from "@/lib/appearance";
 import { P, channelPermissions, has } from "@/lib/secure/permissions";
 import { automodReason } from "@/lib/secure/automod";
+import { typingText, usePresence } from "@/lib/secure/PresenceContext";
 import MessageRow, { DayDivider, newDay, sameRun, stamp } from "@/components/chat/MessageRow";
 import Composer from "@/components/chat/Composer";
 import ComposerPlus from "@/components/chat/ComposerPlus";
@@ -254,7 +255,9 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
 
 /** The composer for a channel or a forum post's thread: mentions, replies, edits, and why you can't post if you can't. */
 export function ChannelComposer({ serverId, channel, threadId = "", reply, setReply, editing, setEditing, placeholder }) {
-  const { sendText, sendPoll, edit, channelName } = useServers();
+  const { sendText, sendPoll, edit, channelName, memberName } = useServers();
+  const presence = usePresence();
+  const typers = presence.typingIn("s", serverId, channel.id, threadId).map((uid) => memberName(serverId, uid));
   const [pollOpen, setPollOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [stickerOpen, setStickerOpen] = useState(false);
@@ -329,6 +332,7 @@ export function ChannelComposer({ serverId, channel, threadId = "", reply, setRe
       value={text}
       onChange={(v) => {
         setText(v);
+        if (v && !editing) presence.sendTyping("s", serverId, { channelId: channel.id, threadId, isPrivate: channel.private });
         if (v) drafts.set(draftKey, v);
         else drafts.delete(draftKey);
       }}
@@ -343,7 +347,7 @@ export function ChannelComposer({ serverId, channel, threadId = "", reply, setRe
         setReply(null);
       }}
       suggest={suggest}
-      hint={slow ? `Slow mode is on: one message every ${slow >= 60 ? `${slow / 60} min` : `${slow} s`}.` : null}
+      hint={typingText(typers) || (slow ? `Slow mode is on: one message every ${slow >= 60 ? `${slow / 60} min` : `${slow} s`}.` : null)}
     />
     </>
   );
