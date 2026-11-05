@@ -10,14 +10,14 @@ import { useSecure } from "@/lib/secure/SecureContext";
 /** Your name in one server (or, for moderators, someone else's). Encrypted like everything else here. */
 export default function NicknameDialog({ serverId, open, onOpenChange, targetId = null }) {
   const { userId } = useSecure();
-  const { setNickname, memberName, items, serverLook } = useServersWithItems();
+  const { setNickname, memberName, nickOf, serverLook } = useServers();
   const who = targetId || userId;
   const [value, setValue] = useState("");
   const [state, setState] = useState({ busy: false, error: "" });
 
   useEffect(() => {
     if (open) {
-      setValue(items(`nick:${serverId}:${who}`) || "");
+      setValue(nickOf(serverId, who));
       setState({ busy: false, error: "" });
     }
     // Only when the dialog opens.
@@ -56,9 +56,4 @@ export default function NicknameDialog({ serverId, open, onOpenChange, targetId 
       </DialogContent>
     </Dialog>
   );
-}
-
-function useServersWithItems() {
-  const s = useServers();
-  return { ...s, items: (key) => s.nickOf?.(key) || "" };
 }
