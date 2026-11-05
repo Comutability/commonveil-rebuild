@@ -635,6 +635,9 @@ export function ServerProvider({ children }) {
     return memberLists[sid]?.profiles?.[uid] || profiles[uid] || null;
   }, [userId, me, memberLists, profiles]);
 
+  /** Someone's nickname in a server, decrypted, or "". */
+  const nickOf = useCallback((sid, uid) => itemContent(`nick:${sid}:${uid}`)?.nick || "", [itemContent]);
+
   /** What to call someone here: their nickname, else display name, else username. */
   const memberName = useCallback((sid, uid) => {
     const nick = itemContent(`nick:${sid}:${uid}`)?.nick;
@@ -1118,6 +1121,7 @@ export function ServerProvider({ children }) {
     roleColor,
     serverRules,
     memberName,
+    nickOf,
     memberColor,
     profileOf,
     rolesOfMember,
@@ -1182,7 +1186,7 @@ export function ServerProvider({ children }) {
     retryKeys: (sid) => serviceKeys(sid),
   }), [
     loaded, loadError, servers, order, rows, opened, hasMore, readState, prefs, unread, memberLists, keysTick,
-    serverLook, serverName, channelName, channelTopic, roleName, roleColor, serverRules, memberName, memberColor, profileOf, rolesOfMember,
+    serverLook, serverName, channelName, channelTopic, roleName, roleColor, serverRules, memberName, nickOf, memberColor, profileOf, rolesOfMember,
     permsFor, can, myTop, keyState, loadState, openView, loadOlder, threadOf, postsOf, loadPins, loadMembers, memberCard,
     sendText, sendPost, react, edit, deleteMessage, pinMessage, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
     toggleCollapsed, moveServer, act, setServerProfile, setServerRules, updateSettings, setNickname, createChannel, updateChannel,
