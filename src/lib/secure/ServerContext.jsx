@@ -13,6 +13,7 @@ import { useChat } from "./ChatContext.jsx";
 import * as SP from "./serverProtocol.js";
 import { P, basePermissions, channelPermissions, has, isStaff, topPosition } from "./permissions.js";
 import { buildThread } from "./thread.js";
+import { votePayload } from "./polls.js";
 import { ChainKeys, ServerKeyError, newInviteSecret, openInvitePreview, sealInvitePreview, stepAt } from "../crypto/serverKeys.js";
 import * as S from "./store.js";
 import { templateChannel, templateRole, templateServer } from "./serverTemplates.js";
@@ -831,6 +832,18 @@ export function ServerProvider({ children }) {
     sendBuilt(sid, channel, SP.reactionPayload(row.m.msg_id, emoji, remove), { kind: "reaction", threadId: row.m.kind === "post" ? row.m.msg_id : row.m.thread_id || "" }),
   [sendBuilt]);
 
+  /** A poll (made with polls.js pollPayload). The service files it as an ordinary message. */
+  const sendPoll = useCallback(async (sid, channel, poll, { threadId = "" } = {}) => {
+    const m = await sendBuilt(sid, channel, poll, { kind: "message", threadId });
+    if (m) markChannelRead(channel.id, m.created_date);
+    return m;
+  }, [sendBuilt, markChannelRead]);
+
+  /** Your answer to a poll. The service files it as a reaction, so it can't tell the two apart. */
+  const vote = useCallback((sid, channel, row, choices) =>
+    sendBuilt(sid, channel, votePayload(row.m.msg_id, choices), { kind: "reaction", threadId: row.m.kind === "post" ? row.m.msg_id : row.m.thread_id || "" }),
+  [sendBuilt]);
+
   const edit = useCallback((sid, channel, row, text) =>
     sendBuilt(sid, channel, SP.editPayload(row.m.msg_id, text), { kind: "edit", threadId: row.m.kind === "post" ? row.m.msg_id : row.m.thread_id || "" }),
   [sendBuilt]);
@@ -1231,7 +1244,7 @@ export function ServerProvider({ children }) {
     loaded, loadError, servers, order, rows, opened, hasMore, readState, prefs, unread, memberLists, keysTick,
     serverLook, serverName, channelName, channelTopic, roleName, roleColor, serverRules, memberName, nickOf, memberColor, profileOf, rolesOfMember,
     permsFor, can, myTop, keyState, loadState, openView, loadOlder, threadOf, postsOf, loadPins, loadMembers, memberCard,
-    sendText, sendPost, react, edit, deleteMessage, pinMessage, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
+    sendText, sendPost, sendPoll, vote, react, edit, deleteMessage, pinMessage, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
     toggleCollapsed, moveServer, act, setServerProfile, setServerRules, updateSettings, setNickname, createChannel, updateChannel,
     createRole, updateRole, banMember, openBanReason, joinServer, leaveServer, deleteServer, createServer, createInvite, listInvites,
     revokeInvite, discover, listTickets, openTicket, setTicketStatus, renewKeys, serviceKeys,
