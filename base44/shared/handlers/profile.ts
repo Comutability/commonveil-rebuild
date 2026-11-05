@@ -43,7 +43,57 @@ function normaliseUsername(value: unknown) {
   return { username, key: username.toLowerCase() };
 }
 
+/** Count rows up to a cap, so a privacy report never turns into a heavy query. */
+async function countUpTo(db: any, entity: string, query: any, cap = 1000) {
+  const rows = await db.entities[entity].filter(query, "-created_date", cap + 1);
+  return { count: Math.min(rows.length, cap), more: rows.length > cap, oldest: rows.length ? rows[Math.min(rows.length, cap) - 1].created_date : null };
+}
+
 export const profileActions: Actions = {
+  /**
+   * Your privacy report: everything the service holds about you, as it holds it. Nothing here
+   * is new data; it's what the other features already need, listed for you.
+   */
+  async privacy_report({ sr, own, user }) {
+    const profile = await profileOf(own, user.id);
+    const devices = await own.entities.Device.filter({ user_id: user.id }, "created_date", 50);
+    const convs = await own.entities.Conversation.filter({ member_ids: user.id }, "created_date", 500);
+    const memberships = await own.entities.ServerMember.filter({ user_id: user.id }, "created_date", 200);
+    const [sent, files, scheduled, serverReports, teamReports, blocks] = await Promise.all([
+      countUpTo(own, "Message", { sender_id: user.id }),
+      countUpTo(sr, "Attachment", { owner_id: user.id }),
+      countUpTo(sr, "ScheduledMessage", { sender_id: user.id }, 100),
+      countUpTo(sr, "ServerReport", { reporter_id: user.id }, 200),
+      countUpTo(sr, "Report", { reporter_id: user.id }, 200),
+      countUpTo(sr, "Block", { user_id: user.id }, 500),
+    ]);
+    const email = String(user.email || "");
+    const at = email.indexOf("@");
+    return {
+      account: {
+        created: user.created_date || null,
+        email_hint: at > 1 ? `${email[0]}${"•".repeat(Math.min(6, at - 1))}${email.slice(at)}` : "",
+        username: profile?.username || "",
+        shared_profile: { display_name: Boolean(profile?.display_name), bio: Boolean(profile?.bio), pronouns: Boolean(profile?.pronouns), avatar: Boolean(profile?.avatar_emoji) },
+        profile_visibility: profile?.profile_visibility || "shared",
+        dm_policy: profile?.dm_policy || "anyone",
+        auto_delete_days: Number(profile?.delete_after_days) || 0,
+        last_active_day: profile?.last_active_at ? String(profile.last_active_at).slice(0, 10) : null,
+      },
+      devices: devices.map((d: any) => ({ label: d.label || "", status: d.status, added: d.approved_at || d.created_date, last_seen_day: d.last_seen_at ? String(d.last_seen_at).slice(0, 10) : null })),
+      conversations: {
+        direct: convs.filter((c: any) => c.kind === "dm").length,
+        groups: convs.filter((c: any) => c.kind === "group" && !c.server_id).length,
+        tickets: convs.filter((c: any) => c.server_id).length,
+        people: new Set(convs.flatMap((c: any) => c.member_ids || []).filter((u: string) => u !== user.id)).size,
+        disappearing: convs.filter((c: any) => Number(c.expire_seconds) > 0).length,
+        self_destructing: convs.filter((c: any) => c.destroy_at).length,
+      },
+      servers: { count: memberships.length, listed: memberships.filter((m: any) => m.listed).length },
+      stored: { messages_sent: sent, files_uploaded: files, scheduled, reports_to_moderators: serverReports, reports_to_commonveil: teamReports, blocks },
+    };
+  },
+
   /** Read with the member's own access (see Ctx): every page load asks. */
   async me({ sr, own, user, now }) {
     const profile = await profileOf(own, user.id);
