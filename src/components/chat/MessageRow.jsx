@@ -1,12 +1,14 @@
 import React from "react";
-import { Copy, CornerUpLeft, Hourglass, Lock, MoreHorizontal, Pencil, Pin, PinOff, ShieldQuestion, SmilePlus, Trash2 } from "lucide-react";
+import { Bookmark, BookmarkCheck, Copy, CornerUpLeft, Forward, Hourglass, Lock, MoreHorizontal, Pencil, Pin, PinOff, ShieldQuestion, SmilePlus, Trash2 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { REACTIONS } from "@/lib/secure/protocol.js";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { QUICK_REACTIONS, emojiName } from "@/lib/emoji";
 import Avatar from "./Avatar";
 import RichText from "./RichText";
+import EmojiPicker from "./EmojiPicker";
+import PollCard from "./PollCard";
 
-export const REACTION_NAMES = ["Thumbs up", "Heart", "Laughing", "Surprised", "Sad", "Thank you"];
-export const reactionName = (emoji) => REACTION_NAMES[REACTIONS.indexOf(emoji)] || "Reaction";
+export const reactionName = emojiName;
 
 const toDate = (value) => {
   if (!value) return null;
@@ -119,6 +121,7 @@ function Body({ row, ctx }) {
       </span>
     );
   }
+  if (row.poll) return null;
   return <RichText text={row.text} ctx={ctx} />;
 }
 
@@ -144,10 +147,15 @@ export default function MessageRow({
   onDelete,
   onPin,
   onJump,
+  onVote,
+  onForward,
+  onSave,
+  saved = false,
 }) {
+  const [picker, setPicker] = React.useState(false);
   const { m, result } = row;
   const readableNow = result && (result.status === "ok" || result.status === "unverified");
-  const showTools = (readableNow && (can.react || can.reply || can.edit || can.pin)) || can.delete;
+  const showTools = (readableNow && (can.react || can.reply || can.edit || can.pin || onForward || onSave)) || can.delete;
   const time = (
     <time dateTime={m.created_date} title={fullTime(m.created_date)} className="text-xs text-muted-foreground">
       {head && !compact ? stamp(m.created_date) : clockTime(m.created_date)}
@@ -197,12 +205,13 @@ export default function MessageRow({
             {meta}
           </div>
         )}
+        {row.poll && readableNow && <PollCard poll={row.poll} nameOf={nameOf} disabled={!can.react || !onVote} onVote={(choices) => onVote?.(choices)} />}
         <Reactions reactions={row.reactions} nameOf={nameOf} disabled={!can.react} onToggle={(emoji, already) => onReact?.(emoji, already)} />
       </div>
 
       {showTools && (
         <div className="absolute -top-3 right-3 z-10 flex items-center rounded-md border border-border bg-popover shadow-sm opacity-100 transition-opacity focus-within:opacity-100 group-hover:opacity-100 sm:opacity-0">
-          {readableNow && can.react && REACTIONS.slice(0, 3).map((emoji) => {
+          {readableNow && can.react && QUICK_REACTIONS.slice(0, 3).map((emoji) => {
             const already = row.reactions.find((r) => r.emoji === emoji)?.mine;
             return (
               <button key={emoji} type="button" onClick={() => onReact(emoji, Boolean(already))} className="hidden h-8 w-8 items-center justify-center rounded-md hover:bg-muted sm:flex" aria-label={`${already ? "Remove" : "React with"} ${reactionName(emoji)}`}>
@@ -211,23 +220,23 @@ export default function MessageRow({
             );
           })}
           {readableNow && can.react && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+            <Popover open={picker} onOpenChange={setPicker}>
+              <PopoverTrigger asChild>
                 <button type="button" className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Add a reaction">
                   <SmilePlus className="h-4 w-4" aria-hidden="true" />
                 </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="flex gap-0.5 p-1">
-                {REACTIONS.map((emoji) => {
-                  const already = row.reactions.find((r) => r.emoji === emoji)?.mine;
-                  return (
-                    <DropdownMenuItem key={emoji} onSelect={() => onReact(emoji, Boolean(already))} className={`justify-center rounded-md px-1.5 text-lg ${already ? "bg-primary/10" : ""}`} aria-label={`${already ? "Remove" : "React with"} ${reactionName(emoji)}`}>
-                      <span aria-hidden="true">{emoji}</span>
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-auto p-0">
+                <EmojiPicker
+                  label="Add a reaction"
+                  selected={row.reactions.filter((r) => r.mine).map((r) => r.emoji)}
+                  onPick={(emoji) => {
+                    setPicker(false);
+                    onReact(emoji, Boolean(row.reactions.find((r) => r.emoji === emoji)?.mine));
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
           )}
           {readableNow && can.reply && (
             <button type="button" onClick={onReply} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Reply">
@@ -251,6 +260,12 @@ export default function MessageRow({
               {readableNow && can.pin && (
                 <DropdownMenuItem onSelect={onPin}>
                   {m.pinned ? <PinOff className="mr-2 h-4 w-4" aria-hidden="true" /> : <Pin className="mr-2 h-4 w-4" aria-hidden="true" />} {m.pinned ? "Unpin" : "Pin"}
+                </DropdownMenuItem>
+              )}
+              {readableNow && onForward && <DropdownMenuItem onSelect={onForward}><Forward className="mr-2 h-4 w-4" aria-hidden="true" /> Forward</DropdownMenuItem>}
+              {readableNow && onSave && (
+                <DropdownMenuItem onSelect={onSave}>
+                  {saved ? <BookmarkCheck className="mr-2 h-4 w-4" aria-hidden="true" /> : <Bookmark className="mr-2 h-4 w-4" aria-hidden="true" />} {saved ? "Remove from saved" : "Save for later"}
                 </DropdownMenuItem>
               )}
               {readableNow && (
