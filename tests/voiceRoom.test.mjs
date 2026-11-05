@@ -32,7 +32,9 @@ const hello = (n) => ({ call_id: `call${n}abcdefgh`, fingerprint: FP, issued_at:
 function env() {
   const tickets = new Map();
   const saved = new Map();
+  const removed = new Set();
   return {
+    removed,
     room: ROOM,
     conns: new Map(),
     wakes: new Map(),
@@ -41,6 +43,7 @@ function env() {
     client: {
       asServiceRole: {
         entities: {
+          ServerMember: { filter: async (q) => (removed.has(q.user_id) ? [] : [{ user_id: q.user_id, timeout_until: "" }]) },
           VoiceTicket: {
             get: async (id) => {
               if (!tickets.has(id)) throw new Error("not found");
@@ -137,7 +140,7 @@ test("voice room: members hear about each other and relay set-up; outsiders hear
   assert.equal(a.got.at(-1).type, "signal", "outsiders and oversized messages aren't relayed");
   assert.equal(a.got.filter((m) => m.type === "signal").length, 1);
   await room.handleMessage(b, { type: "state", muted: true, deafened: false });
-  assert.deepEqual(a.got.at(-1), { type: "peer-state", seat: welcomeB.seat, muted: true, deafened: false, can_speak: true, hand: false });
+  assert.deepEqual(a.got.at(-1), { type: "peer-state", seat: welcomeB.seat, muted: true, deafened: false, can_speak: true, hand: false, mod_muted: false });
   await room.handleMessage(b, { type: "leave" });
   assert.deepEqual(a.got.at(-1), { type: "peer-left", seat: welcomeB.seat });
   assert.deepEqual(lurker.got.map((m) => m.type), ["pass-needed"], "a connection without a pass learns nothing");
@@ -233,4 +236,41 @@ test("stage: listeners can't speak until a moderator brings them up; only modera
   await room.handleMessage(mod, { type: "mute-peer", seat: fanSeat });
   assert.equal(other.got.at(-1).muted, true);
   assert.ok(otherSeat);
+});
+
+test("voice room: people removed from the server are taken out within a minute, and mod mutes stick", async () => {
+  const e = env();
+  const room = new VoiceRoom(e);
+  await room.handleStart();
+  const a = await joined(room, e, "conn-alice-1", "alice");
+  const b = await joined(room, e, "conn-bob-1", "bob");
+  assert.equal(e.wakes.has("recheck"), true);
+  e.removed.add("bob");
+  await room.handleWake("recheck");
+  assert.equal(b.rejected?.code, 4006);
+  assert.equal(a.got.at(-1).type, "peer-left");
+  assert.deepEqual([...room.people.values()].map((p) => p.userId), ["alice"]);
+  // Someone else's connection id doesn't let you act as them.
+  const imposter = connect(e, "conn-alice-1", "mallory");
+  await room.handleMessage(imposter, { type: "state", muted: true, deafened: true });
+  assert.equal([...room.people.values()][0].deafened, false);
+});
+
+test("voice room: a moderator's mute can't be undone by the person muted", async () => {
+  const e = env();
+  const room = new VoiceRoom(e);
+  await room.handleStart();
+  const c = connect(e, "conn-mod-9", "alice");
+  await room.handleConnect(c);
+  const id = `ticketmod${++n}x`;
+  e.tickets.set(id, { id, room: ROOM, user_id: "alice", device_id: "devalicexyz", can_speak: true, can_moderate: true, stage: false, expires_at: new Date(Date.now() + 60000).toISOString() });
+  await room.handleMessage(c, { type: "join", ticket: id, hello: hello("alice") });
+  const b = await joined(room, e, "conn-bob-9", "bob");
+  const bSeat = b.got.find((m) => m.type === "welcome").seat;
+  await room.handleMessage(c, { type: "mute-peer", seat: bSeat });
+  await room.handleMessage(b, { type: "state", muted: false, deafened: false });
+  assert.deepEqual([c.got.at(-1).muted, c.got.at(-1).mod_muted], [true, true]);
+  await room.handleMessage(c, { type: "unmute-peer", seat: bSeat });
+  await room.handleMessage(b, { type: "state", muted: false, deafened: false });
+  assert.equal(c.got.at(-1).muted, false);
 });
