@@ -14,7 +14,7 @@ import { callFn } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { useSecure } from "@/lib/secure/SecureContext";
 import { useChat } from "@/lib/secure/ChatContext";
-import { askNotificationPermission, notificationPermission, notificationsSupported } from "@/lib/secure/alerts.js";
+import { askNotificationPermission, isQuiet, minutesToTime, notificationPermission, notificationsSupported, timeToMinutes } from "@/lib/secure/alerts.js";
 import { buildExport, downloadJson } from "@/lib/secure/exportData.js";
 import { IDLE_CHOICES, MIN_PASSCODE_CHARS } from "@/lib/crypto/lock.js";
 import { groupDigits, linkCode, safetyFingerprint } from "@/lib/crypto/identity.js";
@@ -345,6 +345,76 @@ export function AlertsSection() {
         <Toggle id="alert-title" checked={alerts.titleCount} onChange={(v) => change({ titleCount: v })} hint={'For example "(2) Commonveil", so you can see it from another tab.'}>
           Show the number of unread conversations in the tab's title
         </Toggle>
+        <ErrorNote>{error}</ErrorNote>
+      </div>
+    </Section>
+  );
+}
+
+const FOCUS_CHOICES = [
+  { hours: 1, label: "1 hour" },
+  { hours: 2, label: "2 hours" },
+  { hours: 4, label: "4 hours" },
+  { hours: 8, label: "8 hours" },
+];
+
+/** Quiet hours and focus: silence notifications on a schedule or for a while. Never leaves this device. */
+export function QuietSection() {
+  const { alerts, updateAlerts } = useChat();
+  const [error, setError] = useState("");
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const change = async (changes) => {
+    setError("");
+    try {
+      await updateAlerts(changes);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+  const setTime = (key) => (e) => {
+    const m = timeToMinutes(e.target.value);
+    if (m !== null) change({ [key]: m });
+  };
+  const focusOn = alerts.focusUntil > Date.now();
+  const quietNow = isQuiet(alerts);
+  return (
+    <Section icon={CalendarClock} title="Quiet hours and focus" description="Silence notifications overnight or for a while. Messages still arrive; you just aren't interrupted. This is kept on this browser only, so Commonveil never learns when you sleep or when you're busy.">
+      <div className="space-y-4 text-sm">
+        <Toggle id="quiet-on" checked={alerts.quiet} onChange={(v) => change({ quiet: v })} hint="Every day, between the times below, in this device's time zone.">
+          Quiet hours
+        </Toggle>
+        <div className="flex flex-wrap items-end gap-3 pl-7">
+          <div>
+            <Label htmlFor="quiet-from" className="text-xs">From</Label>
+            <Input id="quiet-from" type="time" className="mt-1 w-32" disabled={!alerts.quiet} value={minutesToTime(alerts.quietFrom)} onChange={setTime("quietFrom")} />
+          </div>
+          <div>
+            <Label htmlFor="quiet-to" className="text-xs">Until</Label>
+            <Input id="quiet-to" type="time" className="mt-1 w-32" disabled={!alerts.quiet} value={minutesToTime(alerts.quietTo)} onChange={setTime("quietTo")} />
+          </div>
+        </div>
+        <div>
+          <p className="font-medium">Focus</p>
+          {focusOn ? (
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <span className="text-muted-foreground">On until {new Date(alerts.focusUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.</span>
+              <Button size="sm" variant="outline" onClick={() => change({ focusUntil: 0 })}>End focus</Button>
+            </div>
+          ) : (
+            <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Focus for">
+              {FOCUS_CHOICES.map((c) => (
+                <Button key={c.hours} size="sm" variant="outline" onClick={() => change({ focusUntil: Date.now() + c.hours * 3600_000 })}>
+                  Focus for {c.label}
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
+        {quietNow && alerts.notify && <p className="text-xs text-muted-foreground">Notifications are silenced right now.</p>}
         <ErrorNote>{error}</ErrorNote>
       </div>
     </Section>
