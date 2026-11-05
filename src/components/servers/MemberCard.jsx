@@ -40,6 +40,28 @@ function monthOf(value) {
  * (for moderators) what can be done about them. Opening it asks the server for nothing that
  * other members couldn't see in their messages anyway.
  */
+/** A note only you can see, kept on this device. */
+function PrivateNote({ userId }) {
+  const { noteOf, setNote } = useServers();
+  const [text, setText] = useState(() => noteOf(userId));
+  useEffect(() => setText(noteOf(userId)), [userId, noteOf]);
+  return (
+    <section className="space-y-1">
+      <Label htmlFor="member-note" className="text-xs font-semibold text-muted-foreground">Note</Label>
+      <textarea
+        id="member-note"
+        value={text}
+        onChange={(ev) => setText(ev.target.value)}
+        onBlur={() => setNote(userId, text)}
+        maxLength={500}
+        rows={2}
+        placeholder="Only you can see this. It stays on this device."
+        className="w-full resize-none rounded-md border border-input bg-transparent px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      />
+    </section>
+  );
+}
+
 export default function MemberCard({ serverId, userId: targetId, open, onOpenChange }) {
   const navigate = useNavigate();
   const { userId, peers, acceptKeyChange } = useSecure();
@@ -217,6 +239,7 @@ export default function MemberCard({ serverId, userId: targetId, open, onOpenCha
                   )}
                 </section>
               )}
+              {targetId !== userId && <PrivateNote userId={targetId} />}
               <ErrorNote>{error}</ErrorNote>
             </>
           )}
