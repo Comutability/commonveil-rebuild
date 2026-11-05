@@ -74,3 +74,16 @@ test("presence: members only, one entry per person, typing passed on, nothing st
   assert.ok(a1.got.at(-1).type === "here");
   assert.deepEqual(e.writes, []);
 });
+
+test("presence: a connection flooding the room is ignored after 30 messages in 10 seconds", async () => {
+  const e = env(["alice00001", "bobby00001"]);
+  const room = new Presence(e);
+  await room.handleStart();
+  const a = connect(e, "conn-a1", "alice00001");
+  await room.handleConnect(a);
+  const b = connect(e, "conn-b", "bobby00001");
+  await room.handleConnect(b);
+  const before = b.got.length;
+  for (let i = 0; i < 100; i += 1) await room.handleMessage(a, { type: "hello", status: i % 2 ? "idle" : "online" });
+  assert.ok(b.got.length - before <= 30, `got ${b.got.length - before}`);
+});
