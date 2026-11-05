@@ -43,8 +43,13 @@ import {
 } from "../crypto/identity.js";
 import { decryptEnvelope, encryptEnvelope } from "../crypto/envelope.js";
 import { publicDevice } from "../crypto/device.js";
+import { isReactionEmoji } from "../emoji.js";
+import { cleanPoll, cleanVote } from "./polls.js";
 
 export const MAX_MESSAGE_CHARS = 4000;
+
+/** What a message shows as text in lists, previews and search. */
+export const textOf = (content) => (content.type === "reaction" || content.type === "vote" ? "" : content.type === "poll" ? content.question : content.text);
 
 /** The reactions on offer. Anything else in a reaction is ignored, so a reaction can't carry a message. */
 export const REACTIONS = Object.freeze(["\u{1F44D}", "\u2764\uFE0F", "\u{1F602}", "\u{1F62E}", "\u{1F622}", "\u{1F64F}"]);
@@ -466,8 +471,14 @@ export async function buildMessage({ userId, device, conversation, chains, text,
 /** Add (or, with remove, take back) one of the offered reactions to a message. */
 export async function buildReaction({ userId, device, conversation, chains, keyring = null, target, emoji, remove = false }) {
   if (!isItemId(target)) throw new Error("That message can't be reacted to.");
-  if (!REACTIONS.includes(emoji)) throw new Error("Choose one of the offered reactions.");
+  if (!isReactionEmoji(emoji)) throw new Error("Choose one of the offered reactions.");
   const payload = { type: "reaction", target, emoji, ...(remove ? { remove: true } : {}) };
+  return buildMessageBody({ userId, device, conversation, chains, payload, keyring });
+}
+
+/** Any other checked payload (a poll, a vote), built like a message. */
+export async function buildPayloadMessage({ userId, device, conversation, chains, keyring = null, payload }) {
+  if (!messageContent(payload)) throw new Error("That can't be sent.");
   return buildMessageBody({ userId, device, conversation, chains, payload, keyring });
 }
 
@@ -488,8 +499,16 @@ function messageContent(payload) {
     return { type: "text", text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...(isItemId(payload.reply_to) ? { reply_to: payload.reply_to } : {}), ...timer };
   }
   if (payload.type === "reaction") {
-    if (!isItemId(payload.target) || !REACTIONS.includes(payload.emoji)) return null;
+    if (!isItemId(payload.target) || !isReactionEmoji(payload.emoji)) return null;
     return { type: "reaction", target: payload.target, emoji: payload.emoji, remove: payload.remove === true, ...timer };
+  }
+  if (payload.type === "poll") {
+    const poll = cleanPoll(payload);
+    return poll ? { ...poll, ...timer } : null;
+  }
+  if (payload.type === "vote") {
+    const vote = cleanVote(payload);
+    return vote ? { ...vote, ...timer } : null;
   }
   if (payload.type === "edit") {
     if (!isItemId(payload.target) || typeof payload.text !== "string" || !payload.text.trim()) return null;
@@ -572,5 +591,5 @@ export async function openItem({ kind, item, userId, keyring, senderChain, sende
   }
   const content = messageContent(payload);
   if (!content) return { status: "locked", code: "BAD_PAYLOAD", message: "This message needs a newer version of Commonveil." };
-  return { ...base, text: content.type === "reaction" ? "" : content.text, content };
+  return { ...base, text: textOf(content), content };
 }
