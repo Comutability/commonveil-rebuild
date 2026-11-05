@@ -10,7 +10,7 @@ import MemberCard from "./MemberCard";
  */
 export default function MemberList({ serverId, className = "" }) {
   const s = useServers();
-  const { servers, memberLists, loadMembers, memberName, memberColor, roleName, roleColor, profileOf, act } = s;
+  const { servers, memberLists, loadMembers, memberName, memberColor, roleName, roleColor, profileOf, act, isStaffIn } = s;
   const e = servers[serverId];
   const list = memberLists[serverId];
   const [error, setError] = useState("");
@@ -54,6 +54,8 @@ export default function MemberList({ serverId, className = "" }) {
   const shown = list ? list.members.length : 0;
   const hidden = list ? Math.max(0, list.count - shown) : 0;
   const meListed = e.member?.listed;
+  // Staff are always listed, so members can see who runs the server. A toggle would do nothing for them.
+  const meStaff = Boolean(e.member) && isStaffIn(serverId, e.member);
 
   return (
     <aside aria-label="Members" className={`scroll-thin flex h-full w-60 shrink-0 flex-col overflow-y-auto bg-panel ${className}`}>
@@ -96,7 +98,8 @@ export default function MemberList({ serverId, className = "" }) {
               {hidden} {hidden === 1 ? "member isn't" : "members aren't"} listed. {mode === "staff_only" ? "Only staff are listed here." : "Members choose whether to be listed."}
             </p>
           ) : null}
-          {mode === "opt_in" && (
+          {mode !== "count_only" && meStaff && <p>You're listed here because you're staff. Members can always see who runs the server.</p>}
+          {mode === "opt_in" && !meStaff && (
             <p>
               {meListed ? "You're listed here." : "You're not listed here."}{" "}
               <button
