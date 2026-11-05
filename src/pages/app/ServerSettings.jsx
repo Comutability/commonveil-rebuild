@@ -638,9 +638,14 @@ function DangerZone({ sid }) {
 export default function ServerSettings() {
   const { serverId, section, channelId } = useParams();
   const { userId } = useSecure();
-  const { servers, can, serverLook, channelName } = useServers();
+  const { servers, loaded, loadState, can, serverLook, channelName } = useServers();
   const close = useCloseSettings(`/app/s/${serverId}`);
   const e = servers[serverId];
+
+  // Opened directly (a reload or a link): load the server like the server view does.
+  useEffect(() => {
+    if (e && !e.roles && e.status === "listed") loadState(serverId).catch(() => {});
+  }, [e, serverId, loadState]);
   const perms = useMemo(() => ({
     server: can(serverId, P.MANAGE_SERVER),
     roles: can(serverId, P.MANAGE_ROLES),
@@ -651,8 +656,8 @@ export default function ServerSettings() {
     mod: can(serverId, P.KICK_MEMBERS) || can(serverId, P.BAN_MEMBERS) || can(serverId, P.TIMEOUT_MEMBERS) || can(serverId, P.MANAGE_ROLES),
   }), [can, serverId]);
 
+  if (!loaded || (e && !e.roles)) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</div>;
   if (!e) return <Navigate to="/app" replace />;
-  if (!e.roles) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</div>;
 
   const sections = {
     overview: perms.server && Overview,
