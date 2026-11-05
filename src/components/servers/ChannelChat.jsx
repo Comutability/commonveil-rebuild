@@ -1,6 +1,7 @@
 import React, { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
-import { Loader2, Search, X } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { ArrowLeft, Loader2, Lock, LockOpen, MessagesSquare, Search, X } from "lucide-react";
+import { NavButton } from "@/components/shell/Shell";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useServers, viewKey } from "@/lib/secure/ServerContext";
@@ -89,6 +90,8 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
   const [actionError, setActionError] = useState("");
   const [forwarding, setForwarding] = useState(null);
   const location = useLocation();
+  const navigate = useNavigate();
+  const threadsHere = !threadId && channel.kind !== "forum";
   const key = viewKey(channel.id, threadId ? { threadId } : {});
   const more = hasMore[key];
   const perms = permsFor(serverId, channel);
@@ -228,6 +231,7 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
               onSave={() => s.toggleSaved({ serverId, channelId: channel.id, threadId: row.m.thread_id || "", msgId: row.m.msg_id })}
               saved={s.isSaved(row.m.msg_id)}
               hiddenReason={hiddenBy(row)}
+              onThread={threadsHere && row.m.kind === "message" && !row.m.deleted && (row.m.reply_count > 0 || has(perms, P.SEND_MESSAGES)) ? () => navigate(`/app/s/${serverId}/${channel.id}/${row.m.msg_id}`) : undefined}
               onReply={() => onReply?.(row)}
               onEdit={() => onEdit?.(row)}
               onDelete={() => act(() => deleteMessage(serverId, row))}
@@ -342,6 +346,61 @@ export function ChannelComposer({ serverId, channel, threadId = "", reply, setRe
       hint={slow ? `Slow mode is on: one message every ${slow >= 60 ? `${slow / 60} min` : `${slow} s`}.` : null}
     />
     </>
+  );
+}
+
+/** A thread off one message in a text channel: its replies, and a composer for them. */
+export function ThreadView({ serverId, channel, threadId }) {
+  const { threadOf, memberName, channelName, can, lockThread } = useServers();
+  const view = useChannelView(serverId, channel, { threadId });
+  const rows = useMemo(() => threadOf(channel.id, threadId), [threadOf, channel.id, threadId]);
+  const root = rows.find((r) => r.m.msg_id === threadId && !r.m.thread_id);
+  const [reply, setReply] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [card, setCard] = useState(null);
+  const [lockError, setLockError] = useState("");
+  const title = root?.text ? root.text.replace(/\s+/g, " ").slice(0, 60) : "Thread";
+  const manage = can(serverId, P.MANAGE_THREADS, channel);
+  const locked = Boolean(root?.m.thread_locked);
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/70 px-3 shadow-sm sm:px-4">
+        <NavButton />
+        <Link to={`/app/s/${serverId}/${channel.id}`} className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={`Back to #${channelName(channel)}`}>
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+        </Link>
+        <MessagesSquare className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+        <span className="hidden text-sm text-muted-foreground sm:inline">#{channelName(channel)}</span>
+        <span className="hidden text-muted-foreground sm:inline" aria-hidden="true">/</span>
+        <h1 className="min-w-0 flex-1 truncate font-heading text-[1.05rem] font-semibold">{title}</h1>
+        {manage && root && (
+          <button type="button" onClick={() => lockThread(serverId, root, !locked).catch((err) => setLockError(err.message))} className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
+            {locked ? <LockOpen className="h-4 w-4" aria-hidden="true" /> : <Lock className="h-4 w-4" aria-hidden="true" />} {locked ? "Unlock" : "Lock"}
+          </button>
+        )}
+      </header>
+      {lockError && <p className="px-4 py-2 text-sm text-destructive" role="alert">{lockError}</p>}
+      <MessagePane
+        serverId={serverId}
+        channel={channel}
+        threadId={threadId}
+        rows={rows}
+        loading={view.loading}
+        error={view.error || (!view.loading && !root ? "This thread isn't here any more." : "")}
+        onAuthor={setCard}
+        onReply={(row) => {
+          setEditing(null);
+          setReply({ ...row, authorName: memberName(serverId, row.m.sender_id) });
+        }}
+        onEdit={(row) => {
+          setReply(null);
+          setEditing(row);
+        }}
+      />
+      {root && (!locked || manage) && <ChannelComposer serverId={serverId} channel={channel} threadId={threadId} reply={reply} setReply={setReply} editing={editing} setEditing={setEditing} placeholder="Reply in this thread" />}
+      {root && locked && !manage && <p className="px-4 pb-4 text-sm text-muted-foreground">This thread is locked. Only moderators can reply.</p>}
+      <MemberCard serverId={serverId} userId={card} open={Boolean(card)} onOpenChange={(v) => !v && setCard(null)} />
+    </div>
   );
 }
 
