@@ -819,8 +819,8 @@ export function ServerProvider({ children }) {
     saveReadTimer.current = setTimeout(() => S.saveServerRead(userId, readRef.current).catch(() => {}), 800);
   }, [userId]);
 
-  const sendText = useCallback(async (sid, channel, text, { replyTo = null, mentions = null, threadId = "" } = {}) => {
-    const m = await sendBuilt(sid, channel, SP.textPayload(text, { replyTo, mentions }), { kind: "message", threadId });
+  const sendText = useCallback(async (sid, channel, text, { replyTo = null, mentions = null, threadId = "", forwarded = false } = {}) => {
+    const m = await sendBuilt(sid, channel, SP.textPayload(text, { replyTo, mentions, forwarded }), { kind: "message", threadId });
     if (m) markChannelRead(channel.id, m.created_date);
     return m;
   }, [sendBuilt, markChannelRead]);

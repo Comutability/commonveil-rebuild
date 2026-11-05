@@ -78,8 +78,10 @@ function mentionsOf(m) {
   return { users, roles, ...(everyone ? { everyone: true } : {}) };
 }
 
-export function textPayload(text, { replyTo = null, mentions = null } = {}) {
+export function textPayload(text, { replyTo = null, mentions = null, forwarded = false } = {}) {
   const payload = { type: "text", text: cleanText(text, MAX_MESSAGE_CHARS) };
+  // A forwarded copy says only that it was forwarded, never where from.
+  if (forwarded) payload.forwarded = true;
   if (replyTo) {
     if (!isItemId(replyTo)) throw new Error("That message can't be replied to.");
     payload.reply_to = replyTo;
@@ -123,7 +125,7 @@ export function serverMessageContent(payload, declaredKind) {
   const mentions = mentionsOf(payload.mentions);
   if (payload.type === "text") {
     if (typeof payload.text !== "string") return null;
-    return { type: "text", text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...(isItemId(payload.reply_to) ? { reply_to: payload.reply_to } : {}), ...(mentions ? { mentions } : {}) };
+    return { type: "text", text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...(isItemId(payload.reply_to) ? { reply_to: payload.reply_to } : {}), ...(mentions ? { mentions } : {}), ...(payload.forwarded === true ? { forwarded: true } : {}) };
   }
   if (payload.type === "post") {
     if (typeof payload.title !== "string" || typeof payload.text !== "string" || !payload.title.trim()) return null;

@@ -496,7 +496,7 @@ function messageContent(payload) {
   const timer = EXPIRY_CHOICES.includes(seconds) && seconds > 0 ? { expire_seconds: seconds } : {};
   if (payload.type === "text" || payload.type === undefined) {
     if (typeof payload.text !== "string") return null;
-    return { type: "text", text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...(isItemId(payload.reply_to) ? { reply_to: payload.reply_to } : {}), ...timer };
+    return { type: "text", text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...(isItemId(payload.reply_to) ? { reply_to: payload.reply_to } : {}), ...(payload.forwarded === true ? { forwarded: true } : {}), ...timer };
   }
   if (payload.type === "reaction") {
     if (!isItemId(payload.target) || !isReactionEmoji(payload.emoji)) return null;
