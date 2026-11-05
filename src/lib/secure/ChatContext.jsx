@@ -11,7 +11,7 @@ import * as S from "./store.js";
 import { buildThread, hideAt, isShowing, searchThreads } from "./thread.js";
 import { votePayload } from "./polls.js";
 import { copyAttachments, uploadAttachments } from "./fileTransfer.js";
-import { randomId } from "../crypto/encoding.js";
+import { randomId, toB64 } from "../crypto/encoding.js";
 import { DEFAULT_ALERTS, alertText, cleanAlerts, showAlert } from "./alerts.js";
 
 const ChatContext = createContext(null);
@@ -645,6 +645,15 @@ export function ChatProvider({ children }) {
   const sendPoll = useCallback((conversation, poll) =>
     sendBuilt(conversation, (conv, chains) => P.buildPayloadMessage({ userId, device, conversation: conv, chains, keyring, payload: poll })),
   [sendBuilt, userId, device, keyring]);
+
+  /** Start a call: a fresh key, sent to everyone in the conversation inside an encrypted message. */
+  const startCall = useCallback(async (conversation, { video = false } = {}) => {
+    const callId = randomId(12);
+    const raw = crypto.getRandomValues(new Uint8Array(32));
+    const key = toB64(raw);
+    await sendBuilt(conversation, (conv, chains) => P.buildPayloadMessage({ userId, device, conversation: conv, chains, keyring, payload: { type: "call", call_id: callId, key, ...(video ? { video: true } : {}) } }));
+    return { callId, key: raw };
+  }, [sendBuilt, userId, device, keyring]);
 
   const vote = useCallback((conversation, message, choices) =>
     sendBuilt(conversation, (conv, chains) => P.buildPayloadMessage({ userId, device, conversation: conv, chains, keyring, payload: votePayload(message.msg_id, choices) })),

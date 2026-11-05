@@ -513,6 +513,12 @@ function messageContent(payload) {
     const vote = cleanVote(payload);
     return vote ? { ...vote, ...timer } : null;
   }
+  if (payload.type === "call") {
+    // A call starting: its id, and the key its audio and video frames are sealed with.
+    if (typeof payload.call_id !== "string" || !/^[A-Za-z0-9_-]{8,32}$/.test(payload.call_id)) return null;
+    if (typeof payload.key !== "string" || !/^[A-Za-z0-9+/]{43}=$/.test(payload.key)) return null;
+    return { type: "call", call_id: payload.call_id, key: payload.key, video: payload.video === true, ...timer };
+  }
   if (payload.type === "edit") {
     if (!isItemId(payload.target) || typeof payload.text !== "string" || !payload.text.trim()) return null;
     return { type: "edit", target: payload.target, text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...timer };
