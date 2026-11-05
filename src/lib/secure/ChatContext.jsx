@@ -229,7 +229,7 @@ export function ChatProvider({ children }) {
     const t = setInterval(() => {
       const at = Date.now();
       const all = Object.values(messagesRef.current).flat();
-      const timed = all.some((m) => hideAt(m, openedRef.current[m.id]) !== null);
+      const timed = all.some((m) => hideAt(m, openedRef.current[m.id]) !== null) || conversationsRef.current.some((c) => c.destroy_at);
       if (timed || at - clockMovedAt >= CLOCK_MS) {
         clockMovedAt = at;
         setNow(at);
@@ -802,9 +802,16 @@ export function ChatProvider({ children }) {
     searchThreads(conversations.map((c) => ({ conversation: c, rows: threads[c.id] || [] })), query),
   [conversations, threads]);
 
+  // A self-destructing conversation vanishes from view the moment its time is up, even before
+  // the service's sweep erases it (within a few minutes).
+  const liveConversations = useMemo(
+    () => conversations.filter((c) => !c.destroy_at || Date.parse(c.destroy_at) > now),
+    [conversations, now],
+  );
+
   const value = useMemo(() => ({
     loaded,
-    conversations,
+    conversations: liveConversations,
     messages,
     threads,
     hasMore,
@@ -850,7 +857,7 @@ export function ChatProvider({ children }) {
     membershipProblem,
     addPollExtension,
     touchActivity,
-  }), [loaded, conversations, messages, threads, hasMore, opened, titles, profiles, alerts, updateAlerts, openConversation, closeConversation, loadOlder, loadHistory, searchMessages, markRead, isUnread, send, react, sendPoll, startCall, scheduleMessage, loadScheduled, cancelScheduled, checkIn, setSelfDestruct, vote, editMessage, setTitle, setExpiry, setAdmin, removeMember, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem, addPollExtension, touchActivity]);
+  }), [loaded, liveConversations, messages, threads, hasMore, opened, titles, profiles, alerts, updateAlerts, openConversation, closeConversation, loadOlder, loadHistory, searchMessages, markRead, isUnread, send, react, sendPoll, startCall, scheduleMessage, loadScheduled, cancelScheduled, checkIn, setSelfDestruct, vote, editMessage, setTitle, setExpiry, setAdmin, removeMember, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem, addPollExtension, touchActivity]);
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }
