@@ -4,6 +4,17 @@
   "automations": [
     {
       "type": "scheduled",
+      "name": "deliver_scheduled",
+      "description": "Delivers scheduled messages and missed safety check-ins, and deletes self-destructing conversations whose time is up.",
+      "function_args": { "task": "deliver" },
+      "is_active": true,
+      "schedule_mode": "recurring",
+      "schedule_type": "simple",
+      "repeat_unit": "minutes",
+      "repeat_interval": 5
+    },
+    {
+      "type": "scheduled",
       "name": "expire_messages",
       "description": "Deletes disappearing messages whose time is up. The app hides them as soon as it is.",
       "function_args": { "task": "expire" },

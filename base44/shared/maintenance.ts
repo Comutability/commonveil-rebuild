@@ -9,12 +9,11 @@
 // task to run. Each task only acts on what is already due by the server's clock, so a call
 // that comes early, late or twice does nothing extra.
 import { json } from "./http.ts";
-import { BLANK, OutOfTime, blankAndDeleteAll, purgeAccount, removePlatformUser } from "./accountDeletion.ts";
+import { BLANK, OutOfTime, blankAndDeleteAll, eraseConversation, purgeAccount, removePlatformUser } from "./accountDeletion.ts";
 import { AUTO_DELETE_DAYS, dayOf } from "./store.ts";
 import { emailNotice, inactiveWarningEmail } from "./notify.ts";
 import { forgetOrphanedFiles } from "./handlers/files.ts";
 import { deliverDue } from "./handlers/scheduled.ts";
-import { eraseConversation } from "./accountDeletion.ts";
 
 const DAY = 24 * 3600_000;
 
@@ -120,6 +119,7 @@ export async function deleteInactiveAccounts(sr: any, now: Date, deadline: numbe
 const TASKS: Record<string, (sr: any, now: Date, deadline: number) => Promise<unknown>> = {
   expire: expireMessages,
   inactive: deleteInactiveAccounts,
+  deliver: deliverAndDestroy,
 };
 
 /** Run one task by name. Answers with counts only: nothing about any member. */
