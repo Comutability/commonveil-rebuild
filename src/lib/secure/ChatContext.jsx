@@ -775,6 +775,7 @@ export function ChatProvider({ children }) {
     send,
     react,
     sendPoll,
+    startCall,
     vote,
     editMessage,
     setTitle,
@@ -796,7 +797,7 @@ export function ChatProvider({ children }) {
     membershipProblem,
     addPollExtension,
     touchActivity,
-  }), [loaded, conversations, messages, threads, hasMore, opened, titles, profiles, alerts, updateAlerts, openConversation, closeConversation, loadOlder, loadHistory, searchMessages, markRead, isUnread, send, react, sendPoll, vote, editMessage, setTitle, setExpiry, setAdmin, removeMember, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem, addPollExtension, touchActivity]);
+  }), [loaded, conversations, messages, threads, hasMore, opened, titles, profiles, alerts, updateAlerts, openConversation, closeConversation, loadOlder, loadHistory, searchMessages, markRead, isUnread, send, react, sendPoll, startCall, vote, editMessage, setTitle, setExpiry, setAdmin, removeMember, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem, addPollExtension, touchActivity]);
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }

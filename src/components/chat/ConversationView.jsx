@@ -1,6 +1,8 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Phone,
+  PhoneIncoming,
   ArrowLeft,
   CornerUpLeft,
   Forward,
@@ -37,6 +39,9 @@ import VoiceRecorder from "./VoiceRecorder";
 import ForwardDialog from "./ForwardDialog";
 import { progressText, useStagedFiles } from "./useStagedFiles";
 import { typingText, usePresence, usePresenceRoom } from "@/lib/secure/PresenceContext";
+import { useVoice } from "@/lib/voice/VoiceContext";
+import CallPanel from "@/components/voice/CallPanel";
+import { fromB64 } from "@/lib/crypto/encoding";
 import { hideAt, timerLabel } from "@/lib/secure/thread.js";
 import { formatTime, Loading } from "@/components/site/bits";
 import Avatar from "./Avatar";
@@ -109,7 +114,23 @@ function Reactions({ reactions, mine, nameOf, onToggle, disabled }) {
   );
 }
 
-function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSend, onReply, onReact, onVote, onEdit, onDelete, onJump, onForward }) {
+/** A call someone started here: join it with the key that came in the message. */
+function CallCard({ row, mine, name, onJoin, inThisCall }) {
+  const fresh = Date.now() - Date.parse(String(row.m.created_date).replace(/Z?$/, "Z")) < 12 * 3600_000;
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-border bg-card px-3.5 py-2.5 text-foreground">
+      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/15 text-primary"><PhoneIncoming className="h-4 w-4" aria-hidden="true" /></span>
+      <span className="text-sm">
+        <span className="block font-medium">{mine ? "You started a call" : `${name} started a call`}</span>
+        <span className="block text-xs text-muted-foreground">Encrypted end to end, device to device.</span>
+      </span>
+      {fresh && !inThisCall && <Button size="sm" onClick={onJoin}>Join</Button>}
+      {inThisCall && <span className="text-xs font-medium text-primary">You're in it</span>}
+    </div>
+  );
+}
+
+function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSend, onReply, onReact, onVote, onEdit, onDelete, onJump, onForward, onJoinCall, inCall }) {
   const [picker, setPicker] = useState(false);
   const { m, result } = row;
   const base = `max-w-[min(34rem,85%)] rounded-2xl px-3.5 py-2 text-[0.95rem] leading-relaxed ${mine ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted"} ${highlighted ? "ring-2 ring-[hsl(var(--warning))] ring-offset-2 ring-offset-background" : ""}`;
@@ -136,6 +157,13 @@ function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSen
           <span className="whitespace-pre-wrap break-words"><RichText text={row.text} ctx={{}} /></span>
         ) : null}
       </>
+    );
+  }
+  if (readable && result.content?.type === "call") {
+    return (
+      <div id={`msg-${m.id}`} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+        <CallCard row={row} mine={mine} name={name} onJoin={onJoinCall} inThisCall={inCall === result.content.call_id} />
+      </div>
     );
   }
   // A message that's only files shows them without a bubble around them.
@@ -374,6 +402,27 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
     setReplyTo(null);
   };
 
+  const voice = useVoice();
+  const { startCall } = useChat();
+  const [callError, setCallError] = useState("");
+  const inThisCall = voice.room?.conversationId === conversation.id;
+  const call = async () => {
+    setCallError("");
+    try {
+      const { callId, key } = await startCall(conversation);
+      await voice.joinCall(conversation.id, callId, key);
+    } catch (err) {
+      setCallError(err.message);
+    }
+  };
+  const joinCallFrom = async (row) => {
+    setCallError("");
+    try {
+      await voice.joinCall(conversation.id, row.result.content.call_id, fromB64(row.result.content.key));
+    } catch (err) {
+      setCallError(err.message);
+    }
+  };
   const staged = useStagedFiles();
   const [recording, setRecording] = useState(false);
   const [forwarding, setForwarding] = useState(null);
@@ -454,11 +503,22 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
             )}
           </p>
         </div>
+        {voice.supported && !pausedReason && (
+          <Button variant="ghost" size="icon" onClick={call} disabled={inThisCall} aria-label="Start a call">
+            <Phone className="h-5 w-5" />
+          </Button>
+        )}
         <Button variant="ghost" size="icon" onClick={onInfo} aria-label="Conversation details and safety numbers">
           <Info className="h-5 w-5" />
         </Button>
       </header>
 
+      {inThisCall && (
+        <div className="flex max-h-[55%] flex-col items-center overflow-y-auto border-b border-border bg-[hsl(var(--rail)/0.5)] p-4">
+          <CallPanel nameOf={nameOf} profileOf={() => null} />
+        </div>
+      )}
+      {callError && <p className="border-b border-border px-4 py-2 text-sm text-destructive" role="alert">{callError}</p>}
       {changed.length > 0 && (
         <div className="flex items-start gap-3 border-b border-[hsl(var(--warning)/0.4)] bg-[hsl(var(--warning)/0.1)] px-4 py-3 text-sm">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--warning))]" aria-hidden="true" />
@@ -534,6 +594,8 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
                 onDelete={() => deleteMessage(row.m).catch((err) => setError(err.message))}
                 onJump={jumpTo}
                 onForward={() => setForwarding({ text: row.text, attachments: row.attachments })}
+                onJoinCall={() => joinCallFrom(row)}
+                inCall={voice.room?.conversationId === conversation.id ? voice.room.callId : null}
               />
             );
             return i === noteIndex ? [timerNote, bubble] : [bubble];
