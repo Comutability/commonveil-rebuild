@@ -23,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import { ErrorNote } from "@/components/site/bits";
+import { callFn } from "@/lib/api";
 import { useServers } from "@/lib/secure/ServerContext";
 import { useSecure } from "@/lib/secure/SecureContext";
 import { P, has } from "@/lib/secure/permissions";
@@ -30,7 +31,7 @@ import { stamp } from "@/components/chat/MessageRow";
 import Avatar from "@/components/chat/Avatar";
 import ServerIcon from "@/components/shell/ServerIcon";
 import { ColorPicker } from "@/components/servers/CreateServerDialog";
-import InviteDialog, { copyText } from "@/components/servers/InviteDialog";
+import InviteDialog from "@/components/servers/InviteDialog";
 import MemberCard from "@/components/servers/MemberCard";
 import NicknameDialog from "@/components/servers/NicknameDialog";
 import ConfirmDialog from "@/components/app/ConfirmDialog";
@@ -453,12 +454,9 @@ function Bans({ sid }) {
   const [data, setData] = useState(null);
   const [reasons, setReasons] = useState({});
   const [error, setError] = useState("");
-  const load = useCallback(() => act(sid, "bans", {}, { reload: false }).catch(() => null), [act, sid]);
-  // Bans are read without a signature.
-  const { servers } = useServers();
   useEffect(() => {
     let alive = true;
-    import("@/lib/api").then(({ callFn }) => callFn("servers", { action: "bans", server_id: sid }))
+    callFn("servers", { action: "bans", server_id: sid })
       .then(async (res) => {
         if (!alive) return;
         setData(res);
@@ -470,8 +468,7 @@ function Bans({ sid }) {
     return () => {
       alive = false;
     };
-  }, [sid, openBanReason, servers]);
-  void load;
+  }, [sid, openBanReason]);
   const nameOf = (uid) => data?.profiles.find((p) => p.user_id === uid)?.username || "someone";
   return (
     <>
@@ -539,7 +536,7 @@ function AuditLog({ sid }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   useEffect(() => {
-    import("@/lib/api").then(({ callFn }) => callFn("servers", { action: "audit_log", server_id: sid })).then(setData).catch((err) => setError(err.message));
+    callFn("servers", { action: "audit_log", server_id: sid }).then(setData).catch((err) => setError(err.message));
   }, [sid]);
   const userOf = (uid) => data?.profiles.find((p) => p.user_id === uid)?.username;
   const target = (a) => {
@@ -713,4 +710,3 @@ export default function ServerSettings() {
   );
 }
 
-export { copyText };
