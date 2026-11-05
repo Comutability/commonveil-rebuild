@@ -453,7 +453,8 @@ export function ServerProvider({ children }) {
       for (const s of page.servers || []) {
         const prev = before[s.id];
         if (!prev) continue;
-        putServer(s.id, { server: s });
+        // Emoji and stickers aren't in changes; a new set changes changed_at, which reloads the state below.
+        putServer(s.id, { server: s.sets_omitted ? { ...s, emoji: prev.server?.emoji, stickers: prev.server?.stickers } : s });
         const layoutChanged = prev.server && prev.server.changed_at !== s.changed_at;
         if (layoutChanged || prev.status === "error") loadState(s.id).catch(() => {});
         else if (s.keys_pending_at) scheduleWorker(s.id);
