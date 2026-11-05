@@ -5,7 +5,7 @@
 // actually uses against the signed one.
 import { CONTEXTS, canonical, voiceHelloFields } from "../crypto/canonical.js";
 import { utf8 } from "../crypto/encoding.js";
-import { importSignPrivate, signBytes, verifyWithRaw } from "../crypto/primitives.js";
+import { signBytes, verifyWithRaw } from "../crypto/primitives.js";
 import { deviceIsCertified } from "../secure/protocol.js";
 
 const HELLO_MAX_AGE_MS = 24 * 3600_000;
@@ -22,8 +22,8 @@ export const helloText = ({ room, userId, deviceId, callId, fingerprint, issuedA
 
 export async function signHello({ device, room, userId, callId, fingerprint }) {
   const issuedAt = new Date().toISOString();
-  const key = await importSignPrivate(device.sign_priv);
-  const signature = await signBytes(key, utf8(helloText({ room, userId, deviceId: device.device_id, callId, fingerprint, issuedAt })));
+  // A device's signing key is a non-extractable key held by this browser.
+  const signature = await signBytes(device.sign_priv, utf8(helloText({ room, userId, deviceId: device.device_id, callId, fingerprint, issuedAt })));
   return { call_id: callId, fingerprint, issued_at: issuedAt, signature };
 }
 
