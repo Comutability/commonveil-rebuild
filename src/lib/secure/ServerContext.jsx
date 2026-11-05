@@ -694,6 +694,10 @@ export function ServerProvider({ children }) {
   }, [servers]);
 
   const can = useCallback((sid, bit, channel = null) => has(permsFor(sid, channel), bit), [permsFor]);
+  const permsForRef = useRef(permsFor);
+  permsForRef.current = permsFor;
+  const automodRef = useRef(automodOf);
+  automodRef.current = automodOf;
 
   /** Roles of a member (other than @everyone), highest first. */
   const rolesOfMember = useCallback((sid, member) => {
