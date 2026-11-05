@@ -109,7 +109,7 @@ export default function PrivacyReport() {
     load();
   }, [load]);
 
-  const items = checkup({ lockInfo, presence, me, peers, conversations, userId: userId || me?.user?.id });
+  const items = checkup({ lockInfo, presence, me, peers, conversations, userId });
   const done = items.filter((i) => i.done).length;
   const a = report?.account;
   const shared = a ? Object.entries(a.shared_profile).filter(([, v]) => v).map(([k]) => k.replace("_", " ")) : [];
@@ -192,7 +192,7 @@ export default function PrivacyReport() {
           <SettingsGroup title="Never collected">
             <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
               <li>What your messages, files, polls, reports or group names say.</li>
-              <li>Your contacts, phone number, location or IP history.</li>
+              <li>Your contacts, phone number or location.</li>
               <li>When you're online, typing or reading, unless you turn status on, and even then it isn't stored.</li>
               <li>Your quiet hours, mutes, searches and theme: they stay on your device.</li>
               <li>Advertising or tracking identifiers. There are none.</li>
