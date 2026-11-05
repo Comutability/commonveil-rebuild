@@ -61,6 +61,17 @@ const CODE_RE = /^[A-Za-z0-9]{8,16}$/;
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 const INVITE_AGES = [1800, 3600, 21_600, 43_200, 86_400, 604_800, 0];
 const INVITE_USES = [0, 1, 5, 10, 25, 50, 100];
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** How an invite reads in the audit log, e.g. "expires after 7 days, unlimited uses". */
+export function inviteSummary(ageSeconds: number, uses: number): string {
+  let age = "no expiry";
+  if (ageSeconds && ageSeconds % 86_400 === 0) age = `expires after ${plural(ageSeconds / 86_400, "day", "days")}`;
+  else if (ageSeconds && ageSeconds % 3600 === 0) age = `expires after ${plural(ageSeconds / 3600, "hour", "hours")}`;
+  else if (ageSeconds) age = `expires after ${plural(Math.round(ageSeconds / 60), "minute", "minutes")}`;
+  return `${age}, ${uses ? plural(uses, "use", "uses") : "unlimited uses"}`;
+}
 const ACCOUNT_AGE_CHOICES = [0, 5, 10, 60, 1440];
 const MEMBER_AGE_CHOICES = [0, 10, 60];
 const DELETE_HISTORY_CHOICES = [0, 3600, 86_400, 604_800];
