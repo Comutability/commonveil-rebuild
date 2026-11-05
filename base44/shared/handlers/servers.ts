@@ -15,6 +15,7 @@ import {
   TAGS,
   acceptItem,
   audit,
+  canHandOutKeys,
   channelChainId,
   channelIn,
   channelOut,
@@ -357,6 +358,7 @@ export function serverActions(config: ServerConfig): Actions {
       const generation = int(g.generation, "generation", 0, 1_000_000);
       if (generation !== (latest ? Number(latest.generation) + 1 : 0)) throw new ApiError(409, "GENERATION_TAKEN", "Someone else just renewed these keys. Refreshing.");
       if (generation > 0) requirePerm(perms, P.MANAGE_KEYS, "renew this server's keys");
+      else if (!canHandOutKeys(parts, member)) requirePerm(perms, P.MANAGE_KEYS, "set up this server's keys");
       const startedAt = isoTime(g.started_at, "start time");
       if (Math.abs(now.getTime() - Date.parse(startedAt)) > LIMITS.sentAtSkewMs) throw new ApiError(400, "CLOCK_SKEW", "Your device clock looks wrong. Check it and try again.");
       if (latest && Date.parse(startedAt) <= Date.parse(latest.started_at)) throw new ApiError(400, "BAD_FIELD", "Invalid start time.");
@@ -404,8 +406,9 @@ export function serverActions(config: ServerConfig): Actions {
     async pending_grants(ctx) {
       const { sr, own, user, body, now } = ctx;
       const serverId = id(body.server_id, "server");
-      await requireMember(own, serverId, user.id);
+      const me = await requireMember(own, serverId, user.id);
       const parts = await serverParts(sr, serverId);
+      if (!canHandOutKeys(parts, me)) return { items: [], recipients: {}, staff_only: true };
       if (!parts.server.keys_pending_at) return { items: [], recipients: {} };
       const pending = await sr.entities.ServerMember.filter({ server_id: serverId, key_status: "pending" }, "joined_at", 60);
       if (!pending.length) {
@@ -443,7 +446,8 @@ export function serverActions(config: ServerConfig): Actions {
     /** Copies of the server's keys for members who are waiting, sealed on the caller's device. */
     async grant_keys(ctx) {
       const { sr, now } = ctx;
-      const { device, data, serverId, member, parts } = await signedMember(ctx, "grant_keys");
+      const { device, data, serverId, member, parts, perms } = await signedMember(ctx, "grant_keys");
+      if (!canHandOutKeys(parts, member)) requirePerm(perms, P.MANAGE_KEYS, "hand out this server's keys");
       const gens = await generationsOf(sr, serverId);
       const chains = new Set(chainsFor(parts, member));
       const checked = await checkGrants(ctx, { parts, device, raw: data.grants, gens, allowChain: (c: string) => chains.has(c) });
@@ -956,6 +960,7 @@ export function serverActions(config: ServerConfig): Actions {
       if (data.audit_retention_days !== undefined) changes.audit_retention_days = choice(data.audit_retention_days, SERVER_LIMITS.auditRetentionChoices, "audit log retention");
       if (data.default_history !== undefined) changes.default_history = choice(data.default_history, ["full", "joined"], "history setting");
       if (data.allow_member_dms !== undefined) changes.allow_member_dms = bool(data.allow_member_dms, "direct messages");
+      if (data.key_handout !== undefined) changes.key_handout = choice(data.key_handout, ["members", "staff"], "who hands out keys");
       if (!Object.keys(changes).length) return { server: serverOut(s) };
       const updated = await sr.entities.Server.update(s.id, { ...changes, changed_at: now.toISOString() });
       await audit(sr, s, user.id, "server_settings", "server", s.id, Object.keys(changes).filter((k) => !k.startsWith("public_")).concat(data.public !== undefined ? ["listing"] : []).join(", "), now);
