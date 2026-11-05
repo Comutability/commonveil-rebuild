@@ -12,6 +12,7 @@ import { json } from "./http.ts";
 import { BLANK, OutOfTime, blankAndDeleteAll, purgeAccount, removePlatformUser } from "./accountDeletion.ts";
 import { AUTO_DELETE_DAYS, dayOf } from "./store.ts";
 import { emailNotice, inactiveWarningEmail } from "./notify.ts";
+import { forgetOrphanedFiles } from "./handlers/files.ts";
 
 const DAY = 24 * 3600_000;
 
@@ -42,7 +43,9 @@ export async function expireMessages(sr: any, now: Date, deadline: number) {
     const audit = await blankAndDeleteAll(sr, "AuditEntry", due, { expires_at: "", actor_id: "", target_id: "", detail: "" }, deadline);
     // Call passes nobody used: they last a minute, and nothing about a call is kept after it.
     const passes = await blankAndDeleteAll(sr, "VoiceTicket", due, { expires_at: "", user_id: "", device_id: "", room: "" }, deadline);
-    return { removed, server_removed: serverRemoved, audit_removed: audit, passes_removed: passes, done: true };
+    // Files whose message has gone.
+    const files = await forgetOrphanedFiles(sr, now, deadline);
+    return { removed, server_removed: serverRemoved, audit_removed: audit, passes_removed: passes, files_removed: files, done: true };
   } catch (error) {
     if (error instanceof OutOfTime) return { removed: null, done: false };
     throw error;

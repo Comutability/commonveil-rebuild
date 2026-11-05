@@ -57,7 +57,7 @@ export function json(status: number, body: unknown): Response {
  */
 export type Ctx = { sr: any; own: any; user: any; body: any; now: Date };
 export type Actions = Record<string, (ctx: Ctx) => Promise<unknown>>;
-export type RunOptions = { allowAnonymous?: boolean };
+export type RunOptions = { allowAnonymous?: boolean; maxBodyBytes?: number };
 
 /**
  * Run one named action. By default the caller must be a signed-in user; only the security
@@ -65,7 +65,7 @@ export type RunOptions = { allowAnonymous?: boolean };
  */
 export async function runAction(base44: any, rawBody: string, actions: Actions, options: RunOptions = {}): Promise<Response> {
   try {
-    if (rawBody.length > LIMITS.maxBodyBytes) throw new ApiError(413, "TOO_LARGE", "That request is too large.");
+    if (rawBody.length > (options.maxBodyBytes ?? LIMITS.maxBodyBytes)) throw new ApiError(413, "TOO_LARGE", "That request is too large.");
     let body: any = {};
     if (rawBody) {
       try {
