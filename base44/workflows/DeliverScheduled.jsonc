@@ -1,11 +1,36 @@
 {
   "name": "Deliver scheduled messages",
   "description": "Delivers scheduled messages and missed safety check-ins, and deletes self-destructing conversations whose time is up.",
-  "trigger": { "config": { "trigger_type": "scheduled", "cron_expression": "*/5 * * * *", "timezone": "Europe/London" } },
+  "trigger": {
+    "config": {
+      "trigger_type": "scheduled",
+      "cron_expression": "*/5 * * * *",
+      "timezone": "Europe/London"
+    }
+  },
   "definition": {
-    "document": { "dsl": "1.0.0", "name": "deliver_scheduled", "version": "1.0", "namespace": "base44" },
+    "document": {
+      "dsl": "1.0.0",
+      "name": "deliver_scheduled",
+      "version": "1.0",
+      "namespace": "base44"
+    },
     "do": [
-      { "deliver_scheduled": { "call": "invoke_backend_function", "with": { "function_name": "maintenance", "args": { "task": "deliver" } }, "then": "end", "x-base44": { "title": "Deliver scheduled messages" } } }
+      {
+        "deliver_scheduled": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "maintenance",
+            "args": {
+              "task": "deliver"
+            }
+          },
+          "then": "end",
+          "x-base44": {
+            "title": "Deliver scheduled messages"
+          }
+        }
+      }
     ]
   }
 }
