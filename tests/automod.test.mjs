@@ -22,9 +22,9 @@ test("emoji sets drop bad entries; messages accept custom reactions and stickers
   const ok = { id: "abcd1234", name: "ok_hand", img: "data:image/png;base64,AAAA" };
   const set = cleanSet("emoji", { items: [ok, { ...ok }, { id: "BAD", name: "x", img: ok.img }, { id: "zzzz9999", name: "evil", img: "javascript:alert(1)" }, { id: "yyyy8888", name: "svg", img: "data:image/svg+xml;base64,AAAA" }] });
   assert.deepEqual(set.items.map((x) => x.id), ["abcd1234"]);
-  assert.ok(serverMessageContent({ type: "reaction", target: "a".repeat(22), emoji: "c:abcd1234" }));
-  assert.equal(serverMessageContent({ type: "reaction", target: "a".repeat(22), emoji: "c:../x" }), null);
-  const sticker = serverMessageContent({ type: "text", text: "", sticker: "abcd1234" });
+  assert.ok(serverMessageContent({ type: "reaction", target: "a".repeat(22), emoji: "c:abcd1234" }, "reaction"));
+  assert.equal(serverMessageContent({ type: "reaction", target: "a".repeat(22), emoji: "c:../x" }, "reaction"), null);
+  const sticker = serverMessageContent({ type: "text", text: "", sticker: "abcd1234" }, "message");
   assert.equal(sticker.sticker, "abcd1234");
-  assert.equal(serverMessageContent({ type: "text", text: "", sticker: "<img>" }), null);
+  assert.equal(serverMessageContent({ type: "text", text: "", sticker: "<img>" }, "message"), null);
 });
