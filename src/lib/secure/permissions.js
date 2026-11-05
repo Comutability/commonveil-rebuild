@@ -24,6 +24,10 @@ export const P = Object.freeze({
   CHANGE_NICKNAME: 1 << 19,
   MANAGE_KEYS: 1 << 20,
   READ_HISTORY: 1 << 21,
+  MANAGE_EXPRESSIONS: 1 << 22,
+  MANAGE_EVENTS: 1 << 23,
+  MUTE_MEMBERS: 1 << 24,
+  MANAGE_THREADS: 1 << 25,
   ADMINISTRATOR: 1 << 30,
 });
 
@@ -37,7 +41,7 @@ export const STAFF_PERMISSIONS =
 
 export const SERVER_ONLY =
   P.ADMINISTRATOR | P.MANAGE_SERVER | P.MANAGE_ROLES | P.KICK_MEMBERS | P.BAN_MEMBERS | P.TIMEOUT_MEMBERS | P.VIEW_AUDIT_LOG |
-  P.MANAGE_NICKNAMES | P.CHANGE_NICKNAME | P.MANAGE_KEYS | P.MANAGE_INVITES;
+  P.MANAGE_NICKNAMES | P.CHANGE_NICKNAME | P.MANAGE_KEYS | P.MANAGE_INVITES | P.MANAGE_EXPRESSIONS | P.MANAGE_EVENTS;
 
 /** Labels and groups for the role editor, in the order they're shown. */
 export const PERMISSION_INFO = Object.freeze([
@@ -46,6 +50,8 @@ export const PERMISSION_INFO = Object.freeze([
   { group: "General", bit: P.MANAGE_ROLES, label: "Manage roles", help: "Create and edit roles below their own, and give them to members." },
   { group: "General", bit: P.MANAGE_SERVER, label: "Manage server", help: "Change the server's name, settings, rules and discovery listing." },
   { group: "General", bit: P.VIEW_AUDIT_LOG, label: "View audit log", help: "See who changed what in the server's settings." },
+  { group: "General", bit: P.MANAGE_EXPRESSIONS, label: "Manage emoji and stickers", help: "Add, rename and remove the server's own emoji and stickers." },
+  { group: "General", bit: P.MANAGE_EVENTS, label: "Manage events", help: "Schedule, edit and cancel the server's events." },
   { group: "General", bit: P.MANAGE_KEYS, label: "Manage encryption", help: "Start new key generations, so people who left can't read what comes next." },
   { group: "Membership", bit: P.CREATE_INVITES, label: "Create invites", help: "Make invite links." },
   { group: "Membership", bit: P.MANAGE_INVITES, label: "Manage invites", help: "See and revoke everyone's invite links." },
@@ -59,10 +65,12 @@ export const PERMISSION_INFO = Object.freeze([
   { group: "Text", bit: P.ADD_REACTIONS, label: "Add reactions", help: "React to messages." },
   { group: "Text", bit: P.READ_HISTORY, label: "Read message history", help: "Page back through earlier messages." },
   { group: "Text", bit: P.MENTION_EVERYONE, label: "Mention @everyone", help: "Notify everyone in a channel at once." },
+  { group: "Text", bit: P.MANAGE_THREADS, label: "Manage threads", help: "Rename, archive, lock and delete anyone's threads." },
   { group: "Text", bit: P.MANAGE_MESSAGES, label: "Manage messages", help: "Delete anyone's messages and pin messages." },
   { group: "Support", bit: P.MANAGE_TICKETS, label: "Handle support tickets", help: "Receive and answer the server's support tickets." },
   { group: "Voice", bit: P.CONNECT, label: "Connect", help: "Join voice channels." },
   { group: "Voice", bit: P.SPEAK, label: "Speak", help: "Talk in voice channels." },
+  { group: "Voice", bit: P.MUTE_MEMBERS, label: "Mute members and run stages", help: "Mute people in calls, and invite or move speakers on a stage." },
   { group: "Advanced", bit: P.ADMINISTRATOR, label: "Administrator", help: "Every permission, in every channel. Give it carefully." },
 ]);
 

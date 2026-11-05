@@ -28,6 +28,10 @@ export const P = Object.freeze({
   CHANGE_NICKNAME: 1 << 19,
   MANAGE_KEYS: 1 << 20,
   READ_HISTORY: 1 << 21,
+  MANAGE_EXPRESSIONS: 1 << 22,
+  MANAGE_EVENTS: 1 << 23,
+  MUTE_MEMBERS: 1 << 24,
+  MANAGE_THREADS: 1 << 25,
   ADMINISTRATOR: 1 << 30,
 });
 
@@ -44,7 +48,7 @@ export const STAFF_PERMISSIONS =
 /** Permissions that only make sense server-wide; they're ignored in channel overwrites. */
 export const SERVER_ONLY =
   P.ADMINISTRATOR | P.MANAGE_SERVER | P.MANAGE_ROLES | P.KICK_MEMBERS | P.BAN_MEMBERS | P.TIMEOUT_MEMBERS | P.VIEW_AUDIT_LOG |
-  P.MANAGE_NICKNAMES | P.CHANGE_NICKNAME | P.MANAGE_KEYS | P.MANAGE_INVITES;
+  P.MANAGE_NICKNAMES | P.CHANGE_NICKNAME | P.MANAGE_KEYS | P.MANAGE_INVITES | P.MANAGE_EXPRESSIONS | P.MANAGE_EVENTS;
 
 const toInt = (v: unknown) => (Number.isInteger(v) ? (v as number) & ALL_PERMISSIONS : 0);
 
