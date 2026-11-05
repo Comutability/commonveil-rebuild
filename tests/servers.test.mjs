@@ -768,8 +768,10 @@ test("calls in conversations and on stages: passes only for members, and stages 
   assert.deepEqual([mod.stage, mod.can_speak, mod.can_moderate, mod.max_people], [true, true, true, 16]);
   const fan = await bob.ok("voice", await signed(bob, "voice_ticket", { server_id: sid, channel_id: stage.id }));
   assert.deepEqual([fan.can_speak, fan.can_moderate], [false, false]);
-  const conv = w.rows("Conversation")[0] || (await alice.ok("conversations", await alice.prepareDm?.(bob) || { action: "noop" }).catch(() => null));
-  void conv;
+  const conv = await alice.dm(bob);
+  const call = await bob.ok("voice", await signed(bob, "call_ticket", { conversation_id: conv.id, call_id: "abcdefgh1234" }));
+  assert.equal(call.room, `dm.${conv.id}.abcdefgh1234`);
+  await carol.fails("voice", await signed(carol, "call_ticket", { conversation_id: conv.id, call_id: "abcdefgh1234" }), "NOT_FOUND");
   await carol.fails("voice", await signed(carol, "call_ticket", { conversation_id: "nosuchconversation", call_id: "abcdefgh1234" }), "NOT_FOUND");
   await alice.fails("voice", await signed(alice, "call_ticket", { conversation_id: "nosuchconversation", call_id: "../../x" }));
 });
