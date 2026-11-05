@@ -18,6 +18,7 @@ const INLINE = new RegExp(
     "(__[^_\\n]+__)", // 8 underline
     "(\\*[^*\\s][^*\\n]*\\*)", // 9 italic
     "(\\b_[^_\\n]+_\\b)", // 10 italic
+    "(<:[a-z0-9_]{2,32}:[a-z0-9]{8}>)", // 11 a server's own emoji
   ].join("|"),
   "gu",
 );
@@ -77,6 +78,11 @@ function inline(text, ctx, keyBase) {
       } else out.push(token);
     } else if (m[8]) out.push(<u key={k}>{inline(token.slice(2, -2), ctx, k)}</u>);
     else if (m[9] || m[10]) out.push(<em key={k}>{inline(token.slice(1, -1), ctx, k)}</em>);
+    else if (m[11]) {
+      const [, name, id] = token.slice(1, -1).split(":");
+      const found = ctx.resolveEmoji?.(id);
+      out.push(found ? <img key={k} src={found.img} alt={`:${found.name}:`} title={`:${found.name}:`} className="inline-block h-[1.375em] w-[1.375em] align-[-0.3em] object-contain" draggable={false} /> : `:${name}:`);
+    }
     last = m.index + token.length;
   }
   if (last < text.length) out.push(text.slice(last));
@@ -84,7 +90,8 @@ function inline(text, ctx, keyBase) {
 }
 
 /**
- * ctx: { resolveUser(username) -> { name, self } | null, resolveChannel(name) -> { name, to } | null }.
+ * ctx: { resolveUser(username) -> { name, self } | null, resolveChannel(name) -> { name, to } | null,
+ *   resolveEmoji(id) -> { name, img } | null }.
  */
 export default function RichText({ text, ctx = {} }) {
   const parts = String(text || "").split(/```(?:[a-z0-9+-]*\n)?([\s\S]*?)```/i);

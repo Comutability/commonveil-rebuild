@@ -39,8 +39,15 @@ export function useServerText(serverId, channelId) {
   const channel = e?.channels?.find((c) => c.id === channelId) || null;
   const canEveryone = channel ? can(serverId, P.MENTION_EVERYONE, channel) : false;
 
+  const custom = s.serverEmoji(serverId);
   const suggest = useCallback((kind, query) => {
     const q = query.toLowerCase();
+    if (kind === ":") {
+      if (q.length < 2) return [];
+      const mine = custom.emoji.filter((x) => x.name.includes(q)).map((x) => ({ id: `c:${x.id}`, label: `:${x.name}:`, sub: "This server", insert: customToken(x), icon: <img src={x.img} alt="" className="h-5 w-5" /> }));
+      const std = searchEmoji(q).slice(0, 8).map((x) => ({ id: x.e, label: `:${x.name.replace(/ /g, "_")}:`, insert: x.e, icon: <span className="text-lg leading-none" aria-hidden="true">{x.e}</span> }));
+      return [...mine, ...std];
+    }
     if (kind === "#") {
       return channels
         .filter((c) => channelName(c).toLowerCase().includes(q))
@@ -59,7 +66,7 @@ export function useServerText(serverId, channelId) {
     if (canEveryone && "everyone".startsWith(q)) extra.push({ id: "@everyone", label: "@everyone", sub: "Everyone who can see this channel", insert: "@everyone" });
     for (const r of roles) if (roleName(r).toLowerCase().startsWith(q)) extra.push({ id: `role:${r.id}`, label: `@${roleName(r)}`, sub: "Role", insert: `@${roleName(r)}` });
     return [...list, ...extra];
-  }, [channels, people, roles, canEveryone, channelName, roleName]);
+  }, [channels, people, roles, canEveryone, channelName, roleName, custom]);
 
   /** What a message about to be sent mentions. */
   const mentionsIn = useCallback((text) => {
@@ -93,7 +100,8 @@ export function useServerText(serverId, channelId) {
       const c = channels.find((x) => channelName(x) === name);
       return c ? { name: channelName(c), to: `/app/s/${serverId}/${c.id}` } : null;
     },
-  }), [people, roles, channels, roleName, channelName, userId, serverId, e]);
+    resolveEmoji: (id) => custom.byId.get(id) || null,
+  }), [people, roles, channels, roleName, channelName, userId, serverId, e, custom]);
 
   return { suggest, mentionsIn, ctx, people };
 }
