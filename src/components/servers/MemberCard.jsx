@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, Ban, Clock, Loader2, MessageSquare, ShieldCheck, UserCog, UserMinus } from "lucide-react";
+import { AlertTriangle, Ban, Clock, Eraser, Flag, Loader2, MessageSquare, ShieldAlert, ShieldCheck, StickyNote, UserCog, UserMinus } from "lucide-react";
+import ReportDialog from "./ReportDialog";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -22,6 +24,53 @@ const TIMEOUTS = [
   [1440, "1 day"],
   [10_080, "1 week"],
 ];
+const BAN_LENGTHS = [
+  [0, "For good"],
+  [60, "1 hour"],
+  [1440, "1 day"],
+  [10_080, "1 week"],
+  [43_200, "30 days"],
+];
+const PURGE = [
+  [3600, "The last hour"],
+  [21_600, "The last 6 hours"],
+  [86_400, "The last day"],
+  [604_800, "The last week"],
+];
+const CASE_LABEL = { warn: "Warning", note: "Note", timeout: "Timed out", kick: "Kicked", ban: "Banned", unban: "Unbanned", purge: "Messages deleted", quarantine: "Roles removed by staff limits" };
+
+/** A member's moderation history: warnings, notes, timeouts, kicks, bans. Reasons opened here. */
+function CaseHistory({ serverId, userId, refresh }) {
+  const { loadCases, memberName, modCall } = useServers();
+  const [cases, setCases] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    setCases(null);
+    loadCases(serverId, userId).then((r) => setCases(r.cases)).catch((err) => setError(err.message));
+  }, [serverId, userId, loadCases, refresh]);
+  if (error) return <p className="text-xs text-destructive">{error}</p>;
+  if (!cases) return <p className="text-xs text-muted-foreground">Loading history…</p>;
+  if (!cases.length) return <p className="text-xs text-muted-foreground">No history here.</p>;
+  return (
+    <ul className="max-h-48 space-y-1.5 overflow-y-auto text-xs">
+      {cases.map((c) => (
+        <li key={c.case_id} className={`rounded-md border border-border px-2 py-1.5 ${c.action === "warn" && !c.active ? "opacity-60" : ""}`}>
+          <span className="font-semibold">#{c.case_number} {CASE_LABEL[c.action] || c.action}</span>
+          {c.minutes ? <span className="text-muted-foreground"> ({c.minutes >= 1440 ? `${Math.round(c.minutes / 1440)} d` : c.minutes >= 60 ? `${Math.round(c.minutes / 60)} h` : `${c.minutes} min`})</span> : null}
+          <span className="text-muted-foreground"> by {c.actor_id === "system" ? "the server's rules" : memberName(serverId, c.actor_id)}, {new Date(c.created_at).toLocaleDateString("en-GB")}</span>
+          {c.action === "warn" && !c.active && <span className="text-muted-foreground"> (pardoned)</span>}
+          {c.reasonText && <span className="mt-0.5 block whitespace-pre-wrap">{c.reasonText}</span>}
+          {(c.action === "warn" && c.active) || c.action === "note" ? (
+            <button type="button" className="mt-0.5 text-primary hover:underline" onClick={() => modCall("pardon", { server_id: serverId, case_id: c.case_id }).then(() => loadCases(serverId, userId)).then((r) => setCases(r.cases)).catch((err) => setError(err.message))}>
+              {c.action === "warn" ? "Pardon" : "Remove note"}
+            </button>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 const DELETE_HISTORY = [
   [0, "Don't delete any"],
   [3600, "The last hour"],
@@ -67,7 +116,7 @@ export default function MemberCard({ serverId, userId: targetId, open, onOpenCha
   const { userId, peers, acceptKeyChange } = useSecure();
   const { startDm } = useChat();
   const s = useServers();
-  const { servers, memberCard, memberName, nickOf, roleName, roleColor, rolesOfMember, can, myTop, act, banMember, loadMembers } = s;
+  const { servers, memberCard, memberName, nickOf, roleName, roleColor, rolesOfMember, can, myTop, act, banMember, loadMembers, warnMember, addModNote, modCall, caseItem } = s;
   const e = servers[serverId];
   const [card, setCard] = useState(null);
   const [error, setError] = useState("");
@@ -77,6 +126,12 @@ export default function MemberCard({ serverId, userId: targetId, open, onOpenCha
   const [confirm, setConfirm] = useState(null);
   const [banHistory, setBanHistory] = useState(0);
   const [banReason, setBanReason] = useState("");
+  const [banLength, setBanLength] = useState(0);
+  const [reporting, setReporting] = useState(false);
+  const [modText, setModText] = useState("");
+  const [purgeSpan, setPurgeSpan] = useState(3600);
+  const [historyTick, setHistoryTick] = useState(0);
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     if (!open || !targetId) return;
@@ -216,6 +271,48 @@ export default function MemberCard({ serverId, userId: targetId, open, onOpenCha
                       )}
                     </div>
                   )}
+                  {!self && (can(serverId, P.TIMEOUT_MEMBERS) || can(serverId, P.KICK_MEMBERS) || can(serverId, P.BAN_MEMBERS)) && (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="mod-text" className="text-xs">Warning or note (encrypted, for moderators{" "}and, for a warning, them)</Label>
+                      <Textarea id="mod-text" value={modText} onChange={(ev) => setModText(ev.target.value)} maxLength={1000} rows={2} />
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" disabled={busy === "warn"} onClick={() => run("warn", async () => {
+                          const r = await warnMember(serverId, targetId, modText);
+                          setModText("");
+                          setHistoryTick((t) => t + 1);
+                          setNotice(r.applied ? `Warning ${r.warnings}: the server's rules ${r.applied.action === "timeout" ? "timed them out" : r.applied.action === "kick" ? "kicked them" : "banned them"}.` : `Warned. That's ${r.warnings} active warning${r.warnings === 1 ? "" : "s"}.`);
+                        })}>
+                          <ShieldAlert className="mr-1.5 h-4 w-4" aria-hidden="true" /> Warn
+                        </Button>
+                        <Button size="sm" variant="outline" disabled={busy === "note" || !modText.trim()} onClick={() => run("note", async () => {
+                          await addModNote(serverId, targetId, modText);
+                          setModText("");
+                          setHistoryTick((t) => t + 1);
+                          setNotice("Note added.");
+                        })}>
+                          <StickyNote className="mr-1.5 h-4 w-4" aria-hidden="true" /> Add note
+                        </Button>
+                      </div>
+                      {notice && <p className="text-xs text-primary" role="status">{notice}</p>}
+                    </div>
+                  )}
+                  {!self && can(serverId, P.MANAGE_MESSAGES) && (
+                    <div className="flex items-end gap-2">
+                      <div className="flex-1 space-y-1">
+                        <Label htmlFor="purge-span" className="text-xs">Delete their messages from</Label>
+                        <NativeSelect id="purge-span" value={String(purgeSpan)} onChange={(ev) => setPurgeSpan(Number(ev.target.value))}>
+                          {PURGE.map(([v, l]) => <option key={v} value={String(v)}>{l}</option>)}
+                        </NativeSelect>
+                      </div>
+                      <Button size="sm" variant="outline" disabled={busy === "purge"} onClick={() => run("purge", async () => {
+                        const r = await modCall("purge", { server_id: serverId, user_id: targetId, seconds: purgeSpan });
+                        setNotice(`${r.deleted} message${r.deleted === 1 ? "" : "s"} deleted.`);
+                        setHistoryTick((t) => t + 1);
+                      })}>
+                        <Eraser className="mr-1.5 h-4 w-4" aria-hidden="true" /> Delete
+                      </Button>
+                    </div>
+                  )}
                   {!self && can(serverId, P.TIMEOUT_MEMBERS) && (
                     <div className="flex items-end gap-2">
                       {timedOut ? (
@@ -230,14 +327,25 @@ export default function MemberCard({ serverId, userId: targetId, open, onOpenCha
                               {TIMEOUTS.map(([v, l]) => <option key={v} value={String(v)}>{l}</option>)}
                             </NativeSelect>
                           </div>
-                          <Button size="sm" variant="outline" disabled={busy === "timeout"} onClick={() => run("timeout", () => act(serverId, "timeout_member", { user_id: targetId, minutes: timeout }, { reload: false }))}>
+                          <Button size="sm" variant="outline" disabled={busy === "timeout"} onClick={() => run("timeout", async () => { await act(serverId, "timeout_member", { user_id: targetId, minutes: timeout, reason: await caseItem(serverId, modText) }, { reload: false }); setModText(""); setHistoryTick((t) => t + 1); })}>
                             <Clock className="mr-1.5 h-4 w-4" aria-hidden="true" /> Time out
                           </Button>
                         </>
                       )}
                     </div>
                   )}
+                  {!self && (
+                    <details className="text-sm">
+                      <summary className="cursor-pointer text-xs font-semibold text-muted-foreground">History in this server</summary>
+                      <div className="mt-2"><CaseHistory serverId={serverId} userId={targetId} refresh={historyTick} /></div>
+                    </details>
+                  )}
                 </section>
+              )}
+              {!self && (
+                <Button size="sm" variant="ghost" className="mt-3 text-muted-foreground" onClick={() => setReporting(true)}>
+                  <Flag className="mr-1.5 h-4 w-4" aria-hidden="true" /> Report {memberName(serverId, targetId)}
+                </Button>
               )}
               {targetId !== userId && <PrivateNote userId={targetId} />}
               <ErrorNote>{error}</ErrorNote>
@@ -245,13 +353,14 @@ export default function MemberCard({ serverId, userId: targetId, open, onOpenCha
           )}
         </div>
         <NicknameDialog serverId={serverId} targetId={targetId} open={nickOpen} onOpenChange={setNickOpen} />
+        <ReportDialog serverId={serverId} target={targetId} open={reporting} onOpenChange={setReporting} />
         <ConfirmDialog
           open={confirm === "kick"}
           onOpenChange={(v) => !v && setConfirm(null)}
           title={`Kick ${memberName(serverId, targetId)}?`}
           confirmLabel="Kick"
           onConfirm={async () => {
-            await act(serverId, "kick_member", { user_id: targetId });
+            await act(serverId, "kick_member", { user_id: targetId, reason: await caseItem(serverId, modText) });
             loadMembers(serverId, { force: true }).catch(() => {});
             onOpenChange(false);
           }}
@@ -264,12 +373,18 @@ export default function MemberCard({ serverId, userId: targetId, open, onOpenCha
           title={`Ban ${memberName(serverId, targetId)}?`}
           confirmLabel="Ban"
           onConfirm={async () => {
-            await banMember(serverId, targetId, { deleteSeconds: banHistory, reason: banReason });
+            await banMember(serverId, targetId, { deleteSeconds: banHistory, reason: banReason, minutes: banLength });
             onOpenChange(false);
           }}
         >
-          <p>They're removed and can't come back. The server's keys are renewed, so they can't read anything sent from now on.</p>
+          <p>They're removed and can't come back{banLength ? " until the ban ends" : ""}. The server's keys are renewed, so they can't read anything sent from now on.</p>
           <div className="space-y-1.5 pt-2 text-foreground">
+            <Label htmlFor="ban-length">Ban</Label>
+            <NativeSelect id="ban-length" value={String(banLength)} onChange={(ev) => setBanLength(Number(ev.target.value))}>
+              {BAN_LENGTHS.map(([v, l]) => <option key={v} value={String(v)}>{l}</option>)}
+            </NativeSelect>
+          </div>
+          <div className="space-y-1.5 text-foreground">
             <Label htmlFor="ban-history">Delete their messages from</Label>
             <NativeSelect id="ban-history" value={String(banHistory)} onChange={(ev) => setBanHistory(Number(ev.target.value))}>
               {DELETE_HISTORY.map(([v, l]) => <option key={v} value={String(v)}>{l}</option>)}
