@@ -30,6 +30,7 @@ test("member data can't be changed directly, and only these reads are open, each
   // Polling and page loads read these with the member's own access, so they count against that
   // person's allowance, not the app's shared one. Each person can read only rows that name them.
   const own = { "data.user_id": "{{user.id}}" };
+  const audience = { "data.audience_id": { $in: "{{user.data.cv_access}}" } };
   const OPEN_READS = {
     Message: { "data.recipient_ids": "{{user.id}}" },
     Conversation: { "data.member_ids": "{{user.id}}" },
@@ -38,6 +39,15 @@ test("member data can't be changed directly, and only these reads are open, each
     Device: own,
     KeyEnvelope: own,
     ResetRequest: own,
+    // Servers: members read rows for the servers and private channels on their locked access list.
+    Server: audience,
+    Channel: audience,
+    Role: audience,
+    KeyChain: audience,
+    KeyGeneration: audience,
+    ServerMessage: audience,
+    ServerMember: own,
+    KeyGrant: own,
   };
   for (const [file, schema] of schemas) {
     if (PUBLIC_CONTENT.has(schema.name)) continue;

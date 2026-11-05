@@ -13,6 +13,8 @@ import { conversationActions } from "../base44/shared/handlers/conversations.ts"
 import { messageActions } from "../base44/shared/handlers/messages.ts";
 import { safetyActions, adminActions } from "../base44/shared/handlers/safety.ts";
 import { disclosureActions, DISCLOSURE_LIMITS } from "../base44/shared/handlers/disclosure.ts";
+import { inviteActions, serverActions } from "../base44/shared/handlers/servers.ts";
+import { serverMessageActions } from "../base44/shared/handlers/serverMessages.ts";
 import { resetMaintenanceThrottle, runMaintenance } from "../base44/shared/maintenance.ts";
 
 import { createDeviceKeys } from "../src/lib/crypto/device.js";
@@ -54,9 +56,12 @@ import {
 } from "../src/lib/secure/protocol.js";
 
 /** Functions that only signed-in members can call. */
-const FUNCTIONS = { profile: profileActions, keys: keysActions, conversations: conversationActions, messages: messageActions, safety: safetyActions, admin: adminActions };
+const FUNCTIONS = {
+  profile: profileActions, keys: keysActions, conversations: conversationActions, messages: messageActions, safety: safetyActions, admin: adminActions,
+  servers: serverActions({ defaultAdmins: () => [] }), channels: serverMessageActions,
+};
 /** Functions that also accept anonymous callers, exactly as their entry files set it up. */
-const PUBLIC_FUNCTIONS = { disclose: disclosureActions };
+const PUBLIC_FUNCTIONS = { disclose: disclosureActions, invite: inviteActions };
 /** Functions started by the app's own schedule. They act on no member's say-so, only on what's due. */
 const SCHEDULED_FUNCTIONS = ["maintenance"];
 
@@ -948,7 +953,7 @@ test("review O: rate limits hold when requests arrive at the same moment", async
 // ---------------------------------------------------------------------------
 // Reporting security problems
 
-test("only the security-report function lets in callers who aren't signed in", () => {
+test("only the security-report and invite-preview functions let in callers who aren't signed in", () => {
   const dir = new URL("../base44/functions/", import.meta.url);
   const names = readdirSync(dir).sort();
   assert.deepEqual(names, [...Object.keys(FUNCTIONS), ...Object.keys(PUBLIC_FUNCTIONS), ...SCHEDULED_FUNCTIONS].sort(), "every deployed function is covered here");
@@ -963,6 +968,7 @@ test("only the security-report function lets in callers who aren't signed in", (
     const isPublic = Object.hasOwn(PUBLIC_FUNCTIONS, name);
     assert.equal(/allowAnonymous/.test(source), isPublic, name);
     if (!isPublic) assert.match(source, /return serve\(req, createClientFromRequest, \w+\);/, `${name} keeps the default sign-in check`);
+    else assert.match(source, /return serve\(req, createClientFromRequest, \w+, \{ allowAnonymous: true \}\);/, name);
   }
 });
 
@@ -1291,12 +1297,12 @@ test("disappearing messages: either person in a DM sets the timer; messages vani
   assert.equal(older.messages.length, 1);
   // ...and the scheduled clean-up deletes it, blanked first. Nothing else is touched.
   const deleted = watchDeletes(w, ["Message"]);
-  assert.deepEqual(await maintenance(w, "expire"), { task: "expire", removed: 1, done: true });
+  assert.deepEqual(await maintenance(w, "expire"), { task: "expire", removed: 1, server_removed: 0, audit_removed: 0, done: true });
   assert.equal(deleted.length, 1);
   assert.equal(deleted[0].row.id, goneId);
   assert.ok(!deleted[0].row.envelope && !deleted[0].row.sender_id && !deleted[0].row.expires_at && !deleted[0].row.recipient_ids.length);
   assert.equal(w.rows("Message").length, 2);
-  assert.deepEqual(await maintenance(w, "expire"), { task: "expire", removed: 0, done: true }, "nothing else was due");
+  assert.deepEqual(await maintenance(w, "expire"), { task: "expire", removed: 0, server_removed: 0, audit_removed: 0, done: true }, "nothing else was due");
 
   // Either of them can turn it off; later messages are kept again.
   const off = (await conversationCall(alice, "set_expiry", { conversation_id: dm.id, seconds: 0 })).body.conversation;
