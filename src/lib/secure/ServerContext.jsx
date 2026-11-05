@@ -174,7 +174,7 @@ export function ServerProvider({ children }) {
       list2.sort((a, b) => ts(a.created_date) - ts(b.created_date) || String(a.id).localeCompare(String(b.id)));
       if (list2.length > MAX_ROWS_PER_CHANNEL) {
         const dropped = list2.splice(0, list2.length - MAX_ROWS_PER_CHANNEL);
-        // What was dropped can be fetched again with \"load earlier\".
+        // What was dropped can be fetched again with "load earlier".
         olderRef.current[cid] = list2[0]?.created_date || dropped[dropped.length - 1].created_date;
         setHasMore((prev) => ({ ...prev, [cid]: true }));
       }
@@ -359,6 +359,11 @@ export function ServerProvider({ children }) {
     }
   }, [applyList, loadState]);
 
+  // The latest versions of functions that long-lived effects call, so those effects don't restart
+  // every time someone's keys load (which changes these functions).
+  const latest = useRef({});
+  latest.current = { loadAll, loadState };
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -372,7 +377,7 @@ export function ServerProvider({ children }) {
         try {
           const start = await callFn("messages", { action: "poll" });
           cursors.current = { messages: start.servers_cursor, changes: start.server_changes_cursor || start.servers_cursor, changesAt: Date.now(), needChanges: false };
-          await loadAll();
+          await latest.current.loadAll();
           return;
         } catch (err) {
           if (cancelled) return;
@@ -384,7 +389,7 @@ export function ServerProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [userId, loadAll]);
+  }, [userId]);
 
   // Keys stay in memory only, and go when this unmounts (locking, signing out).
   useEffect(() => () => {
@@ -462,11 +467,11 @@ export function ServerProvider({ children }) {
         if (now < w.next) continue;
         w.gap = Math.min(WAIT_MAX_MS, w.gap * 2);
         w.next = now + w.gap;
-        loadState(id).catch(() => {});
+        latest.current.loadState(id).catch(() => {});
       }
     }, 5_000);
     return () => clearInterval(t);
-  }, [loadState]);
+  }, []);
 
   // ---------- decrypting ----------
 
@@ -720,7 +725,6 @@ export function ServerProvider({ children }) {
     return res.messages.length;
   }, [mergeRows]);
 
-  const now = Date.now();
   /** A channel (or one forum post's thread) as it reads now: edits applied, reactions gathered. */
   const threadOf = useCallback((channelId, threadId = "") => {
     const list = (rows[channelId] || []).filter((m) => (threadId ? m.thread_id === threadId || (m.kind === "post" && m.msg_id === threadId) : !m.thread_id && m.kind !== "post"));
@@ -1106,7 +1110,6 @@ export function ServerProvider({ children }) {
     unread,
     memberLists,
     keysTick,
-    now,
     // names and looks
     serverLook,
     serverName,
@@ -1179,7 +1182,7 @@ export function ServerProvider({ children }) {
     setTicketStatus,
     retryKeys: (sid) => serviceKeys(sid),
   }), [
-    loaded, loadError, servers, order, rows, opened, hasMore, readState, prefs, unread, memberLists, keysTick, now,
+    loaded, loadError, servers, order, rows, opened, hasMore, readState, prefs, unread, memberLists, keysTick,
     serverLook, serverName, channelName, channelTopic, roleName, roleColor, serverRules, memberName, memberColor, profileOf, rolesOfMember,
     permsFor, can, myTop, keyState, loadState, openView, loadOlder, threadOf, postsOf, loadPins, loadMembers, memberCard,
     sendText, sendPost, react, edit, deleteMessage, pinMessage, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
