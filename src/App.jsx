@@ -31,9 +31,14 @@ import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
+import InviteLanding from "@/pages/site/InviteLanding";
 import AppRoot from "@/pages/app/AppRoot";
-import Messages from "@/pages/app/Messages";
-import Settings from "@/pages/app/Settings";
+import Home from "@/pages/app/Home";
+import ServerView from "@/pages/app/ServerView";
+import ServerSettings from "@/pages/app/ServerSettings";
+import Discover from "@/pages/app/Discover";
+import JoinInvite from "@/pages/app/JoinInvite";
+import UserSettings from "@/pages/app/UserSettings";
 import Admin from "@/pages/app/Admin";
 
 function RedirectToLogin() {
@@ -64,6 +69,7 @@ function AppRoutes() {
         <Route path="security/report" element={<ReportSecurityIssue />} />
         <Route path="saved" element={<Saved />} />
         <Route path="search" element={<Search />} />
+        <Route path="invite/:code" element={<InviteLanding />} />
         <Route path="*" element={<NotFound />} />
       </Route>
       <Route path="login" element={<Login />} />
@@ -72,9 +78,18 @@ function AppRoutes() {
       <Route path="reset-password" element={<ResetPassword />} />
       <Route element={<ProtectedRoute unauthenticatedElement={<RedirectToLogin />} />}>
         <Route path="app" element={<AppRoot />}>
-          <Route index element={<Messages />} />
-          <Route path="c/:conversationId" element={<Messages />} />
-          <Route path="settings" element={<Settings />} />
+          <Route index element={<Home />} />
+          <Route path="c/:conversationId" element={<Home />} />
+          <Route path="s/:serverId" element={<ServerView />} />
+          <Route path="s/:serverId/settings" element={<ServerSettings />} />
+          <Route path="s/:serverId/settings/channel/:channelId" element={<ServerSettings />} />
+          <Route path="s/:serverId/settings/:section" element={<ServerSettings />} />
+          <Route path="s/:serverId/:channelId" element={<ServerView />} />
+          <Route path="s/:serverId/:channelId/:threadId" element={<ServerView />} />
+          <Route path="discover" element={<Discover />} />
+          <Route path="join/:code" element={<JoinInvite />} />
+          <Route path="settings" element={<UserSettings />} />
+          <Route path="settings/:section" element={<UserSettings />} />
         </Route>
         <Route path="admin" element={<Admin />} />
       </Route>
