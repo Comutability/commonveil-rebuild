@@ -233,7 +233,7 @@ export function VoiceProvider({ children }) {
         document.body.appendChild(p.audio);
       }
       p.audio.srcObject = stream;
-      p.audio.muted = c.deafened || p.canSpeak === false;
+      p.audio.muted = c.deafened || p.canSpeak === false || p.modMuted;
       p.audio.play?.().catch(() => {});
       watchLevel(c, seat, stream);
     };
@@ -315,7 +315,7 @@ export function VoiceProvider({ children }) {
   const addPeer = useCallback(async (c, peer, initiator) => {
     const seat = Number(peer.seat);
     if (c.peers.has(seat)) closePeer(c, seat);
-    const p = { seat, userId: peer.user_id, deviceId: peer.device_id, hello: peer.hello, muted: Boolean(peer.muted), deafened: Boolean(peer.deafened), canSpeak: peer.can_speak !== false, hand: Boolean(peer.hand), moderator: Boolean(peer.moderator), state: "checking", verified: false, queue: [], candidates: [], pc: null, audio: null };
+    const p = { seat, userId: peer.user_id, deviceId: peer.device_id, hello: peer.hello, muted: Boolean(peer.muted), deafened: Boolean(peer.deafened), canSpeak: peer.can_speak !== false, modMuted: Boolean(peer.mod_muted), hand: Boolean(peer.hand), moderator: Boolean(peer.moderator), state: "checking", verified: false, queue: [], candidates: [], pc: null, audio: null };
     c.peers.set(seat, p);
     bump();
     const s = secureRef.current;
@@ -415,6 +415,7 @@ export function VoiceProvider({ children }) {
         // About this device: a moderator brought it up to speak, sent it back, or muted it.
         if (typeof msg.can_speak === "boolean") c.canSpeak = msg.can_speak;
         c.hand = Boolean(msg.hand);
+        c.modMuted = Boolean(msg.mod_muted);
         if (msg.muted && !c.muted) {
           c.muted = true;
           for (const t of c.stream?.getAudioTracks() || []) t.enabled = false;
@@ -429,8 +430,9 @@ export function VoiceProvider({ children }) {
         p.muted = Boolean(msg.muted);
         p.deafened = Boolean(msg.deafened);
         if (typeof msg.can_speak === "boolean") p.canSpeak = msg.can_speak;
+        p.modMuted = Boolean(msg.mod_muted);
         p.hand = Boolean(msg.hand);
-        if (p.audio) p.audio.muted = c.deafened || p.canSpeak === false;
+        if (p.audio) p.audio.muted = c.deafened || p.canSpeak === false || p.modMuted;
         bump();
       }
     } else if (msg.type === "signal") {
@@ -543,10 +545,10 @@ export function VoiceProvider({ children }) {
     if (!c?.canModerate) return;
     for (const p of c.peers.values()) if (p.userId === userId) send(c, { type: "set-speaker", seat: p.seat, speak });
   }, []);
-  const mutePeer = useCallback((userId) => {
+  const mutePeer = useCallback((userId, mute = true) => {
     const c = call.current;
     if (!c?.canModerate) return;
-    for (const p of c.peers.values()) if (p.userId === userId) send(c, { type: "mute-peer", seat: p.seat });
+    for (const p of c.peers.values()) if (p.userId === userId) send(c, { type: mute ? "mute-peer" : "unmute-peer", seat: p.seat });
   }, []);
 
   // ---------- controls ----------
@@ -558,10 +560,14 @@ export function VoiceProvider({ children }) {
       setError("You don't have permission to speak in this channel.");
       return;
     }
+    if (c.modMuted && c.muted) {
+      setError("A moderator muted you. A moderator can unmute you.");
+      return;
+    }
     c.muted = !c.muted;
     if (!c.muted && c.deafened) {
       c.deafened = false;
-      for (const p of c.peers.values()) if (p.audio) p.audio.muted = p.canSpeak === false;
+      for (const p of c.peers.values()) if (p.audio) p.audio.muted = p.canSpeak === false || p.modMuted;
       setDeafened(false);
     }
     for (const t of c.stream.getAudioTracks()) t.enabled = !c.muted;
@@ -573,7 +579,7 @@ export function VoiceProvider({ children }) {
     const c = call.current;
     if (!c) return;
     c.deafened = !c.deafened;
-    for (const p of c.peers.values()) if (p.audio) p.audio.muted = c.deafened || p.canSpeak === false;
+    for (const p of c.peers.values()) if (p.audio) p.audio.muted = c.deafened || p.canSpeak === false || p.modMuted;
     // Deafening mutes you too; undeafening restores what you had.
     if (c.deafened) {
       c.mutedBeforeDeafen = c.muted;
@@ -642,7 +648,7 @@ export function VoiceProvider({ children }) {
     if (!c || !room) return [];
     const list = [{ userId: secure.userId, self: true, muted, deafened, speaking: Boolean(c.levels.get("self")?.speaking), state: "connected", video: videoKind, stream: c.localVideo || null, canSpeak: c.canSpeak !== false, hand: Boolean(c.hand), moderator: Boolean(c.canModerate) }];
     for (const p of c.peers.values()) {
-      list.push({ userId: p.userId, self: false, muted: p.muted, deafened: p.deafened, speaking: p.canSpeak !== false && Boolean(c.levels.get(p.seat)?.speaking), state: p.state, video: p.canSpeak === false ? null : p.video || null, stream: p.video && p.canSpeak !== false ? p.videoStream || null : null, canSpeak: p.canSpeak !== false, hand: Boolean(p.hand), moderator: Boolean(p.moderator) });
+      list.push({ userId: p.userId, self: false, muted: p.muted, deafened: p.deafened, speaking: p.canSpeak !== false && !p.modMuted && Boolean(c.levels.get(p.seat)?.speaking), state: p.state, video: p.canSpeak === false ? null : p.video || null, stream: p.video && p.canSpeak !== false ? p.videoStream || null : null, canSpeak: p.canSpeak !== false, modMuted: Boolean(p.modMuted), hand: Boolean(p.hand), moderator: Boolean(p.moderator) });
     }
     return list;
     // tick re-reads the refs.

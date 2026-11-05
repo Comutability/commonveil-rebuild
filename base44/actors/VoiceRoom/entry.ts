@@ -13,6 +13,9 @@ const MAX_STAGE = 16;
 // A dropped socket usually comes straight back (the SDK reconnects with the same id), and the
 // audio between devices carries on meanwhile. Keep a place this long before telling the others.
 const GRACE_MS = 20_000;
+// Who may still be here is checked again this often: a kick, ban, timeout or leaving a group
+// takes someone out of the call within about a minute.
+const RECHECK_MS = 60_000;
 const MAX_SIGNAL_CHARS = 24000; // an offer with its candidates is a few KB
 const MAX_MESSAGES_PER_10S = 200;
 const ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
@@ -66,7 +69,12 @@ export default class VoiceRoom extends Actor {
     }
     const me = this.people.get(conn.id);
     if (me && me.userId === conn.identity.userId) {
-      // A reconnect of someone already in: they're still in, in the same place.
+      // A reconnect of someone already in: still in, in the same place, if they're still allowed.
+      if (!(await this.stillAllowed(me.userId))) {
+        await this.remove(conn.id);
+        conn.reject(4006, "You're no longer allowed in this call.");
+        return;
+      }
       if (me.goneAt) {
         delete me.goneAt;
         await this.cancelSchedule(`drop:${conn.id}`);
@@ -86,7 +94,8 @@ export default class VoiceRoom extends Actor {
       return;
     }
     const me = this.people.get(conn.id);
-    if (!me) return;
+    // A connection id is chosen by the app: it only ever speaks for the account that was let in with it.
+    if (!me || !conn.identity || me.userId !== conn.identity.userId) return;
     if (msg.type === "signal") {
       const target = this.connOfSeat(Number(msg.to));
       if (!target || target.id === conn.id) return;
@@ -99,7 +108,7 @@ export default class VoiceRoom extends Actor {
       if (size > MAX_SIGNAL_CHARS) return;
       target.send({ type: "signal", from: me.seat, data: msg.data });
     } else if (msg.type === "state") {
-      me.muted = Boolean(msg.muted) || !me.canSpeak;
+      me.muted = Boolean(msg.muted) || !me.canSpeak || Boolean(me.modMuted);
       me.deafened = Boolean(msg.deafened);
       await this.save();
       this.broadcastState(me);
@@ -110,15 +119,20 @@ export default class VoiceRoom extends Actor {
       me.hand = Boolean(msg.raised) && !me.canSpeak;
       await this.save();
       this.broadcastState(me);
-    } else if ((msg.type === "set-speaker" || msg.type === "mute-peer") && me.stage && me.canModerate) {
+    } else if (((msg.type === "set-speaker" && me.stage) || msg.type === "mute-peer" || msg.type === "unmute-peer") && me.canModerate) {
       const target = this.personAtSeat(Number(msg.seat));
       if (!target) return;
       if (msg.type === "set-speaker") {
         target.canSpeak = Boolean(msg.speak);
         target.hand = false;
+        target.modMuted = false;
         if (!target.canSpeak) target.muted = true;
-      } else {
+      } else if (msg.type === "mute-peer") {
+        // A moderator's mute holds until a moderator lifts it, and everyone's app enforces it.
+        target.modMuted = true;
         target.muted = true;
+      } else {
+        target.modMuted = false;
       }
       await this.save();
       this.broadcastState(target);
@@ -138,6 +152,10 @@ export default class VoiceRoom extends Actor {
   }
 
   async handleWake(key) {
+    if (key === "recheck") {
+      await this.recheck();
+      return;
+    }
     if (typeof key !== "string" || !key.startsWith("drop:")) return;
     const id = key.slice(5);
     const p = this.people.get(id);
@@ -151,6 +169,38 @@ export default class VoiceRoom extends Actor {
   }
 
   handleTick() {}
+
+  /** Still a member (and not timed out), or still in the conversation. Fails closed. */
+  async stillAllowed(userId) {
+    const room = String(this.instanceId || "");
+    const sr = this.client.asServiceRole;
+    try {
+      const dm = /^dm\.([A-Za-z0-9_-]{8,64})\.[A-Za-z0-9_-]{8,32}$/.exec(room);
+      if (dm) {
+        const conv = await sr.entities.Conversation.get(dm[1]);
+        return Boolean(conv && (conv.member_ids || []).includes(userId));
+      }
+      const m = /^([A-Za-z0-9_-]{8,64})\.([A-Za-z0-9_-]{8,64})$/.exec(room);
+      if (!m) return false;
+      const [member] = await sr.entities.ServerMember.filter({ server_id: m[1], user_id: userId }, "created_date", 1);
+      if (!member) return false;
+      return !(member.timeout_until && Date.parse(member.timeout_until) > Date.now());
+    } catch {
+      return false;
+    }
+  }
+
+  async recheck() {
+    const users = new Map();
+    for (const [id, p] of [...this.people]) {
+      if (!users.has(p.userId)) users.set(p.userId, await this.stillAllowed(p.userId));
+      if (users.get(p.userId)) continue;
+      await this.remove(id);
+      const c = this.getConnections().find((x) => x.id === id);
+      if (c) c.reject(4006, "You're no longer allowed in this call.");
+    }
+    if (this.people.size) await this.schedule("recheck", Date.now() + RECHECK_MS);
+  }
 
   // ---------- helpers ----------
 
@@ -219,6 +269,7 @@ export default class VoiceRoom extends Actor {
     };
     this.people.set(conn.id, me);
     await this.save();
+    if (this.people.size === 1) await this.schedule("recheck", Date.now() + RECHECK_MS);
     this.welcome(conn, me);
     this.sendToMembers({ type: "peer-joined", peer: this.publicOf(me) }, conn.id);
   }
@@ -241,14 +292,14 @@ export default class VoiceRoom extends Actor {
   publicOf(p) {
     return {
       seat: p.seat, user_id: p.userId, device_id: p.deviceId, hello: p.hello, muted: p.muted, deafened: p.deafened,
-      can_speak: p.canSpeak !== false, moderator: Boolean(p.canModerate), hand: Boolean(p.hand),
+      can_speak: p.canSpeak !== false, moderator: Boolean(p.canModerate), hand: Boolean(p.hand), mod_muted: Boolean(p.modMuted),
     };
   }
 
   // Everyone hears about a change to one person, including that person (a moderator may have
   // brought them up to speak, or muted them). Listeners' apps don't play anyone who can't speak.
   broadcastState(p) {
-    this.sendToMembers({ type: "peer-state", seat: p.seat, muted: p.muted, deafened: p.deafened, can_speak: p.canSpeak !== false, hand: Boolean(p.hand) });
+    this.sendToMembers({ type: "peer-state", seat: p.seat, muted: p.muted, deafened: p.deafened, can_speak: p.canSpeak !== false, hand: Boolean(p.hand), mod_muted: Boolean(p.modMuted) });
   }
 
   personAtSeat(seat) {
