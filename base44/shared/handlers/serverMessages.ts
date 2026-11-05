@@ -89,9 +89,13 @@ export const serverMessageActions: Actions = {
         }
       }
     }
+    // A thread hangs off a forum post, or off an ordinary message in a text channel.
+    let root: any = null;
     if (threadId) {
-      const [post] = await own.entities.ServerMessage.filter({ channel_id: channel.id, msg_id: threadId, kind: "post" }, "created_date", 1);
-      if (!post || post.deleted) throw new ApiError(404, "NOT_FOUND", "That post isn't here any more.");
+      [root] = await own.entities.ServerMessage.filter({ channel_id: channel.id, msg_id: threadId }, "created_date", 1);
+      const fits = root && !root.deleted && (channel.kind === "forum" ? root.kind === "post" : root.kind === "message" && !root.thread_id);
+      if (!fits) throw new ApiError(404, "NOT_FOUND", channel.kind === "forum" ? "That post isn't here any more." : "That thread isn't here any more.");
+      if (root.thread_locked && !has(perms, P.MANAGE_THREADS) && kind !== "reaction") throw new ApiError(403, "THREAD_LOCKED", "This thread is locked.");
     }
     const device = await requireActiveDevice(own, user.id, randomIdField(body.device_id, "device id"));
     const msgId = randomIdField(body.msg_id, "message id");
@@ -132,9 +136,8 @@ export const serverMessageActions: Actions = {
       ...(lifetime > 0 ? { expires_at: new Date(now.getTime() + lifetime * 1000).toISOString() } : {}),
     });
     if (kind === "message" || kind === "post") await sr.entities.Channel.update(channel.id, { last_message_at: message.created_date || platformTime(now) });
-    if (threadId && kind === "message") {
-      const [post] = await sr.entities.ServerMessage.filter({ channel_id: channel.id, msg_id: threadId, kind: "post" }, "created_date", 1);
-      if (post) await sr.entities.ServerMessage.update(post.id, { last_reply_at: message.created_date || platformTime(now), reply_count: (Number(post.reply_count) || 0) + 1 });
+    if (root && kind === "message") {
+      await sr.entities.ServerMessage.update(root.id, { last_reply_at: message.created_date || platformTime(now), reply_count: (Number(root.reply_count) || 0) + 1 });
     }
     return { message: serverMessageOut(message) };
   },
@@ -162,7 +165,7 @@ export const serverMessageActions: Actions = {
     const page = rows.slice(0, limit);
     let extra: any[] = [];
     if (body.thread_id && body.before === undefined) {
-      extra = await own.entities.ServerMessage.filter({ channel_id: view.channel.id, msg_id: body.thread_id, kind: "post" }, "created_date", 1);
+      extra = await own.entities.ServerMessage.filter({ channel_id: view.channel.id, msg_id: body.thread_id }, "created_date", 1);
     }
     const cursorField = body.posts ? "last_reply_at" : "created_date";
     // Oldest first, with a post ahead of its replies.
