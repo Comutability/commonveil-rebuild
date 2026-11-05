@@ -892,8 +892,6 @@ export function SecureProvider({ children }) {
    */
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const latestChainOf = useCallback((id) => (id === userId ? chainRef.current : peersRef.current[id]?.chain || null), [userId, chain, peers]);
-  /** The device list last fetched for someone (yours from your own status). */
-  const devicesOf = useCallback((id) => (id === userId ? statusRef.current?.devices || [] : peersRef.current[id]?.devices || []), [userId]);
   /** Only certificates from keys this browser holds count for your own devices. */
   const ownMinCertVersion = keyring?.versions?.[0]?.version ?? 1;
 
@@ -954,7 +952,6 @@ export function SecureProvider({ children }) {
     devicesOf,
     chainOf,
     latestChainOf,
-    devicesOf,
     ownMinCertVersion,
   };
 
