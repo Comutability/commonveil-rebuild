@@ -7,7 +7,7 @@ import { DEFAULT_EVERYONE, P } from "../permissions.ts";
 export type TemplateRole = { key: string; position: number; permissions: number; hoist: boolean; mentionable: boolean };
 export type TemplateChannel = {
   key: string;
-  kind: "category" | "text" | "announcement" | "rules" | "forum" | "voice" | "tickets";
+  kind: "category" | "text" | "announcement" | "rules" | "forum" | "voice" | "stage" | "tickets";
   parent?: string;
   history?: "full" | "joined";
   slowmode?: number;

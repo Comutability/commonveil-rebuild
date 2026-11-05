@@ -69,7 +69,7 @@ export default function ServerView() {
   else if (!channel) main = <Centered><p className="font-heading text-xl text-foreground">No channels you can see</p><p className="text-sm">Ask an admin to give you access.</p></Centered>;
   else if (channel.kind === "forum") main = <ForumView key={channel.id} serverId={serverId} channel={channel} postId={threadId} />;
   else if (channel.kind === "tickets") main = <TicketsView key={channel.id} serverId={serverId} channel={channel} ticketId={threadId} />;
-  else if (channel.kind === "voice") main = <VoiceView key={channel.id} serverId={serverId} channel={channel} />;
+  else if (channel.kind === "voice" || channel.kind === "stage") main = <VoiceView key={channel.id} serverId={serverId} channel={channel} />;
   else if (threadId) main = <ThreadView key={`${channel.id}:${threadId}`} serverId={serverId} channel={channel} threadId={threadId} />;
   else main = <ChannelChat key={channel.id} serverId={serverId} channel={channel} />;
 

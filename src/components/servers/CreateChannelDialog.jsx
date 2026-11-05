@@ -17,6 +17,7 @@ const KINDS = [
   ["announcement", "Staff post, everyone reads and reacts."],
   ["forum", "Each topic gets its own post and thread."],
   ["voice", "Talk together, peer to peer and encrypted."],
+  ["stage", "Moderators speak, everyone else listens and can ask to speak. Up to 16 people."],
   ["tickets", "Members open private tickets with your support team."],
   ["rules", "Your server's rules, read-only for members."],
 ];
@@ -68,7 +69,7 @@ export default function CreateChannelDialog({ serverId, open, onOpenChange, init
         topic: isCategory ? "" : topic.trim(),
         parentId: isCategory ? "" : parentId,
         overwrites,
-        history: isCategory || kind === "voice" ? undefined : history,
+        history: isCategory || (kind === "voice" || kind === "stage") ? undefined : history,
       });
       onOpenChange(false);
       onCreated?.(channel);
@@ -106,8 +107,8 @@ export default function CreateChannelDialog({ serverId, open, onOpenChange, init
 
           <div className="space-y-1.5">
             <Label htmlFor="channel-name">{isCategory ? "Category name" : "Channel name"}</Label>
-            <Input id="channel-name" value={name} onChange={(ev) => setName(ev.target.value)} maxLength={100} placeholder={isCategory ? "New category" : kind === "voice" ? "Hangout" : "new-channel"} required autoFocus />
-            {!isCategory && kind !== "voice" && name && cleaned !== name && <p className="text-xs text-muted-foreground">It'll be called #{cleaned}</p>}
+            <Input id="channel-name" value={name} onChange={(ev) => setName(ev.target.value)} maxLength={100} placeholder={isCategory ? "New category" : (kind === "voice" || kind === "stage") ? "Hangout" : "new-channel"} required autoFocus />
+            {!isCategory && !(kind === "voice" || kind === "stage") && name && cleaned !== name && <p className="text-xs text-muted-foreground">It'll be called #{cleaned}</p>}
           </div>
 
           {!isCategory && (
@@ -154,7 +155,7 @@ export default function CreateChannelDialog({ serverId, open, onOpenChange, init
             )}
           </div>
 
-          {!isCategory && kind !== "voice" && !isPrivate && (
+          {!isCategory && !(kind === "voice" || kind === "stage") && !isPrivate && (
             <div className="space-y-1.5">
               <Label htmlFor="channel-history">People who join later can read</Label>
               <NativeSelect id="channel-history" value={history} onChange={(ev) => setHistory(ev.target.value)}>

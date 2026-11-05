@@ -81,7 +81,7 @@ export function useServerEvents(serverId, active = true) {
 
 function EventForm({ serverId, initial = null, onDone, onCancel }) {
   const { servers, channelName, createEvent, updateEvent } = useServers();
-  const voices = (servers[serverId]?.channels || []).filter((c) => c.kind === "voice");
+  const voices = (servers[serverId]?.channels || []).filter((c) => c.kind === "voice" || c.kind === "stage");
   const start = initial ? new Date(initial.starts_at) : new Date(Math.ceil(Date.now() / 3600_000) * 3600_000 + 86_400_000);
   const [f, setF] = useState({
     title: initial?.title || "",

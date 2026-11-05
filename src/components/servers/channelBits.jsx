@@ -1,5 +1,5 @@
 import React from "react";
-import { BookOpen, Hash, Lock, Megaphone, MessagesSquare, Ticket, Volume2 } from "lucide-react";
+import { BookOpen, Hash, Lock, Megaphone, MessagesSquare, Radio, Ticket, Volume2 } from "lucide-react";
 
 export const KIND_LABELS = {
   text: "Text",
@@ -7,11 +7,12 @@ export const KIND_LABELS = {
   rules: "Rules",
   forum: "Forum",
   voice: "Voice",
+  stage: "Stage",
   tickets: "Support tickets",
   category: "Category",
 };
 
-const ICONS = { text: Hash, announcement: Megaphone, rules: BookOpen, forum: MessagesSquare, voice: Volume2, tickets: Ticket };
+const ICONS = { text: Hash, announcement: Megaphone, rules: BookOpen, forum: MessagesSquare, voice: Volume2, stage: Radio, tickets: Ticket };
 
 /** A channel's icon, with a small lock when only some roles can see it. */
 export function ChannelIcon({ kind, isPrivate = false, className = "h-5 w-5" }) {

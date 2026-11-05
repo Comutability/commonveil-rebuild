@@ -17,6 +17,15 @@
       "type": "boolean",
       "default": true
     },
+    "can_moderate": {
+      "type": "boolean",
+      "default": false,
+      "description": "On a stage: may bring people up to speak, move them back and mute them."
+    },
+    "stage": {
+      "type": "boolean",
+      "default": false
+    },
     "expires_at": {
       "type": "string"
     }

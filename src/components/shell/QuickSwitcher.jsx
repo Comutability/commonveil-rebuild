@@ -115,7 +115,7 @@ export default function QuickSwitcher() {
               </CommandItem>
               {channelsOf(sid).map((c) => (
                 <CommandItem key={c.id} value={`${s.channelName(c)} ${s.serverName(sid)} ${c.id}`} onSelect={() => go(`/app/s/${sid}/${c.id}`)}>
-                  {c.kind === "voice" ? <Volume2 className="mr-2 h-4 w-4 text-muted-foreground" aria-hidden="true" /> : <Hash className="mr-2 h-4 w-4 text-muted-foreground" aria-hidden="true" />}
+                  {c.kind === "voice" || c.kind === "stage" ? <Volume2 className="mr-2 h-4 w-4 text-muted-foreground" aria-hidden="true" /> : <Hash className="mr-2 h-4 w-4 text-muted-foreground" aria-hidden="true" />}
                   {s.channelName(c)}
                   {s.unread.channels[c.id]?.mentions > 0 && <span className="ml-auto rounded-full bg-destructive px-1.5 text-[0.65rem] font-bold text-destructive-foreground">{s.unread.channels[c.id].mentions}</span>}
                 </CommandItem>

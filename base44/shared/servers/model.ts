@@ -37,7 +37,7 @@ export const SERVER_LIMITS = Object.freeze({
 /** Disappearing messages in a channel: off, an hour, a day, a week, four weeks. */
 export const CHANNEL_EXPIRY_CHOICES = Object.freeze([0, 3600, 86_400, 604_800, 2_419_200]);
 
-export const CHANNEL_KINDS = new Set(["category", "text", "announcement", "rules", "forum", "voice", "tickets"]);
+export const CHANNEL_KINDS = new Set(["category", "text", "announcement", "rules", "forum", "voice", "stage", "tickets"]);
 /** Channels people post messages in. */
 export const MESSAGE_KINDS = new Set(["text", "announcement", "rules", "forum"]);
 

@@ -630,7 +630,7 @@ export function ServerProvider({ children }) {
   const channelName = useCallback((channel) => {
     if (!channel) return "";
     const enc = itemContent(`channel:${channel.id}`);
-    return enc?.name || templateChannel(channel.template_key)?.name || (channel.kind === "voice" ? "Voice" : channel.kind === "category" ? "Channels" : "channel");
+    return enc?.name || templateChannel(channel.template_key)?.name || (channel.kind === "voice" ? "Voice" : channel.kind === "stage" ? "Stage" : channel.kind === "category" ? "Channels" : "channel");
   }, [itemContent]);
 
   const channelTopic = useCallback((channel) => {

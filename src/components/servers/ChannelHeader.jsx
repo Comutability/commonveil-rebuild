@@ -84,7 +84,7 @@ export default function ChannelHeader({ serverId, channel, membersOpen, onToggle
       {!topic && <span className="flex-1" />}
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
         <Seal serverId={serverId} channel={channel} />
-        {channel.kind !== "voice" && <NotifyMenu serverId={serverId} channel={channel} />}
+        {channel.kind !== "voice" && channel.kind !== "stage" && <NotifyMenu serverId={serverId} channel={channel} />}
         {onPins && (
           <HeaderButton label="Pinned messages" onClick={onPins}>
             <Pin className="h-4 w-4" aria-hidden="true" />

@@ -155,6 +155,6 @@ export function initialsOf(name) {
 /** A channel name the way channels are written: lowercase words joined by hyphens. Voice channels keep their spelling. */
 export function cleanChannelName(name, kind) {
   const trimmed = String(name || "").trim().slice(0, 100);
-  if (kind === "voice" || kind === "category") return trimmed.replace(/\s+/g, " ");
+  if (kind === "voice" || kind === "stage" || kind === "category") return trimmed.replace(/\s+/g, " ");
   return trimmed.toLowerCase().replace(/[\s_]+/g, "-").replace(/[^\p{L}\p{N}-]/gu, "").replace(/-{2,}/g, "-").replace(/^-|-$/g, "");
 }
