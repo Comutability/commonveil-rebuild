@@ -12,6 +12,8 @@ import Composer from "@/components/chat/Composer";
 import ComposerPlus from "@/components/chat/ComposerPlus";
 import CreatePollDialog from "@/components/chat/CreatePollDialog";
 import ForwardDialog from "@/components/chat/ForwardDialog";
+import VoiceRecorder from "@/components/chat/VoiceRecorder";
+import { useStagedFiles } from "@/components/chat/useStagedFiles";
 import ChannelHeader from "./ChannelHeader";
 import MemberList from "./MemberList";
 import MemberCard from "./MemberCard";
@@ -240,6 +242,8 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
 export function ChannelComposer({ serverId, channel, threadId = "", reply, setReply, editing, setEditing, placeholder }) {
   const { sendText, sendPoll, edit, channelName } = useServers();
   const [pollOpen, setPollOpen] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const staged = useStagedFiles();
   const { suggest, mentionsIn } = useServerText(serverId, channel.id);
   const block = useSendBlock(serverId, channel);
   const [text, setText] = useState("");
@@ -267,7 +271,13 @@ export function ChannelComposer({ serverId, channel, threadId = "", reply, setRe
       if (value !== editing.text) await edit(serverId, channel, editing, value);
       setEditing(null);
     } else {
-      await sendText(serverId, channel, value, { replyTo: reply?.m.msg_id || null, mentions: mentionsIn(value), threadId });
+      const files = staged.items.map(({ file, spoiler }) => ({ file, spoiler }));
+      try {
+        await sendText(serverId, channel, value, { replyTo: reply?.m.msg_id || null, mentions: mentionsIn(value), threadId, files, onProgress: staged.onProgress });
+      } finally {
+        staged.setProgress(null);
+      }
+      staged.clear();
       setReply(null);
     }
     setText("");
@@ -277,9 +287,11 @@ export function ChannelComposer({ serverId, channel, threadId = "", reply, setRe
   return (
     <>
     <CreatePollDialog open={pollOpen} onOpenChange={setPollOpen} onCreate={(poll) => sendPoll(serverId, channel, poll, { threadId })} />
+    <VoiceRecorder open={recording} onOpenChange={setRecording} onSend={(file, seconds) => sendText(serverId, channel, "", { threadId, files: [{ file, voice: true, duration: seconds }] })} />
     <Composer
       ref={input}
-      tools={editing || block ? null : <ComposerPlus onPoll={() => setPollOpen(true)} />}
+      tools={editing || block ? null : <ComposerPlus onPoll={() => setPollOpen(true)} onFiles={staged.add} onVoiceNote={() => setRecording(true)} />}
+      staged={block ? null : staged}
       value={text}
       onChange={(v) => {
         setText(v);

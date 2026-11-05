@@ -7,6 +7,7 @@ import Avatar from "./Avatar";
 import RichText from "./RichText";
 import EmojiPicker from "./EmojiPicker";
 import PollCard from "./PollCard";
+import AttachmentList from "./Attachments";
 
 export const reactionName = emojiName;
 
