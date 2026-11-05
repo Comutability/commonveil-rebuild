@@ -8,6 +8,8 @@
 import { Actor } from "base44:runtime/actors";
 
 const MAX_PEOPLE = 8;
+// A stage: listeners send nothing, so more people fit.
+const MAX_STAGE = 16;
 // A dropped socket usually comes straight back (the SDK reconnects with the same id), and the
 // audio between devices carries on meanwhile. Keep a place this long before telling the others.
 const GRACE_MS = 20_000;
@@ -100,9 +102,26 @@ export default class VoiceRoom extends Actor {
       me.muted = Boolean(msg.muted) || !me.canSpeak;
       me.deafened = Boolean(msg.deafened);
       await this.save();
-      this.sendToMembers({ type: "peer-state", seat: me.seat, muted: me.muted, deafened: me.deafened });
+      this.broadcastState(me);
     } else if (msg.type === "leave") {
       await this.remove(conn.id);
+    } else if (msg.type === "hand" && me.stage) {
+      // A listener on a stage asking to speak (or taking it back).
+      me.hand = Boolean(msg.raised) && !me.canSpeak;
+      await this.save();
+      this.broadcastState(me);
+    } else if ((msg.type === "set-speaker" || msg.type === "mute-peer") && me.stage && me.canModerate) {
+      const target = this.personAtSeat(Number(msg.seat));
+      if (!target) return;
+      if (msg.type === "set-speaker") {
+        target.canSpeak = Boolean(msg.speak);
+        target.hand = false;
+        if (!target.canSpeak) target.muted = true;
+      } else {
+        target.muted = true;
+      }
+      await this.save();
+      this.broadcastState(target);
     }
   }
 
@@ -181,8 +200,9 @@ export default class VoiceRoom extends Actor {
       const old = this.getConnections().find((c) => c.id === id);
       if (old) old.reject(4005, "You joined this call from somewhere else.");
     }
-    if (this.people.size >= MAX_PEOPLE) {
-      conn.send({ type: "error", code: "CALL_FULL", message: `This call is full: up to ${MAX_PEOPLE} people can be in it.` });
+    const max = ticket.stage ? MAX_STAGE : MAX_PEOPLE;
+    if (this.people.size >= max) {
+      conn.send({ type: "error", code: "CALL_FULL", message: `This call is full: up to ${max} people can be in it.` });
       return;
     }
     const me = {
@@ -191,6 +211,9 @@ export default class VoiceRoom extends Actor {
       deviceId: ticket.device_id,
       hello,
       canSpeak: ticket.can_speak !== false,
+      canModerate: ticket.can_moderate === true,
+      stage: ticket.stage === true,
+      hand: false,
       muted: Boolean(msg.muted) || ticket.can_speak === false,
       deafened: Boolean(msg.deafened),
     };
@@ -203,7 +226,7 @@ export default class VoiceRoom extends Actor {
   welcome(conn, me) {
     const peers = [];
     for (const [id, p] of this.people) if (id !== conn.id) peers.push(this.publicOf(p));
-    conn.send({ type: "welcome", seat: me.seat, can_speak: me.canSpeak, peers, max_people: MAX_PEOPLE });
+    conn.send({ type: "welcome", seat: me.seat, can_speak: me.canSpeak, can_moderate: Boolean(me.canModerate), stage: Boolean(me.stage), peers, max_people: me.stage ? MAX_STAGE : MAX_PEOPLE });
   }
 
   async remove(connId) {
@@ -216,7 +239,21 @@ export default class VoiceRoom extends Actor {
 
   // An explicit public shape: never the connection id, which the client holds.
   publicOf(p) {
-    return { seat: p.seat, user_id: p.userId, device_id: p.deviceId, hello: p.hello, muted: p.muted, deafened: p.deafened };
+    return {
+      seat: p.seat, user_id: p.userId, device_id: p.deviceId, hello: p.hello, muted: p.muted, deafened: p.deafened,
+      can_speak: p.canSpeak !== false, moderator: Boolean(p.canModerate), hand: Boolean(p.hand),
+    };
+  }
+
+  // Everyone hears about a change to one person, including that person (a moderator may have
+  // brought them up to speak, or muted them). Listeners' apps don't play anyone who can't speak.
+  broadcastState(p) {
+    this.sendToMembers({ type: "peer-state", seat: p.seat, muted: p.muted, deafened: p.deafened, can_speak: p.canSpeak !== false, hand: Boolean(p.hand) });
+  }
+
+  personAtSeat(seat) {
+    for (const p of this.people.values()) if (p.seat === seat) return p;
+    return null;
   }
 
   // Only people admitted to the call hear about it: a connection that hasn't shown a pass gets nothing.
