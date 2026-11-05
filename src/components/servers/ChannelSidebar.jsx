@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Bell,
+  CalendarDays,
   BellOff,
   Check,
   ChevronDown,
@@ -18,6 +19,7 @@ import {
   UserCog,
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import EventsDialog from "./EventsDialog";
 import { useServers } from "@/lib/secure/ServerContext";
 import { useVoice } from "@/lib/voice/VoiceContext";
 import { P, has } from "@/lib/secure/permissions";
@@ -97,6 +99,7 @@ export default function ChannelSidebar({ serverId, activeChannelId }) {
   const [creating, setCreating] = useState(null);
   const [leaving, setLeaving] = useState(false);
   const [nick, setNick] = useState(false);
+  const [eventsOpen, setEventsOpen] = useState(false);
 
   if (!e) return null;
   const ready = e.status === "ready" && e.channels;
@@ -161,6 +164,13 @@ export default function ChannelSidebar({ serverId, activeChannelId }) {
       )}
 
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-3">
+        {ready && (
+          <button type="button" onClick={() => setEventsOpen(true)} className="panel-item mb-2 text-muted-foreground">
+            <CalendarDays className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span className="truncate">Events</span>
+          </button>
+        )}
+        <EventsDialog serverId={serverId} open={eventsOpen} onOpenChange={setEventsOpen} />
         {!ready ? (
           <div className="flex items-center gap-2 px-2 py-4 text-sm text-muted-foreground" role="status">
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> {e.status === "error" ? "Couldn't load this server. Trying again shortly." : "Loading channels…"}
