@@ -188,6 +188,7 @@ export async function removeMember(sr: any, serverId: string, userId: string, { 
     await sr.entities.ServerMember.delete(row.id);
   }
   await sr.entities.KeyGrant.deleteMany({ server_id: serverId, user_id: userId });
+  await sr.entities.EventRsvp.deleteMany({ server_id: serverId, user_id: userId });
   await sr.entities.Server.update(parts.server.id, { member_count: Math.max(0, (Number(parts.server.member_count) || 1) - 1) });
   const rotate = reason === "banned" || parts.server.join_mode !== "open";
   if (rotate) await needRotation(sr, serverId, held, reason);
