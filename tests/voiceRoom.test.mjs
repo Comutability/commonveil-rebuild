@@ -75,9 +75,9 @@ function connect(e, id, userId) {
 }
 
 let n = 0;
-function pass(e, userId, { room = ROOM, expiresIn = 60_000, device = `dev${userId}xyz` } = {}) {
+function pass(e, userId, { room = ROOM, expiresIn = 60_000, device = `dev${userId}xyz`, stage = false, mod = false } = {}) {
   const id = `ticket${++n}abcd`;
-  e.tickets.set(id, { id, room, user_id: userId, device_id: device, can_speak: true, expires_at: new Date(Date.now() + expiresIn).toISOString() });
+  e.tickets.set(id, { id, room, user_id: userId, device_id: device, can_speak: stage ? mod : true, can_moderate: mod, stage, expires_at: new Date(Date.now() + expiresIn).toISOString() });
   return id;
 }
 
@@ -137,7 +137,7 @@ test("voice room: members hear about each other and relay set-up; outsiders hear
   assert.equal(a.got.at(-1).type, "signal", "outsiders and oversized messages aren't relayed");
   assert.equal(a.got.filter((m) => m.type === "signal").length, 1);
   await room.handleMessage(b, { type: "state", muted: true, deafened: false });
-  assert.deepEqual(a.got.at(-1), { type: "peer-state", seat: welcomeB.seat, muted: true, deafened: false });
+  assert.deepEqual(a.got.at(-1), { type: "peer-state", seat: welcomeB.seat, muted: true, deafened: false, can_speak: true, hand: false });
   await room.handleMessage(b, { type: "leave" });
   assert.deepEqual(a.got.at(-1), { type: "peer-left", seat: welcomeB.seat });
   assert.deepEqual(lurker.got.map((m) => m.type), ["pass-needed"], "a connection without a pass learns nothing");
@@ -200,4 +200,37 @@ test("voice room: a dropped socket keeps its place for a while, and coming back 
   const thief = connect(e, "conn-carol-1", "mallory");
   await room.handleConnect(thief);
   assert.deepEqual(thief.got.map((m) => m.type), ["pass-needed"]);
+});
+
+test("stage: listeners can't speak until a moderator brings them up; only moderators can", async () => {
+  const e = env();
+  const room = new VoiceRoom(e);
+  await room.handleStart();
+  const join = async (connId, userId, opts) => {
+    const c = connect(e, connId, userId);
+    await room.handleConnect(c);
+    await room.handleMessage(c, { type: "join", ticket: pass(e, userId, { stage: true, ...opts }), hello: hello(userId) });
+    return c;
+  };
+  const mod = await join("conn-mod-1", "alice", { mod: true });
+  const fan = await join("conn-fan-1", "bob", {});
+  const other = await join("conn-oth-1", "carol", {});
+  const fanSeat = fan.got.find((m) => m.type === "welcome").seat;
+  const otherSeat = other.got.find((m) => m.type === "welcome").seat;
+  assert.equal(fan.got.find((m) => m.type === "welcome").can_speak, false);
+  // Unmuting yourself as a listener does nothing.
+  await room.handleMessage(fan, { type: "state", muted: false, deafened: false });
+  assert.equal(mod.got.at(-1).muted, true);
+  await room.handleMessage(fan, { type: "hand", raised: true });
+  assert.equal(mod.got.at(-1).hand, true);
+  // A listener can't bring anyone up.
+  await room.handleMessage(other, { type: "set-speaker", seat: fanSeat, speak: true });
+  assert.equal(mod.got.at(-1).can_speak, false);
+  await room.handleMessage(mod, { type: "set-speaker", seat: fanSeat, speak: true });
+  assert.deepEqual([fan.got.at(-1).seat, fan.got.at(-1).can_speak, fan.got.at(-1).hand], [fanSeat, true, false]);
+  await room.handleMessage(fan, { type: "state", muted: false, deafened: false });
+  assert.equal(other.got.at(-1).muted, false);
+  await room.handleMessage(mod, { type: "mute-peer", seat: fanSeat });
+  assert.equal(other.got.at(-1).muted, true);
+  assert.ok(otherSeat);
 });
