@@ -175,6 +175,23 @@ server stores `expires_at = arrival + timer` beside it, stops listing it once th
 the earlier of `expires_at` and `sent_at + expire_seconds`, so the server can't keep a message showing longer than its
 sender chose. Apps also drop it from memory. Nothing stops a member copying a message before then.
 
+**Messages that wait.** "Send later" and safety check-ins are ordinary messages, sealed and signed when they're written
+(with no timer inside, since it would count from then), sent with `action: "schedule"` and held in `ScheduledMessage`, apart
+from messages, so recipients can't list or see them. A "later" message is held until `deliver_at` (a minute to a year
+ahead); a check-in until `checkin_hours` from now, and `check_in` (device-signed) pushes that on by the same interval.
+`cancel_scheduled` is device-signed too, so a stolen password can neither silence nor fake a check-in. A task every
+5 minutes (and the sender's own app, when it opens the conversation) delivers what's due, to the people it was sealed to who
+are still in the conversation and not blocked, as a `Message` with `scheduled: true`; the conversation's timer runs from
+delivery. The held copy is then blanked and deleted. Readers place a scheduled message at its delivery time.
+
+**Self-destructing conversations.** A group admin, or either person in a DM, can set a whole conversation to erase itself
+after 1 hour to 30 days (`set_self_destruct`, device-signed). The service stores `destroy_at` and who set it; apps hide the
+conversation when it passes and the 5-minute task erases it and everything in it, blanked first.
+
+**Privacy report.** `profile.privacy_report` answers with what the service holds about the caller: their account fields
+(the sign-in address masked), devices, how many conversations, people and servers, and counts of what's stored. It never
+returns anything about other members, or anything encrypted.
+
 A reader marks an item **verified** only if the sending device appears in the sender's device list, that device's
 certificate verifies against the sender's chain (the pinned history while a change awaits review; for your own account,
 only certificates from key versions your keyring holds), and the item signature verifies against the device key.

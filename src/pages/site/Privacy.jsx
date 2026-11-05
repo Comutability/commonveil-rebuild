@@ -14,6 +14,8 @@ const HOLD = [
   ["Encrypted backup of your keys", "Sealed to your recovery phrase. Without the phrase it's unreadable, including to us."],
   ["Servers you're in", "Which servers you belong to, your roles there, whether you chose to be listed, and when you joined. Server names, channel and role names, rules, nicknames and messages are encrypted. A server listed in Discover has a public card its admins wrote."],
   ["Calls", "For a minute, a single-use pass saying your device may join a call. While you're in a call, the relay knows you're in it so it can introduce your device to the others, and on a stage who may speak. Audio and video never reach us, and nothing about a call is kept after it."],
+  ["Scheduled messages and check-ins", "Encrypted when you write them, held apart from messages until they're due, then delivered and the held copy deleted (blanked first). We see when each is due and who it's for, never what it says. Cancelling or checking in needs one of your devices."],
+  ["Self-destructing conversations", "The time a conversation is set to erase itself and who set it. When it comes, everything in it is deleted for everyone, blanked first, within a few minutes."],
   ["Files and voice messages", "The encrypted parts, their sizes, and which message and place they belong to. Their names, types, keys and contents travel inside the encrypted message. Parts are forgotten once their message is deleted or disappears."],
   ["Reports and moderation", "If you report someone in a server, we know you reported them and when, not what you said: it's encrypted to that server's moderators. Warnings and notes are encrypted too; we keep a numbered record that they exist. If you or a moderator choose to tell the Commonveil team, we read what you wrote."],
   ["Events", "That a server has an event, and which members answered it. What it's called, when and where it is, and the answers are encrypted."],
@@ -33,6 +35,8 @@ const NEVER = [
 ];
 
 const ON_DEVICE = [
+  ["Quiet hours and focus", "When notifications stay silent. We never learn when you sleep or don't want to be disturbed."],
+  ["Your privacy checkup", "Worked out on your device from settings it already has. Which suggestions you follow isn't sent anywhere."],
   ["Passcode lock", "If you set one, your keys on that browser are stored encrypted with it. The passcode itself is never stored or sent."],
   ["Your organisation", "Saved messages, private notes on people, server folders and per-channel notification choices are kept in this browser only."],
   ["Online status and typing", "Whether you share them. Off unless you turn them on."],
