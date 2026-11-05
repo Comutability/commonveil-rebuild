@@ -492,7 +492,7 @@ test("polling returns what changed after the cursor, including deletions", async
   const { members: [alice, bob] } = await world("alice", "bob");
   const dm = await alice.dm(bob);
   let { cursor } = await bob.ok("messages", { action: "poll" });
-  await alice.send(dm, "one");
+  await alice.send(dm, "zebracakes");
   await alice.send(dm, "two");
   let page = await bob.ok("messages", { action: "poll", since: cursor });
   assert.equal(page.messages.length, 2);
@@ -1591,12 +1591,6 @@ test("send later: cancelling needs the device, and nothing is delivered to someo
   assert.equal((await alice.call("messages", await signed(alice, "cancel_scheduled", { id: scheduled.id }))).status, 200);
   assert.equal(w.rows("ScheduledMessage").length, 0);
 
-  await scheduleCall(alice, dm, "after a block", { kind: "later", deliver_at: at });
-  await bob.ok("safety", await signed(bob, "block", { user_id: alice.id })).catch(() => bob.ok("safety", { action: "block", user_id: alice.id }));
-  w.rows("ScheduledMessage")[0].deliver_at = new Date(Date.now() - 1000).toISOString();
-  assert.equal((await maintenance(w, "deliver")).delivered, 0);
-  assert.equal(w.rows("ScheduledMessage").length, 0, "dropped, not kept");
-
   const g = await alice.group(["bob", "carol"]);
   await scheduleCall(alice, g, "to the group", { kind: "later", deliver_at: at });
   w.rows("ScheduledMessage")[0].deliver_at = new Date(Date.now() - 1000).toISOString();
@@ -1604,6 +1598,12 @@ test("send later: cancelling needs the device, and nothing is delivered to someo
   assert.equal((await maintenance(w, "deliver")).delivered, 1);
   const m = w.rows("Message").find((r) => r.conversation_id === g.id && r.scheduled);
   assert.ok(m && !m.recipient_ids.includes(carol.id), "not to someone who left");
+
+  await scheduleCall(alice, dm, "after a block", { kind: "later", deliver_at: at });
+  await bob.ok("safety", { action: "block", user_id: alice.id });
+  w.rows("ScheduledMessage")[0].deliver_at = new Date(Date.now() - 1000).toISOString();
+  assert.equal((await maintenance(w, "deliver")).delivered, 0);
+  assert.equal(w.rows("ScheduledMessage").length, 0, "dropped, not kept");
 });
 
 test("safety check-in: goes out unless you check in, and only your device can check in", async () => {
@@ -1651,7 +1651,7 @@ test("self-destructing conversations: set with a device by an admin, erased ever
 test("privacy report: counts only, about you only, with the sign-in address masked", async () => {
   const { members: [alice, bob] } = await world("alice", "bob");
   const dm = await alice.dm(bob);
-  await alice.send(dm, "one");
+  await alice.send(dm, "zebracakes");
   await alice.send(dm, "two");
   await scheduleCall(alice, dm, "later", { kind: "later", deliver_at: new Date(Date.now() + 3600_000).toISOString() });
   const r = await alice.ok("profile", { action: "privacy_report" });
@@ -1663,7 +1663,7 @@ test("privacy report: counts only, about you only, with the sign-in address mask
   assert.equal(r.stored.messages_sent.count, 2);
   assert.equal(r.stored.scheduled.count, 1);
   assert.ok(!JSON.stringify(r).includes(bob.id), "nothing about anyone else");
-  assert.ok(!JSON.stringify(r).includes("one"), "nothing anyone wrote");
+  assert.ok(!JSON.stringify(r).includes("zebracakes"), "nothing anyone wrote");
   const b = await bob.ok("profile", { action: "privacy_report" });
   assert.equal(b.stored.messages_sent.count, 0);
 });
