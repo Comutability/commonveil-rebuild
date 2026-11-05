@@ -160,6 +160,19 @@
         "deleting"
       ],
       "default": "active"
+    },
+    "key_handout": {
+      "type": "string",
+      "enum": [
+        "members",
+        "staff"
+      ],
+      "default": "members",
+      "description": "Whose apps hand the server's keys to newcomers (and so learn who's waiting): any member's, or only staff's (Manage encryption). Staff only is more private; any member is faster."
+    },
+    "changed_at": {
+      "type": "string",
+      "description": "When the server's layout or settings last changed, so members' apps know to reload them."
     }
   },
   "required": [
