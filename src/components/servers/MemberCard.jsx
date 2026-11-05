@@ -11,7 +11,7 @@ import { ErrorNote } from "@/components/site/bits";
 import { useServers } from "@/lib/secure/ServerContext";
 import { useSecure } from "@/lib/secure/SecureContext";
 import { useChat } from "@/lib/secure/ChatContext";
-import { P, has } from "@/lib/secure/permissions";
+import { P } from "@/lib/secure/permissions";
 import Avatar, { ACCENT_HUES } from "@/components/chat/Avatar";
 import NicknameDialog from "./NicknameDialog";
 import ConfirmDialog from "@/components/app/ConfirmDialog";
@@ -262,4 +262,3 @@ export default function MemberCard({ serverId, userId: targetId, open, onOpenCha
   );
 }
 
-export { has };
