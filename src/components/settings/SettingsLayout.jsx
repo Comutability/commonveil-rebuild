@@ -88,11 +88,17 @@ export default function SettingsLayout({ groups, active, base, title, onClose, c
 }
 
 /** A section's title and what it's for. */
-export function SettingsTitle({ children, intro }) {
+/** help: a Help Centre article's slug, linked as "How this works". */
+export function SettingsTitle({ children, intro, help }) {
   return (
     <div className="mb-6">
       <h1 className="text-3xl font-semibold">{children}</h1>
       {intro && <p className="mt-1.5 max-w-prose text-sm text-muted-foreground">{intro}</p>}
+      {help && (
+        <Link to={`/help/${help}`} className="mt-2 inline-block text-sm text-primary underline-offset-4 hover:underline">
+          How this works
+        </Link>
+      )}
     </div>
   );
 }

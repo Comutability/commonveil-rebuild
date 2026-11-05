@@ -143,7 +143,7 @@ export function ReportsQueue({ sid }) {
   const list = (data?.reports || []).filter((r) => (filter === "open" ? r.status === "open" : r.status !== "open"));
   return (
     <>
-      <SettingsTitle intro="Reports are encrypted to the moderators who were here when they were sent, so only you and they can read them. The service knows who reported whom and when, nothing more.">Reports</SettingsTitle>
+      <SettingsTitle intro="Reports are encrypted to the moderators who were here when they were sent, so only you and they can read them. The service knows who reported whom and when, nothing more." help="moderation">Reports</SettingsTitle>
       <div className="mb-4 flex gap-2">
         <Button size="sm" variant={filter === "open" ? "default" : "outline"} onClick={() => setFilter("open")}>Open</Button>
         <Button size="sm" variant={filter === "closed" ? "default" : "outline"} onClick={() => setFilter("closed")}>Closed</Button>

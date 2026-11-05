@@ -183,7 +183,7 @@ export default function RolesSettings({ serverId }) {
 
   return (
     <>
-      <SettingsTitle intro="Roles group permissions. People can only manage roles below their own highest one. Role names are encrypted.">Roles</SettingsTitle>
+      <SettingsTitle intro="Roles group permissions. People can only manage roles below their own highest one. Role names are encrypted." help="roles-and-permissions">Roles</SettingsTitle>
       <div className="grid gap-6 lg:grid-cols-[14rem_1fr]">
         <div>
           <Button size="sm" onClick={add} disabled={state.busy} className="mb-3 w-full"><Plus className="mr-1 h-4 w-4" aria-hidden="true" /> Create role</Button>

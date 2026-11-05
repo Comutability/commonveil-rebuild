@@ -69,7 +69,7 @@ function ProfileSettings() {
   const emojiOk = !form.avatar_emoji || EMOJI_RE.test(form.avatar_emoji.trim());
   return (
     <>
-      <SettingsTitle intro="Your profile is plain text the service can read, like a name on a letter. Choose how much to share and who sees it in Privacy and safety.">My profile</SettingsTitle>
+      <SettingsTitle intro="Your profile is plain text the service can read, like a name on a letter. Choose how much to share and who sees it in Privacy and safety." help="profile-and-appearance">My profile</SettingsTitle>
       <div className="grid gap-8 lg:grid-cols-[1fr_16rem]">
         <form
           className="space-y-5"
@@ -162,7 +162,7 @@ function PrivacySettings() {
   const change = (changes) => run(() => updateProfile(changes));
   return (
     <>
-      <SettingsTitle intro="Commonveil has no member directory, and online status is off unless you turn it on. These choices decide the little that others can learn about you.">Privacy and safety</SettingsTitle>
+      <SettingsTitle intro="Commonveil has no member directory, and online status is off unless you turn it on. These choices decide the little that others can learn about you." help="privacy-settings">Privacy and safety</SettingsTitle>
       <SettingsGroup title="Who can start a conversation with you" description="People you already have a conversation with can always keep writing to you.">
         <ChoiceList
           name="dm"
@@ -212,7 +212,7 @@ function KeySettings() {
   const devices = (status?.devices || []).filter((d) => d.status === "active");
   return (
     <>
-      <SettingsTitle intro="Your keys live on your devices. Commonveil stores only public keys, and an encrypted backup that only your recovery phrase opens.">Devices and keys</SettingsTitle>
+      <SettingsTitle intro="Your keys live on your devices. Commonveil stores only public keys, and an encrypted backup that only your recovery phrase opens." help="devices-and-recovery">Devices and keys</SettingsTitle>
       <div className={`mb-6 flex items-start gap-3 rounded-xl border p-4 ${pq ? "border-primary/40 bg-primary/5" : "border-[hsl(var(--warning)/0.4)] bg-[hsl(var(--warning)/0.08)]"}`}>
         <ShieldCheck className={`mt-0.5 h-5 w-5 shrink-0 ${pq ? "text-primary" : "text-[hsl(var(--warning))]"}`} aria-hidden="true" />
         <div className="text-sm">
@@ -247,7 +247,7 @@ function AppearanceSettings() {
   );
   return (
     <>
-      <SettingsTitle intro="Saved in this browser only.">Appearance</SettingsTitle>
+      <SettingsTitle intro="Saved in this browser only." help="profile-and-appearance">Appearance</SettingsTitle>
       <SettingsGroup title="Theme">
         <div role="radiogroup" aria-label="Theme" className="grid max-w-lg grid-cols-3 gap-3">
           {[["system", "Match my system"], ["light", "Paper"], ["dark", "Ink"]].map(([value, label]) => (
@@ -298,7 +298,7 @@ function AppearanceSettings() {
 function NotificationSettings() {
   return (
     <>
-      <SettingsTitle intro="Commonveil has no push notifications: nothing about your messages is ever sent to a phone or browser maker.">Notifications</SettingsTitle>
+      <SettingsTitle intro="Commonveil has no push notifications: nothing about your messages is ever sent to a phone or browser maker." help="notifications">Notifications</SettingsTitle>
       <AlertsSection />
       <div className="mt-5"><QuietSection /></div>
       <p className="mt-4 text-sm text-muted-foreground">To quiet a server or a channel, right-click it (or use its menu) and choose Mute. Muting is remembered on this device only.</p>
@@ -309,7 +309,7 @@ function NotificationSettings() {
 function DataSettings() {
   return (
     <>
-      <SettingsTitle>Data and account</SettingsTitle>
+      <SettingsTitle help="your-data">Data and account</SettingsTitle>
       <div className="space-y-5">
         <DataSection />
         <AutoDeleteSection />

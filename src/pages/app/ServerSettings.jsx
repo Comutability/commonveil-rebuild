@@ -96,7 +96,7 @@ function Overview({ sid }) {
   const isDefault = servers[sid]?.server?.is_default;
   return (
     <>
-      <SettingsTitle intro="The name, description and icon members see. They're encrypted with the server's keys: Commonveil can't read them.">Overview</SettingsTitle>
+      <SettingsTitle intro="The name, description and icon members see. They're encrypted with the server's keys: Commonveil can't read them." help="create-a-server">Overview</SettingsTitle>
       <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); run(() => setServerProfile(sid, form)); }}>
         <div className="flex items-center gap-5">
           <ServerIcon look={form} size="h-20 w-20" rounded className="!text-2xl" />
@@ -137,7 +137,7 @@ function Community({ sid }) {
   const [state, run] = useRun();
   return (
     <>
-      <SettingsTitle intro="Rules show in the rules channel. They're encrypted like everything else members write.">Rules and screening</SettingsTitle>
+      <SettingsTitle intro="Rules show in the rules channel. They're encrypted like everything else members write." help="moderation">Rules and screening</SettingsTitle>
       <SettingsGroup title="Ask new members to accept the rules" description="Until they do, they can read but not post. Staff aren't affected.">
         <ToggleRow label="Rules screening" checked={Boolean(e.server.settings.rules_required)} disabled={state.busy} onChange={(v) => run(() => updateSettings(sid, { rules_required: v }))} />
       </SettingsGroup>
@@ -183,7 +183,7 @@ function Discovery({ sid }) {
   const toggleTag = (t) => setForm((f) => ({ ...f, tags: f.tags.includes(t) ? f.tags.filter((x) => x !== t) : f.tags.length >= 5 ? f.tags : [...f.tags, t] }));
   return (
     <>
-      <SettingsTitle intro="Off unless you turn it on. Listing a server publishes a public card about it. Everything inside stays encrypted.">Discovery</SettingsTitle>
+      <SettingsTitle intro="Off unless you turn it on. Listing a server publishes a public card about it. Everything inside stays encrypted." help="create-a-server">Discovery</SettingsTitle>
       <div className="mb-6 flex items-start gap-3 rounded-lg border border-[hsl(var(--warning)/0.4)] bg-[hsl(var(--warning)/0.08)] p-4 text-sm">
         <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--warning))]" aria-hidden="true" />
         <p>The public card (name, description, tags, icon and colour) is stored unencrypted, so that people who aren't members can find the server. Don't put anything on it you wouldn't put on a public notice board. Member counts are shown rounded.</p>
@@ -244,7 +244,7 @@ function Safety({ sid }) {
   const set = (changes) => run(() => updateSettings(sid, changes));
   return (
     <>
-      <SettingsTitle intro="Ways to slow down spam and raids. The server enforces them; staff aren't affected.">Safety</SettingsTitle>
+      <SettingsTitle intro="Ways to slow down spam and raids. The server enforces them; staff aren't affected." help="moderation">Safety</SettingsTitle>
       <SettingsGroup title="New accounts and newcomers">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -336,7 +336,7 @@ function uniqueName(base, taken) {
 function Expressions({ sid }) {
   return (
     <>
-      <SettingsTitle intro="Pictures are shrunk on your device and encrypted with the server's key, so only members can see them, or their names.">Emoji and stickers</SettingsTitle>
+      <SettingsTitle intro="Pictures are shrunk on your device and encrypted with the server's key, so only members can see them, or their names." help="channels">Emoji and stickers</SettingsTitle>
       <ExpressionSet sid={sid} kind="emoji" />
       <ExpressionSet sid={sid} kind="stickers" />
     </>
@@ -379,7 +379,7 @@ function AutoMod({ sid }) {
 function CasesPage({ sid }) {
   return (
     <>
-      <SettingsTitle intro="Warnings, notes, and every timeout, kick, ban and purge, by people or by the server's own rules.">Cases</SettingsTitle>
+      <SettingsTitle intro="Warnings, notes, and every timeout, kick, ban and purge, by people or by the server's own rules." help="moderation">Cases</SettingsTitle>
       <CaseLog sid={sid} />
     </>
   );
@@ -434,7 +434,7 @@ function Privacy({ sid }) {
   const set = (changes) => run(() => updateSettings(sid, changes));
   return (
     <>
-      <SettingsTitle intro="Your own choices here, and (for admins) how much the server shares about its members.">Privacy</SettingsTitle>
+      <SettingsTitle intro="Your own choices here, and (for admins) how much the server shares about its members." help="create-a-server">Privacy</SettingsTitle>
       <SettingsGroup title="You, in this server">
         <ToggleRow
           label="List me in the member list"
@@ -555,7 +555,7 @@ function Invites({ sid }) {
   }, [load]);
   return (
     <>
-      <SettingsTitle intro="Links that let people join. The part after # in a link is never sent to Commonveil, so links can't be rebuilt from this list: copy a link when you make it.">Invites</SettingsTitle>
+      <SettingsTitle intro="Links that let people join. The part after # in a link is never sent to Commonveil, so links can't be rebuilt from this list: copy a link when you make it." help="create-a-server">Invites</SettingsTitle>
       <Button onClick={() => setMaking(true)} className="mb-4"><Link2 className="mr-1.5 h-4 w-4" aria-hidden="true" /> Make an invite link</Button>
       <ErrorNote>{error}</ErrorNote>
       {!invites && !error && <p className="text-sm text-muted-foreground">Loading…</p>}
@@ -603,7 +603,7 @@ function Bans({ sid }) {
   const nameOf = (uid) => data?.profiles.find((p) => p.user_id === uid)?.username || "someone";
   return (
     <>
-      <SettingsTitle intro="People who can't come back. Ban reasons are encrypted: only members with the server's keys can read them.">Bans</SettingsTitle>
+      <SettingsTitle intro="People who can't come back. Ban reasons are encrypted: only members with the server's keys can read them." help="moderation">Bans</SettingsTitle>
       <ErrorNote>{error}</ErrorNote>
       {!data && !error && <p className="text-sm text-muted-foreground">Loading…</p>}
       {data && data.bans.length === 0 && <p className="text-sm text-muted-foreground">Nobody's banned.</p>}
@@ -702,7 +702,7 @@ function AuditLog({ sid }) {
   };
   return (
     <>
-      <SettingsTitle intro={`Who changed what. Entries are kept for ${data?.retention_days || e.server.settings.audit_retention_days} days, and never include anything anyone wrote.`}>Audit log</SettingsTitle>
+      <SettingsTitle intro={`Who changed what. Entries are kept for ${data?.retention_days || e.server.settings.audit_retention_days} days, and never include anything anyone wrote.`} help="moderation">Audit log</SettingsTitle>
       <ErrorNote>{error}</ErrorNote>
       {!data && !error && <p className="text-sm text-muted-foreground">Loading…</p>}
       {data && data.entries.length === 0 && <p className="text-sm text-muted-foreground">Nothing yet.</p>}
