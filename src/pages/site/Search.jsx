@@ -5,9 +5,10 @@ import { ExternalLink, Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { listContent } from "@/lib/api";
 import { searchContent, toDocs } from "@/lib/site/search.js";
+import { HELP_ARTICLES } from "@/lib/site/helpContent.js";
 import { Loading, PageHeader, Pill } from "@/components/site/bits";
 
-const KIND = { guide: "Guide", wiki: "Wiki", blog: "Blog", path: "Learning path", resource: "Resource" };
+const KIND = { help: "Help", guide: "Guide", wiki: "Wiki", blog: "Blog", path: "Learning path", resource: "Resource" };
 
 /** The same queries the section pages use, so what's already loaded is reused. */
 function useAllContent() {
@@ -18,7 +19,7 @@ function useAllContent() {
   const resources = useQuery({ queryKey: ["content", "Resource", "name"], queryFn: () => listContent("Resource", "name") });
   const all = [guides, wiki, blog, paths, resources];
   const docs = useMemo(
-    () => toDocs({ guides: guides.data, wiki: wiki.data, blog: blog.data, paths: paths.data, resources: resources.data }),
+    () => toDocs({ guides: guides.data, wiki: wiki.data, blog: blog.data, paths: paths.data, resources: resources.data, help: HELP_ARTICLES }),
     [guides.data, wiki.data, blog.data, paths.data, resources.data],
   );
   return { docs, loading: all.some((q) => q.isLoading), failed: all.some((q) => q.isError) };
@@ -33,7 +34,7 @@ export default function Search() {
 
   return (
     <>
-      <PageHeader eyebrow="Search" title="Search guides, the wiki and the blog" intro="The search runs in your browser. What you type isn't sent anywhere, put in the address bar or kept." />
+      <PageHeader eyebrow="Search" title="Search guides, help, the wiki and the blog" intro="The search runs in your browser. What you type isn't sent anywhere, put in the address bar or kept." />
       <div className="container-cv max-w-3xl py-10">
         <form role="search" onSubmit={(e) => e.preventDefault()}>
           <div className="relative">
