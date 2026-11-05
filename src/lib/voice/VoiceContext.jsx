@@ -318,6 +318,8 @@ export function VoiceProvider({ children }) {
         teardown(c, err.message);
       }
     } else if (msg.type === "welcome") {
+      // A new place in the call means the others saw this device leave: connect to everyone afresh.
+      if (c.seat && c.seat !== msg.seat) for (const seat of [...c.peers.keys()]) closePeer(c, seat);
       c.seat = msg.seat;
       if (msg.can_speak === false) c.canSpeak = false;
       setRoom((r) => (r ? { ...r, status: "connected" } : r));
