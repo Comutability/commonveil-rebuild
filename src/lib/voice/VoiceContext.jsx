@@ -216,6 +216,7 @@ export function VoiceProvider({ children }) {
       const s = pc.connectionState;
       p.state = s === "connected" ? "connected" : s === "failed" || s === "closed" ? "failed" : p.state === "unverified" ? "unverified" : "connecting";
       clearTimeout(p.restartTimer);
+      if (s === "connected") p.restarts = 0;
       // Networks change and connections drop: whoever called first finds a new route, keeping the same keys.
       if (initiator && (s === "failed" || s === "disconnected")) {
         p.restartTimer = setTimeout(() => restartIce(c, seat), s === "failed" ? 0 : 4000);
