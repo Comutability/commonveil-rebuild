@@ -14,6 +14,9 @@ import MemberCard from "./MemberCard";
 import { ChannelStart, RulesCard, WelcomeCard } from "./ChannelCards";
 import { useServerText } from "./useServerText";
 
+/** Unsent drafts, per channel and thread. In memory only: they're gone when the page closes. */
+const drafts = new Map();
+
 /** Why you can't post here right now, in words, or "". */
 export function useSendBlock(serverId, channel, { kind = "message" } = {}) {
   const { servers, permsFor, keyState } = useServers();
@@ -220,14 +223,9 @@ export function ChannelComposer({ serverId, channel, threadId = "", reply, setRe
   const [text, setText] = useState("");
   const input = useRef(null);
   const draftKey = `${channel.id}:${threadId}`;
-  const drafts = useRef({});
 
-  // A draft per channel, in memory only.
   useEffect(() => {
-    setText(drafts.current[draftKey] || "");
-    return () => {
-      drafts.current[draftKey] = undefined;
-    };
+    setText(drafts.get(draftKey) || "");
   }, [draftKey]);
 
   useEffect(() => {
@@ -251,6 +249,7 @@ export function ChannelComposer({ serverId, channel, threadId = "", reply, setRe
       setReply(null);
     }
     setText("");
+    drafts.delete(draftKey);
   };
 
   return (
@@ -259,7 +258,8 @@ export function ChannelComposer({ serverId, channel, threadId = "", reply, setRe
       value={text}
       onChange={(v) => {
         setText(v);
-        drafts.current[draftKey] = v;
+        if (v) drafts.set(draftKey, v);
+        else drafts.delete(draftKey);
       }}
       onSubmit={submit}
       placeholder={placeholder || `Message #${channelName(channel)}`}
