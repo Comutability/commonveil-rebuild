@@ -52,7 +52,7 @@ const GROUPS = {
   Symbols: [
     "✅|Done", "☑️|Ticked box", "✔️|Tick", "❌|Cross", "❎|Cross mark", "⭕|Circle", "❗|Exclamation", "❓|Question", "‼️|Double exclamation",
     "⚠️|Warning", "🚫|No entry", "⛔|Stop", "♻️|Recycle", "➕|Plus", "➖|Minus", "🆗|OK button", "🆕|New", "🆒|Cool button", "🔴|Red circle",
-    "🟢|Green circle", "🔵|Blue circle", "🟡|Yellow circle", "⬆️|Up", "⬇️|Down", "➡️|Right", "⬅️|Left", "🔁|Repeat", "➡|Right arrow",
+    "🟢|Green circle", "🔵|Blue circle", "🟡|Yellow circle", "⬆️|Up", "⬇️|Down", "➡️|Right", "⬅️|Left", "🔁|Repeat",
   ],
 };
 
