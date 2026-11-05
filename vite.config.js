@@ -28,7 +28,7 @@ export const CONTENT_SECURITY_POLICY = [
   "frame-src 'none'",
   // Only the call audio encryption worker (see src/lib/voice/frameWorker.js).
   "worker-src 'self'",
-  "media-src 'none'",
+  "media-src 'self' blob:",
   // DOM XSS protection (Chromium): no string may reach innerHTML or similar sinks.
   "require-trusted-types-for 'script'",
   // One policy, which only ever returns the call audio worker's own URL.

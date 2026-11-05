@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   CornerUpLeft,
+  Forward,
   Info,
   Lock,
   MoreHorizontal,
