@@ -101,10 +101,10 @@ Still to do:
    (which would also make admin changes verifiable by every member), post-quantum signatures (ML-DSA), installable
    builds. (Post-quantum hybrid key sealing, ML-KEM-768 + P-256, was added in November 2026: see
    `SERVERS_AND_VOICE.md`.)
-5. On the published app, test a call between two networks, in Chromium and in Firefox or Safari (the browser tests
-   cover Chromium on one machine; Firefox and Safari use a worker for the frame encryption).
 4. Check on the published app that the scheduled clean-up (`maintenance`) runs on time: Base44 runs automations for the
    published app, and the editor preview can't show it.
+5. On the published app, test a call between two networks, in Chromium and in Firefox or Safari (the browser tests
+   cover Chromium on one machine; Firefox and Safari use a worker for the frame encryption).
 
 ## Known platform behaviour worth noting
 
