@@ -8,6 +8,9 @@
 import { Actor } from "base44:runtime/actors";
 
 const MAX_PEOPLE = 8;
+// A dropped socket usually comes straight back (the SDK reconnects with the same id), and the
+// audio between devices carries on meanwhile. Keep a place this long before telling the others.
+const GRACE_MS = 20_000;
 const MAX_SIGNAL_CHARS = 24000; // an offer with its candidates is a few KB
 const MAX_MESSAGES_PER_10S = 200;
 const ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
@@ -38,8 +41,14 @@ export default class VoiceRoom extends Actor {
     if (saved) this.people = new Map(saved);
     const live = new Set(this.getConnections().map((c) => c.id));
     let changed = false;
-    for (const id of [...this.people.keys()]) {
-      if (!live.has(id)) {
+    for (const [id, p] of [...this.people]) {
+      if (live.has(id)) continue;
+      if (!p.goneAt) {
+        // Its socket went while the room slept: start the grace period now.
+        p.goneAt = Date.now();
+        await this.schedule(`drop:${id}`, p.goneAt + GRACE_MS);
+        changed = true;
+      } else if (Date.now() - p.goneAt > GRACE_MS) {
         this.people.delete(id);
         changed = true;
       }
@@ -54,8 +63,13 @@ export default class VoiceRoom extends Actor {
       return;
     }
     const me = this.people.get(conn.id);
-    if (me) {
-      // A reconnect of someone already in: they're still in.
+    if (me && me.userId === conn.identity.userId) {
+      // A reconnect of someone already in: they're still in, in the same place.
+      if (me.goneAt) {
+        delete me.goneAt;
+        await this.cancelSchedule(`drop:${conn.id}`);
+        await this.save();
+      }
       this.welcome(conn, me);
       return;
     }
@@ -93,8 +107,28 @@ export default class VoiceRoom extends Actor {
   }
 
   async handleClose(conn) {
-    await this.remove(conn.id);
     this.counts.delete(conn.id);
+    const p = this.people.get(conn.id);
+    if (!p || p.left) {
+      await this.remove(conn.id);
+      return;
+    }
+    p.goneAt = Date.now();
+    await this.save();
+    await this.schedule(`drop:${conn.id}`, p.goneAt + GRACE_MS);
+  }
+
+  async handleWake(key) {
+    if (typeof key !== "string" || !key.startsWith("drop:")) return;
+    const id = key.slice(5);
+    const p = this.people.get(id);
+    if (!p || !p.goneAt) return;
+    if (this.getConnections().some((c) => c.id === id)) {
+      delete p.goneAt;
+      await this.save();
+      return;
+    }
+    await this.remove(id);
   }
 
   handleTick() {}
