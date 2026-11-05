@@ -625,6 +625,15 @@ export function ChatProvider({ children }) {
     sendBuilt(conversation, (conv, chains) => P.buildReaction({ userId, device, conversation: conv, chains, keyring, target: message.msg_id, emoji, remove })),
   [sendBuilt, userId, device, keyring]);
 
+  /** A poll (made with polls.js pollPayload), or a vote on one. */
+  const sendPoll = useCallback((conversation, poll) =>
+    sendBuilt(conversation, (conv, chains) => P.buildPayloadMessage({ userId, device, conversation: conv, chains, keyring, payload: poll })),
+  [sendBuilt, userId, device, keyring]);
+
+  const vote = useCallback((conversation, message, choices) =>
+    sendBuilt(conversation, (conv, chains) => P.buildPayloadMessage({ userId, device, conversation: conv, chains, keyring, payload: votePayload(message.msg_id, choices) })),
+  [sendBuilt, userId, device, keyring]);
+
   const editMessage = useCallback((conversation, message, text) =>
     sendBuilt(conversation, (conv, chains) => P.buildEdit({ userId, device, conversation: conv, chains, keyring, target: message.msg_id, text })),
   [sendBuilt, userId, device, keyring]);
