@@ -8,6 +8,7 @@ import { DEFAULT_EVERYONE, P, STAFF_PERMISSIONS, ALL_PERMISSIONS, channelIsPriva
 import { accountKeysOf, byAge, countSince, latestKeysFor, profileOf, rateLimited, withRow } from "../store.ts";
 import { STARTER_TEMPLATES } from "../servers/template.ts";
 import { addMember, cleanAdminList, createFromTemplate, ensureDefaultServer, membersWhoCanSee, removeMember } from "../servers/build.ts";
+import { checkRaid, guardNuke, logCase } from "../servers/moderation.ts";
 import {
   CHANNEL_EXPIRY_CHOICES,
   CHANNEL_KINDS,
@@ -216,7 +217,7 @@ async function stateFor(own: any, serverId: string, userId: string) {
 }
 
 /** Everyone in a server whose access to private channels may have changed: refresh it and their keys. */
-async function afterAccessChange(sr: any, serverId: string, userIds: string[], now: Date) {
+export async function afterAccessChange(sr: any, serverId: string, userIds: string[], now: Date) {
   const parts = await serverParts(sr, serverId);
   const before = new Map<string, string[]>();
   const members: any[] = [];
@@ -235,6 +236,18 @@ async function afterAccessChange(sr: any, serverId: string, userIds: string[], n
   }
   if (lost.size) await needRotation(sr, serverId, [...lost], "access");
   await refreshKeyStatus(sr, parts, members, now);
+}
+
+/** Staff limits hit: take away every role this member has (the owner can give them back). */
+async function stripRoles(sr: any, serverId: string, member: any, now: Date) {
+  await sr.entities.ServerMember.update(member.id, { role_ids: [] });
+  await afterAccessChange(sr, serverId, [member.user_id], now);
+}
+
+/** An optional encrypted reason for a moderation case. */
+async function caseReason(ctx: any, serverId: string, item: any) {
+  if (!item) return {};
+  return itemFields("reason", await acceptItem(ctx, { kind: "case", serverId, item, gens: await generationsOf(ctx.sr, serverId) }));
 }
 
 /** Checks for a role's settings that apply whether it's new or changed. */
@@ -538,6 +551,7 @@ export function serverActions(config: ServerConfig): Actions {
       const profile = await profileOf(sr, user.id);
       const { member, joined } = await addMember(sr, server, user, { listed: profile?.default_listed === true, adminEmails: adminEmails(), now });
       if (joined && invite) await sr.entities.Invite.update(invite.id, { uses: (Number(invite.uses) || 0) + 1 });
+      if (joined) await checkRaid(sr, server, now);
       if (server.is_default && profile && !profile.default_server_done) await sr.entities.Profile.update(profile.id, { default_server_done: true });
       return { server_id: server.id, member: memberOut(member, { self: true }), joined };
     },
@@ -635,7 +649,10 @@ export function serverActions(config: ServerConfig): Actions {
       const target = await memberRow(sr, serverId, targetId);
       if (!target) throw new ApiError(404, "NOT_MEMBER", "That person isn't in this server.");
       requireAbove(parts, member, target, "kick");
+      await guardNuke(sr, parts, member, now, () => stripRoles(sr, serverId, member, now));
+      const reason = await caseReason(ctx, serverId, data.reason);
       await removeMember(sr, serverId, targetId, { reason: "kicked", now });
+      await logCase(sr, parts.server, { action: "kick", targetId, actorId: user.id, reason, now });
       await audit(sr, parts.server, user.id, "member_kick", "member", targetId, "", now);
       return { ok: true };
     },
@@ -651,9 +668,15 @@ export function serverActions(config: ServerConfig): Actions {
       if (target) requireAbove(parts, member, target, "ban");
       else if (targetId === parts.server.owner_id) throw new ApiError(403, "HIERARCHY", "You can't ban the server's owner.");
       const deleteSeconds = choice(data.delete_seconds ?? 0, DELETE_HISTORY_CHOICES, "message history");
+      // Temporary bans end by themselves; 0 is for good.
+      const banMinutes = choice(data.minutes ?? 0, [0, 60, 1440, 10080, 43200], "ban length");
+      await guardNuke(sr, parts, member, now, () => stripRoles(sr, serverId, member, now));
       const reason = data.reason ? itemFields("reason", await acceptItem(ctx, { kind: "ban", serverId, item: data.reason, gens: await generationsOf(sr, serverId) })) : {};
       const [existing] = await sr.entities.ServerBan.filter({ server_id: serverId, user_id: targetId }, "created_date", 1);
-      if (!existing) await sr.entities.ServerBan.create({ server_id: serverId, user_id: targetId, banned_by: user.id, ...reason });
+      const expiresAt = banMinutes ? new Date(now.getTime() + banMinutes * 60_000).toISOString() : "";
+      if (!existing) await sr.entities.ServerBan.create({ server_id: serverId, user_id: targetId, banned_by: user.id, expires_at: expiresAt, ...reason });
+      else await sr.entities.ServerBan.update(existing.id, { expires_at: expiresAt });
+      await logCase(sr, parts.server, { action: "ban", targetId, actorId: user.id, minutes: banMinutes, now });
       if (target) await removeMember(sr, serverId, targetId, { reason: "banned", now });
       else await needRotation(sr, serverId, [historyChainId(serverId), liveChainId(serverId)], "banned");
       if (deleteSeconds) {
@@ -671,6 +694,7 @@ export function serverActions(config: ServerConfig): Actions {
       requirePerm(perms, P.BAN_MEMBERS, "unban members");
       const targetId = id(data.user_id, "member");
       for (const b of await sr.entities.ServerBan.filter({ server_id: serverId, user_id: targetId }, "created_date", 5)) await sr.entities.ServerBan.delete(b.id);
+      await logCase(sr, parts.server, { action: "unban", targetId, actorId: user.id, now });
       await audit(sr, parts.server, user.id, "member_unban", "member", targetId, "", now);
       return { ok: true };
     },
@@ -688,6 +712,7 @@ export function serverActions(config: ServerConfig): Actions {
           user_id: b.user_id,
           banned_by: b.banned_by,
           created_date: b.created_date,
+          expires_at: b.expires_at || "",
           reason: b.reason_envelope ? { envelope: b.reason_envelope, item_id: b.reason_item_id, sender_id: b.reason_sender_id, device_id: b.reason_device_id, sent_at: b.reason_sent_at, signature: b.reason_signature } : null,
         })),
         profiles: profiles.map((p: any) => ({ user_id: p.user_id, username: p.username })),
@@ -704,8 +729,10 @@ export function serverActions(config: ServerConfig): Actions {
       if (!target) throw new ApiError(404, "NOT_MEMBER", "That person isn't in this server.");
       requireAbove(parts, member, target, "time out");
       const minutes = int(data.minutes, "length", 0, SERVER_LIMITS.timeoutMaxDays * 1440);
+      if (minutes) await guardNuke(sr, parts, member, now, () => stripRoles(sr, serverId, member, now));
       const until = minutes ? new Date(now.getTime() + minutes * 60_000).toISOString() : "";
       await sr.entities.ServerMember.update(target.id, { timeout_until: until });
+      if (minutes) await logCase(sr, parts.server, { action: "timeout", targetId, actorId: user.id, minutes, reason: await caseReason(ctx, serverId, data.reason), now });
       await audit(sr, parts.server, user.id, minutes ? "member_timeout" : "member_timeout_end", "member", targetId, minutes ? `${minutes} min` : "", now);
       return { ok: true, timeout_until: until || null };
     },
@@ -789,6 +816,7 @@ export function serverActions(config: ServerConfig): Actions {
       const role = parts.roles.find((r: any) => r.id === id(data.role_id, "role"));
       if (!role || role.is_everyone) throw new ApiError(404, "ROLE_NOT_FOUND", "Role not found.");
       if ((Number(role.position) || 0) >= topPosition(parts.server, parts.roles, member)) throw new ApiError(403, "HIERARCHY", "You can only delete roles below your own.");
+      await guardNuke(sr, parts, member, now, () => stripRoles(sr, serverId, member, now));
       const holders = await sr.entities.ServerMember.filter({ server_id: serverId, role_ids: role.id }, "joined_at", 5000);
       for (const m of holders) await sr.entities.ServerMember.update(m.id, { role_ids: (m.role_ids || []).filter((r: string) => r !== role.id) });
       for (const ch of parts.channels) {
@@ -911,6 +939,7 @@ export function serverActions(config: ServerConfig): Actions {
       requirePerm(perms, P.MANAGE_CHANNELS, "manage channels");
       const channel = channelIn(parts, id(data.channel_id, "channel"));
       requireChannelManager(parts, member, channel);
+      await guardNuke(sr, parts, member, now, () => stripRoles(sr, serverId, member, now));
       if (channel.kind === "category") {
         for (const c of parts.channels.filter((x: any) => x.parent_id === channel.id)) await sr.entities.Channel.update(c.id, { parent_id: "" });
       }

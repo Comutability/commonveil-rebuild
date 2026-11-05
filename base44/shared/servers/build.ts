@@ -131,8 +131,11 @@ export async function addMember(sr: any, server: any, user: any, { listed = fals
   const existing = await memberRow(sr, server.id, user.id);
   if (existing) return { member: existing, joined: false };
   if (server.joins_paused) throw new ApiError(403, "JOINS_PAUSED", "This server isn't taking new members at the moment.");
-  const banned = await sr.entities.ServerBan.filter({ server_id: server.id, user_id: user.id }, "created_date", 1);
-  if (banned.length) throw new ApiError(403, "BANNED", "You can't join this server.");
+  const banned = await sr.entities.ServerBan.filter({ server_id: server.id, user_id: user.id }, "created_date", 5);
+  // A temporary ban that has run out no longer counts (maintenance tidies it away).
+  const live = banned.filter((b: any) => !b.expires_at || Date.parse(b.expires_at) > now.getTime());
+  if (live.length) throw new ApiError(403, "BANNED", "You can't join this server.");
+  for (const b of banned) if (!live.includes(b)) await sr.entities.ServerBan.delete(b.id).catch(() => null);
   if ((Number(server.member_count) || 0) >= SERVER_LIMITS.membersPerServer) throw new ApiError(409, "SERVER_FULL", "This server is full.");
   const mine = await sr.entities.ServerMember.filter({ user_id: user.id }, "created_date", SERVER_LIMITS.serversPerUser + 1);
   if (mine.length >= SERVER_LIMITS.serversPerUser) {
