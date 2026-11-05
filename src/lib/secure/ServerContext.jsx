@@ -14,7 +14,7 @@ import * as SP from "./serverProtocol.js";
 import { P, basePermissions, channelPermissions, has, isStaff, topPosition } from "./permissions.js";
 import { useNavigate } from "react-router-dom";
 import { buildThread } from "./thread.js";
-import { showAlert } from "./alerts.js";
+import { isQuiet, showAlert } from "./alerts.js";
 import { votePayload } from "./polls.js";
 import { copyAttachments, uploadAttachments } from "./fileTransfer.js";
 import { EMPTY_AUTOMOD, automodReason } from "./automod.js";
@@ -1064,6 +1064,7 @@ export function ServerProvider({ children }) {
         const e = serversRef.current[sid];
         if (level === "none" || (level === "mentions" && !mentionsMe(r, userId, e?.member?.role_ids || []))) continue;
         if (document.visibilityState === "visible" && activeChannel.current?.channelId === cid) continue;
+        if (isQuiet(alerts)) continue;
         showAlert({ body: alerts.showSender ? "New message in one of your servers" : "New message", tag: `server-${cid}`, onClick: () => navigate(`/app/s/${sid}/${cid}`) });
       }
     }
