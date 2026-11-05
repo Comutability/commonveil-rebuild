@@ -132,9 +132,13 @@ function FolderItem({ folder, activeServer, onInvite, onLeave }) {
           }}>Rename folder</ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
-      {open && folder.servers.map((sid) => (
-        <ServerItem key={sid} sid={sid} active={activeServer === sid} onInvite={onInvite} onLeave={onLeave} folderId={folder.id} />
-      ))}
+      {open && (
+        <ul className="flex flex-col items-center gap-2" aria-label={folder.name}>
+          {folder.servers.map((sid) => (
+            <ServerItem key={sid} sid={sid} active={activeServer === sid} onInvite={onInvite} onLeave={onLeave} folderId={folder.id} />
+          ))}
+        </ul>
+      )}
     </li>
   );
 }
