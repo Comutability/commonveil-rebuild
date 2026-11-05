@@ -20,7 +20,7 @@ export const CONTENT_SECURITY_POLICY = [
   "img-src 'self' data: blob: https://media.base44.com",
   "font-src 'self' data:",
   // This site's own API, and Base44's realtime host for call set-up (the VoiceRoom actor).
-  "connect-src 'self' wss://actors.base44-realtime.dev",
+  "connect-src 'self' wss://actors.base44-realtime.dev https://media.base44.com",
   "manifest-src 'self'",
   "form-action 'self'",
   "base-uri 'none'",
