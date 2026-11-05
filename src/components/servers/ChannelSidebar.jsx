@@ -16,7 +16,7 @@ import {
   ShieldCheck,
   UserCog,
 } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useServers } from "@/lib/secure/ServerContext";
 import { useVoice } from "@/lib/voice/VoiceContext";
 import { P, has } from "@/lib/secure/permissions";
@@ -127,6 +127,16 @@ export default function ChannelSidebar({ serverId, activeChannelId }) {
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => navigate(`/app/s/${serverId}/settings/privacy`)}><ShieldCheck className="mr-2 h-4 w-4" aria-hidden="true" /> Privacy settings</DropdownMenuItem>
           {can(serverId, P.CHANGE_NICKNAME) && <DropdownMenuItem onSelect={() => setNick(true)}><UserCog className="mr-2 h-4 w-4" aria-hidden="true" /> Edit server nickname</DropdownMenuItem>}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger><Bell className="mr-2 h-4 w-4" aria-hidden="true" /> Notifications</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-48">
+              <DropdownMenuRadioGroup value={s.effectiveLevel(serverId, "")} onValueChange={(v) => s.setNotifyLevel(serverId, v)}>
+                <DropdownMenuRadioItem value="all">All messages</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="mentions">Only @mentions</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="none">Nothing</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuItem onSelect={() => toggleMute(serverId)}><BellOff className="mr-2 h-4 w-4" aria-hidden="true" /> {muted(serverId) ? "Unmute server" : "Mute server"}</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => markServerRead(serverId)}><Check className="mr-2 h-4 w-4" aria-hidden="true" /> Mark as read</DropdownMenuItem>
           {!isOwner && !e.server?.is_default && (
