@@ -728,3 +728,31 @@ test("threads: replies hang off a text-channel message, stay out of the channel'
   assert.equal(blocked.body.code, "THREAD_LOCKED");
   assert.equal((await alice.post(sid, general, textPayload("moderator note"), "message", root.msg_id)).status, 200);
 });
+
+test("events: staff schedule them, members answer, and the service can't read either", async () => {
+  const { eventActions } = await import("../base44/shared/handlers/events.ts");
+  addFunctions({ events: eventActions });
+  const { w, members: [alice, bob, carol] } = await world("alice", "bobby", "carol");
+  const sid = await serverWith(alice, bob);
+  const state = await alice.server(sid);
+  const { keys } = await alice.keysOf(state);
+  const item = (who, kind, payload) => buildServerItem({ kind, serverId: sid, generations: state.generations, keys, userId: who.id, device: who.device, payload });
+  const ev = await item(alice, "event", { title: "Board games", starts_at: new Date(Date.now() + 86_400_000).toISOString(), place: "Café" });
+  await bob.fails("events", await signed(bob, "create_event", { server_id: sid, item: ev }), "MISSING_PERMISSION");
+  const { event } = await alice.ok("events", await signed(alice, "create_event", { server_id: sid, item: ev }));
+  const bobState = await bob.server(sid);
+  const bobKeys = (await bob.keysOf(bobState)).keys;
+  const answer = await buildServerItem({ kind: "rsvp", serverId: sid, generations: bobState.generations, keys: bobKeys, userId: bob.id, device: bob.device, payload: { status: "going" } });
+  await bob.ok("events", await signed(bob, "rsvp", { server_id: sid, event_id: event.event_id, item: answer }));
+  await carol.fails("events", { action: "list", server_id: sid });
+  const list = await bob.ok("events", { action: "list", server_id: sid });
+  assert.equal(list.events.length, 1);
+  assert.deepEqual(list.rsvps.map((r) => r.user_id), [bob.id]);
+  const dump = JSON.stringify([...w.rows("ServerEvent"), ...w.rows("EventRsvp")]);
+  assert.equal(dump.includes("Board games") || dump.includes("going") || dump.includes("Café"), false);
+  // Taking an answer back, then cancelling: nothing left.
+  await bob.ok("events", await signed(bob, "rsvp", { server_id: sid, event_id: event.event_id, item: null }));
+  await alice.ok("events", await signed(alice, "rsvp", { server_id: sid, event_id: event.event_id, item: await item(alice, "rsvp", { status: "maybe" }) }));
+  await alice.ok("events", await signed(alice, "cancel_event", { server_id: sid, event_id: event.event_id }));
+  assert.equal(w.rows("ServerEvent").length + w.rows("EventRsvp").length, 0);
+});
