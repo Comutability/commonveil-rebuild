@@ -30,7 +30,7 @@ export default function SiteLayout() {
         Skip to content
       </a>
       <header className="sticky top-0 z-30 border-b border-border bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-        <div className="container-cv flex h-16 items-center justify-between gap-4">
+        <div className="container-cv flex h-16 items-center justify-between gap-2 sm:gap-4">
           <Logo />
           <nav className="hidden items-center gap-1 md:flex" aria-label="Main">
             {NAV.map(([to, label]) => (
