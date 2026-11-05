@@ -969,7 +969,7 @@ test("only the security-report and invite-preview functions let in callers who a
     }
     const isPublic = Object.hasOwn(PUBLIC_FUNCTIONS, name);
     assert.equal(/allowAnonymous/.test(source), isPublic, name);
-    if (!isPublic) assert.match(source, /return serve\(req, createClientFromRequest, \w+\);/, `${name} keeps the default sign-in check`);
+    if (!isPublic) assert.match(source, /return serve\(req, createClientFromRequest, \w+(, \{ maxBodyBytes: \w+ \})?\);/, `${name} keeps the default sign-in check`);
     else assert.match(source, /return serve\(req, createClientFromRequest, \w+, \{ allowAnonymous: true \}\);/, name);
   }
 });
