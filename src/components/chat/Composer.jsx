@@ -1,0 +1,172 @@
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { CornerUpLeft, Lock, Pencil, SendHorizontal, X } from "lucide-react";
+import { MAX_MESSAGE_CHARS } from "@/lib/secure/protocol.js";
+
+const TOKEN_RE = /(^|\s)([@#])([\p{L}\p{N}_-]{0,32})$/u;
+
+/**
+ * Where you write. Enter sends, Shift+Enter starts a new line, Escape cancels a reply or edit.
+ * Typing @ or # suggests people and channels; suggestions are worked out on this device.
+ * There's no "typing…" signal: nobody learns you're writing until you send.
+ */
+const Composer = forwardRef(function Composer(
+  { value, onChange, onSubmit, placeholder, disabledReason = "", replyTo = null, editing = false, onCancel, suggest, hint = null, sealed = true },
+  ref,
+) {
+  const input = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [caret, setCaret] = useState(0);
+  const [pick, setPick] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
+
+  useImperativeHandle(ref, () => ({ focus: () => input.current?.focus() }), []);
+
+  // Grow with the text, up to a point.
+  useEffect(() => {
+    const el = input.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+  }, [value]);
+
+  const token = useMemo(() => {
+    const before = value.slice(0, caret);
+    const m = before.match(TOKEN_RE);
+    return m ? { kind: m[2], query: m[3], start: before.length - m[3].length - 1 } : null;
+  }, [value, caret]);
+
+  const suggestions = useMemo(() => (token && suggest && !dismissed ? suggest(token.kind, token.query).slice(0, 8) : []), [token, suggest, dismissed]);
+
+  useEffect(() => {
+    setPick(0);
+  }, [token?.query, token?.kind]);
+
+  const insert = (s) => {
+    const before = value.slice(0, token.start);
+    const after = value.slice(caret);
+    const text = `${before}${s.insert} ${after.replace(/^\s/, "")}`;
+    onChange(text);
+    const pos = before.length + s.insert.length + 1;
+    requestAnimationFrame(() => {
+      input.current?.setSelectionRange(pos, pos);
+      setCaret(pos);
+    });
+  };
+
+  const submit = async (e) => {
+    e?.preventDefault();
+    if (!value.trim() || busy || disabledReason) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSubmit(value);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+      requestAnimationFrame(() => input.current?.focus());
+    }
+  };
+
+  const onKeyDown = (e) => {
+    if (suggestions.length) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setPick((p) => (p + (e.key === "ArrowDown" ? 1 : suggestions.length - 1)) % suggestions.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        insert(suggestions[pick]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setDismissed(true);
+        return;
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      submit();
+    } else if (e.key === "Escape" && (replyTo || editing)) {
+      e.preventDefault();
+      onCancel?.();
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="relative shrink-0 px-3 pb-4 sm:px-4">
+      {suggestions.length > 0 && (
+        <ul role="listbox" aria-label={token.kind === "@" ? "People" : "Channels"} className="absolute bottom-full left-3 right-3 z-20 mb-1 max-h-64 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg sm:left-4 sm:right-4">
+          {suggestions.map((s, i) => (
+            <li key={s.id} role="option" aria-selected={i === pick}>
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  insert(s);
+                }}
+                onMouseEnter={() => setPick(i)}
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${i === pick ? "bg-muted" : ""}`}
+              >
+                {s.icon}
+                <span className="truncate font-medium">{s.label}</span>
+                {s.sub && <span className="truncate text-xs text-muted-foreground">{s.sub}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && <p className="mb-1.5 text-sm text-destructive" role="alert">{error}</p>}
+      <div className="rounded-lg bg-[hsl(var(--panel-hover)/0.7)] focus-within:ring-2 focus-within:ring-ring/40">
+        {(replyTo || editing) && (
+          <div className="flex items-center gap-2 border-b border-border/60 px-3 py-1.5 text-sm">
+            {editing ? <Pencil className="h-3.5 w-3.5 text-primary" aria-hidden="true" /> : <CornerUpLeft className="h-3.5 w-3.5 text-primary" aria-hidden="true" />}
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">
+              {editing ? "Editing your message. Everyone will see it was edited." : <>Replying to <span className="font-semibold text-foreground">{replyTo.name}</span></>}
+            </span>
+            <button type="button" onClick={onCancel} className="rounded p-0.5 text-muted-foreground hover:bg-muted" aria-label={editing ? "Cancel editing" : "Cancel reply"}>
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+        )}
+        <div className="flex items-end gap-2 px-3 py-2">
+          {sealed && <Lock className="mb-2 h-4 w-4 shrink-0 text-primary/70" aria-hidden="true" />}
+          <textarea
+            ref={input}
+            value={value}
+            onChange={(e) => {
+              onChange(e.target.value);
+              setCaret(e.target.selectionStart);
+              setDismissed(false);
+            }}
+            onSelect={(e) => setCaret(e.target.selectionStart)}
+            onKeyDown={onKeyDown}
+            rows={1}
+            maxLength={MAX_MESSAGE_CHARS}
+            placeholder={disabledReason || placeholder}
+            disabled={Boolean(disabledReason)}
+            aria-label={placeholder}
+            className="max-h-56 min-h-[1.75rem] flex-1 resize-none bg-transparent py-1 text-[0.95rem] leading-relaxed outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+          />
+          <button
+            type="submit"
+            disabled={!value.trim() || busy || Boolean(disabledReason)}
+            className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-primary transition-colors hover:bg-primary/10 disabled:text-muted-foreground disabled:hover:bg-transparent"
+            aria-label={editing ? "Save edit" : "Send"}
+          >
+            <SendHorizontal className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+      <div className="mt-1 flex min-h-[1rem] items-center justify-between gap-2 px-1 text-xs text-muted-foreground">
+        <span>{hint}</span>
+        {value.length > MAX_MESSAGE_CHARS - 300 && <span>{MAX_MESSAGE_CHARS - value.length} characters left</span>}
+      </div>
+    </form>
+  );
+});
+
+export default Composer;
