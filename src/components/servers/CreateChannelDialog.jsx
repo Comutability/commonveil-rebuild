@@ -13,7 +13,7 @@ import { cleanChannelName } from "@/lib/secure/serverTemplates";
 import { ChannelIcon, KIND_LABELS } from "./channelBits";
 
 const KINDS = [
-  ["text", "Send messages, images of thought, and ideas."],
+  ["text", "Everyday conversation, one message after another."],
   ["announcement", "Staff post, everyone reads and reacts."],
   ["forum", "Each topic gets its own post and thread."],
   ["voice", "Talk together, peer to peer and encrypted."],
