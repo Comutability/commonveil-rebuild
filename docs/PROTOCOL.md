@@ -7,7 +7,8 @@ Code: `src/lib/crypto/*` (primitives), `src/lib/secure/protocol.js` (client flow
 `ChatContext.jsx` (client state and pinning), `base44/shared/*` (server checks).
 
 Version 2 follows an independent review of version 1 in October 2026. What changed, and why, is summarised in
-`REBUILD_REVIEW.md`.
+`REBUILD_REVIEW.md`. Post-quantum hybrid key sealing, servers and voice calls (November 2026) are described in
+`SERVERS_AND_VOICE.md`; where they change something here, that document says so.
 
 ## 1. Goals and non-goals
 
@@ -19,14 +20,14 @@ Goals:
 - An account can be recovered from a 24-word phrase without the server learning anything usable.
 - The protocol is small enough to review in an afternoon.
 
-Not provided (see `THREAT_MODEL.md`): metadata privacy, forward secrecy, post-quantum confidentiality, deniability,
+Not provided (see `THREAT_MODEL.md`): metadata privacy, forward secrecy, post-quantum signatures, deniability,
 cryptographic group membership, and protection against malicious code served to the browser.
 
 ## 2. Primitives
 
 | Use | Primitive |
 |---|---|
-| Key agreement | ECDH on P-256 (WebCrypto `deriveBits`, 256 bits = shared x-coordinate) |
+| Key agreement | ECDH on P-256 (WebCrypto `deriveBits`, 256 bits = shared x-coordinate); for keys with a post-quantum part, the MLKEM768-P256 hybrid KEM (`SERVERS_AND_VOICE.md` section 1) |
 | Signatures | ECDSA P-256 with SHA-256, IEEE P1363 encoding (r‖s, 64 bytes) |
 | Key derivation | HKDF-SHA-256 |
 | Encryption | AES-256-GCM, 96-bit random IV, 128-bit tag, with a key commitment (section 7) |
