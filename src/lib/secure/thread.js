@@ -9,8 +9,10 @@ import { tallyPoll } from "./polls.js";
 /** How long after sending a message can still be edited. */
 export const EDIT_WINDOW_MS = 24 * 3600_000;
 
+// A scheduled message was written (and signed) earlier than it arrived: it goes where it was
+// delivered, so nobody misses it far up the history.
 const sentTime = (m) => {
-  const t = Date.parse(m.sent_at);
+  const t = m.scheduled ? Date.parse(m.created_date) : Date.parse(m.sent_at);
   return Number.isFinite(t) ? t : Date.parse(m.created_date) || 0;
 };
 
