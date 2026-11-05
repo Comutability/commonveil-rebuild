@@ -143,6 +143,32 @@ use `<:name:id>`, reactions `c:<id>`, stickers `{sticker: id}`. AutoMod rules (b
 mention limits) are applied by the sender's app before sending and by everyone else's when showing; people with
 `MANAGE_MESSAGES` are exempt. The service can't read messages, so it can't filter them.
 
+**Moderation** (`moderation` function, `ServerReport`, `ModCase`, the server's `mod_policy`).
+
+- *Reports to a server's moderators.* The app asks for the report's recipients (the reporter
+  plus up to 31 moderators by permission, highest first, never the person reported), then seals
+  the report to exactly them with their current account keys, like a group message (kind
+  `report`, scoped to the server). The service checks the wraps match that list and the device
+  signature, and stores ciphertext. The report names who it's about inside, and the app refuses
+  one whose stored target differs. Moderators who join later can't read earlier reports.
+- *Escalating to Commonveil.* A moderator can send a report on to the Commonveil team. Our team
+  can't read anything in a server, so the moderator writes what to share, and it's stored as a
+  readable platform report with the server's id. Members can also tick "tell the Commonveil
+  team" when reporting, which does the same with what they wrote.
+- *Cases.* Warnings, notes, and every timeout, kick, ban, unban and purge are numbered cases.
+  Reasons are server items (kind `case`). Moderators see all cases; members see their own
+  warnings. Pardoning a warning stops it counting.
+- *Rules the service enforces from counts alone,* each configurable by the server: warning
+  steps (at N active warnings in a window: timeout, kick or ban), flood protection (too many
+  messages in a few seconds: timeout), raid protection (too many joins in a minute: joining
+  pauses), staff limits ("anti-nuke": anyone but the owner doing too many bans, kicks, timeouts
+  or channel or role deletions in ten minutes is stopped and loses their roles; only the owner
+  can turn this off), temporary bans, and purging a member's recent messages.
+- *Voice.* Moderators (`MUTE_MEMBERS`) can mute people in calls; the mute holds until a
+  moderator lifts it, and every app silences the muted person. The relay re-checks every
+  minute that everyone in a call is still a member and not timed out, and removes anyone who
+  isn't.
+
 ## 5. Online status and typing
 
 Off by default, kept on the device, and mutual: an app connects to the `Presence` actor (room `s.<server>` or

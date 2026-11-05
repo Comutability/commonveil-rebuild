@@ -87,6 +87,15 @@ What Commonveil protects, against whom, and what it doesn't. Read with `PROTOCOL
 - **Stages.** Who may speak is decided by the relay on moderators' instructions; apps refuse to play anyone else. A relay
   run by an attacker could let someone speak, but couldn't add a device that isn't certified for its account.
 
+- **Reports and escalation.** The service knows who reported whom and when, and how moderators
+  closed it. Report content is end-to-end encrypted to the moderators; an escalation to the
+  Commonveil team is, by design, a readable disclosure written by the moderator.
+- **Automatic moderation acts on counts.** Warning steps, flood, raid and staff limits are enforced
+  by the service using counts and times, never content.
+- **Channel permissions.** Changing who can see a channel needs "Manage roles", only for roles
+  below your own, with permissions you have there; a channel any role is denied becomes private
+  (its own keys), so a deny really hides it.
+
 ## Assumptions
 
 - The platform serves the code in this repository unmodified.
