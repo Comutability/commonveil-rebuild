@@ -95,7 +95,7 @@ export default function QuickSwitcher() {
 
   return (
     <>
-      <CommandDialog open={open} onOpenChange={setOpen}>
+      <CommandDialog open={open} onOpenChange={setOpen} title="Find a server, channel or conversation">
         <CommandInput placeholder="Where to? Servers, channels, conversations" aria-label="Find a server, channel or conversation" />
         <CommandList>
           <CommandEmpty>Nothing with that name.</CommandEmpty>
