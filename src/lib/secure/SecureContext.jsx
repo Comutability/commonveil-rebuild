@@ -64,6 +64,8 @@ export function SecureProvider({ children }) {
   const linkPinRef = useRef(null);
   const pendingRef = useRef(null);
   const peerFetchedAt = useRef({});
+  // Lookups on their way: two parts of the app asking for the same person share one request.
+  const peerInFlight = useRef(new Map());
   const repairAt = useRef(0);
   const upgradeAt = useRef(0);
   const pinsLock = useRef(Promise.resolve());
@@ -773,8 +775,26 @@ export function SecureProvider({ children }) {
    */
   const loadPeers = useCallback(async (userIds, { force = false } = {}) => {
     const now = Date.now();
-    const wanted = [...new Set(userIds)].filter((id) => id && id !== userId && (force || !peerFetchedAt.current[id] || now - peerFetchedAt.current[id] > PEER_TTL_MS));
-    if (!wanted.length) return;
+    const ids = [...new Set(userIds)].filter((id) => id && id !== userId);
+    const waiting = [...new Set(ids.map((id) => peerInFlight.current.get(id)).filter(Boolean))];
+    const wanted = ids.filter((id) => !peerInFlight.current.has(id) && (force || !peerFetchedAt.current[id] || now - peerFetchedAt.current[id] > PEER_TTL_MS));
+    if (!wanted.length) {
+      if (waiting.length) await Promise.allSettled(waiting);
+      return;
+    }
+    const run = fetchPeers(wanted, now);
+    for (const id of wanted) peerInFlight.current.set(id, run);
+    try {
+      await run;
+    } finally {
+      for (const id of wanted) if (peerInFlight.current.get(id) === run) peerInFlight.current.delete(id);
+    }
+    if (waiting.length) await Promise.allSettled(waiting);
+    // fetchPeers is defined below and only uses refs and stable callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  async function fetchPeers(wanted, now) {
     // The service answers for up to 50 people at a time.
     const keys = {};
     for (let i = 0; i < wanted.length; i += 50) {
@@ -817,7 +837,7 @@ export function SecureProvider({ children }) {
       });
     }
     updatePeers((prev) => ({ ...prev, ...updates }));
-  }, [userId, updatePins, updatePeers]);
+  }
 
   const acceptKeyChange = useCallback(async (peerId) => {
     const p = peersRef.current[peerId];
