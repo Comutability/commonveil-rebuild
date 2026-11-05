@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { NativeSelect } from "@/components/ui/native-select";
+import { Link } from "react-router-dom";
 import { useChat } from "@/lib/secure/ChatContext";
 
 const CHECKIN = [[1, "1 hour"], [2, "2 hours"], [4, "4 hours"], [8, "8 hours"], [12, "12 hours"], [24, "1 day"], [48, "2 days"], [72, "3 days"], [168, "1 week"]];
@@ -57,7 +58,8 @@ export function WaitDialog({ conversation, mode, open, onOpenChange, onDone }) {
           <DialogDescription>
             {mode === "checkin"
               ? "If you don't tap \"I'm OK\" in time, this message is sent here by itself. Useful for a first date, a long walk or a trip. It's encrypted now; nobody sees it unless it's sent. It can arrive up to a few minutes late, and it's no substitute for emergency services: in danger, call them."
-              : "It's encrypted now and held, unreadable, until then. Only the people here now can read it."}
+              : "It's encrypted now and held, unreadable, until then. Only the people here now can read it."}{" "}
+            <Link to="/help/send-later-and-check-ins" target="_blank" rel="noopener" className="text-primary underline-offset-4 hover:underline">How this works</Link>
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-3">

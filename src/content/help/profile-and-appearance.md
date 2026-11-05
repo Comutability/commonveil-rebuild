@@ -31,6 +31,8 @@ Open **Settings → Appearance**. These choices are saved in this browser only.
 
 ## Keyboard shortcuts
 
+On a Mac, use Cmd instead of Ctrl. Press **Ctrl + /** in the app to see them at any time.
+
 - **Ctrl + K:** find a server, channel or conversation
 - **Alt + ↑ / ↓:** previous or next channel
 - **Alt + Shift + ↑ / ↓:** previous or next channel with something new
