@@ -18,6 +18,7 @@ import { showAlert } from "./alerts.js";
 import { votePayload } from "./polls.js";
 import { copyAttachments, uploadAttachments } from "./fileTransfer.js";
 import { EMPTY_AUTOMOD, automodReason } from "./automod.js";
+import * as P2 from "./protocol.js";
 import { randomId } from "../crypto/encoding.js";
 import { ChainKeys, ServerKeyError, newInviteSecret, openInvitePreview, sealInvitePreview, stepAt } from "../crypto/serverKeys.js";
 import * as S from "./store.js";
@@ -1206,8 +1207,68 @@ export function ServerProvider({ children }) {
     return act(sid, "update_role", { role_id: role.id, ...rest });
   }, [act, actWithItem, roleName, roleColor]);
 
-  const banMember = useCallback(async (sid, uid, { deleteSeconds = 0, reason = "" } = {}) => {
-    const payload = { user_id: uid, delete_seconds: deleteSeconds };
+  // ---------- moderation ----------
+
+  const modCall = useCallback((action, payload) => signed("moderation", action, payload), [signed]);
+
+  /**
+   * Report a member (and, if you choose, a message of theirs) to this server's moderators. It's
+   * sealed to exactly the moderators the service names, with their keys, so only they can read it.
+   */
+  const reportToMods = useCallback(async (sid, { targetId, reason, note = "", quote = null, channelId = "", msgId = "" }) => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const { recipients, moderators } = await callFn("moderation", { action: "report_recipients", server_id: sid, target_id: targetId });
+      if (!moderators) throw new Error("This server has no moderators who can take reports yet. You can report to the Commonveil team instead.");
+      await loadPeers(recipients.filter((u) => u !== userId));
+      try {
+        const item = await P2.buildReport({
+          userId, device, serverId: sid, recipients, chains: chainsFor(recipients), keyring,
+          payload: { type: "report", server_id: sid, target_id: targetId, reason, note, quote, channel_id: channelId, msg_id: msgId },
+        });
+        return await modCall("report", { server_id: sid, target_id: targetId, item });
+      } catch (err) {
+        if (attempt === 0 && err instanceof ApiError && ["RECIPIENTS_CHANGED", "STALE_KEYS", "MEMBER_NOT_READY"].includes(err.code)) continue;
+        throw err;
+      }
+    }
+    return null;
+  }, [userId, device, keyring, chainsFor, loadPeers, modCall]);
+
+  /** Reports you can read here, opened on this device. */
+  const loadReports = useCallback(async (sid) => {
+    const { reports, moderator } = await callFn("moderation", { action: "reports", server_id: sid });
+    await loadPeers([...new Set(reports.map((r) => r.reporter_id))].filter((u) => u !== userId)).catch(() => {});
+    const out = [];
+    for (const r of reports) {
+      const opened = await P2.openReport({ row: r, userId, keyring, senderChain: r.reporter_id === userId ? chainOf(userId) : chainOf(r.reporter_id), senderDevices: devicesOf(r.reporter_id) });
+      out.push({ ...r, opened });
+    }
+    return { reports: out, moderator };
+  }, [userId, keyring, chainOf, devicesOf, loadPeers]);
+
+  const caseItem = useCallback(async (sid, text) => (text && text.trim() ? makeItem(sid, "case", { reason: text.trim().slice(0, 1000) }) : null), [makeItem]);
+
+  const warnMember = useCallback(async (sid, uid, reason, { reportId = "" } = {}) => {
+    const res = await modCall("warn", { server_id: sid, user_id: uid, reason: await caseItem(sid, reason), ...(reportId ? { report_id: reportId } : {}) });
+    if (res.applied) loadMembers(sid, { force: true }).catch(() => {});
+    return res;
+  }, [modCall, caseItem, loadMembers]);
+
+  const addModNote = useCallback(async (sid, uid, text) => modCall("note", { server_id: sid, user_id: uid, reason: await caseItem(sid, text) }), [modCall, caseItem]);
+
+  /** Cases, with their reasons opened here. */
+  const loadCases = useCallback(async (sid, uid = null) => {
+    const res = await callFn("moderation", { action: "cases", server_id: sid, ...(uid ? { user_id: uid } : {}) });
+    const out = [];
+    for (const c of res.cases) {
+      const r = c.reason ? await openItemOf(sid, "case", c.reason) : null;
+      out.push({ ...c, reasonText: r && (r.status === "ok" || r.status === "unverified") ? r.content.reason : "" });
+    }
+    return { cases: out, moderator: res.moderator };
+  }, [openItemOf]);
+
+  const banMember = useCallback(async (sid, uid, { deleteSeconds = 0, reason = "", minutes = 0 } = {}) => {
+    const payload = { user_id: uid, delete_seconds: deleteSeconds, minutes };
     if (reason.trim()) payload.reason = await makeItem(sid, "ban", { reason: reason.trim() });
     const res = await act(sid, "ban_member", payload);
     loadMembers(sid, { force: true }).catch(() => {});
@@ -1374,7 +1435,7 @@ export function ServerProvider({ children }) {
     react,
     edit,
     deleteMessage,
-    pinMessage, lockThread, openItemOf, loadEvents, createEvent, updateEvent, cancelEvent, rsvp,
+    pinMessage, lockThread, openItemOf, modCall, reportToMods, loadReports, warnMember, addModNote, loadCases, caseItem, loadEvents, createEvent, updateEvent, cancelEvent, rsvp,
     // unread and local preferences
     markChannelRead,
     markServerRead,
@@ -1415,7 +1476,7 @@ export function ServerProvider({ children }) {
     loaded, loadError, servers, order, rows, opened, hasMore, readState, prefs, unread, memberLists, keysTick,
     serverLook, serverName, channelName, channelTopic, roleName, roleColor, serverRules, serverEmoji, automodOf, memberName, nickOf, memberColor, profileOf, rolesOfMember,
     permsFor, can, myTop, keyState, loadState, openView, loadOlder, threadOf, postsOf, loadPins, loadMembers, memberCard,
-    sendText, sendPost, sendPoll, vote, react, edit, deleteMessage, pinMessage, lockThread, openItemOf, loadEvents, createEvent, updateEvent, cancelEvent, rsvp, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
+    sendText, sendPost, sendPoll, vote, react, edit, deleteMessage, pinMessage, lockThread, openItemOf, modCall, reportToMods, loadReports, warnMember, addModNote, loadCases, caseItem, loadEvents, createEvent, updateEvent, cancelEvent, rsvp, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
     toggleCollapsed, moveServer, act, setServerProfile, setServerRules, setServerSet, updateSettings, setNickname, createChannel, updateChannel,
     createRole, updateRole, banMember, openBanReason, joinServer, leaveServer, deleteServer, createServer, createInvite, listInvites,
     revokeInvite, discover, listTickets, openTicket, setTicketStatus, renewKeys, serviceKeys,

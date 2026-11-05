@@ -167,6 +167,7 @@ export function itemContent(kind, payload) {
   if (kind === "rules") return { rules: Array.isArray(payload.rules) ? payload.rules.filter((r) => typeof r === "string" && r.trim()).slice(0, 25).map((r) => r.slice(0, 500)) : [], intro: s(payload.intro, 1000) };
   if (kind === "ban") return { reason: s(payload.reason, 500) };
   if (kind === "emoji" || kind === "stickers") return cleanSet(kind, payload);
+  if (kind === "case") return { reason: s(payload.reason, 1000) };
   if (kind === "automod") return cleanAutomod(payload);
   if (kind === "event") {
     const iso = (v) => (typeof v === "string" && v.length <= 40 && Number.isFinite(Date.parse(v)) ? new Date(Date.parse(v)).toISOString() : null);
