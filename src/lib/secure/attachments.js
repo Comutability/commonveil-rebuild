@@ -99,9 +99,12 @@ export function cleanAttachment(a) {
   const parts = Number(a.parts);
   if (!Number.isInteger(parts) || parts < 1 || parts > 14) return null;
   if (!Array.isArray(a.ids) || a.ids.length !== parts || !a.ids.every((x) => typeof x === "string" && ID_RE.test(x))) return null;
-  if (typeof a.key !== "string" || !B64_RE.test(a.key) || typeof a.ivp !== "string" || !B64_RE.test(a.ivp)) return null;
+  // A 256-bit key and an 8-byte IV prefix, exactly.
+  if (typeof a.key !== "string" || a.key.length !== 44 || !B64_RE.test(a.key) || typeof a.ivp !== "string" || a.ivp.length !== 12 || !B64_RE.test(a.ivp)) return null;
   const size = Number(a.size);
   if (!Number.isInteger(size) || size < 1 || size > MAX_FILE_BYTES) return null;
+  // As many parts as the size needs, no more: so a message can't make people download more than it says.
+  if (parts !== Math.ceil(size / PART_PLAIN)) return null;
   const out = {
     ids: a.ids.slice(),
     name: typeof a.name === "string" && a.name.trim() ? a.name.replace(/[\r\n/\\]+/g, " ").slice(0, 200) : "file",

@@ -3,7 +3,10 @@
 import { ApiError, callFn } from "@/lib/api";
 import { toB64 } from "../crypto/encoding.js";
 import { signedRequest } from "./protocol.js";
-import { openFile, sealFile, MAX_ATTACHMENTS } from "./attachments.js";
+import { openFile, sealFile, MAX_ATTACHMENTS, PART_PLAIN } from "./attachments.js";
+
+/** A sealed part is never bigger than this (its plaintext plus the 16-byte tag). */
+const MAX_PART = PART_PLAIN + 16;
 
 const RETRY_MS = [800, 2500];
 const transient = (err) => err instanceof ApiError && (err.status === 0 || err.status === 429 || err.status >= 500);
@@ -83,7 +86,11 @@ async function fetchParts(meta) {
   for (const url of urls) {
     const res = await fetch(url, { credentials: "omit", referrerPolicy: "no-referrer", cache: "no-store" });
     if (!res.ok) throw new Error("This file couldn't be downloaded. Try again.");
-    parts.push(new Uint8Array(await res.arrayBuffer()));
+    const declared = Number(res.headers.get("content-length"));
+    if (declared > MAX_PART) throw new Error("This file failed its integrity check.");
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.length > MAX_PART) throw new Error("This file failed its integrity check.");
+    parts.push(bytes);
   }
   return parts;
 }

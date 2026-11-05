@@ -72,6 +72,9 @@ export const fileActions: Actions = {
       throw new ApiError(400, "BAD_FIELD", "That file is too large: files can be up to 10 MB.");
     }
     const bytes = decodePart(data.data);
+    // Parts are uploaded before their message is sent. A message id that's already in use (anyone's)
+    // can't have parts added to it, so nobody can hang files on someone else's message.
+    if (await messageRow(sr, { ...place, msg_id: msgId })) throw new ApiError(409, "DUPLICATE_ID", "That message has already been sent.");
     if ((await countSince(sr, "Attachment", { owner_id: user.id }, new Date(now.getTime() - 600_000), FILE_LIMITS.partsPer10Min)) >= FILE_LIMITS.partsPer10Min) {
       throw rateLimited("uploading files");
     }
@@ -101,7 +104,7 @@ export const fileActions: Actions = {
       }
       if (!allowed.get(key)) continue;
       // A file goes with its message: once that's deleted or has disappeared, so has the file.
-      const msgKey = `${row.scope}:${row.msg_id}`;
+      const msgKey = `${row.scope}:${row.msg_id}:${row.owner_id}`;
       if (!live.has(msgKey)) live.set(msgKey, await messageExists(sr, row));
       if (!live.get(msgKey)) continue;
       const { signed_url } = await sr.integrations.Core.CreateFileSignedUrl({ file_uri: row.file_uri, expires_in: FILE_LIMITS.linkSeconds });
@@ -111,11 +114,17 @@ export const fileActions: Actions = {
   },
 };
 
-async function messageExists(sr: any, row: any) {
+async function messageRow(sr: any, row: any) {
   const found = row.scope === "server"
     ? await sr.entities.ServerMessage.filter({ msg_id: row.msg_id, server_id: row.scope_id }, "created_date", 1)
     : await sr.entities.Message.filter({ msg_id: row.msg_id, conversation_id: row.scope_id }, "created_date", 1);
-  return found.length > 0 && !found[0].deleted;
+  return found[0] || null;
+}
+
+/** The file's message exists, wasn't deleted, and was sent by whoever uploaded the file. */
+async function messageExists(sr: any, row: any) {
+  const m = await messageRow(sr, row);
+  return Boolean(m && !m.deleted && m.sender_id === row.owner_id);
 }
 
 /**
@@ -132,7 +141,7 @@ export async function forgetOrphanedFiles(sr: any, now: Date, deadline: number) 
   let removed = 0;
   for (const row of [...fresh, ...stale]) {
     if (Date.now() > deadline) break;
-    const key = `${row.scope}:${row.msg_id}`;
+    const key = `${row.scope}:${row.msg_id}:${row.owner_id}`;
     if (!seen.has(key)) seen.set(key, await messageExists(sr, row));
     if (seen.get(key)) await sr.entities.Attachment.update(row.id, { swept_at: now.toISOString() }).catch(() => null);
     else {

@@ -57,8 +57,12 @@ function Failed({ error, onRetry, meta }) {
   );
 }
 
+// Pictures and voice messages open by themselves when they're on screen, up to this size;
+// anything bigger waits to be asked.
+const AUTO_BYTES = 5 * 1024 * 1024;
+
 function ImageAttachment({ meta, single }) {
-  const o = useOpened(meta);
+  const o = useOpened(meta, { auto: meta.size <= AUTO_BYTES });
   const [zoom, setZoom] = useState(false);
   const [broken, setBroken] = useState(false);
   const [shown, setShown] = useState(!meta.spoiler);
@@ -69,7 +73,12 @@ function ImageAttachment({ meta, single }) {
   if (broken) return <FileAttachment meta={meta} note="This image can't be shown here." />;
   return (
     <div ref={o.box} style={{ width: `${Math.max(120, width)}px`, aspectRatio: `${ratio}` }} className="relative max-w-full overflow-hidden rounded-lg bg-muted">
-      {o.status !== "ready" && (
+      {o.status === "idle" && meta.size > AUTO_BYTES && (
+        <button type="button" onClick={o.start} className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-xs text-muted-foreground hover:bg-muted/70">
+          <Lock className="h-3.5 w-3.5" aria-hidden="true" /> Show picture ({sizeLabel(meta.size)})
+        </button>
+      )}
+      {o.status !== "ready" && !(o.status === "idle" && meta.size > AUTO_BYTES) && (
         <span className="absolute inset-0 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
           <Lock className="h-3.5 w-3.5" aria-hidden="true" /> Decrypting…
         </span>
@@ -119,7 +128,7 @@ const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStar
 
 /** A voice message: play, pause and seek. */
 export function VoicePlayer({ meta }) {
-  const o = useOpened(meta);
+  const o = useOpened(meta, { auto: meta.size <= AUTO_BYTES });
   const audio = useRef(null);
   const [playing, setPlaying] = useState(false);
   const [at, setAt] = useState(0);
@@ -133,8 +142,8 @@ export function VoicePlayer({ meta }) {
   };
   return (
     <div ref={o.box} className="flex w-[min(100%,320px)] items-center gap-3 rounded-full border border-border bg-muted/40 py-1.5 pl-1.5 pr-4">
-      <button type="button" onClick={toggle} disabled={o.status !== "ready"} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-60" aria-label={playing ? "Pause voice message" : "Play voice message"}>
-        {o.status !== "ready" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : playing ? <Pause className="h-4 w-4" aria-hidden="true" /> : <Play className="h-4 w-4" aria-hidden="true" />}
+      <button type="button" onClick={o.status === "idle" ? o.start : toggle} disabled={o.status === "loading"} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-60" aria-label={playing ? "Pause voice message" : "Play voice message"}>
+        {o.status === "loading" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : o.status !== "ready" ? <Play className="h-4 w-4" aria-hidden="true" /> : playing ? <Pause className="h-4 w-4" aria-hidden="true" /> : <Play className="h-4 w-4" aria-hidden="true" />}
       </button>
       <input
         type="range"
