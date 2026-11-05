@@ -679,3 +679,30 @@ test("files: parts are stored as ciphertext for members who can post, and links 
   assert.deepEqual((await carol.ok("files", { action: "download_links", file_ids: [file_id] })).links, {});
   assert.equal(JSON.stringify(row).includes("a file"), false);
 });
+
+test("emoji, stickers and AutoMod rules are encrypted server items; only the right staff can change them", async () => {
+  const { w, members: [alice, bob] } = await world("alice", "bobby");
+  const sid = await serverWith(alice, bob);
+  const state = await alice.server(sid);
+  const { keys } = await alice.keysOf(state);
+  const img = `data:image/webp;base64,${"A".repeat(400)}`;
+  const emoji = await buildServerItem({ kind: "emoji", serverId: sid, generations: state.generations, keys, userId: alice.id, device: alice.device, payload: { items: [{ id: "abcd1234", name: "party_cat", img }] } });
+  await alice.ok("servers", await signed(alice, "set_server_set", { server_id: sid, slot: "emoji", item: emoji }));
+  // A plain member can't.
+  await bob.fails("servers", await signed(bob, "set_server_set", { server_id: sid, slot: "emoji", item: emoji }), "MISSING_PERMISSION");
+  await alice.fails("servers", await signed(alice, "set_server_set", { server_id: sid, slot: "nope", item: emoji }), "BAD_FIELD");
+  const rules = await buildServerItem({ kind: "automod", serverId: sid, generations: state.generations, keys, userId: alice.id, device: alice.device, payload: { enabled: true, words: ["spam*"], block_links: true } });
+  await alice.ok("servers", await signed(alice, "set_server_set", { server_id: sid, slot: "automod", item: rules }));
+  const row = w.rows("Server").find((s) => s.id === sid);
+  assert.equal(JSON.stringify(row).includes("party_cat"), false);
+  assert.equal(JSON.stringify(row).includes("spam"), false);
+  const after = await alice.server(sid);
+  const { chains, devices } = await alice.keysFor([alice.id]);
+  const opened = await openServerItem({ kind: "emoji", item: after.server.emoji, serverId: sid, keys, senderChain: chains.get(alice.id), senderDevices: devices.get(alice.id) });
+  assert.deepEqual(opened.content.items.map((x) => x.name), ["party_cat"]);
+  const am = await openServerItem({ kind: "automod", item: after.server.automod, serverId: sid, keys, senderChain: chains.get(alice.id), senderDevices: devices.get(alice.id) });
+  assert.equal(am.content.enabled, true);
+  // An emoji item can't be passed off as AutoMod rules.
+  const swapped = await openServerItem({ kind: "automod", item: after.server.emoji, serverId: sid, keys, senderChain: chains.get(alice.id), senderDevices: devices.get(alice.id) });
+  assert.notEqual(swapped.status, "ok");
+});
