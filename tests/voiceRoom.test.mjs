@@ -161,7 +161,10 @@ test("voice room: a call holds eight, the same device rejoining replaces itself,
   e.conns.delete("conn-user1-1");
   const woken2 = new VoiceRoom(e);
   await woken2.handleStart();
-  assert.equal(woken2.people.size, 7, "people whose sockets went while it slept are dropped");
+  assert.equal(woken2.people.size, 8, "someone whose socket went while it slept keeps their place for a while");
+  assert.ok(e.wakes.has("drop:conn-user1-1"));
+  await woken2.handleWake("drop:conn-user1-1");
+  assert.equal(woken2.people.size, 7, "then it's given up");
   const seat = woken2.people.get("conn-user2-1").seat;
   assert.ok(woken2.nextSeat > seat);
 });
