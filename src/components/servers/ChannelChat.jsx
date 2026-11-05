@@ -213,7 +213,7 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
               }}
               onReact={(emoji, already) => act(() => react(serverId, channel, row, emoji, already))}
               onVote={(choices) => s.vote(serverId, channel, row, choices)}
-              onForward={row.result?.content?.type === "text" ? () => setForwarding(row.text) : undefined}
+              onForward={row.result?.content?.type === "text" ? () => setForwarding({ text: row.text, attachments: row.result.content.attachments || [] }) : undefined}
               onSave={() => s.toggleSaved({ serverId, channelId: channel.id, threadId: row.m.thread_id || "", msgId: row.m.msg_id })}
               saved={s.isSaved(row.m.msg_id)}
               onReply={() => onReply?.(row)}
@@ -231,7 +231,7 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
           <button type="button" onClick={() => setActionError("")} aria-label="Dismiss"><X className="h-4 w-4" aria-hidden="true" /></button>
         </p>
       )}
-      <ForwardDialog text={forwarding || ""} open={forwarding !== null} onOpenChange={(v) => !v && setForwarding(null)} />
+      <ForwardDialog text={forwarding?.text || ""} attachments={forwarding?.attachments || []} open={forwarding !== null} onOpenChange={(v) => !v && setForwarding(null)} />
     </div>
   );
 }

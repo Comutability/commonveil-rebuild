@@ -7,10 +7,11 @@ import { useChat } from "@/lib/secure/ChatContext";
 import { P, has } from "@/lib/secure/permissions";
 
 /**
- * Forward a message's text somewhere else. It's encrypted again for the new place and marked
- * "Forwarded", without saying where it came from.
+ * Forward a message somewhere else. Its text is encrypted again for the new place and marked
+ * "Forwarded", without saying where it came from. Attached files are copied as they are: still
+ * sealed, with their keys inside the new message.
  */
-export default function ForwardDialog({ text, open, onOpenChange }) {
+export default function ForwardDialog({ text, attachments = [], open, onOpenChange }) {
   const s = useServers();
   const chat = useChat();
   const [query, setQuery] = useState("");
@@ -34,8 +35,8 @@ export default function ForwardDialog({ text, open, onOpenChange }) {
   const send = async (p) => {
     setState({ busy: p.key, error: "", done: "" });
     try {
-      if (p.kind === "dm") await chat.sendPoll(p.conversation, { type: "text", text, forwarded: true });
-      else await s.sendText(p.sid, p.channel, text, { forwarded: true });
+      if (p.kind === "dm") await chat.send(p.conversation, text, { forwarded: true, forwardFiles: attachments });
+      else await s.sendText(p.sid, p.channel, text, { forwarded: true, forwardFiles: attachments });
       setState({ busy: "", error: "", done: p.key });
     } catch (err) {
       setState({ busy: "", error: err.message, done: "" });
@@ -49,7 +50,10 @@ export default function ForwardDialog({ text, open, onOpenChange }) {
           <DialogTitle>Forward</DialogTitle>
           <DialogDescription>It's encrypted again for wherever you send it, and marked as forwarded without saying where from.</DialogDescription>
         </DialogHeader>
-        <blockquote className="max-h-24 overflow-hidden border-l-4 border-border pl-3 text-sm text-muted-foreground">{text}</blockquote>
+        <blockquote className="max-h-24 overflow-hidden border-l-4 border-border pl-3 text-sm text-muted-foreground">
+          {text}
+          {attachments.length > 0 && <span className="block text-xs">{attachments.length === 1 ? "1 file" : `${attachments.length} files`}</span>}
+        </blockquote>
         <label className="flex items-center gap-2 rounded-md border border-input px-3 py-2">
           <Search className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search conversations and channels" aria-label="Search conversations and channels" className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
