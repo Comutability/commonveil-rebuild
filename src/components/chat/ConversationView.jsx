@@ -244,7 +244,7 @@ function TimerNote({ conversation, nameOf }) {
 
 export default function ConversationView({ conversation, onBack, onInfo }) {
   const {
-    threads, messages, opened, hasMore, openConversation, closeConversation, loadOlder, markRead, send, react, editMessage, deleteMessage,
+    threads, messages, opened, hasMore, openConversation, closeConversation, loadOlder, markRead, send, react, sendPoll, vote, editMessage, deleteMessage,
     nameOf, handleOf, conversationName, newMembersOf, acknowledgeMembers,
   } = useChat();
   const { userId, peers, loadPeers } = useSecure();
