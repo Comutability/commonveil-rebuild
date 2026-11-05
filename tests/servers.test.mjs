@@ -258,7 +258,7 @@ test("joining by invite: newcomers wait for keys, members' apps hand them over, 
   assert.equal(waiting.member.key_status, "pending");
   assert.equal(waiting.grants.length, 0);
   const general = waiting.channels.find((c) => c.template_key === "general");
-  assert.equal((await bob.say(sid, general, "too early")).status, 500 - 500 + (await bob.say(sid, general, "x")).status, "consistent");
+  await assert.rejects(bob.say(sid, general, "too early"), (e) => e.code === "NO_KEY", "no keys yet: the app can't encrypt anything");
 
   assert.ok((await alice.fulfil(sid)) >= 2, "alice's app seals both chains' keys to bob");
   const ready = await bob.server(sid);
