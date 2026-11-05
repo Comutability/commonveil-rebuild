@@ -8,7 +8,7 @@ review is published.
 
 ## What's here
 
-- **Public site:** blog, guides, learning paths, resources, wiki, privacy and security pages, and a private security
+- **Public site:** a Help Centre (`/help`) covering every feature, blog, guides, learning paths, resources, wiki, privacy and security pages, and a private security
   report form (`/security/report`, no account needed). Search, saved pages and guide progress run in the browser and are
   kept there. No analytics or trackers. A Content Security Policy is built in.
 - **Encrypted messaging:** direct messages and groups of up to 32, device linking with a compared code, a 24-word recovery
@@ -31,6 +31,8 @@ review is published.
 
 ## Documents
 
+- `docs/USER_GUIDE.md`: the complete user guide: every feature, what it's for and how to use it. Generated from the
+  Help Centre articles in `src/content/help/` (also published on the site at `/help`) by `scripts/build-user-guide.mjs`.
 - `docs/PROTOCOL.md`: the encryption protocol (version 2), exactly as implemented.
 - `docs/SERVERS_AND_VOICE.md`: post-quantum keys, servers and voice calls, and platform notes for maintainers (backend
   changes reach members only after publishing; bump an entry file's revision line when its shared code changes).
@@ -51,9 +53,11 @@ base44/functions/    15 backend functions: profile, keys, conversations, message
 base44/actors/       realtime rooms: VoiceRoom (call set-up relay) and Presence (opt-in status and typing, memory only)
 base44/shared/       request handling, signature checks, data access, security emails, scheduled tasks, the handlers
 base44/entities/     16 tables; nothing private can be written directly, and members can read only rows that name them
-src/lib/site/        saved pages and search for the public site (in the browser only)
+src/lib/site/        saved pages, search and the Help Centre for the public site (in the browser only)
+src/content/help/    Help Centre articles (Markdown); docs/USER_GUIDE.md is built from them
 tests/               crypto, backend, conversation, site and schema tests (npm test), live browser tests (tests/e2e)
-scripts/             check-bundle.mjs: the built site carries its policy and needs nothing it blocks
+scripts/             check-bundle.mjs: the built site carries its policy and needs nothing it blocks;
+                     build-user-guide.mjs: rebuilds docs/USER_GUIDE.md from the help articles
 ```
 
 ## Checks
