@@ -103,6 +103,7 @@ export function useServerText(serverId, channelId) {
       return c ? { name: channelName(c), to: `/app/s/${serverId}/${c.id}` } : null;
     },
     resolveEmoji: (id) => custom.byId.get(id) || null,
+    customEmoji: custom.emoji,
   }), [people, roles, channels, roleName, channelName, userId, serverId, e, custom]);
 
   return { suggest, mentionsIn, ctx, people };

@@ -11,6 +11,14 @@ import AttachmentList from "./Attachments";
 
 export const reactionName = emojiName;
 
+/** A reaction's emoji: a standard one, or one of the server's own ("c:id"). */
+function ReactionGlyph({ emoji, ctx }) {
+  if (!emoji.startsWith("c:")) return <span aria-hidden="true" className="text-sm">{emoji}</span>;
+  const found = ctx.resolveEmoji?.(emoji.slice(2));
+  return found ? <img src={found.img} alt="" className="h-4 w-4 object-contain" /> : <span aria-hidden="true" className="text-sm">❔</span>;
+}
+const labelOf = (emoji, ctx) => (emoji.startsWith("c:") ? ctx.resolveEmoji?.(emoji.slice(2))?.name || "a removed emoji" : reactionName(emoji));
+
 const toDate = (value) => {
   if (!value) return null;
   const s = String(value);
@@ -80,7 +88,7 @@ function ReplyQuote({ replyTo, nameOf, onJump }) {
   );
 }
 
-function Reactions({ reactions, nameOf, onToggle, disabled }) {
+function Reactions({ reactions, nameOf, onToggle, disabled, ctx = {} }) {
   if (!reactions.length) return null;
   return (
     <div className="mt-1 flex flex-wrap gap-1">
@@ -91,16 +99,22 @@ function Reactions({ reactions, nameOf, onToggle, disabled }) {
           disabled={disabled}
           onClick={() => onToggle(r.emoji, r.mine)}
           aria-pressed={r.mine}
-          aria-label={`${reactionName(r.emoji)}, ${r.count}. ${r.mine ? "Remove yours" : "Add yours"}`}
+          aria-label={`${labelOf(r.emoji, ctx)}, ${r.count}. ${r.mine ? "Remove yours" : "Add yours"}`}
           title={r.people.map(nameOf).join(", ")}
           className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs transition-colors ${r.mine ? "border-primary/60 bg-primary/10" : "border-transparent bg-muted hover:border-border"}`}
         >
-          <span aria-hidden="true" className="text-sm">{r.emoji}</span>
+          <ReactionGlyph emoji={r.emoji} ctx={ctx} />
           <span className="font-medium">{r.count}</span>
         </button>
       ))}
     </div>
   );
+}
+
+function Sticker({ id, ctx }) {
+  const found = ctx.resolveEmoji?.(id);
+  if (!found) return <p className="mt-1 text-sm italic text-muted-foreground">A sticker that's since been removed.</p>;
+  return <img src={found.img} alt={`Sticker: ${found.name}`} title={found.name} className="mt-1 h-40 w-40 object-contain" draggable={false} />;
 }
 
 function Body({ row, ctx }) {
@@ -152,8 +166,11 @@ export default function MessageRow({
   onForward,
   onSave,
   saved = false,
+  hiddenReason = null,
 }) {
   const [picker, setPicker] = React.useState(false);
+  const [reveal, setReveal] = React.useState(false);
+  const hidden = Boolean(hiddenReason) && !reveal;
   const { m, result } = row;
   const readableNow = result && (result.status === "ok" || result.status === "unverified");
   const showTools = (readableNow && (can.react || can.reply || can.edit || can.pin || onForward || onSave)) || can.delete;
@@ -196,7 +213,12 @@ export default function MessageRow({
         {readableNow && result.content?.forwarded && <p className="mb-0.5 flex items-center gap-1 text-xs italic text-muted-foreground"><Forward className="h-3 w-3" aria-hidden="true" /> Forwarded</p>}
         {title}
         <div className="whitespace-pre-wrap break-words text-[0.95rem] leading-relaxed">
-          <Body row={row} ctx={ctx} />
+          {hidden ? (
+            <span className="inline-flex items-center gap-2 italic text-muted-foreground">
+              Hidden by AutoMod. {hiddenReason}
+              <button type="button" onClick={() => setReveal(true)} className="not-italic font-medium text-foreground underline-offset-2 hover:underline">Show</button>
+            </span>
+          ) : <Body row={row} ctx={ctx} />}
           {row.edited && (
             <span className="ml-1 text-[0.7rem] text-muted-foreground" title={row.editedAt ? `Edited ${fullTime(row.editedAt)}` : "Edited"}>(edited)</span>
           )}
@@ -208,8 +230,9 @@ export default function MessageRow({
           </div>
         )}
         {row.poll && readableNow && <PollCard poll={row.poll} nameOf={nameOf} disabled={!can.react || !onVote} onVote={(choices) => onVote?.(choices)} />}
-        {readableNow && <AttachmentList attachments={row.attachments} />}
-        <Reactions reactions={row.reactions} nameOf={nameOf} disabled={!can.react} onToggle={(emoji, already) => onReact?.(emoji, already)} />
+        {readableNow && !hidden && result.content?.sticker && <Sticker id={result.content.sticker} ctx={ctx} />}
+        {readableNow && !hidden && <AttachmentList attachments={row.attachments} />}
+        <Reactions ctx={ctx} reactions={row.reactions} nameOf={nameOf} disabled={!can.react} onToggle={(emoji, already) => onReact?.(emoji, already)} />
       </div>
 
       {showTools && (
@@ -237,6 +260,11 @@ export default function MessageRow({
                     setPicker(false);
                     onReact(emoji, Boolean(row.reactions.find((r) => r.emoji === emoji)?.mine));
                   }}
+                  custom={ctx.customEmoji || []}
+                  onPickCustom={ctx.customEmoji?.length ? (x) => {
+                    setPicker(false);
+                    onReact(`c:${x.id}`, Boolean(row.reactions.find((r) => r.emoji === `c:${x.id}`)?.mine));
+                  } : null}
                 />
               </PopoverContent>
             </Popover>
