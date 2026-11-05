@@ -23,7 +23,7 @@ let total = 0;
 for (const colorScheme of ["light", "dark"]) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme });
   const page = await ctx.newPage();
-  for (const p of ["/", "/blog", "/guides", "/guides/docker-for-beginners", "/paths/self-host-your-data", "/resources", "/security", "/privacy", "/search", "/saved", "/login", "/register"]) {
+  for (const p of ["/", "/help", "/help/moderation", "/releases", "/resources", "/security", "/privacy", "/search", "/login", "/register"]) {
     await page.goto(BASE + p, { waitUntil: "networkidle", timeout: 90000 });
     total += await audit(page, `${colorScheme} ${p}`);
   }

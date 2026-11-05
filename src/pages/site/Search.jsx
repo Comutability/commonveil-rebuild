@@ -8,21 +8,13 @@ import { searchContent, toDocs } from "@/lib/site/search.js";
 import { HELP_ARTICLES } from "@/lib/site/helpContent.js";
 import { Loading, PageHeader, Pill } from "@/components/site/bits";
 
-const KIND = { help: "Help", guide: "Guide", wiki: "Wiki", blog: "Blog", path: "Learning path", resource: "Resource" };
+const KIND = { help: "Help", resource: "Resource" };
 
 /** The same queries the section pages use, so what's already loaded is reused. */
 function useAllContent() {
-  const guides = useQuery({ queryKey: ["content", "Guide", "title"], queryFn: () => listContent("Guide", "title") });
-  const wiki = useQuery({ queryKey: ["content", "WikiPage", "title"], queryFn: () => listContent("WikiPage", "title") });
-  const blog = useQuery({ queryKey: ["content", "BlogPost", "-published_at"], queryFn: () => listContent("BlogPost", "-published_at") });
-  const paths = useQuery({ queryKey: ["content", "LearningPath", "title"], queryFn: () => listContent("LearningPath", "title") });
   const resources = useQuery({ queryKey: ["content", "Resource", "name"], queryFn: () => listContent("Resource", "name") });
-  const all = [guides, wiki, blog, paths, resources];
-  const docs = useMemo(
-    () => toDocs({ guides: guides.data, wiki: wiki.data, blog: blog.data, paths: paths.data, resources: resources.data, help: HELP_ARTICLES }),
-    [guides.data, wiki.data, blog.data, paths.data, resources.data],
-  );
-  return { docs, loading: all.some((q) => q.isLoading), failed: all.some((q) => q.isError) };
+  const docs = useMemo(() => toDocs({ resources: resources.data, help: HELP_ARTICLES }), [resources.data]);
+  return { docs, loading: resources.isLoading, failed: resources.isError };
 }
 
 export default function Search() {
@@ -34,7 +26,7 @@ export default function Search() {
 
   return (
     <>
-      <PageHeader eyebrow="Search" title="Search guides, help, the wiki and the blog" intro="The search runs in your browser. What you type isn't sent anywhere, put in the address bar or kept." />
+      <PageHeader eyebrow="Search" title="Search the help and resources" intro="The search runs in your browser. What you type isn't sent anywhere, put in the address bar or kept." />
       <div className="container-cv max-w-3xl py-10">
         <form role="search" onSubmit={(e) => e.preventDefault()}>
           <div className="relative">
@@ -43,7 +35,7 @@ export default function Search() {
               type="search"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="For example: passwords, backups, two-factor"
+              placeholder="For example: recovery phrase, roles, check-in"
               className="h-12 pl-10 text-base"
               aria-label="Search the site"
               autoComplete="off"

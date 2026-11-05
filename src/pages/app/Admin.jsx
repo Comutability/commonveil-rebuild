@@ -232,34 +232,6 @@ function RemovedAccounts() {
 // ---------- Content ----------
 
 const TYPES = {
-  BlogPost: {
-    label: "Blog posts",
-    titleField: "title",
-    fields: [
-      ["title", "Title"], ["slug", "Slug"], ["excerpt", "Excerpt", "textarea"], ["category", "Category"], ["author_name", "Author"],
-      ["reading_time", "Reading time"], ["cover_image", "Cover image URL"], ["published_at", "Published date (YYYY-MM-DD)"],
-      ["tags", "Tags (comma separated)", "list"], ["featured", "Featured", "bool"], ["body", "Body (Markdown)", "markdown"],
-    ],
-  },
-  Guide: {
-    label: "Guides",
-    titleField: "title",
-    fields: [
-      ["title", "Title"], ["slug", "Slug"], ["summary", "Summary", "textarea"], ["category", "Category"],
-      ["difficulty", "Difficulty", "select", ["Beginner", "Intermediate", "Advanced"]], ["estimated_time", "Time needed"],
-      ["os_version", "Works on"], ["last_tested", "Last tested (YYYY-MM-DD)"], ["requirements", "You'll need (one per line)", "lines"],
-      ["prerequisites", "Before you start (one per line)", "lines"], ["author_name", "Author"], ["body", "Body (Markdown)", "markdown"],
-    ],
-  },
-  LearningPath: {
-    label: "Learning paths",
-    titleField: "title",
-    fields: [
-      ["title", "Title"], ["slug", "Slug"], ["summary", "Summary", "textarea"], ["description", "Description", "textarea"],
-      ["category", "Category"], ["difficulty", "Difficulty", "select", ["Beginner", "Intermediate", "Advanced"]],
-      ["estimated_time", "Time needed"], ["guide_slugs", "Guide slugs, in order (one per line)", "lines"],
-    ],
-  },
   Resource: {
     label: "Resources",
     titleField: "name",
@@ -269,11 +241,6 @@ const TYPES = {
       ["platforms", "Platforms (comma separated)", "list"], ["pricing_summary", "Pricing"], ["privacy_notes", "Privacy notes", "textarea"],
       ["last_reviewed", "Last reviewed (YYYY-MM-DD)"],
     ],
-  },
-  WikiPage: {
-    label: "Wiki pages",
-    titleField: "title",
-    fields: [["title", "Title"], ["slug", "Slug"], ["summary", "Summary", "textarea"], ["category", "Category"], ["body", "Body (Markdown)", "markdown"]],
   },
 };
 
@@ -399,7 +366,7 @@ function Editor({ type, record, onClose }) {
 }
 
 function Content() {
-  const [type, setType] = useState("BlogPost");
+  const [type, setType] = useState("Resource");
   const [editing, setEditing] = useState(null);
   const q = useQuery({ queryKey: ["admin-content", type], queryFn: () => base44.entities[type].list("-updated_date", 500), staleTime: 0 });
   const titleField = TYPES[type].titleField;

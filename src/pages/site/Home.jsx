@@ -1,10 +1,7 @@
 import React from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, BookOpen, KeyRound, Lock, MessagesSquare, ShieldCheck, Wrench } from "lucide-react";
+import { ArrowRight, BookOpen, CalendarClock, KeyRound, Lock, MessagesSquare, Phone, ShieldCheck, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { listContent } from "@/lib/api";
-import { formatDate } from "@/components/site/bits";
 
 const PROTECTIONS = [
   [Lock, "Content stays between you", "Messages and group names are encrypted on your device. Our servers store ciphertext they can't read."],
@@ -13,11 +10,16 @@ const PROTECTIONS = [
   [MessagesSquare, "No directory to browse", "People find you only by your exact username. There's no member list and no public profile page."],
 ];
 
+const FEATURES = [
+  [MessagesSquare, "Messages and groups", "Direct messages and groups of up to 32, with replies, reactions, files, voice notes and polls.", "/help/messages"],
+  [Users, "Communities", "Servers with channels, roles, threads, events and built-in moderation, all encrypted.", "/help/servers"],
+  [Phone, "Calls", "Voice, video and screen sharing, straight between devices and encrypted twice over.", "/help/calls"],
+  [CalendarClock, "Safety check-ins", "A message that sends itself if you don't say you're OK in time. Plus send later and self-destructing chats.", "/help/send-later-and-check-ins"],
+];
+
 export default function Home() {
   const [params] = useSearchParams();
   const deleted = params.get("account_deleted") === "1";
-  const posts = useQuery({ queryKey: ["content", "BlogPost", "home"], queryFn: () => listContent("BlogPost", "-published_at", 3) });
-  const guides = useQuery({ queryKey: ["content", "Guide", "home"], queryFn: () => listContent("Guide", "title", 4) });
 
   return (
     <>
@@ -34,18 +36,18 @@ export default function Home() {
             Own your digital life. Talk without being overheard.
           </h1>
           <p className="mt-6 max-w-2xl text-lg text-muted-foreground sm:text-xl">
-            Commonveil is a place to learn practical privacy, one sensible step at a time, and to message people with end-to-end encryption
-            that doesn't depend on trusting us.
+            Commonveil is a place to talk, one to one, in groups and in whole communities, with end-to-end encryption that doesn't
+            depend on trusting us.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Button asChild size="lg">
-              <Link to="/guides">
-                <BookOpen className="mr-2 h-5 w-5" aria-hidden="true" /> Start learning
+              <Link to="/app">
+                <Lock className="mr-2 h-5 w-5" aria-hidden="true" /> Open Commonveil
               </Link>
             </Button>
             <Button asChild size="lg" variant="outline">
-              <Link to="/app">
-                <Lock className="mr-2 h-5 w-5" aria-hidden="true" /> Open encrypted messages
+              <Link to="/help">
+                <BookOpen className="mr-2 h-5 w-5" aria-hidden="true" /> How it works
               </Link>
             </Button>
           </div>
@@ -58,7 +60,7 @@ export default function Home() {
             <p className="eyebrow">Messaging</p>
             <h2 className="mt-3 text-3xl font-semibold">Private by construction, not by promise</h2>
             <p className="mt-4 text-muted-foreground">
-              Direct messages and small groups, encrypted on your device. Our servers check who's allowed to post and store what they're given,
+              Messages, groups, communities and calls, encrypted on your device. Our servers check who's allowed to post and store what they're given,
               but they never hold anything that would let them read it.
             </p>
             <Link to="/security" className="mt-4 inline-flex items-center gap-1 font-medium text-primary hover:underline">
@@ -83,52 +85,23 @@ export default function Home() {
 
       <section className="border-y border-border bg-muted/40">
         <div className="container-cv py-16">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <p className="eyebrow">Guides</p>
-              <h2 className="mt-3 text-3xl font-semibold">Start with one thing that would hurt to lose</h2>
-            </div>
-            <Link to="/paths" className="hidden shrink-0 items-center gap-1 font-medium text-primary hover:underline sm:inline-flex">
-              Learning paths <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </Link>
-          </div>
+          <p className="eyebrow">What you can do</p>
+          <h2 className="mt-3 max-w-2xl text-3xl font-semibold">Everything you'd expect from a chat app, without handing it your life</h2>
           <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {(guides.data || []).map((g) => (
-              <li key={g.id}>
-                <Link to={`/guides/${g.slug}`} className="card-cv group flex h-full flex-col p-5 hover:shadow-md">
-                  <Wrench className="h-5 w-5 text-primary" aria-hidden="true" />
-                  <h3 className="mt-3 font-semibold group-hover:text-primary">{g.title}</h3>
-                  <p className="mt-1.5 line-clamp-3 flex-1 text-sm text-muted-foreground">{g.summary}</p>
-                  <p className="mt-3 text-xs text-muted-foreground">{[g.difficulty, g.estimated_time].filter(Boolean).join(" · ")}</p>
+            {FEATURES.map(([Icon, title, text, to]) => (
+              <li key={title}>
+                <Link to={to} className="card-cv group flex h-full flex-col p-5 hover:shadow-md">
+                  <Icon className="h-5 w-5 text-primary" aria-hidden="true" />
+                  <h3 className="mt-3 font-semibold group-hover:text-primary">{title}</h3>
+                  <p className="mt-1.5 flex-1 text-sm text-muted-foreground">{text}</p>
                 </Link>
               </li>
             ))}
           </ul>
-        </div>
-      </section>
-
-      <section className="container-cv py-16">
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <p className="eyebrow">From the blog</p>
-            <h2 className="mt-3 text-3xl font-semibold">Recent writing</h2>
-          </div>
-          <Link to="/blog" className="inline-flex shrink-0 items-center gap-1 font-medium text-primary hover:underline">
-            All posts <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          <Link to="/help" className="mt-8 inline-flex items-center gap-1 font-medium text-primary hover:underline">
+            See how everything works <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Link>
         </div>
-        <ul className="mt-8 grid gap-6 md:grid-cols-3">
-          {(posts.data || []).map((p) => (
-            <li key={p.id}>
-              <Link to={`/blog/${p.slug}`} className="group block">
-                <p className="eyebrow">{p.category}</p>
-                <h3 className="mt-2 text-xl font-semibold leading-snug group-hover:text-primary">{p.title}</h3>
-                <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{p.excerpt}</p>
-                <p className="mt-2 text-xs text-muted-foreground">{formatDate(p.published_at || p.created_date)}</p>
-              </Link>
-            </li>
-          ))}
-        </ul>
       </section>
     </>
   );

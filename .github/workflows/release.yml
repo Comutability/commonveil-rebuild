@@ -1,0 +1,100 @@
+# Runs when a release tag (vX.Y.Z) is pushed: makes the GitHub release from the notes in
+# src/content/releases.json and, for versions that have one, builds the Docker image and
+# publishes it as ghcr.io/<owner>/commonveil:<version> (and :latest for the newest release).
+# Self-hosted sites check these releases for updates.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to (re)release, for example v0.16.0"
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - name: Release notes come from the default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: notes
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Write the notes for this version
+        run: node notes/scripts/release.mjs --notes "$TAG" > notes.md
+      - name: Create or update the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest="v$(node -p 'require("./notes/package.json").version')"
+          flag=$([ "$TAG" = "$latest" ] && echo "--latest" || echo "--latest=false")
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --title "Commonveil ${TAG#v}" --notes-file notes.md $flag
+          else
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "Commonveil ${TAG#v}" --notes-file notes.md --verify-tag $flag
+          fi
+
+  image:
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: notes
+      - name: Only versions from 0.16.0 have a Docker image
+        id: has
+        run: echo "dockerfile=$([ -f Dockerfile ] && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+      - if: steps.has.outputs.dockerfile == 'yes'
+        uses: docker/setup-qemu-action@v3
+      - if: steps.has.outputs.dockerfile == 'yes'
+        uses: docker/setup-buildx-action@v3
+      - if: steps.has.outputs.dockerfile == 'yes'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - if: steps.has.outputs.dockerfile == 'yes'
+        name: Image name
+        id: name
+        run: |
+          echo "image=ghcr.io/$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')/commonveil" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          latest="v$(node -p 'require("./notes/package.json").version')"
+          echo "latest=$([ "$TAG" = "$latest" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - if: steps.has.outputs.dockerfile == 'yes'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            COMMONVEIL_VERSION=${{ steps.name.outputs.version }}
+          # :latest only ever points at the newest release.
+          tags: |
+            ${{ steps.name.outputs.image }}:${{ steps.name.outputs.version }}
+            ${{ steps.name.outputs.latest == 'true' && format('{0}:latest', steps.name.outputs.image) || '' }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.name.outputs.version }}
+            org.opencontainers.image.licenses=AGPL-3.0-only

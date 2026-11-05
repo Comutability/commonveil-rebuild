@@ -1,17 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
-import { Bookmark, Lock, Menu, Search, X } from "lucide-react";
+import { Lock, Menu, Search, X } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
 import Logo from "./Logo";
+import { APP_VERSION } from "@/lib/site/version.js";
 
 const NAV = [
-  ["/guides", "Guides"],
-  ["/paths", "Paths"],
-  ["/wiki", "Wiki"],
-  ["/blog", "Blog"],
-  ["/resources", "Resources"],
   ["/help", "Help"],
+  ["/resources", "Resources"],
+  ["/security", "Security"],
 ];
 
 const linkClass = ({ isActive }) =>
@@ -42,9 +40,6 @@ export default function SiteLayout() {
           <div className="flex items-center gap-1 sm:gap-2">
             <Link to="/search" className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Search the site" title="Search">
               <Search className="h-5 w-5" aria-hidden="true" />
-            </Link>
-            <Link to="/saved" className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Saved on this browser" title="Saved">
-              <Bookmark className="h-5 w-5" aria-hidden="true" />
             </Link>
             <Button asChild size="sm">
               <Link to="/app">
@@ -86,11 +81,11 @@ export default function SiteLayout() {
           <div>
             <Logo />
             <p className="mt-3 max-w-xs text-sm text-muted-foreground">
-              Practical guides to owning your digital life, and a private place to talk.
+              A private place to talk, end-to-end encrypted, that you can run yourself.
             </p>
           </div>
           <div className="text-sm">
-            <p className="mb-2 font-semibold">Learn</p>
+            <p className="mb-2 font-semibold">Explore</p>
             <ul className="space-y-1.5 text-muted-foreground">
               {NAV.map(([to, label]) => (
                 <li key={to}>
@@ -106,6 +101,7 @@ export default function SiteLayout() {
             <ul className="space-y-1.5 text-muted-foreground">
               <li><Link className="hover:text-foreground" to="/app">Encrypted messages</Link></li>
               <li><Link className="hover:text-foreground" to="/help/guide">The complete guide</Link></li>
+              <li><Link className="hover:text-foreground" to="/releases">Releases</Link></li>
               <li><Link className="hover:text-foreground" to="/privacy">Privacy: what we hold</Link></li>
               <li><Link className="hover:text-foreground" to="/security">Security and status</Link></li>
               <li><Link className="hover:text-foreground" to="/security/report">Report a security problem</Link></li>
@@ -115,7 +111,8 @@ export default function SiteLayout() {
         <div className="border-t border-border">
           <p className="container-cv py-5 text-xs text-muted-foreground">
             No ads, no analytics and no third-party trackers in this site's code. Commonveil's encryption has not yet had an
-            independent audit; see <Link className="underline hover:text-foreground" to="/security">Security</Link>.
+            independent audit; see <Link className="underline hover:text-foreground" to="/security">Security</Link>.{" "}
+            <Link className="underline hover:text-foreground" to="/releases">Version {APP_VERSION}</Link>.
           </p>
         </div>
       </footer>

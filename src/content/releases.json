@@ -1,0 +1,244 @@
+{
+  "repository": "Comutability/commonveil-rebuild",
+  "releases": [
+    {
+      "version": "0.15.0",
+      "date": "2026-11-05",
+      "title": "A tighter site, with release notes",
+      "commit": null,
+      "notes": [
+        "Guides, learning paths, the wiki and the blog have been removed, so the site is about Commonveil itself. Their old addresses now lead to the Help Centre.",
+        "Release notes for every version, from 0.1.0 onwards, on the site and as tags on GitHub.",
+        "The site's version is shown at the bottom of every page."
+      ]
+    },
+    {
+      "version": "0.14.0",
+      "date": "2026-11-05",
+      "title": "Help Centre",
+      "commit": "07c099747c8f945151ee0f14ebd4003943dced36",
+      "notes": [
+        "A Help Centre with an article for every feature: what it's for, how to use it and what it shares.",
+        "The complete guide on one page, to print or download, and as docs/USER_GUIDE.md on GitHub.",
+        "\"How this works\" links from settings pages to the right article."
+      ]
+    },
+    {
+      "version": "0.13.1",
+      "date": "2026-11-05",
+      "title": "Scheduled tasks fixed",
+      "commit": "f4f8eeea47e6b2af277cd0ccac8e496dfbb09c81",
+      "notes": [
+        "Scheduled tasks now run reliably: scheduled messages, check-ins and self-destructing conversations every 5 minutes, disappearing messages every 30 minutes, and opt-in account deletion daily.",
+        "The self-destruct menu no longer lists \"Off\" twice."
+      ]
+    },
+    {
+      "version": "0.13.0",
+      "date": "2026-11-05",
+      "title": "Send later, safety check-ins and self-destructing chats",
+      "commit": "8c2f5b9e09b0748842073142b2e8ca87662a3397",
+      "notes": [
+        "Send later: write now, deliver from a minute to a year ahead.",
+        "Safety check-ins: a message that sends itself unless you tap \"I'm OK\" in time.",
+        "Self-destructing conversations, deleted for everyone at a time you choose.",
+        "A privacy report showing everything the service holds about you, with a privacy checkup.",
+        "Quiet hours and focus for notifications, kept on your device."
+      ]
+    },
+    {
+      "version": "0.12.1",
+      "date": "2026-11-05",
+      "title": "Names in moderation",
+      "commit": "dcf93e446f1652fdf3ee9d3e6bb927461bc875ec",
+      "notes": [
+        "Reports and cases show the names of members who aren't in the member list, instead of \"Member\"."
+      ]
+    },
+    {
+      "version": "0.12.0",
+      "date": "2026-11-05",
+      "title": "Security audit and built-in moderation",
+      "commit": "376d4a8087f3cc7214a3ae91eed2d3d2e6c454a4",
+      "notes": [
+        "Fixes from a full security review: channel permissions, private channels, call membership checks and safer word matching.",
+        "Reports to a server's moderators, encrypted to them alone, and escalation to the Commonveil team.",
+        "Numbered cases, warnings with automatic steps, flood and raid protection, staff limits, temporary bans and message purges."
+      ]
+    },
+    {
+      "version": "0.11.0",
+      "date": "2026-11-05",
+      "title": "Files, voice messages, events and more",
+      "commit": "f9c3caa40380100c0fb3bf43f2a30df24332e6f0",
+      "notes": [
+        "Encrypted files and voice messages.",
+        "A server's own emoji and stickers, AutoMod, threads and events.",
+        "Optional online status and typing, stage channels, and calls in conversations."
+      ]
+    },
+    {
+      "version": "0.10.0",
+      "date": "2026-11-05",
+      "title": "Video and screen sharing",
+      "commit": "b24e7e5505a7979bedaec13c12108a662176de79",
+      "notes": [
+        "Turn your camera on or share your screen in calls, with every video frame encrypted too."
+      ]
+    },
+    {
+      "version": "0.9.0",
+      "date": "2026-11-05",
+      "title": "Polls, inbox and quick switcher",
+      "commit": "5b83d93df3aa3db37f0d1c5f4fbcc45237d32bad",
+      "notes": [
+        "Polls, every emoji as a reaction, an inbox for mentions and unread channels, saved messages, a quick switcher (Ctrl + K), server folders, private notes and forwarding."
+      ]
+    },
+    {
+      "version": "0.8.2",
+      "date": "2026-11-05",
+      "title": "Calls recover from network drops",
+      "commit": "0f128d86185f6a301cede446e9439592169ff132",
+      "notes": [
+        "Calls find a new route by themselves after a network drop."
+      ]
+    },
+    {
+      "version": "0.8.1",
+      "date": "2026-11-05",
+      "title": "Calls survive a quick reconnect",
+      "commit": "30152b4b89e0325006f266d66ec942e5107e3d47",
+      "notes": [
+        "You keep your place in a call through a quick reconnect."
+      ]
+    },
+    {
+      "version": "0.8.0",
+      "date": "2026-11-05",
+      "title": "Encrypted voice calls",
+      "commit": "d4965dbaeec09c760c32b442a6e89a361928c168",
+      "notes": [
+        "Peer-to-peer voice calls in voice channels, with signed connections and every audio frame encrypted with the channel's keys."
+      ]
+    },
+    {
+      "version": "0.7.1",
+      "date": "2026-11-05",
+      "title": "Server settings fixes",
+      "commit": "c693393d2f13e0f56a026f7c6cc2de2d9abfe0f9",
+      "notes": [
+        "Server settings load correctly after a reload, a note about staff in member lists, and clearer text while waiting for keys."
+      ]
+    },
+    {
+      "version": "0.7.0",
+      "date": "2026-11-05",
+      "title": "Servers and the community hub",
+      "commit": "8f8b377602acfc14fb6f56b8dbc852ca30ccf1e4",
+      "notes": [
+        "Encrypted servers with channels, roles, invites and Discover, the Commonveil Community server, and post-quantum hybrid keys, now live."
+      ]
+    },
+    {
+      "version": "0.6.1",
+      "date": "2026-11-05",
+      "title": "Faster server updates",
+      "commit": "2ab24a8e9b082d83568ff66291aa9c6da1507e9d",
+      "notes": [
+        "Server changes are checked separately from messages."
+      ]
+    },
+    {
+      "version": "0.6.0",
+      "date": "2026-11-05",
+      "title": "A new layout",
+      "commit": "dfff2fe67e3c32877ed0d44b555f12a8c9636453",
+      "notes": [
+        "A server rail, channel list, chat, forums, tickets and settings, laid out like Discord."
+      ]
+    },
+    {
+      "version": "0.5.1",
+      "date": "2026-11-05",
+      "title": "Who hands out keys",
+      "commit": "29a24643efda26fe78798ed5898adf204ba521c2",
+      "notes": [
+        "Servers choose whether any member's app or only staff hand keys to newcomers."
+      ]
+    },
+    {
+      "version": "0.5.0",
+      "date": "2026-11-05",
+      "title": "Post-quantum keys and encrypted servers",
+      "commit": "27e1bc294c8daeb86b0b20133d993108330c90a0",
+      "notes": [
+        "Keys sealed with ML-KEM-768 and P-256 together, and the groundwork for encrypted servers."
+      ]
+    },
+    {
+      "version": "0.4.2",
+      "date": "2026-10-31",
+      "title": "Checks after going live",
+      "commit": "7823231f6c04ce6658c47019fcfb65cb6b8eb6fa",
+      "notes": [
+        "The live site was checked, and the security policy test fixed."
+      ]
+    },
+    {
+      "version": "0.4.1",
+      "date": "2026-10-31",
+      "title": "Live, with updated privacy pages",
+      "commit": "c6306cfef11d483876c6e4a11b64b6e3b04f25be",
+      "notes": [
+        "The new features were verified on the live site, and the Privacy and Security pages updated."
+      ]
+    },
+    {
+      "version": "0.4.0",
+      "date": "2026-10-30",
+      "title": "Replies, reactions and a passcode lock",
+      "commit": "91f76e4ca89782cfe076be78e7da517ab67103cd",
+      "notes": [
+        "Replies, reactions and edits; disappearing-message timers and group admins; alerts; message search on your device; a passcode lock; a download of your data; opt-in auto-delete; and site search."
+      ]
+    },
+    {
+      "version": "0.3.0",
+      "date": "2026-10-30",
+      "title": "Timers, admins and security emails",
+      "commit": "7a7ce286817d317f496193e3f8202987bf3aee1c",
+      "notes": [
+        "Disappearing messages, group admins, security emails, opt-in deletion of unused accounts and scheduled clean-up, on the server."
+      ]
+    },
+    {
+      "version": "0.2.0",
+      "date": "2026-10-30",
+      "title": "Protocol version 2",
+      "commit": "a48d946e9e314577d40622805f194ca429970415",
+      "notes": [
+        "Fixes from a review of the encryption protocol, each member reading with their own access, and a staff tool for erasing what removed sign-ins left behind."
+      ]
+    },
+    {
+      "version": "0.1.1",
+      "date": "2026-10-29",
+      "title": "Signed group changes",
+      "commit": "1eb8e3ccdcfd23431abe6e96356cbd07d9322972",
+      "notes": [
+        "Changes to groups need a device signature, membership can be paused, a stale-keys fix, and a browser test suite."
+      ]
+    },
+    {
+      "version": "0.1.0",
+      "date": "2026-10-29",
+      "title": "The rebuild",
+      "commit": "532f18b75aaf49b3d87bfa08df902c828328e0de",
+      "notes": [
+        "Commonveil rebuilt from scratch: end-to-end encrypted direct messages and groups, device linking, a 24-word recovery phrase and safety numbers.",
+        "The public site, with content brought over from the old one."
+      ]
+    }
+  ]
+}

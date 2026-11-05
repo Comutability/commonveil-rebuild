@@ -1,0 +1,170 @@
+# Changelog
+
+Every release of Commonveil. The newest is first. Versions follow [semantic versioning](https://semver.org): a new
+minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
+
+> Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
+
+## [0.15.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.15.0): A tighter site, with release notes
+
+_2026-11-05_
+
+- Guides, learning paths, the wiki and the blog have been removed, so the site is about Commonveil itself. Their old addresses now lead to the Help Centre.
+- Release notes for every version, from 0.1.0 onwards, on the site and as tags on GitHub.
+- The site's version is shown at the bottom of every page.
+
+## [0.14.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.14.0): Help Centre
+
+_2026-11-05_
+
+- A Help Centre with an article for every feature: what it's for, how to use it and what it shares.
+- The complete guide on one page, to print or download, and as docs/USER_GUIDE.md on GitHub.
+- "How this works" links from settings pages to the right article.
+
+## [0.13.1](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.13.1): Scheduled tasks fixed
+
+_2026-11-05_
+
+- Scheduled tasks now run reliably: scheduled messages, check-ins and self-destructing conversations every 5 minutes, disappearing messages every 30 minutes, and opt-in account deletion daily.
+- The self-destruct menu no longer lists "Off" twice.
+
+## [0.13.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.13.0): Send later, safety check-ins and self-destructing chats
+
+_2026-11-05_
+
+- Send later: write now, deliver from a minute to a year ahead.
+- Safety check-ins: a message that sends itself unless you tap "I'm OK" in time.
+- Self-destructing conversations, deleted for everyone at a time you choose.
+- A privacy report showing everything the service holds about you, with a privacy checkup.
+- Quiet hours and focus for notifications, kept on your device.
+
+## [0.12.1](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.12.1): Names in moderation
+
+_2026-11-05_
+
+- Reports and cases show the names of members who aren't in the member list, instead of "Member".
+
+## [0.12.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.12.0): Security audit and built-in moderation
+
+_2026-11-05_
+
+- Fixes from a full security review: channel permissions, private channels, call membership checks and safer word matching.
+- Reports to a server's moderators, encrypted to them alone, and escalation to the Commonveil team.
+- Numbered cases, warnings with automatic steps, flood and raid protection, staff limits, temporary bans and message purges.
+
+## [0.11.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.11.0): Files, voice messages, events and more
+
+_2026-11-05_
+
+- Encrypted files and voice messages.
+- A server's own emoji and stickers, AutoMod, threads and events.
+- Optional online status and typing, stage channels, and calls in conversations.
+
+## [0.10.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.10.0): Video and screen sharing
+
+_2026-11-05_
+
+- Turn your camera on or share your screen in calls, with every video frame encrypted too.
+
+## [0.9.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.9.0): Polls, inbox and quick switcher
+
+_2026-11-05_
+
+- Polls, every emoji as a reaction, an inbox for mentions and unread channels, saved messages, a quick switcher (Ctrl + K), server folders, private notes and forwarding.
+
+## [0.8.2](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.8.2): Calls recover from network drops
+
+_2026-11-05_
+
+- Calls find a new route by themselves after a network drop.
+
+## [0.8.1](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.8.1): Calls survive a quick reconnect
+
+_2026-11-05_
+
+- You keep your place in a call through a quick reconnect.
+
+## [0.8.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.8.0): Encrypted voice calls
+
+_2026-11-05_
+
+- Peer-to-peer voice calls in voice channels, with signed connections and every audio frame encrypted with the channel's keys.
+
+## [0.7.1](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.7.1): Server settings fixes
+
+_2026-11-05_
+
+- Server settings load correctly after a reload, a note about staff in member lists, and clearer text while waiting for keys.
+
+## [0.7.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.7.0): Servers and the community hub
+
+_2026-11-05_
+
+- Encrypted servers with channels, roles, invites and Discover, the Commonveil Community server, and post-quantum hybrid keys, now live.
+
+## [0.6.1](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.6.1): Faster server updates
+
+_2026-11-05_
+
+- Server changes are checked separately from messages.
+
+## [0.6.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.6.0): A new layout
+
+_2026-11-05_
+
+- A server rail, channel list, chat, forums, tickets and settings, laid out like Discord.
+
+## [0.5.1](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.5.1): Who hands out keys
+
+_2026-11-05_
+
+- Servers choose whether any member's app or only staff hand keys to newcomers.
+
+## [0.5.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.5.0): Post-quantum keys and encrypted servers
+
+_2026-11-05_
+
+- Keys sealed with ML-KEM-768 and P-256 together, and the groundwork for encrypted servers.
+
+## [0.4.2](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.4.2): Checks after going live
+
+_2026-10-31_
+
+- The live site was checked, and the security policy test fixed.
+
+## [0.4.1](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.4.1): Live, with updated privacy pages
+
+_2026-10-31_
+
+- The new features were verified on the live site, and the Privacy and Security pages updated.
+
+## [0.4.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.4.0): Replies, reactions and a passcode lock
+
+_2026-10-30_
+
+- Replies, reactions and edits; disappearing-message timers and group admins; alerts; message search on your device; a passcode lock; a download of your data; opt-in auto-delete; and site search.
+
+## [0.3.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.3.0): Timers, admins and security emails
+
+_2026-10-30_
+
+- Disappearing messages, group admins, security emails, opt-in deletion of unused accounts and scheduled clean-up, on the server.
+
+## [0.2.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.2.0): Protocol version 2
+
+_2026-10-30_
+
+- Fixes from a review of the encryption protocol, each member reading with their own access, and a staff tool for erasing what removed sign-ins left behind.
+
+## [0.1.1](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.1.1): Signed group changes
+
+_2026-10-29_
+
+- Changes to groups need a device signature, membership can be paused, a stale-keys fix, and a browser test suite.
+
+## [0.1.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.1.0): The rebuild
+
+_2026-10-29_
+
+- Commonveil rebuilt from scratch: end-to-end encrypted direct messages and groups, device linking, a 24-word recovery phrase and safety numbers.
+- The public site, with content brought over from the old one.

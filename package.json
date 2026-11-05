@@ -1,7 +1,8 @@
 {
-  "name": "base44-app",
+  "name": "commonveil",
   "private": true,
-  "version": "0.0.0",
+  "license": "AGPL-3.0-only",
+  "version": "0.15.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,7 +13,8 @@
     "preview": "vite preview",
     "test": "node --test tests/*.test.mjs",
     "verify": "npm run lint && npm test && npm run build && npm run check:bundle",
-    "check:bundle": "node scripts/check-bundle.mjs"
+    "check:bundle": "node scripts/check-bundle.mjs",
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "@base44/sdk": "^0.8.59",

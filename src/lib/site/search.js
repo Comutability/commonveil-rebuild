@@ -19,13 +19,9 @@ export function plainText(markdown) {
 }
 
 /** Everything searchable, as one list. */
-export function toDocs({ guides = [], wiki = [], blog = [], paths = [], resources = [], help = [] }) {
+export function toDocs({ resources = [], help = [] }) {
   const docs = [];
   for (const h of help) docs.push({ kind: "help", url: `/help/${h.slug}`, title: h.title, summary: h.summary, category: h.section, tags: [], body: h.body });
-  for (const g of guides) docs.push({ kind: "guide", url: `/guides/${g.slug}`, title: g.title, summary: g.summary, category: g.category, tags: [g.difficulty], body: g.body });
-  for (const w of wiki) docs.push({ kind: "wiki", url: `/wiki/${w.slug}`, title: w.title, summary: w.summary, category: w.category, tags: [], body: w.body });
-  for (const b of blog) docs.push({ kind: "blog", url: `/blog/${b.slug}`, title: b.title, summary: b.excerpt, category: b.category, tags: b.tags || [], body: b.body });
-  for (const p of paths) docs.push({ kind: "path", url: `/paths/${p.slug}`, title: p.title, summary: p.summary, category: p.category, tags: [p.difficulty], body: p.description });
   for (const r of resources) docs.push({ kind: "resource", url: "/resources", external: r.website || null, title: r.name, summary: r.description, category: r.category, tags: [r.pricing_summary], body: "" });
   return docs.filter((d) => d.title);
 }

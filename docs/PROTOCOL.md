@@ -344,6 +344,6 @@ account whose sign-in was removed in Base44, only after two separate checks conf
   (it applies the real row rules to members' own reads), including attack cases, a regression test for each review
   finding, disappearing messages, group admins, security emails, auto-delete and the scheduled tasks (53 tests).
 - `tests/thread.test.mjs`: replies, reactions, edits, timers and on-device search (8 tests).
-- `tests/site.test.mjs`: saved pages, guide progress and site search on the public site (2 tests).
+- `tests/site.test.mjs`: site search on the public site.
 - `tests/schema.test.mjs`: table definitions: no clashes with Base44's own fields, and the exact access rules (3 tests).
 - `tests/e2e/`: live browser runs against the real platform (see its README).

@@ -30,7 +30,6 @@ const NEVER = [
   "What you've read: read markers stay on your device",
   "What you search for: message search runs on your device, site search in your browser",
   "Your notification settings: they stay in your browser, and there are no push notifications",
-  "Your saved pages and finished guides: they stay in your browser",
   "Analytics, advertising IDs or third-party trackers: this site's code has none",
 ];
 
@@ -41,7 +40,6 @@ const ON_DEVICE = [
   ["Your organisation", "Saved messages, private notes on people, server folders and per-channel notification choices are kept in this browser only."],
   ["Online status and typing", "Whether you share them. Off unless you turn them on."],
   ["Alerts", "Whether to show notifications, whether they name the sender, and whether to put an unread count in the tab title. All off until you turn them on."],
-  ["Saved pages and progress", "Guides, wiki pages, posts and paths you save, and guides you mark as done, with the day. Clear them from the Saved page."],
   ["Your data download", "Made in your browser from what you can already see, and saved straight to your device. It holds your messages in readable form, so keep it safe."],
 ];
 

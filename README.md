@@ -8,8 +8,8 @@ review is published.
 
 ## What's here
 
-- **Public site:** a Help Centre (`/help`) covering every feature, blog, guides, learning paths, resources, wiki, privacy and security pages, and a private security
-  report form (`/security/report`, no account needed). Search, saved pages and guide progress run in the browser and are
+- **Public site:** a Help Centre (`/help`) covering every feature, release notes, resources, privacy and security pages, and a private security
+  report form (`/security/report`, no account needed). Search runs in the browser and is
   kept there. No analytics or trackers. A Content Security Policy is built in.
 - **Encrypted messaging:** direct messages and groups of up to 32, device linking with a compared code, a 24-word recovery
   phrase, key rotation when a device is removed, safety numbers and key-change warnings over each person's whole key
@@ -53,7 +53,7 @@ base44/functions/    15 backend functions: profile, keys, conversations, message
 base44/actors/       realtime rooms: VoiceRoom (call set-up relay) and Presence (opt-in status and typing, memory only)
 base44/shared/       request handling, signature checks, data access, security emails, scheduled tasks, the handlers
 base44/entities/     16 tables; nothing private can be written directly, and members can read only rows that name them
-src/lib/site/        saved pages, search and the Help Centre for the public site (in the browser only)
+src/lib/site/        search, the Help Centre and release notes for the public site (in the browser only)
 src/content/help/    Help Centre articles (Markdown); docs/USER_GUIDE.md is built from them
 tests/               crypto, backend, conversation, site and schema tests (npm test), live browser tests (tests/e2e)
 scripts/             check-bundle.mjs: the built site carries its policy and needs nothing it blocks;

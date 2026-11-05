@@ -69,8 +69,8 @@ check(/^Contact: https:\/\/commonveil\.online\/security\/report$/m.test(security
 
 // ---- Public pages ----
 const PAGES = [
-  "/", "/blog", "/blog/nostr-in-plain-english", "/guides", "/guides/docker-for-beginners", "/paths", "/paths/self-host-your-data",
-  "/resources", "/wiki", "/wiki/what-is-end-to-end-encryption", "/privacy", "/security", "/security/report", "/search", "/saved", "/login", "/register", "/no-such-page",
+  "/", "/help", "/help/send-later-and-check-ins", "/help/guide", "/releases",
+  "/resources", "/privacy", "/security", "/security/report", "/search", "/login", "/register", "/no-such-page",
 ];
 const V = await watched("visitor");
 for (const p of PAGES) {
@@ -78,7 +78,7 @@ for (const p of PAGES) {
   const h1 = await V.page.locator("h1").first().innerText({ timeout: 30000 }).catch(() => "");
   check(h1.length > 0, `${p} renders ("${h1.slice(0, 40)}")`);
 }
-await V.page.goto(`${BASE}/guides/docker-for-beginners`, { waitUntil: "networkidle", timeout: 90000 });
+await V.page.goto(`${BASE}/help/moderation`, { waitUntil: "networkidle", timeout: 90000 });
 check((await V.page.locator(".prose-cv h2").count()) > 0, "Markdown articles render");
 
 // ---- Anonymous security report ----

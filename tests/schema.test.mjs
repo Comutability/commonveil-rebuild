@@ -26,7 +26,7 @@ test("no entity defines a field Base44 already adds to every record", () => {
 });
 
 test("member data can't be changed directly, and only these reads are open, each to the people it's for", () => {
-  const PUBLIC_CONTENT = new Set(["BlogPost", "Guide", "LearningPath", "Resource", "WikiPage"]);
+  const PUBLIC_CONTENT = new Set(["Resource"]);
   // Polling and page loads read these with the member's own access, so they count against that
   // person's allowance, not the app's shared one. Each person can read only rows that name them.
   const own = { "data.user_id": "{{user.id}}" };

@@ -10,21 +10,11 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import SiteLayout from "@/components/site/SiteLayout";
 import { FullScreenLoading } from "@/components/site/bits";
 import Home from "@/pages/site/Home";
-import {
-  BlogArticle,
-  BlogIndex,
-  GuideArticle,
-  GuidesIndex,
-  PathDetail,
-  PathsIndex,
-  ResourcesIndex,
-  WikiArticle,
-  WikiIndex,
-} from "@/pages/site/ContentPages";
+import ResourcesIndex from "@/pages/site/Resources";
+import Releases from "@/pages/site/Releases";
 import Privacy from "@/pages/site/Privacy";
 import Security from "@/pages/site/Security";
 import ReportSecurityIssue from "@/pages/site/ReportSecurityIssue";
-import Saved from "@/pages/site/Saved";
 import Search from "@/pages/site/Search";
 import { HelpArticle, HelpGuide, HelpIndex } from "@/pages/site/Help";
 import NotFound from "@/pages/site/NotFound";
@@ -56,22 +46,18 @@ function AppRoutes() {
     <Routes>
       <Route element={<SiteLayout />}>
         <Route index element={<Home />} />
-        <Route path="blog" element={<BlogIndex />} />
-        <Route path="blog/:slug" element={<BlogArticle />} />
-        <Route path="guides" element={<GuidesIndex />} />
-        <Route path="guides/:slug" element={<GuideArticle />} />
-        <Route path="paths" element={<PathsIndex />} />
-        <Route path="paths/:slug" element={<PathDetail />} />
         <Route path="resources" element={<ResourcesIndex />} />
-        <Route path="wiki" element={<WikiIndex />} />
-        <Route path="wiki/:slug" element={<WikiArticle />} />
+        <Route path="releases" element={<Releases />} />
+        {/* Guides, learning paths, the wiki and the blog were removed in 0.15.0. */}
+        {["blog", "blog/:slug", "guides", "guides/:slug", "paths", "paths/:slug", "wiki", "wiki/:slug", "saved"].map((p) => (
+          <Route key={p} path={p} element={<Navigate to="/help" replace />} />
+        ))}
         <Route path="help" element={<HelpIndex />} />
         <Route path="help/guide" element={<HelpGuide />} />
         <Route path="help/:slug" element={<HelpArticle />} />
         <Route path="privacy" element={<Privacy />} />
         <Route path="security" element={<Security />} />
         <Route path="security/report" element={<ReportSecurityIssue />} />
-        <Route path="saved" element={<Saved />} />
         <Route path="search" element={<Search />} />
         <Route path="invite/:code" element={<InviteLanding />} />
         <Route path="*" element={<NotFound />} />
