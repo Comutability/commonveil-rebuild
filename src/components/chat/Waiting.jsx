@@ -56,7 +56,7 @@ export function WaitDialog({ conversation, mode, open, onOpenChange, onDone }) {
           <DialogTitle>{mode === "checkin" ? "Safety check-in" : "Send later"}</DialogTitle>
           <DialogDescription>
             {mode === "checkin"
-              ? "If you don't tap \"I'm OK\" in time, this message is sent here by itself. Useful for a first date, a long walk or a trip. It's encrypted now; nobody sees it unless it's sent."
+              ? "If you don't tap \"I'm OK\" in time, this message is sent here by itself. Useful for a first date, a long walk or a trip. It's encrypted now; nobody sees it unless it's sent. It can arrive up to a few minutes late, and it's no substitute for emergency services: in danger, call them."
               : "It's encrypted now and held, unreadable, until then. Only the people here now can read it."}
           </DialogDescription>
         </DialogHeader>
