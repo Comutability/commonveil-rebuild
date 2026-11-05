@@ -17,8 +17,8 @@ secret and bound to its context.
 
 - **Account keys.** A key version with a post-quantum key publishes it in the `account-key/v2` statement form (which adds
   `kem_pub` and, when the recovery phrase has one, `recovery_kem_pub`). Statements without one keep the `account-key/v1`
-  form, so older histories still verify. Accounts made before November 2026 get a post-quantum key at their next
-  rotation; the app rotates automatically once.
+  form, so older histories still verify. An account made before November 2026 gets a post-quantum key when one of its
+  devices next opens the app, which rotates its keys once.
 - **Devices.** A device certificate with a post-quantum key uses `device-cert/v2`. A device made earlier signs its new key
   itself (`device-kem/v1`) until its next certificate.
 - **What uses it.** Message key wraps (envelope version 3), keyrings sent to a new device, the recovery backup, and server
@@ -43,9 +43,9 @@ key, and a signed statement of its number, start time and a commitment (hash) to
 loses access (leaving, a ban, a role or channel change), so they never get the new key.
 
 **Grants.** Keys reach a member as grants: the key at a step, sealed to the member's current account key (post-quantum
-hybrid where they have one) and signed by the granting device. The recipient's app opens it only if the grant's signer is
-a device certified for a member who may hand out keys, and the key matches the generation's signed commitment. The service
-tracks who's waiting for which keys and checks a grant's recipient may hold that chain; members' apps hand keys out in the
+hybrid where they have one) and signed by the granting device. The recipient's app opens it only if the grant is signed by
+a device certified for the member who sent it, and the key matches the generation's signed commitment. The service tracks
+who's waiting for which keys, and checks that a grant's sender may hand keys out and its recipient may hold that chain; members' apps hand keys out in the
 background. A server chooses who may hand keys out: any member's app (newcomers get keys quickly; members' apps learn the
 account ids of people joining) or only staff with *Manage encryption* (ordinary members never learn who joins). The
 community server uses staff only.
