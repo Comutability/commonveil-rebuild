@@ -228,23 +228,27 @@ export class FakeWorld {
     };
   }
 
-  /** A test person's stored User record (created on first use, as signing in does on Base44). */
-  userRow(user) {
+  /**
+   * Add a person's User record, as signing in does on Base44. Tests that need one (row rules
+   * that read it, or the backend updating it) add it; tests/support/harness.mjs always does.
+   */
+  addUser(user) {
     const rows = this.entities.User._rows;
-    let row = rows.find((r) => r.id === user.id);
-    if (!row) {
+    if (!rows.some((r) => r.id === user.id)) {
       const at = this.tick();
-      row = { id: user.id, email: user.email, role: user.role, full_name: user.full_name, created_date: at, updated_date: at };
-      rows.push(row);
+      rows.push({ id: user.id, email: user.email, role: user.role, full_name: user.full_name, created_date: at, updated_date: at });
     }
-    return row;
   }
 
   /** Entities as the signed-in person sees them: the service store, filtered by each entity's rules. */
   #asPerson(user) {
     const world = this;
     const denied = (status, message) => Object.assign(new Error(message), { status });
-    const userData = (field) => (user ? clone(world.userRow(user)[field]) : undefined);
+    // {{user.data.<field>}} reads the stored record at query time; no record, no value.
+    const userData = (field) => {
+      const row = user ? world.entities.User._rows.find((r) => r.id === user.id) : null;
+      return row ? clone(row[field]) : undefined;
+    };
     return new Proxy({}, {
       get: (_target, name) => {
         if (typeof name !== "string") return undefined;
@@ -297,10 +301,7 @@ export class FakeWorld {
           },
           create: (...args) => store.create(...args),
           bulkCreate: (...args) => store.bulkCreate(...args),
-          update: (...args) => {
-            if (name === "User") world.userRowById(args[0]);
-            return store.update(...args);
-          },
+          update: (...args) => store.update(...args),
           updateMany: (...args) => store.updateMany(...args),
           delete: (...args) => store.delete(...args),
           deleteMany: (...args) => store.deleteMany(...args),
@@ -309,19 +310,8 @@ export class FakeWorld {
     });
   }
 
-  /** Make sure a User row exists for a known test person before the backend updates it. */
-  userRowById(id) {
-    const person = this.people?.get(id);
-    if (person) this.userRow(person);
-  }
-
   /** What createClientFromRequest returns inside a function, for a given caller. */
   clientFor(user) {
-    if (user) {
-      if (!this.people) this.people = new Map();
-      this.people.set(user.id, user);
-      this.userRow(user);
-    }
     return {
       entities: this.#asPerson(user),
       auth: {
