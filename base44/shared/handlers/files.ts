@@ -1,0 +1,131 @@
+// Attachments. Files are encrypted on the sender's device, in parts, before they reach this
+// function: it stores ciphertext it can't read, as private files, and hands out short-lived
+// links only to people who can see where the file was sent. The file's key, name and type
+// travel inside the end-to-end encrypted message, never here.
+import { ApiError, id, randomIdField, type Actions, type Ctx } from "../http.ts";
+import { signedByActiveDevice } from "../deviceAuth.ts";
+import { P, has } from "../permissions.ts";
+import { channelIn, permsOf, requireMember, serverParts } from "../servers/model.ts";
+import { countSince, rateLimited } from "../store.ts";
+
+export const FILE_LIMITS = Object.freeze({
+  /** Bytes of ciphertext in one part (the last part can be smaller). */
+  partBytes: 768 * 1024,
+  /** Parts in one file: up to about 10 MB. */
+  maxParts: 14,
+  /** Parts one account can upload in ten minutes. */
+  partsPer10Min: 150,
+  /** How long a download link works. */
+  linkSeconds: 300,
+  /** Links handed out in one request. */
+  maxLinks: 60,
+});
+
+/** Body size the files function accepts: one part, base64, plus the signed request around it. */
+export const FILES_MAX_BODY = Math.ceil((FILE_LIMITS.partBytes * 4) / 3) + 16 * 1024;
+
+const B64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+function decodePart(data: unknown): Uint8Array {
+  if (typeof data !== "string" || !data.length || data.length % 4 !== 0 || !B64_RE.test(data)) throw new ApiError(400, "BAD_FIELD", "Invalid file part.");
+  const bin = atob(data);
+  if (bin.length > FILE_LIMITS.partBytes || bin.length < 29) throw new ApiError(413, "TOO_LARGE", "That file part is too large.");
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** May this person see things posted at this place? Returns where, for the row. */
+async function placeFor(ctx: Ctx, data: any, { sending }: { sending: boolean }) {
+  const { sr, user } = ctx;
+  if (data.scope === "server") {
+    const serverId = id(data.server_id, "server");
+    const member = await requireMember(ctx.own, serverId, user.id);
+    const parts = await serverParts(sr, serverId);
+    const channel = channelIn(parts, id(data.channel_id, "channel"));
+    const perms = permsOf(parts, member, channel);
+    if (!has(perms, P.VIEW_CHANNEL)) throw new ApiError(404, "NOT_FOUND", "Not found.");
+    if (sending) {
+      if (!has(perms, P.SEND_MESSAGES) && !has(perms, P.CREATE_POSTS)) throw new ApiError(403, "MISSING_PERMISSION", "You can't post files here.");
+      if (member.timeout_until && Date.parse(member.timeout_until) > ctx.now.getTime()) throw new ApiError(403, "TIMED_OUT", "You're timed out in this server.");
+    }
+    return { scope: "server", scope_id: serverId, channel_id: channel.id };
+  }
+  if (data.scope === "conversation") {
+    const conv = await sr.entities.Conversation.get(id(data.conversation_id, "conversation")).catch(() => null);
+    if (!conv || !(conv.member_ids || []).includes(user.id)) throw new ApiError(404, "NOT_FOUND", "Not found.");
+    return { scope: "conversation", scope_id: conv.id, channel_id: "" };
+  }
+  throw new ApiError(400, "BAD_FIELD", "Invalid place.");
+}
+
+export const fileActions: Actions = {
+  /** Store one encrypted part of a file about to be sent. Returns its handle for the message. */
+  async upload_part(ctx: Ctx) {
+    const { sr, user, now } = ctx;
+    const { data } = await signedByActiveDevice(ctx, "upload_part");
+    const place = await placeFor(ctx, data, { sending: true });
+    const msgId = randomIdField(data.msg_id, "message id");
+    const part = Number(data.part);
+    const parts = Number(data.parts);
+    if (!Number.isInteger(parts) || parts < 1 || parts > FILE_LIMITS.maxParts || !Number.isInteger(part) || part < 0 || part >= parts) {
+      throw new ApiError(400, "BAD_FIELD", "That file is too large: files can be up to 10 MB.");
+    }
+    const bytes = decodePart(data.data);
+    if ((await countSince(sr, "Attachment", { owner_id: user.id }, new Date(now.getTime() - 600_000), FILE_LIMITS.partsPer10Min)) >= FILE_LIMITS.partsPer10Min) {
+      throw rateLimited("uploading files");
+    }
+    const file = new File([bytes], `${msgId}-${part}.bin`, { type: "application/octet-stream" });
+    const { file_uri } = await sr.integrations.Core.UploadPrivateFile({ file });
+    if (typeof file_uri !== "string" || !file_uri) throw new ApiError(502, "UPLOAD_FAILED", "The file couldn't be stored. Try again.");
+    const row = await sr.entities.Attachment.create({ ...place, owner_id: user.id, msg_id: msgId, part, parts, size: bytes.length, file_uri });
+    return { file_id: row.id };
+  },
+
+  /** Short-lived download links for parts you can see. Unknown or unreachable ones are left out. */
+  async download_links(ctx: Ctx) {
+    const { sr, body } = ctx;
+    const ids = Array.isArray(body.file_ids) ? [...new Set(body.file_ids.filter((x: unknown) => typeof x === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(x)))].slice(0, FILE_LIMITS.maxLinks) : [];
+    if (!ids.length) return { links: {} };
+    const rows = await sr.entities.Attachment.filter({ id: { $in: ids } }, "created_date", ids.length);
+    const allowed = new Map<string, boolean>();
+    const links: Record<string, string> = {};
+    for (const row of rows) {
+      const key = `${row.scope}:${row.scope_id}:${row.channel_id}`;
+      if (!allowed.has(key)) {
+        const ok = await placeFor(ctx, row.scope === "server" ? { scope: "server", server_id: row.scope_id, channel_id: row.channel_id } : { scope: "conversation", conversation_id: row.scope_id }, { sending: false })
+          .then(() => true)
+          .catch(() => false);
+        allowed.set(key, ok);
+      }
+      if (!allowed.get(key)) continue;
+      const { signed_url } = await sr.integrations.Core.CreateFileSignedUrl({ file_uri: row.file_uri, expires_in: FILE_LIMITS.linkSeconds });
+      if (typeof signed_url === "string") links[row.id] = signed_url;
+    }
+    return { links };
+  },
+};
+
+/**
+ * Scheduled clean-up: parts whose message no longer exists (deleted, disappeared, or never
+ * sent) stop being reachable. An hour's grace covers a message still being sent.
+ */
+export async function forgetOrphanedFiles(sr: any, now: Date, deadline: number) {
+  const before = new Date(now.getTime() - 3600_000).toISOString().replace("Z", "");
+  const rows = await sr.entities.Attachment.filter({ created_date: { $lte: before } }, "created_date", 200);
+  const seen = new Map<string, boolean>();
+  let removed = 0;
+  for (const row of rows) {
+    if (Date.now() > deadline) break;
+    const key = `${row.scope}:${row.msg_id}`;
+    if (!seen.has(key)) {
+      const entity = row.scope === "server" ? "ServerMessage" : "Message";
+      const found = await sr.entities[entity].filter({ msg_id: row.msg_id }, "created_date", 1);
+      seen.set(key, found.length > 0 && !found[0].deleted);
+    }
+    if (seen.get(key)) continue;
+    await sr.entities.Attachment.delete(row.id).catch(() => null);
+    removed += 1;
+  }
+  return removed;
+}
