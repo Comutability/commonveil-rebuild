@@ -334,6 +334,27 @@ export function ServerProvider({ children }) {
     setTimeout(() => serviceKeys(serverId).catch(() => {}), 0);
   }, [serviceKeys]);
 
+  /**
+   * Start new key generations for every chain this device can read (MANAGE_KEYS). Everyone who
+   * still belongs gets the new keys by hand-out; anyone removed meanwhile doesn't.
+   */
+  const renewKeys = useCallback(async (serverId) => {
+    const e = serversRef.current[serverId];
+    if (!e?.chains) return;
+    for (const c of e.chains) {
+      if (!canReadChain(e, c)) continue;
+      const latestGen = SP.latestGeneration(e.generations, c.chain_id);
+      if (!latestGen) continue;
+      try {
+        await createGeneration(serverId, c.chain_id, latestGen.generation + 1);
+      } catch (err) {
+        if (err?.code !== "GENERATION_TAKEN") throw err;
+      }
+    }
+    await loadState(serverId);
+    await serviceKeys(serverId);
+  }, [createGeneration, loadState, serviceKeys]);
+
   // ---------- loading ----------
 
   const applyList = useCallback((res) => {
@@ -1184,6 +1205,7 @@ export function ServerProvider({ children }) {
     listTickets,
     openTicket,
     setTicketStatus,
+    renewKeys,
     retryKeys: (sid) => serviceKeys(sid),
   }), [
     loaded, loadError, servers, order, rows, opened, hasMore, readState, prefs, unread, memberLists, keysTick,
@@ -1192,7 +1214,7 @@ export function ServerProvider({ children }) {
     sendText, sendPost, react, edit, deleteMessage, pinMessage, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
     toggleCollapsed, moveServer, act, setServerProfile, setServerRules, updateSettings, setNickname, createChannel, updateChannel,
     createRole, updateRole, banMember, openBanReason, joinServer, leaveServer, deleteServer, createServer, createInvite, listInvites,
-    revokeInvite, discover, listTickets, openTicket, setTicketStatus, serviceKeys,
+    revokeInvite, discover, listTickets, openTicket, setTicketStatus, renewKeys, serviceKeys,
   ]);
 
   return <ServerContext.Provider value={value}>{children}</ServerContext.Provider>;
