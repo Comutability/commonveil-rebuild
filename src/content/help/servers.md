@@ -27,7 +27,7 @@ Right-click a server or channel (or use its menu) and choose **Notifications**: 
 
 ## You, in this server
 
-From the server's menu choose **Server settings**, then **You, in this server** (or **Privacy settings**), to:
+From the server's menu choose **Privacy settings** (or **Server settings → Privacy and encryption**). Under **You, in this server** you can:
 
 - **List me in the member list:** off unless you turn it on. Nobody appears in a server's member list unless they choose to, except its staff, so members can see who runs it.
 - **Change my nickname here:** a name just for this server, encrypted like everything else.

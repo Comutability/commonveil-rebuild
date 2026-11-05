@@ -20,7 +20,7 @@ From the server's menu choose **Invite people**. Set **Expire after** and **Max 
 
 ## Channels and categories
 
-From the server's menu choose **Create channel** or **Create category**. Each channel's own settings let you rename it, change its topic, and set who can see and use it (see [roles and permissions](/help/roles-and-permissions)).
+From the server's menu choose **Create channel** or **Create category**. Each channel has its own settings: name, topic and category; **History for people who join later**; **Slow mode** (how often each person can post); **Disappearing messages** for the channel; and **Permissions**, to change what each role can do there (see [roles and permissions](/help/roles-and-permissions)).
 
 ## Server settings
 
