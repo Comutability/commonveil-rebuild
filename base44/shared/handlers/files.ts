@@ -78,7 +78,7 @@ export const fileActions: Actions = {
     const file = new File([bytes], `${msgId}-${part}.bin`, { type: "application/octet-stream" });
     const { file_uri } = await sr.integrations.Core.UploadPrivateFile({ file });
     if (typeof file_uri !== "string" || !file_uri) throw new ApiError(502, "UPLOAD_FAILED", "The file couldn't be stored. Try again.");
-    const row = await sr.entities.Attachment.create({ ...place, owner_id: user.id, msg_id: msgId, part, parts, size: bytes.length, file_uri });
+    const row = await sr.entities.Attachment.create({ ...place, owner_id: user.id, msg_id: msgId, part, parts, size: bytes.length, file_uri, swept_at: "" });
     return { file_id: row.id };
   },
 
@@ -89,6 +89,7 @@ export const fileActions: Actions = {
     if (!ids.length) return { links: {} };
     const rows = await sr.entities.Attachment.filter({ id: { $in: ids } }, "created_date", ids.length);
     const allowed = new Map<string, boolean>();
+    const live = new Map<string, boolean>();
     const links: Record<string, string> = {};
     for (const row of rows) {
       const key = `${row.scope}:${row.scope_id}:${row.channel_id}`;
@@ -99,6 +100,10 @@ export const fileActions: Actions = {
         allowed.set(key, ok);
       }
       if (!allowed.get(key)) continue;
+      // A file goes with its message: once that's deleted or has disappeared, so has the file.
+      const msgKey = `${row.scope}:${row.msg_id}`;
+      if (!live.has(msgKey)) live.set(msgKey, await messageExists(sr, row));
+      if (!live.get(msgKey)) continue;
       const { signed_url } = await sr.integrations.Core.CreateFileSignedUrl({ file_uri: row.file_uri, expires_in: FILE_LIMITS.linkSeconds });
       if (typeof signed_url === "string") links[row.id] = signed_url;
     }
@@ -106,26 +111,34 @@ export const fileActions: Actions = {
   },
 };
 
+async function messageExists(sr: any, row: any) {
+  const found = row.scope === "server"
+    ? await sr.entities.ServerMessage.filter({ msg_id: row.msg_id, server_id: row.scope_id }, "created_date", 1)
+    : await sr.entities.Message.filter({ msg_id: row.msg_id, conversation_id: row.scope_id }, "created_date", 1);
+  return found.length > 0 && !found[0].deleted;
+}
+
 /**
- * Scheduled clean-up: parts whose message no longer exists (deleted, disappeared, or never
- * sent) stop being reachable. An hour's grace covers a message still being sent.
+ * Scheduled clean-up: forget parts whose message no longer exists (deleted, disappeared, or
+ * never sent; an hour's grace covers one still being sent). Rows still in use are checked again
+ * a day later. Links already stop working the moment a message goes (see download_links).
  */
 export async function forgetOrphanedFiles(sr: any, now: Date, deadline: number) {
-  const before = new Date(now.getTime() - 3600_000).toISOString().replace("Z", "");
-  const rows = await sr.entities.Attachment.filter({ created_date: { $lte: before } }, "created_date", 200);
+  const hourAgo = new Date(now.getTime() - 3600_000).toISOString().replace("Z", "");
+  const dayAgo = new Date(now.getTime() - 86_400_000).toISOString();
+  const fresh = await sr.entities.Attachment.filter({ swept_at: "", created_date: { $lte: hourAgo } }, "created_date", 100);
+  const stale = await sr.entities.Attachment.filter({ swept_at: { $gt: "", $lte: dayAgo } }, "swept_at", 100);
   const seen = new Map<string, boolean>();
   let removed = 0;
-  for (const row of rows) {
+  for (const row of [...fresh, ...stale]) {
     if (Date.now() > deadline) break;
     const key = `${row.scope}:${row.msg_id}`;
-    if (!seen.has(key)) {
-      const entity = row.scope === "server" ? "ServerMessage" : "Message";
-      const found = await sr.entities[entity].filter({ msg_id: row.msg_id }, "created_date", 1);
-      seen.set(key, found.length > 0 && !found[0].deleted);
+    if (!seen.has(key)) seen.set(key, await messageExists(sr, row));
+    if (seen.get(key)) await sr.entities.Attachment.update(row.id, { swept_at: now.toISOString() }).catch(() => null);
+    else {
+      await sr.entities.Attachment.delete(row.id).catch(() => null);
+      removed += 1;
     }
-    if (seen.get(key)) continue;
-    await sr.entities.Attachment.delete(row.id).catch(() => null);
-    removed += 1;
   }
   return removed;
 }

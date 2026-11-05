@@ -1,0 +1,19 @@
+{
+  "name": "Attachment",
+  "type": "object",
+  "description": "One encrypted part of a file sent in a message. The service holds ciphertext only; the key, name and type are inside the end-to-end encrypted message. Readable only by the service.",
+  "properties": {
+    "scope": { "type": "string", "description": "server or conversation" },
+    "scope_id": { "type": "string" },
+    "channel_id": { "type": "string" },
+    "owner_id": { "type": "string" },
+    "msg_id": { "type": "string" },
+    "part": { "type": "integer" },
+    "parts": { "type": "integer" },
+    "size": { "type": "integer" },
+    "file_uri": { "type": "string" },
+    "swept_at": { "type": "string", "default": "" }
+  },
+  "required": ["scope", "scope_id", "owner_id", "msg_id", "part", "parts", "file_uri"],
+  "rls": { "read": false, "create": false, "update": false, "delete": false }
+}
