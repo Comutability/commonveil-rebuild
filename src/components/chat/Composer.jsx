@@ -1,5 +1,7 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { CornerUpLeft, Lock, Pencil, SendHorizontal, Smile, X } from "lucide-react";
+import { CornerUpLeft, EyeOff, FileText, Lock, Pencil, SendHorizontal, Smile, X } from "lucide-react";
+import { sizeLabel } from "@/lib/secure/attachments.js";
+import { progressText } from "./useStagedFiles";
 import { MAX_MESSAGE_CHARS } from "@/lib/secure/protocol.js";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import EmojiPicker from "./EmojiPicker";
@@ -10,9 +12,11 @@ const TOKEN_RE = /(^|\s)([@#])([\p{L}\p{N}_-]{0,32})$/u;
  * Where you write. Enter sends, Shift+Enter starts a new line, Escape cancels a reply or edit.
  * Typing @ or # suggests people and channels; suggestions are worked out on this device.
  * There's no "typing…" signal: nobody learns you're writing until you send.
+ * staged (from useStagedFiles): files waiting to go with the next message. Paste or drop files
+ * to add them; they're encrypted on this device when you send.
  */
 const Composer = forwardRef(function Composer(
-  { value, onChange, onSubmit, placeholder, disabledReason = "", replyTo = null, editing = false, onCancel, suggest, hint = null, sealed = true, tools = null },
+  { value, onChange, onSubmit, placeholder, disabledReason = "", replyTo = null, editing = false, onCancel, suggest, hint = null, sealed = true, tools = null, staged = null },
   ref,
 ) {
   const input = useRef(null);
@@ -64,9 +68,18 @@ const Composer = forwardRef(function Composer(
     });
   };
 
+  const files = !editing && staged ? staged.items : [];
+  const canSend = Boolean(value.trim() || files.length);
+  const [dragging, setDragging] = useState(false);
+  const takeFiles = (list) => {
+    if (!staged || editing || disabledReason || !list?.length) return false;
+    staged.add(list);
+    return true;
+  };
+
   const submit = async (e) => {
     e?.preventDefault();
-    if (!value.trim() || busy || disabledReason) return;
+    if (!canSend || busy || disabledReason) return;
     setBusy(true);
     setError("");
     try {
@@ -107,7 +120,25 @@ const Composer = forwardRef(function Composer(
   };
 
   return (
-    <form onSubmit={submit} className="relative shrink-0 px-3 pb-4 sm:px-4">
+    <form
+      onSubmit={submit}
+      className="relative shrink-0 px-3 pb-4 sm:px-4"
+      onDragOver={(e) => {
+        if (!staged || editing || disabledReason || ![...(e.dataTransfer?.types || [])].includes("Files")) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget) && setDragging(false)}
+      onDrop={(e) => {
+        setDragging(false);
+        if (takeFiles(e.dataTransfer?.files)) e.preventDefault();
+      }}
+    >
+      {dragging && (
+        <div className="pointer-events-none absolute inset-x-3 bottom-4 top-0 z-30 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-background/90 text-sm font-medium sm:inset-x-4">
+          Drop to attach. Files are encrypted before they leave this device.
+        </div>
+      )}
       {suggestions.length > 0 && (
         <ul role="listbox" aria-label={token.kind === "@" ? "People" : "Channels"} className="absolute bottom-full left-3 right-3 z-20 mb-1 max-h-64 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg sm:left-4 sm:right-4">
           {suggestions.map((s, i) => (
@@ -130,6 +161,7 @@ const Composer = forwardRef(function Composer(
         </ul>
       )}
       {error && <p className="mb-1.5 text-sm text-destructive" role="alert">{error}</p>}
+      {staged?.notice && <p className="mb-1.5 text-sm text-destructive" role="alert">{staged.notice}</p>}
       <div className="rounded-lg bg-[hsl(var(--panel-hover)/0.7)] focus-within:ring-2 focus-within:ring-ring/40">
         {(replyTo || editing) && (
           <div className="flex items-center gap-2 border-b border-border/60 px-3 py-1.5 text-sm">
@@ -141,6 +173,27 @@ const Composer = forwardRef(function Composer(
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
+        )}
+        {files.length > 0 && (
+          <ul className="flex gap-2 overflow-x-auto border-b border-border/60 px-3 py-2" aria-label="Files to send">
+            {files.map((it) => (
+              <li key={it.key} className="relative flex w-28 shrink-0 flex-col overflow-hidden rounded-md border border-border bg-background">
+                <div className="flex h-20 items-center justify-center bg-muted">
+                  {it.preview ? <img src={it.preview} alt="" className={`h-full w-full object-cover ${it.spoiler ? "blur-md" : ""}`} /> : <FileText className="h-8 w-8 text-muted-foreground" aria-hidden="true" />}
+                </div>
+                <p className="truncate px-1.5 pt-1 text-xs font-medium" title={it.file.name}>{it.file.name}</p>
+                <p className="px-1.5 pb-1 text-[0.7rem] text-muted-foreground">{sizeLabel(it.file.size)}{it.spoiler ? ", spoiler" : ""}</p>
+                <div className="absolute right-1 top-1 flex gap-0.5">
+                  <button type="button" onClick={() => staged.toggleSpoiler(it.key)} disabled={busy} className={`rounded bg-background/90 p-0.5 hover:bg-muted ${it.spoiler ? "text-primary" : "text-muted-foreground"}`} aria-label={it.spoiler ? `Don't hide ${it.file.name}` : `Mark ${it.file.name} as a spoiler`} aria-pressed={it.spoiler}>
+                    <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                  <button type="button" onClick={() => staged.remove(it.key)} disabled={busy} className="rounded bg-background/90 p-0.5 text-muted-foreground hover:bg-muted" aria-label={`Remove ${it.file.name}`}>
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
         <div className="flex items-end gap-2 px-3 py-2">
           {tools}
@@ -155,6 +208,9 @@ const Composer = forwardRef(function Composer(
             }}
             onSelect={(e) => setCaret(e.target.selectionStart)}
             onKeyDown={onKeyDown}
+            onPaste={(e) => {
+              if (e.clipboardData?.files?.length && takeFiles(e.clipboardData.files)) e.preventDefault();
+            }}
             rows={1}
             maxLength={MAX_MESSAGE_CHARS}
             placeholder={disabledReason || placeholder}
@@ -176,7 +232,7 @@ const Composer = forwardRef(function Composer(
           )}
           <button
             type="submit"
-            disabled={!value.trim() || busy || Boolean(disabledReason)}
+            disabled={!canSend || busy || Boolean(disabledReason)}
             className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-primary transition-colors hover:bg-primary/10 disabled:text-muted-foreground disabled:hover:bg-transparent"
             aria-label={editing ? "Save edit" : "Send"}
           >
@@ -185,7 +241,7 @@ const Composer = forwardRef(function Composer(
         </div>
       </div>
       <div className="mt-1 flex min-h-[1rem] items-center justify-between gap-2 px-1 text-xs text-muted-foreground">
-        <span>{hint}</span>
+        <span>{progressText(staged?.progress) || hint}</span>
         {value.length > MAX_MESSAGE_CHARS - 300 && <span>{MAX_MESSAGE_CHARS - value.length} characters left</span>}
       </div>
     </form>
