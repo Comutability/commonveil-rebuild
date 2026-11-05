@@ -219,27 +219,44 @@ export const serverMessageActions: Actions = {
 };
 
 /**
- * Server changes for a member's poll (messages.poll calls this when asked): messages in their
- * servers and private channels since the cursor, and servers whose rows changed. One query each,
- * with the member's own access.
+ * Server changes for a member's poll (messages.poll calls this when asked), with the member's
+ * own access. Every time: messages in their servers and private channels since `since` (one
+ * query). Now and then (changesSince given): servers whose rows changed, on their own cursor,
+ * and which servers they're in (two more queries).
  */
-export async function pollServers(own: any, userId: string, since: string, settled: string, limit: number, now: Date, withMemberships: boolean) {
+export async function pollServers(
+  own: any,
+  userId: string,
+  { since, changesSince }: { since: string; changesSince?: string },
+  settled: string,
+  limit: number,
+  now: Date,
+) {
+  const withChanges = changesSince !== undefined;
   const [rows, servers, memberships] = await Promise.all([
     own.entities.ServerMessage.filter({ updated_date: { $gte: since } }, "updated_date", limit + 1),
-    own.entities.Server.filter({ updated_date: { $gte: since } }, "updated_date", 100),
-    withMemberships ? own.entities.ServerMember.filter({ user_id: userId }, "created_date", SERVER_LIMITS.serversPerUser + 10) : Promise.resolve(null),
+    withChanges ? own.entities.Server.filter({ updated_date: { $gte: changesSince } }, "updated_date", 100) : Promise.resolve(null),
+    withChanges ? own.entities.ServerMember.filter({ user_id: userId }, "created_date", SERVER_LIMITS.serversPerUser + 10) : Promise.resolve(null),
   ]);
   const page = rows.slice(0, limit);
   const hasMore = rows.length > limit;
   let cursor = since;
   for (const m of page) if (String(m.updated_date) > cursor) cursor = String(m.updated_date);
-  for (const s of servers) if (String(s.updated_date) > cursor && !hasMore) cursor = String(s.updated_date);
   if (!hasMore && cursor > settled) cursor = settled > since ? settled : since;
-  return {
+  const out: Record<string, unknown> = {
     server_messages: page.filter((m: any) => isLive(m, now)).map(serverMessageOut),
-    servers: servers.filter((s: any) => s.status !== "deleting").map(serverOut),
-    server_ids: memberships ? [...new Set(memberships.map((m: any) => m.server_id))] : undefined,
     servers_cursor: cursor,
     servers_more: hasMore,
   };
+  if (withChanges) {
+    let changesCursor = changesSince as string;
+    for (const s of servers) if (String(s.updated_date) > changesCursor) changesCursor = String(s.updated_date);
+    if (changesCursor > settled) changesCursor = settled > (changesSince as string) ? settled : (changesSince as string);
+    Object.assign(out, {
+      servers: servers.filter((s: any) => s.status !== "deleting").map(serverOut),
+      server_ids: [...new Set(memberships.map((m: any) => m.server_id))],
+      server_changes_cursor: changesCursor,
+    });
+  }
+  return out;
 }
