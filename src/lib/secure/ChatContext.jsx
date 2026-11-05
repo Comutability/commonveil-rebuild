@@ -659,7 +659,9 @@ export function ChatProvider({ children }) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const conv = attempt === 0 ? conversation : await refreshConversation(conversation.id);
       try {
-        const body = await P.buildMessage({ userId, device, conversation: conv, chains: chainsFor(conv.member_ids), text, keyring });
+        // No timer inside: it would count from now, not from delivery. The conversation's timer
+        // still applies from when it's delivered (the service sets it then).
+        const body = await P.buildMessage({ userId, device, conversation: { ...conv, expire_seconds: 0 }, chains: chainsFor(conv.member_ids), text, keyring });
         const extra = checkinHours ? { kind: "checkin", checkin_hours: checkinHours } : { kind: "later", deliver_at: new Date(deliverAt).toISOString() };
         const res = await callFn("messages", { ...body, action: "schedule", ...extra });
         return res.scheduled;
