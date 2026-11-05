@@ -516,7 +516,9 @@ export async function buildReport({ userId, device, serverId, recipients, chains
 /** Open a report row from the moderation function. */
 export async function openReport({ row, userId, keyring, senderChain, senderDevices }) {
   const item = { msg_id: row.report_id, conversation_id: row.server_id, sender_id: row.reporter_id, device_id: row.device_id, envelope: row.envelope, signature: row.signature, sent_at: row.sent_at };
-  return openItem({ kind: "report", item, userId, keyring, senderChain, senderDevices, reportServerId: row.server_id });
+  const r = await openItem({ kind: "report", item, userId, keyring, senderChain, senderDevices, reportServerId: row.server_id });
+  if (r.content && r.content.target_id !== row.target_id) return { status: "locked", code: "MISMATCH", message: "This report doesn't match who it's filed against." };
+  return r;
 }
 
 /** New text for one of your own messages. Everyone sees that it was edited. */
