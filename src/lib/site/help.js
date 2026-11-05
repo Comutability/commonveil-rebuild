@@ -88,12 +88,13 @@ const demote = (body) => body.replace(/^(#{2,5}) /gm, (_, h) => `${h}# `);
  */
 export function buildGuide(articles, { links = "site", siteUrl = "", title = "Commonveil: the complete guide", intro = "" } = {}) {
   const groups = groupBySection(articles);
-  const slugs = new Set(articles.map((a) => a.slug));
+  // Each article's heading anchor, the way GitHub and the site's own pages both make it.
+  const anchorOf = new Map(articles.map((a) => [a.slug, anchorFor(a.title)]));
   const fixLinks = (md) => {
     if (links !== "anchors") return md;
     return md.replace(/\]\((\/[^)\s]*)\)/g, (whole, href) => {
       const m = /^\/help\/([a-z0-9-]+)\/?(#.*)?$/.exec(href);
-      if (m && slugs.has(m[1])) return `](#${m[1]})`;
+      if (m && anchorOf.has(m[1])) return `](#${anchorOf.get(m[1])})`;
       if (href === "/help/guide" || href === "/help") return "](#contents)";
       return siteUrl ? `](${siteUrl.replace(/\/$/, "")}${href})` : whole;
     });
@@ -103,13 +104,12 @@ export function buildGuide(articles, { links = "site", siteUrl = "", title = "Co
   out.push("## Contents", "");
   for (const g of groups) {
     out.push(`**${g.section}**`, "");
-    for (const a of g.articles) out.push(`- [${a.title}](${links === "anchors" ? `#${a.slug}` : `/help/${a.slug}`}): ${a.summary}`);
+    for (const a of g.articles) out.push(`- [${a.title}](${links === "anchors" ? `#${anchorOf.get(a.slug)}` : `/help/${a.slug}`}): ${a.summary}`);
     out.push("");
   }
   for (const g of groups) {
     out.push(`## ${g.section}`, "");
     for (const a of g.articles) {
-      out.push(links === "anchors" ? `<a id="${a.slug}"></a>` : "", "");
       out.push(`### ${a.title}`, "", `_${a.summary}_`, "", fixLinks(demote(demote(a.body))), "");
     }
   }
