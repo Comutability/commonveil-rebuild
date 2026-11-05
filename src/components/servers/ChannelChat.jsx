@@ -1,4 +1,5 @@
 import React, { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Loader2, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -83,6 +84,8 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
   const restore = useRef(null);
   const [olderBusy, setOlderBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [forwarding, setForwarding] = useState(null);
+  const location = useLocation();
   const key = viewKey(channel.id, threadId ? { threadId } : {});
   const more = hasMore[key];
   const perms = permsFor(serverId, channel);
@@ -104,6 +107,16 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
   useEffect(() => {
     if (nearBottom.current && document.visibilityState === "visible") markChannelRead(channel.id);
   }, [rows.length, channel.id, markChannelRead]);
+
+  // Opened from a saved message or the inbox: scroll to it once it's here.
+  const jumpTo = location.state?.jumpTo;
+  useEffect(() => {
+    if (!jumpTo) return;
+    const row = rows.find((r) => r.m.msg_id === jumpTo);
+    if (!row) return;
+    nearBottom.current = false;
+    document.getElementById(`msg-${row.m.id}`)?.scrollIntoView({ block: "center" });
+  }, [jumpTo, rows]);
 
   const onScroll = () => {
     const el = scroller.current;
