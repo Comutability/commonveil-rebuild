@@ -3,7 +3,8 @@
 //
 // Replies, reactions and edits are ordinary encrypted messages. A reaction or an edit never
 // shows on its own: it changes the message it points at, and only if it checks out.
-import { REACTIONS } from "./protocol.js";
+import { emojiOrder } from "../emoji.js";
+import { tallyPoll } from "./polls.js";
 
 /** How long after sending a message can still be edited. */
 export const EDIT_WINDOW_MS = 24 * 3600_000;
@@ -50,8 +51,8 @@ export function buildThread(list, opened, { userId, now = Date.now() } = {}) {
   for (const m of live) {
     const result = opened[m.id];
     const type = result?.content?.type;
-    if (type === "reaction" || type === "edit") continue;
-    const row = { m, result, text: readable(result) ? result.text : "", edited: false, editedAt: null, reactions: [], replyTo: null, canEdit: false };
+    if (type === "reaction" || type === "edit" || type === "vote") continue;
+    const row = { m, result, text: readable(result) ? result.text : "", edited: false, editedAt: null, reactions: [], replyTo: null, canEdit: false, poll: null };
     rows.push(row);
     if (m.msg_id) byMsgId.set(m.msg_id, row);
   }
@@ -96,10 +97,23 @@ export function buildThread(list, opened, { userId, now = Date.now() } = {}) {
   }
   for (const [target, perEmoji] of tally) {
     const row = byMsgId.get(target);
-    row.reactions = REACTIONS.filter((e) => perEmoji.has(e)).map((emoji) => {
+    row.reactions = [...perEmoji.keys()].sort((a, b) => emojiOrder(a) - emojiOrder(b)).map((emoji) => {
       const people = perEmoji.get(emoji);
       return { emoji, count: people.length, mine: people.includes(userId), people };
     });
+  }
+
+  // Polls: everyone's latest vote before the end counts.
+  const votesFor = new Map();
+  for (const m of live) {
+    const r = opened[m.id];
+    if (r?.status !== "ok" || r.content?.type !== "vote") continue;
+    if (!votesFor.has(r.content.target)) votesFor.set(r.content.target, []);
+    votesFor.get(r.content.target).push({ m, content: r.content });
+  }
+  for (const row of rows) {
+    if (row.result?.content?.type !== "poll" || !readable(row.result) || row.m.deleted) continue;
+    row.poll = tallyPoll(row.result.content, row, votesFor.get(row.m.msg_id) || [], { userId, now, sentTime, later });
   }
 
   for (const row of rows) {
