@@ -19,14 +19,19 @@ What Commonveil protects, against whom, and what it doesn't. Read with `PROTOCOL
 | **Someone who learns the recovery phrase** | Use it without also being able to sign in as the member. | With a session too: restore the keyring and read everything sent to the account's current and past key versions, and cancel resets. Change the phrase to stop this. |
 | **Network attacker** | Anything beyond what TLS exposes. | Observe that a device talks to Commonveil. |
 | **Malicious script on the page, browser extension or compromised browser** | Nothing is protected. | Everything the member can do or see. |
-| **Future quantum computer** | | Possibly decrypt recorded traffic, since key agreement is P-256 only. |
+| **Future quantum computer** | Recorded messages, server items and calls, for recipients with post-quantum keys: keys are sealed with ML-KEM-768 + P-256, and call frames are sealed under server chain keys that travel the same way. | Forge P-256 signatures from then on (impersonating a device), and decrypt anything sealed to an older recipient who has no post-quantum key yet. |
+| **The call relay (VoiceRoom actor) or whoever controls it** | Call audio; it can't connect as someone else, because each device checks the others' signed connection fingerprints. | See who is in which call and when, see participants' network candidates (IP addresses), drop or delay call set-up. |
 
 ## Properties not provided
 
 - **Forward secrecy.** Message keys are sealed to a member's long-term account key for that version. Anyone who obtains
   that private key can read every message sent to it. Removing a device or changing the phrase rotates keys, which limits
   exposure from then on. A per-conversation ratchet would fix this and is the largest planned change.
-- **Metadata privacy.** Membership, timing, sizes and recipient lists are visible to the server.
+- **Metadata privacy.** Membership, timing, sizes and recipient lists are visible to the server. In servers it also
+  sees who is in which server, roles, channel structure (not names), who's waiting for keys, ticket membership, and who
+  joined which call and when. A server listed in Discover publishes an unencrypted public card.
+- **Network address privacy in calls.** Calls are peer to peer, so participants see each other's IP addresses, and the
+  STUN server (Cloudflare) sees yours when you join. There's no TURN relay, so some networks can't connect.
 - **Cryptographic group membership.** The server holds member lists. Device-signed changes and the client-side member pins
   limit the damage, but a signed membership log checked by every client would be stronger.
 - **Conversation integrity.** Each message is authenticated, but the server can withhold or reorder messages.
@@ -93,8 +98,11 @@ Still to do:
 1. An independent review of version 2 by someone who hasn't worked on it, before anyone relies on it for their safety.
 2. Repeat the Content Security Policy browser test on the published domain once the app is published.
 3. Planned improvements, in rough order: forward secrecy (per-conversation ratchet), a signed membership and device log
-   (which would also make admin changes verifiable by every member), a post-quantum hybrid (ML-KEM-768) for message keys,
-   installable builds.
+   (which would also make admin changes verifiable by every member), post-quantum signatures (ML-DSA), installable
+   builds. (Post-quantum hybrid key sealing, ML-KEM-768 + P-256, was added in November 2026: see
+   `SERVERS_AND_VOICE.md`.)
+5. On the published app, test a call between two networks, in Chromium and in Firefox or Safari (the browser tests
+   cover Chromium on one machine; Firefox and Safari use a worker for the frame encryption).
 4. Check on the published app that the scheduled clean-up (`maintenance`) runs on time: Base44 runs automations for the
    published app, and the editor preview can't show it.
 
