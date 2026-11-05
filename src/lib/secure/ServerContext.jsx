@@ -76,6 +76,18 @@ function friendly(err) {
   return err;
 }
 
+/** Whether this member's app hands out keys here: any member, or only those with MANAGE_KEYS. */
+const canHandOut = (e) => e.server?.settings?.key_handout !== "staff" || has(basePermissions(e.server, e.roles, e.member), P.MANAGE_KEYS);
+
+function canReadChain(e, chain) {
+  if (chain.kind !== "c") return true;
+  const ch = (e.channels || []).find((c) => c.id === chain.channel_id);
+  return Boolean(ch && has(channelPermissions(e.server, e.roles, e.member, ch), P.VIEW_CHANNEL));
+}
+
+/** Paging cursors are kept per view: a channel, a forum's post list, or one post's replies. */
+export const viewKey = (channelId, { threadId = "", posts = false } = {}) => (posts ? `${channelId}#posts` : threadId ? `${channelId}@${threadId}` : channelId);
+
 /** Whether a decrypted message mentions this member. */
 function mentionsMe(result, userId, roleIds) {
   const m = readable(result) ? result.content?.mentions : null;
@@ -245,14 +257,6 @@ export function ServerProvider({ children }) {
     // scheduleWorker is stable (defined below with useCallback and refs only).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [absorbKeys, putServer, dropServer]);
-
-  const canHandOut = (e) => e.server?.settings?.key_handout !== "staff" || has(basePermissions(e.server, e.roles, e.member), P.MANAGE_KEYS);
-
-  const canReadChain = (e, chain) => {
-    if (chain.kind !== "c") return true;
-    const ch = (e.channels || []).find((c) => c.id === chain.channel_id);
-    return Boolean(ch && has(channelPermissions(e.server, e.roles, e.member, ch), P.VIEW_CHANNEL));
-  };
 
   /** A new generation of one chain, made here, with a copy for this account. Everyone else gets theirs by hand-out. */
   const createGeneration = useCallback(async (serverId, chainId, generation) => {
@@ -695,8 +699,6 @@ export function ServerProvider({ children }) {
   }, [servers, keysTick]);
 
   // ---------- messages ----------
-
-  const viewKey = (channelId, { threadId = "", posts = false } = {}) => (posts ? `${channelId}#posts` : threadId ? `${channelId}@${threadId}` : channelId);
 
   /** The newest page of a channel, a forum's posts, or a post's replies. */
   const openView = useCallback(async (sid, channelId, opts = {}) => {
