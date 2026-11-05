@@ -13,7 +13,10 @@ const HOLD = [
   ["Auto-delete, only if you turn it on", "The date (not the time) you last opened Commonveil, and whether you've been sent the warning. Turning it off forgets the date. If it's off, we keep nothing about when you use Commonveil."],
   ["Encrypted backup of your keys", "Sealed to your recovery phrase. Without the phrase it's unreadable, including to us."],
   ["Servers you're in", "Which servers you belong to, your roles there, whether you chose to be listed, and when you joined. Server names, channel and role names, rules, nicknames and messages are encrypted. A server listed in Discover has a public card its admins wrote."],
-  ["Calls", "For a minute, a single-use pass saying your device may join a call. While you're in a call, the relay knows you're in it so it can introduce your device to the others. Audio never reaches us, and nothing about a call is kept after it."],
+  ["Calls", "For a minute, a single-use pass saying your device may join a call. While you're in a call, the relay knows you're in it so it can introduce your device to the others, and on a stage who may speak. Audio and video never reach us, and nothing about a call is kept after it."],
+  ["Files and voice messages", "The encrypted parts, their sizes, and which message and place they belong to. Their names, types, keys and contents travel inside the encrypted message. Parts are forgotten once their message is deleted or disappears."],
+  ["Events", "That a server has an event, and which members answered it. What it's called, when and where it is, and the answers are encrypted."],
+  ["Online status, only if you turn it on", "While you share it, the live room for the server or conversation you have open knows you're there and when you're typing. It's kept in memory and written nowhere, and gone when you close it."],
   ["Support tickets", "A ticket is an encrypted group with the server's support team. We know who's in it, its number and whether it's open, not what's said."],
   ["Blocks and reports", "If you report someone, staff see the reason and anything you choose to paste in. They can't read your messages. A report about someone stays with staff even if that person later deletes their account."],
 ];
@@ -30,6 +33,8 @@ const NEVER = [
 
 const ON_DEVICE = [
   ["Passcode lock", "If you set one, your keys on that browser are stored encrypted with it. The passcode itself is never stored or sent."],
+  ["Your organisation", "Saved messages, private notes on people, server folders and per-channel notification choices are kept in this browser only."],
+  ["Online status and typing", "Whether you share them. Off unless you turn them on."],
   ["Alerts", "Whether to show notifications, whether they name the sender, and whether to put an unread count in the tab title. All off until you turn them on."],
   ["Saved pages and progress", "Guides, wiki pages, posts and paths you save, and guides you mark as done, with the day. Clear them from the Saved page."],
   ["Your data download", "Made in your browser from what you can already see, and saved straight to your device. It holds your messages in readable form, so keep it safe."],
