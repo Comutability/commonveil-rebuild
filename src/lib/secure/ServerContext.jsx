@@ -896,6 +896,40 @@ export function ServerProvider({ children }) {
     mergeRows([{ ...row.m, pinned }]);
   }, [signed, mergeRows]);
 
+  // ---------- events ----------
+
+  /** Open one encrypted server item (an event, an answer) with this server's keys. */
+  const openItemOf = useCallback(async (sid, kind, item) => {
+    const keys = keysRef.current[sid];
+    if (!keys || !item) return { status: "waiting" };
+    const sender = item.sender_id;
+    if (sender !== userId && !chainOf(sender)) await loadPeers([sender]).catch(() => {});
+    return SP.openServerItem({ kind, item, serverId: sid, channelId: "", keys, senderChain: chainOf(sender), senderDevices: devicesOf(sender), minCertVersion: sender === userId ? ownMinCertVersion : 1 });
+  }, [userId, chainOf, devicesOf, loadPeers, ownMinCertVersion]);
+
+  const loadEvents = useCallback((sid) => callFn("events", { action: "list", server_id: sid }), []);
+
+  const eventCall = useCallback(async (sid, action, kind, content, payload = {}) => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const item = content === null ? null : await makeItem(sid, kind, content);
+        return await signed("events", action, { server_id: sid, ...payload, item });
+      } catch (err) {
+        if (attempt === 0 && err instanceof ApiError && err.code === "STALE_SERVER_KEYS") {
+          await loadState(sid);
+          continue;
+        }
+        throw err;
+      }
+    }
+    return null;
+  }, [makeItem, signed, loadState]);
+
+  const createEvent = useCallback((sid, content) => eventCall(sid, "create_event", "event", content), [eventCall]);
+  const updateEvent = useCallback((sid, eventId, content) => eventCall(sid, "update_event", "event", content, { event_id: eventId }), [eventCall]);
+  const cancelEvent = useCallback((sid, eventId) => signed("events", "cancel_event", { server_id: sid, event_id: eventId }), [signed]);
+  const rsvp = useCallback((sid, eventId, status) => eventCall(sid, "rsvp", "rsvp", status ? { status } : null, { event_id: eventId }), [eventCall]);
+
   /** Lock or unlock a thread or forum post (row is its first message). */
   const lockThread = useCallback(async (sid, row, locked) => {
     await signed("channels", "lock_thread", { server_id: sid, channel_id: row.m.channel_id, msg_id: row.m.msg_id, locked });
@@ -1337,7 +1371,7 @@ export function ServerProvider({ children }) {
     react,
     edit,
     deleteMessage,
-    pinMessage, lockThread,
+    pinMessage, lockThread, openItemOf, loadEvents, createEvent, updateEvent, cancelEvent, rsvp,
     // unread and local preferences
     markChannelRead,
     markServerRead,
@@ -1378,7 +1412,7 @@ export function ServerProvider({ children }) {
     loaded, loadError, servers, order, rows, opened, hasMore, readState, prefs, unread, memberLists, keysTick,
     serverLook, serverName, channelName, channelTopic, roleName, roleColor, serverRules, serverEmoji, automodOf, memberName, nickOf, memberColor, profileOf, rolesOfMember,
     permsFor, can, myTop, keyState, loadState, openView, loadOlder, threadOf, postsOf, loadPins, loadMembers, memberCard,
-    sendText, sendPost, sendPoll, vote, react, edit, deleteMessage, pinMessage, lockThread, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
+    sendText, sendPost, sendPoll, vote, react, edit, deleteMessage, pinMessage, lockThread, openItemOf, loadEvents, createEvent, updateEvent, cancelEvent, rsvp, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
     toggleCollapsed, moveServer, act, setServerProfile, setServerRules, setServerSet, updateSettings, setNickname, createChannel, updateChannel,
     createRole, updateRole, banMember, openBanReason, joinServer, leaveServer, deleteServer, createServer, createInvite, listInvites,
     revokeInvite, discover, listTickets, openTicket, setTicketStatus, renewKeys, serviceKeys,

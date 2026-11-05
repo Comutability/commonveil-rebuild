@@ -168,6 +168,18 @@ export function itemContent(kind, payload) {
   if (kind === "ban") return { reason: s(payload.reason, 500) };
   if (kind === "emoji" || kind === "stickers") return cleanSet(kind, payload);
   if (kind === "automod") return cleanAutomod(payload);
+  if (kind === "event") {
+    const iso = (v) => (typeof v === "string" && v.length <= 40 && Number.isFinite(Date.parse(v)) ? new Date(Date.parse(v)).toISOString() : null);
+    const startsAt = iso(payload.starts_at);
+    if (!startsAt || !s(payload.title, 100).trim()) return null;
+    const endsAt = iso(payload.ends_at);
+    return {
+      title: s(payload.title, 100), description: s(payload.description, 1000), place: s(payload.place, 100),
+      voice_channel_id: typeof payload.voice_channel_id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(payload.voice_channel_id) ? payload.voice_channel_id : "",
+      starts_at: startsAt, ends_at: endsAt && Date.parse(endsAt) > Date.parse(startsAt) ? endsAt : "",
+    };
+  }
+  if (kind === "rsvp") return payload.status === "going" || payload.status === "maybe" ? { status: payload.status } : null;
   return null;
 }
 
