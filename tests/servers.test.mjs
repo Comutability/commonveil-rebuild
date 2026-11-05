@@ -651,3 +651,30 @@ test("voice: a pass to join a call needs membership, a voice channel and no time
   for (let i = 0; i < 6; i += 1) await alice.ok("voice", await signed(alice, "voice_ticket", { server_id: sid, channel_id: voice.id }));
   await alice.fails("voice", await signed(alice, "voice_ticket", { server_id: sid, channel_id: voice.id }), "RATE_LIMITED");
 });
+
+test("files: parts are stored as ciphertext for members who can post, and links go only to people who can see them, while the message exists", async () => {
+  const { fileActions } = await import("../base44/shared/handlers/files.ts");
+  addFunctions({ files: fileActions });
+  const { w, members: [alice, bob, carol] } = await world("alice", "bobby", "carol");
+  const sid = await serverWith(alice, bob);
+  const general = await alice.channelNamed(sid, "general");
+  const msgId = randomId(16);
+  const data = toB64(crypto.getRandomValues(new Uint8Array(1000)));
+  const part = (who, extra = {}) => signed(who, "upload_part", { scope: "server", server_id: sid, channel_id: general.id, msg_id: msgId, part: 0, parts: 1, data, ...extra });
+  const { file_id } = await bob.ok("files", await part(bob));
+  await carol.fails("files", await part(carol));
+  await bob.fails("files", await part(bob, { parts: 99 }), "BAD_FIELD");
+  await bob.fails("files", await part(bob, { data: "not base64!" }), "BAD_FIELD");
+  // No message with that id yet: no link, even for a member.
+  assert.deepEqual((await alice.ok("files", { action: "download_links", file_ids: [file_id] })).links, {});
+  // Once the message exists, members get a link and outsiders don't.
+  w.rows("ServerMessage").push?.({});
+  const sent = await bob.post(sid, general, { type: "text", text: "a file" });
+  assert.equal(sent.status, 200);
+  const row = w.rows("Attachment").find((r) => r.id === file_id);
+  row.msg_id = sent.body.message.msg_id;
+  const links = (await alice.ok("files", { action: "download_links", file_ids: [file_id] })).links;
+  assert.match(links[file_id], /^https:\/\/files\.example\.test\//);
+  assert.deepEqual((await carol.ok("files", { action: "download_links", file_ids: [file_id] })).links, {});
+  assert.equal(JSON.stringify(row).includes("a file"), false);
+});

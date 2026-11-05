@@ -329,6 +329,13 @@ export class FakeWorld {
               this.emails.push(clone(args));
               return { ok: true };
             },
+            UploadPrivateFile: async ({ file }) => {
+              this.files = this.files || new Map();
+              const uri = `private://file-${this.files.size + 1}`;
+              this.files.set(uri, new Uint8Array(await file.arrayBuffer()));
+              return { file_uri: uri };
+            },
+            CreateFileSignedUrl: async ({ file_uri, expires_in }) => ({ signed_url: `https://files.example.test/${encodeURIComponent(file_uri)}?ttl=${expires_in}` }),
           },
         },
       },
