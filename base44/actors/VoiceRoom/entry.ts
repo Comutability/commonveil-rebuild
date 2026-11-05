@@ -173,13 +173,13 @@ export default class VoiceRoom extends Actor {
       conn.send({ type: "error", code: "PASS_INVALID", message: "Your pass for this call has expired. Try joining again." });
       return;
     }
-    // The same device joining again (a reload, say) replaces its old place.
-    for (const c of this.getConnections()) {
-      const p = this.people.get(c.id);
-      if (p && c.id !== conn.id && p.userId === userId && p.deviceId === ticket.device_id) {
-        await this.remove(c.id);
-        c.reject(4005, "You joined this call from somewhere else.");
-      }
+    // The same device joining again (a reload, say) replaces its old place, connected or not.
+    for (const [id, p] of [...this.people]) {
+      if (id === conn.id || p.userId !== userId || p.deviceId !== ticket.device_id) continue;
+      await this.remove(id);
+      await this.cancelSchedule(`drop:${id}`);
+      const old = this.getConnections().find((c) => c.id === id);
+      if (old) old.reject(4005, "You joined this call from somewhere else.");
     }
     if (this.people.size >= MAX_PEOPLE) {
       conn.send({ type: "error", code: "CALL_FULL", message: `This call is full: up to ${MAX_PEOPLE} people can be in it.` });
