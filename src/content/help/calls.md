@@ -18,7 +18,7 @@ Select a voice channel to join it. Anyone with permission to connect can drop in
 ## In a call
 
 - **Mute** or **Unmute** your microphone.
-- **Deafen** to stop hearing others (and mute yourself).
+- **Deafen** to stop hearing everyone else.
 - **Turn camera on**, or **Share your screen**.
 - **Leave the call** when you're done.
 

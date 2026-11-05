@@ -9,7 +9,7 @@ Direct messages are between two people. Groups are for up to 32. Both are end-to
 
 ## Start a conversation
 
-1. Choose **New conversation** (the pencil or plus button above your conversations).
+1. Choose **New conversation** (the + button beside "Direct messages").
 2. Pick **Direct message** or **Group**.
 3. Type the person's **exact username**. There's no directory to search, which is deliberate: nobody can trawl for you either.
 4. Choose **Start conversation** (or **Create group**).
