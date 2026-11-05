@@ -301,7 +301,7 @@ export function VoiceProvider({ children }) {
   const getPass = useCallback(async (c) => {
     const s = secureRef.current;
     const res = await callFn("voice", await SP.serverRequest({ userId: s.userId, device: s.device, action: "voice_ticket", payload: { server_id: c.serverId, channel_id: c.channel.id } }));
-    c.roomId = res.room;
+    if (res.room !== c.roomId) throw new Error("The call's address didn't match this channel.");
     c.canSpeak = res.can_speak !== false;
     return res.ticket;
   }, []);
@@ -341,6 +341,16 @@ export function VoiceProvider({ children }) {
     } else if (msg.type === "signal") {
       handleSignal(c, Number(msg.from), msg.data);
     } else if (msg.type === "error") {
+      if ((msg.code === "PASS_INVALID" || msg.code === "PASS_USED") && !c.retried) {
+        // The pass ran out (a slow microphone prompt, say): get one more.
+        c.retried = true;
+        try {
+          send(c, { type: "join", ticket: await getPass(c), hello: c.hello, muted: c.muted, deafened: c.deafened });
+          return;
+        } catch {
+          // fall through
+        }
+      }
       teardown(c, msg.message || "The call ended.");
     }
   }, [addPeer, bump, closePeer, getPass, handleSignal, teardown]);
@@ -354,7 +364,8 @@ export function VoiceProvider({ children }) {
       serverId,
       channel,
       chainId: SP.chainForChannel(serverId, channel),
-      roomId: "",
+      // The same address the voice function gives out (server id, channel id).
+      roomId: `${serverId}.${channel.id}`,
       peers: new Map(),
       keys: new Map(),
       levels: new Map(),
@@ -367,10 +378,7 @@ export function VoiceProvider({ children }) {
     c.keySource = { current: () => c.current, keyFor: (g, s) => deriveKey(c, g, s) };
     call.current = c;
     try {
-      c.ticket = await getPass(c);
       c.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
-      if (!c.canSpeak) for (const t of c.stream.getAudioTracks()) t.enabled = false;
-      c.muted = !c.canSpeak;
       c.cert = await RTCPeerConnection.generateCertificate({ name: "ECDSA", namedCurve: "P-256" });
       const s = secureRef.current;
       c.hello = await signHello({ device: s.device, room: c.roomId, userId: s.userId, callId: randomId(12), fingerprint: await certificateFingerprint(c.cert) });
@@ -402,6 +410,10 @@ export function VoiceProvider({ children }) {
         if (changed) bump();
       }, 250);
       if (call.current !== c) return;
+      // Ask for the pass last, so it's fresh when the relay checks it.
+      c.ticket = await getPass(c);
+      if (!c.canSpeak) for (const t of c.stream.getAudioTracks()) t.enabled = false;
+      c.muted = !c.canSpeak;
       setMuted(c.muted);
       setDeafened(false);
       setRoom({ serverId, channelId: channel.id, status: "connecting" });
