@@ -181,7 +181,7 @@ export const serverMessageActions: Actions = {
   },
 
   /** Delete a message: your own, or anyone's with MANAGE_MESSAGES. It's blanked for everyone. */
-  async delete(ctx) {
+  async delete_server_message(ctx) {
     const { sr, own, user, now } = ctx;
     const { data } = await signedByActiveDevice(ctx, "delete_server_message");
     const serverId = id(data.server_id, "server");
@@ -199,7 +199,7 @@ export const serverMessageActions: Actions = {
     return { ok: true };
   },
 
-  async pin(ctx) {
+  async pin_server_message(ctx) {
     const { sr, own, user, now } = ctx;
     const { data } = await signedByActiveDevice(ctx, "pin_server_message");
     const serverId = id(data.server_id, "server");

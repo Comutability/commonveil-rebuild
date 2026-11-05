@@ -313,7 +313,7 @@ export function serverActions(config: ServerConfig): Actions {
     },
 
     /** Start a server from a template. Its keys and name come next, from the creator's device. */
-    async create(ctx) {
+    async create_server(ctx) {
       const { sr, user, now } = ctx;
       const { data } = await signedByActiveDevice(ctx, "create_server");
       await requireReady(sr, user.id);
@@ -441,7 +441,7 @@ export function serverActions(config: ServerConfig): Actions {
     },
 
     /** Copies of the server's keys for members who are waiting, sealed on the caller's device. */
-    async grant(ctx) {
+    async grant_keys(ctx) {
       const { sr, now } = ctx;
       const { device, data, serverId, member, parts } = await signedMember(ctx, "grant_keys");
       const gens = await generationsOf(sr, serverId);
@@ -467,7 +467,7 @@ export function serverActions(config: ServerConfig): Actions {
     // ---------- joining and leaving ----------
 
     /** Join with an invite code, or an open server (from Discover). */
-    async join(ctx) {
+    async join_server(ctx) {
       const { sr, user, now } = ctx;
       const { data } = await signedByActiveDevice(ctx, "join_server");
       await requireReady(sr, user.id);
@@ -495,7 +495,7 @@ export function serverActions(config: ServerConfig): Actions {
       return { server_id: server.id, member: memberOut(member, { self: true }), joined };
     },
 
-    async leave(ctx) {
+    async leave_server(ctx) {
       const { sr, user, now } = ctx;
       const { serverId, parts } = await signedMember(ctx, "leave_server");
       if (parts.server.owner_id === user.id) {
@@ -579,7 +579,7 @@ export function serverActions(config: ServerConfig): Actions {
       return { member: memberOut(target), profile: cardOf(profile) };
     },
 
-    async kick(ctx) {
+    async kick_member(ctx) {
       const { sr, user, now } = ctx;
       const { data, serverId, member, parts, perms } = await signedMember(ctx, "kick_member");
       requirePerm(perms, P.KICK_MEMBERS, "kick members");
@@ -594,7 +594,7 @@ export function serverActions(config: ServerConfig): Actions {
     },
 
     /** Ban: out, can't come back, and the keys they held are due to be renewed. Optionally, their recent messages go. */
-    async ban(ctx) {
+    async ban_member(ctx) {
       const { sr, user, now } = ctx;
       const { data, serverId, member, parts, perms } = await signedMember(ctx, "ban_member");
       requirePerm(perms, P.BAN_MEMBERS, "ban members");
@@ -618,7 +618,7 @@ export function serverActions(config: ServerConfig): Actions {
       return { ok: true };
     },
 
-    async unban(ctx) {
+    async unban_member(ctx) {
       const { sr, user, now } = ctx;
       const { data, serverId, parts, perms } = await signedMember(ctx, "unban_member");
       requirePerm(perms, P.BAN_MEMBERS, "unban members");
@@ -648,7 +648,7 @@ export function serverActions(config: ServerConfig): Actions {
     },
 
     /** Time someone out (up to 28 days), or end it. Timed-out members can read but not post, react or join calls. */
-    async timeout(ctx) {
+    async timeout_member(ctx) {
       const { sr, user, now } = ctx;
       const { data, serverId, member, parts, perms } = await signedMember(ctx, "timeout_member");
       requirePerm(perms, P.TIMEOUT_MEMBERS, "time out members");
@@ -901,7 +901,7 @@ export function serverActions(config: ServerConfig): Actions {
     // ---------- the server itself ----------
 
     /** Name, description and icon: encrypted with the server's history key. */
-    async set_profile(ctx) {
+    async set_server_profile(ctx) {
       const { sr, user, now } = ctx;
       const { data, serverId, parts, perms } = await signedMember(ctx, "set_server_profile");
       requirePerm(perms, P.MANAGE_SERVER, "change the server's profile");
@@ -911,7 +911,7 @@ export function serverActions(config: ServerConfig): Actions {
       return { ok: true };
     },
 
-    async set_rules(ctx) {
+    async set_server_rules(ctx) {
       const { sr, user, now } = ctx;
       const { data, serverId, parts, perms } = await signedMember(ctx, "set_server_rules");
       requirePerm(perms, P.MANAGE_SERVER, "change the rules");
@@ -925,7 +925,7 @@ export function serverActions(config: ServerConfig): Actions {
      * Settings the server enforces. Listing a server in Discover publishes its public name,
      * description and tags unencrypted: that's the point of a listing, and it's opt-in.
      */
-    async update_settings(ctx) {
+    async update_server_settings(ctx) {
       const { sr, user, now } = ctx;
       const { data, parts, perms } = await signedMember(ctx, "update_server_settings");
       requirePerm(perms, P.MANAGE_SERVER, "change the server's settings");
