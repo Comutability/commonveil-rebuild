@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { EyeOff, Loader2 } from "lucide-react";
 import { useServers } from "@/lib/secure/ServerContext";
-import { useSecure } from "@/lib/secure/SecureContext";
 import Avatar from "@/components/chat/Avatar";
 import MemberCard from "./MemberCard";
 
@@ -10,7 +9,6 @@ import MemberCard from "./MemberCard";
  * There's no online status: Commonveil doesn't track when you're around.
  */
 export default function MemberList({ serverId, className = "" }) {
-  const { userId } = useSecure();
   const s = useServers();
   const { servers, memberLists, loadMembers, memberName, memberColor, roleName, roleColor, profileOf, act } = s;
   const e = servers[serverId];
@@ -124,7 +122,6 @@ export default function MemberList({ serverId, className = "" }) {
         </div>
       )}
       <MemberCard serverId={serverId} userId={card} open={Boolean(card)} onOpenChange={(v) => !v && setCard(null)} />
-      <span className="hidden">{userId}</span>
     </aside>
   );
 }
