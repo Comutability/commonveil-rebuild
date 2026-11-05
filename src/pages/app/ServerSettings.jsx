@@ -347,7 +347,7 @@ function AutoMod({ sid }) {
   const rules = automodOf(sid);
   const [state, run] = useRun();
   const [words, setWords] = useState(rules.words.join("\n"));
-  useEffect(() => setWords(rules.words.join("\n")), [rules.words.join("\n")]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setWords(rules.words.join("\n")), [rules.words.join("\n")]);  
   const save = (changes, msg = "Saved.") => run(() => setServerSet(sid, "automod", { ...rules, ...changes }), msg);
   return (
     <SettingsGroup

@@ -29,7 +29,7 @@ function useOpened(meta, { auto = true } = {}) {
     }, { rootMargin: "200px" });
     io.observe(el);
     return () => io.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [auto, meta.ids[0]]);
   return { box, ...state, start };
 }

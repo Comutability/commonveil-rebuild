@@ -52,9 +52,9 @@ export default function VoiceRecorder({ open, onOpenChange, onSend }) {
 
   useEffect(() => {
     if (!open) reset();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [open]);
-  useEffect(() => () => reset(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => reset(), []);  
 
   const start = async () => {
     setError("");
