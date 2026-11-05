@@ -254,7 +254,8 @@ export function ChannelComposer({ serverId, channel, threadId = "", reply, setRe
   const [pollOpen, setPollOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [stickerOpen, setStickerOpen] = useState(false);
-  const stickers = useServers().serverEmoji(serverId).stickers;
+  const expressions = useServers().serverEmoji(serverId);
+  const stickers = expressions.stickers;
   const staged = useStagedFiles();
   const { suggest, mentionsIn } = useServerText(serverId, channel.id);
   const block = useSendBlock(serverId, channel);
@@ -320,7 +321,7 @@ export function ChannelComposer({ serverId, channel, threadId = "", reply, setRe
       ref={input}
       tools={editing || block ? null : <ComposerPlus onPoll={() => setPollOpen(true)} onFiles={staged.add} onVoiceNote={() => setRecording(true)} onSticker={stickers.length ? () => setStickerOpen(true) : undefined} />}
       staged={block ? null : staged}
-      customEmoji={useServers().serverEmoji(serverId).emoji}
+      customEmoji={expressions.emoji}
       value={text}
       onChange={(v) => {
         setText(v);
