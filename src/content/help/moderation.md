@@ -48,7 +48,7 @@ Under **Server settings → Safety**:
 - **Flood protection:** time out anyone who sends more than a set number of **Messages** in a few **Seconds**.
 - **Raid protection:** if more than a set number of people join in a minute (**Joins per minute**), joining pauses.
 
-**New accounts and newcomers:** require accounts to be a minimum age before joining (**Accounts must be at least**), and make newcomers wait before posting (**Newcomers wait**).
+**New accounts and newcomers:** before they can post, accounts must be a minimum age (**Accounts must be at least**, from 5 minutes to a day) and newcomers must have been in the server a while (**Newcomers wait**).
 
 **Staff limits** stop a compromised or rogue staff account wrecking the server: anyone but the owner who bans, kicks, times out, or deletes channels or roles too many times in ten minutes is stopped, and loses their roles until the owner gives them back. Only the owner can turn this off.
 
