@@ -133,9 +133,30 @@ export async function saveAlerts(userId, settings) {
   await set(key(userId, "alerts"), settings, store);
 }
 
+/** Where you've read up to in each server channel: { [channelId]: time }. Only on this device. */
+export async function loadServerRead(userId) {
+  return (await get(key(userId, "sread"), store)) || {};
+}
+
+export async function saveServerRead(userId, state) {
+  await set(key(userId, "sread"), state, store);
+}
+
+/**
+ * Server preferences on this device: { muted: { [serverOrChannelId]: true }, collapsed: { [categoryId]: true },
+ * last: { [serverId]: channelId }, order: [serverId] }. They never leave it.
+ */
+export async function loadServerPrefs(userId) {
+  return (await get(key(userId, "sprefs"), store)) || {};
+}
+
+export async function saveServerPrefs(userId, prefs) {
+  await set(key(userId, "sprefs"), prefs, store);
+}
+
 /** Remove every key and record for this account from this browser. */
 export async function wipeLocal(userId) {
-  for (const name of ["device", "keyring", "lock", "pins", "read", "members", "linkpin", "reset", "alerts"]) await del(key(userId, name), store);
+  for (const name of ["device", "keyring", "lock", "pins", "read", "members", "linkpin", "reset", "alerts", "sread", "sprefs"]) await del(key(userId, name), store);
 }
 
 export function storageAvailable() {
