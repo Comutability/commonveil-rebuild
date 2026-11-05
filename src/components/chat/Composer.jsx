@@ -6,7 +6,7 @@ import { MAX_MESSAGE_CHARS } from "@/lib/secure/protocol.js";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import EmojiPicker from "./EmojiPicker";
 
-const TOKEN_RE = /(^|\s)([@#])([\p{L}\p{N}_-]{0,32})$/u;
+const TOKEN_RE = /(^|\s)([@#:])([\p{L}\p{N}_-]{0,32})$/u;
 
 /**
  * Where you write. Enter sends, Shift+Enter starts a new line, Escape cancels a reply or edit.
@@ -140,7 +140,7 @@ const Composer = forwardRef(function Composer(
         </div>
       )}
       {suggestions.length > 0 && (
-        <ul role="listbox" aria-label={token.kind === "@" ? "People" : "Channels"} className="absolute bottom-full left-3 right-3 z-20 mb-1 max-h-64 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg sm:left-4 sm:right-4">
+        <ul role="listbox" aria-label={token.kind === "@" ? "People" : token.kind === ":" ? "Emoji" : "Channels"} className="absolute bottom-full left-3 right-3 z-20 mb-1 max-h-64 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg sm:left-4 sm:right-4">
           {suggestions.map((s, i) => (
             <li key={s.id} role="option" aria-selected={i === pick}>
               <button

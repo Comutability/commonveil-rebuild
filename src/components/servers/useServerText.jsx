@@ -5,6 +5,8 @@ import { P, has } from "@/lib/secure/permissions";
 import { MESSAGE_KINDS } from "@/lib/secure/ServerContext";
 import { ChannelIcon } from "./channelBits";
 import Avatar from "@/components/chat/Avatar";
+import { customToken } from "@/lib/customEmoji";
+import { searchEmoji } from "@/lib/emoji";
 
 const MENTION_RE = /(^|[^\w@])@([A-Za-z0-9_]{3,20})\b/g;
 
@@ -39,7 +41,7 @@ export function useServerText(serverId, channelId) {
   const channel = e?.channels?.find((c) => c.id === channelId) || null;
   const canEveryone = channel ? can(serverId, P.MENTION_EVERYONE, channel) : false;
 
-  const custom = s.serverEmoji(serverId);
+  const custom = useMemo(() => s.serverEmoji(serverId), [s.serverEmoji, serverId]); // eslint-disable-line react-hooks/exhaustive-deps
   const suggest = useCallback((kind, query) => {
     const q = query.toLowerCase();
     if (kind === ":") {
