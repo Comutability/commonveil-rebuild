@@ -775,7 +775,11 @@ export function SecureProvider({ children }) {
     const now = Date.now();
     const wanted = [...new Set(userIds)].filter((id) => id && id !== userId && (force || !peerFetchedAt.current[id] || now - peerFetchedAt.current[id] > PEER_TTL_MS));
     if (!wanted.length) return;
-    const { keys } = await callFn("keys", { action: "peer_keys", user_ids: wanted });
+    // The service answers for up to 50 people at a time.
+    const keys = {};
+    for (let i = 0; i < wanted.length; i += 50) {
+      Object.assign(keys, (await callFn("keys", { action: "peer_keys", user_ids: wanted.slice(i, i + 50) })).keys);
+    }
     const updates = {};
     const pinChanges = {};
     for (const id of wanted) {
