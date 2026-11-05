@@ -144,7 +144,6 @@ export function HelpArticle() {
   const { slug } = useParams();
   const article = helpBySlug(slug);
   useTitle(article ? article.title : "Not found");
-  if (slug === "guide") return <HelpGuide />;
   if (!article) {
     return (
       <div className="container-cv py-16">
@@ -226,7 +225,8 @@ export function HelpArticle() {
 
 export function HelpGuide() {
   useTitle("The complete guide");
-  const md = useMemo(() => buildGuide(HELP_ARTICLES, { links: "site", title: "" }).replace(/^# *\n+/, ""), []);
+  // Links between articles jump within this page.
+  const md = useMemo(() => buildGuide(HELP_ARTICLES, { links: "anchors", title: "" }).replace(/^# *\n+/, ""), []);
   return (
     <>
       <PageHeader eyebrow="Help Centre" title="The complete guide" intro="Every Commonveil feature, what it's for and how to use it, on one page.">
