@@ -5,7 +5,7 @@
 // One thing the service does see: whether a row is a message, a reaction, an edit or a forum
 // post (`kind`). It needs that to apply channel permissions (in announcement channels members can
 // react but not post). Readers check the encrypted payload says the same, or ignore the row.
-import { ApiError, LIMITS, id, int, isoTime, platformTime, randomIdField, str, type Actions } from "../http.ts";
+import { ApiError, LIMITS, id, int, isoTime, parsePlatformTime, platformTime, randomIdField, str, type Actions } from "../http.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
 import { verifyServerItemSignature } from "../verify.ts";
 import { P, channelPermissions, has } from "../permissions.ts";
@@ -46,10 +46,13 @@ async function channelView(own: any, serverId: string, channelId: string, userId
 
 const isLive = (m: any, now: Date) => !m.expires_at || Date.parse(m.expires_at) > now.getTime();
 
-/** Messages before someone joined, in a channel that only shows newcomers what came after. */
+/**
+ * Messages before someone joined, in a channel that only shows newcomers what came after. Both
+ * times are the server's own (when the row was stored, when they joined), so no clock can shift them.
+ */
 function hiddenFromNewcomer(view: any, m: any) {
   const joinedOnly = view.channel.history === "joined" || !has(view.perms, P.READ_HISTORY);
-  return joinedOnly && Date.parse(m.sent_at || 0) < Date.parse(view.member.joined_at) - 60_000;
+  return joinedOnly && parsePlatformTime(String(m.created_date)) < Date.parse(view.member.joined_at);
 }
 
 export const serverMessageActions: Actions = {
@@ -162,11 +165,11 @@ export const serverMessageActions: Actions = {
       extra = await own.entities.ServerMessage.filter({ channel_id: view.channel.id, msg_id: body.thread_id, kind: "post" }, "created_date", 1);
     }
     const cursorField = body.posts ? "last_reply_at" : "created_date";
+    // Oldest first, with a post ahead of its replies.
     return {
-      messages: [...extra, ...page]
+      messages: [...extra, ...[...page].reverse()]
         .filter((m: any) => isLive(m, now) && !hiddenFromNewcomer(view, m))
-        .map(serverMessageOut)
-        .reverse(),
+        .map(serverMessageOut),
       has_more: rows.length > limit,
       before: page.length ? page[page.length - 1][cursorField] : null,
     };
