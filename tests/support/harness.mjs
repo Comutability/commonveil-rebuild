@@ -45,6 +45,7 @@ export class Member {
     this.name = name;
     this.user = { id: world.newId(), role, email: email || `${name}@example.test`, full_name: name };
     this.id = this.user.id;
+    world.addUser(this.user);
   }
 
   async call(fn, body, { anonymous = false } = {}) {
