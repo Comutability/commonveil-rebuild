@@ -25,6 +25,8 @@ import { MAX_MESSAGE_CHARS, deviceIsCertified, sentAfterRemoval, signedRequest, 
 import { isReactionEmoji } from "../emoji.js";
 import { cleanPoll, cleanVote } from "./polls.js";
 import { cleanAttachments } from "./attachments.js";
+import { cleanSet, isCustomReaction, EMOJI_ID_RE } from "../customEmoji.js";
+import { cleanAutomod } from "./automod.js";
 
 export { ChainKeys, historyChain, liveChain, channelChain, parseChainId };
 
@@ -79,10 +81,11 @@ function mentionsOf(m) {
   return { users, roles, ...(everyone ? { everyone: true } : {}) };
 }
 
-export function textPayload(text, { replyTo = null, mentions = null, forwarded = false, attachments = [] } = {}) {
-  // A message can be just files.
-  const payload = { type: "text", text: attachments.length && !String(text || "").trim() ? "" : cleanText(text, MAX_MESSAGE_CHARS) };
+export function textPayload(text, { replyTo = null, mentions = null, forwarded = false, attachments = [], sticker = null } = {}) {
+  // A message can be just files, or just a sticker.
+  const payload = { type: "text", text: (attachments.length || sticker) && !String(text || "").trim() ? "" : cleanText(text, MAX_MESSAGE_CHARS) };
   if (attachments.length) payload.attachments = attachments;
+  if (sticker) payload.sticker = sticker;
   // A forwarded copy says only that it was forwarded, never where from.
   if (forwarded) payload.forwarded = true;
   if (replyTo) {
@@ -103,7 +106,7 @@ export function postPayload(title, text, { mentions = null } = {}) {
 
 export function reactionPayload(target, emoji, remove = false) {
   if (!isItemId(target)) throw new Error("That message can't be reacted to.");
-  if (!isReactionEmoji(emoji)) throw new Error("Choose one of the offered reactions.");
+  if (!isReactionEmoji(emoji) && !isCustomReaction(emoji)) throw new Error("Choose one of the offered reactions.");
   return { type: "reaction", target, emoji, ...(remove ? { remove: true } : {}) };
 }
 
@@ -129,15 +132,16 @@ export function serverMessageContent(payload, declaredKind) {
   if (payload.type === "text") {
     if (typeof payload.text !== "string") return null;
     const files = cleanAttachments(payload.attachments);
-    if (!payload.text.trim() && !files.length) return null;
-    return { type: "text", text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...(isItemId(payload.reply_to) ? { reply_to: payload.reply_to } : {}), ...(mentions ? { mentions } : {}), ...(payload.forwarded === true ? { forwarded: true } : {}), ...(files.length ? { attachments: files } : {}) };
+    const sticker = typeof payload.sticker === "string" && EMOJI_ID_RE.test(payload.sticker) ? payload.sticker : null;
+    if (!payload.text.trim() && !files.length && !sticker) return null;
+    return { type: "text", text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...(isItemId(payload.reply_to) ? { reply_to: payload.reply_to } : {}), ...(mentions ? { mentions } : {}), ...(payload.forwarded === true ? { forwarded: true } : {}), ...(files.length ? { attachments: files } : {}), ...(sticker ? { sticker } : {}) };
   }
   if (payload.type === "post") {
     if (typeof payload.title !== "string" || typeof payload.text !== "string" || !payload.title.trim()) return null;
     return { type: "post", title: payload.title.slice(0, MAX_POST_TITLE), text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...(mentions ? { mentions } : {}) };
   }
   if (payload.type === "reaction") {
-    if (!isItemId(payload.target) || !isReactionEmoji(payload.emoji)) return null;
+    if (!isItemId(payload.target) || !(isReactionEmoji(payload.emoji) || isCustomReaction(payload.emoji))) return null;
     return { type: "reaction", target: payload.target, emoji: payload.emoji, remove: payload.remove === true };
   }
   if (payload.type === "poll") {
@@ -162,6 +166,8 @@ export function itemContent(kind, payload) {
   if (kind === "nick") return { nick: s(payload.nick, 32) };
   if (kind === "rules") return { rules: Array.isArray(payload.rules) ? payload.rules.filter((r) => typeof r === "string" && r.trim()).slice(0, 25).map((r) => r.slice(0, 500)) : [], intro: s(payload.intro, 1000) };
   if (kind === "ban") return { reason: s(payload.reason, 500) };
+  if (kind === "emoji" || kind === "stickers") return cleanSet(kind, payload);
+  if (kind === "automod") return cleanAutomod(payload);
   return null;
 }
 
