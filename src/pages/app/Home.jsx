@@ -15,13 +15,13 @@ import CreateServerDialog, { parseInvite } from "@/components/servers/CreateServ
 const SEES = [
   "Your username, and the profile details you choose to share",
   "Who's in each conversation and server, and their roles",
-  "When something is sent, and roughly how big it is",
+  "When something is sent, and roughly how big it is, files included",
   "Which channels a server has and how they're set up, but not their names",
   "The public card of a server its admins list in Discover",
 ];
 const NEVER = [
-  "What you write: messages, posts, replies, edits and reactions",
-  "Server, channel and role names, nicknames, rules and group names",
+  "What you write: messages, posts, replies, edits, reactions, polls, files and events",
+  "Server, channel and role names, nicknames, rules, emoji, AutoMod rules and group names",
   "Your calls, which go straight between devices",
   "What you search for and what you've read, which stay on this device",
 ];
