@@ -37,29 +37,27 @@ function Tile({ p, nameOf, profileOf, small = false, voice }) {
       )}
       <span className="max-w-full truncate text-sm font-medium">{name}{p.self ? " (you)" : ""}</span>
       <span className="flex items-center gap-1 text-xs text-muted-foreground">
-        {p.canSpeak && p.muted && <MicOff className="h-3.5 w-3.5" aria-label="Muted" />}
+        {p.canSpeak && p.muted && <MicOff className="h-3.5 w-3.5" aria-label={p.modMuted ? "Muted by a moderator" : "Muted"} />}
         {p.deafened && <HeadphoneOff className="h-3.5 w-3.5" aria-label="Deafened" />}
         {!p.self && p.state && p.state !== "connected" && <span>{STATE_LABEL[p.state] || "Can't connect"}</span>}
       </span>
     </>
   );
   const cls = `flex flex-col items-center gap-2 rounded-xl border bg-card transition-shadow ${p.stream ? "col-span-full p-2 sm:col-span-2" : small ? "px-2 py-3" : "px-4 py-6"} ${p.speaking ? "border-primary ring-2 ring-primary/50" : "border-border"}`;
-  if (!voice.stage || !voice.canModerate || p.self) return <li className={cls}>{body}</li>;
+  if (!voice.canModerate || p.self) return <li className={cls}>{body}</li>;
   return (
     <li className={cls}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" className="flex w-full flex-col items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Stage options for ${name}`}>{body}</button>
+          <button type="button" className="flex w-full flex-col items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Moderator options for ${name}`}>{body}</button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          {p.canSpeak ? (
-            <>
-              <DropdownMenuItem onSelect={() => voice.mutePeer(p.userId)}>Mute</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => voice.setSpeaker(p.userId, false)}>Move to the audience</DropdownMenuItem>
-            </>
-          ) : (
-            <DropdownMenuItem onSelect={() => voice.setSpeaker(p.userId, true)}>Invite to speak</DropdownMenuItem>
-          )}
+          {p.canSpeak && (p.modMuted
+            ? <DropdownMenuItem onSelect={() => voice.mutePeer(p.userId, false)}>Lift your mute</DropdownMenuItem>
+            : <DropdownMenuItem onSelect={() => voice.mutePeer(p.userId)}>Mute for everyone</DropdownMenuItem>)}
+          {voice.stage && (p.canSpeak
+            ? <DropdownMenuItem onSelect={() => voice.setSpeaker(p.userId, false)}>Move to the audience</DropdownMenuItem>
+            : <DropdownMenuItem onSelect={() => voice.setSpeaker(p.userId, true)}>Invite to speak</DropdownMenuItem>)}
         </DropdownMenuContent>
       </DropdownMenu>
     </li>
