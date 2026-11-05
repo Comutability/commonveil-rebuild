@@ -14,7 +14,7 @@ export default function VoiceStatus() {
   const channel = room.serverId ? servers[room.serverId]?.channels?.find((c) => c.id === room.channelId) : null;
   const conv = room.conversationId ? (conversations || []).find((c) => c.id === room.conversationId) : null;
   const where = room.serverId ? `${channelName(channel)} in ${serverName(room.serverId)}` : conv ? conversationName(conv) : "Call";
-  const to = room.serverId ? `/app/s/${room.serverId}/${room.channelId}` : `/app/dm/${room.conversationId}`;
+  const to = room.serverId ? `/app/s/${room.serverId}/${room.channelId}` : `/app/c/${room.conversationId}`;
   const btn = "flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[hsl(var(--panel-hover))] hover:text-foreground";
   return (
     <div className="border-b border-border/60 px-2 py-2">
