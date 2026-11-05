@@ -1,12 +1,12 @@
 import React, { useRef } from "react";
-import { BarChart3, Mic, Paperclip, Plus, Sticker } from "lucide-react";
+import { BarChart3, Clock, HeartHandshake, Mic, Paperclip, Plus, Sticker } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 /**
  * The + beside the message box: files, voice messages and polls. Only what's passed is offered.
  * onFiles(FileList) gets the files picked; nothing is read or sent until the message is.
  */
-export default function ComposerPlus({ onPoll, onFiles, onVoiceNote, onSticker, disabled = false }) {
+export default function ComposerPlus({ onPoll, onFiles, onVoiceNote, onSticker, onSchedule, onCheckIn, disabled = false }) {
   const picker = useRef(null);
   if (!onPoll && !onFiles && !onVoiceNote) return null;
   return (
@@ -40,6 +40,8 @@ export default function ComposerPlus({ onPoll, onFiles, onVoiceNote, onSticker, 
           {onFiles && <DropdownMenuItem onSelect={() => setTimeout(() => picker.current?.click(), 0)}><Paperclip className="mr-2 h-4 w-4" aria-hidden="true" /> Upload a file</DropdownMenuItem>}
           {onVoiceNote && <DropdownMenuItem onSelect={onVoiceNote}><Mic className="mr-2 h-4 w-4" aria-hidden="true" /> Record a voice message</DropdownMenuItem>}
           {onSticker && <DropdownMenuItem onSelect={onSticker}><Sticker className="mr-2 h-4 w-4" aria-hidden="true" /> Send a sticker</DropdownMenuItem>}
+          {onSchedule && <DropdownMenuItem onSelect={onSchedule}><Clock className="mr-2 h-4 w-4" aria-hidden="true" /> Send later</DropdownMenuItem>}
+          {onCheckIn && <DropdownMenuItem onSelect={onCheckIn}><HeartHandshake className="mr-2 h-4 w-4" aria-hidden="true" /> Safety check-in</DropdownMenuItem>}
           {onPoll && <DropdownMenuItem onSelect={onPoll}><BarChart3 className="mr-2 h-4 w-4" aria-hidden="true" /> Create a poll</DropdownMenuItem>}
         </DropdownMenuContent>
       </DropdownMenu>

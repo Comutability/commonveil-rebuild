@@ -41,6 +41,7 @@ import { progressText, useStagedFiles } from "./useStagedFiles";
 import { typingText, usePresence, usePresenceRoom } from "@/lib/secure/PresenceContext";
 import { useVoice } from "@/lib/voice/VoiceContext";
 import CallPanel from "@/components/voice/CallPanel";
+import { WaitDialog, WaitingBar } from "./Waiting";
 import { fromB64 } from "@/lib/crypto/encoding";
 import { hideAt, timerLabel } from "@/lib/secure/thread.js";
 import { formatTime, Loading } from "@/components/site/bits";
@@ -405,6 +406,8 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
   const voice = useVoice();
   const { startCall } = useChat();
   const [callError, setCallError] = useState("");
+  const [waitMode, setWaitMode] = useState(null);
+  const [waitTick, setWaitTick] = useState(0);
   const inThisCall = voice.room?.conversationId === conversation.id;
   const call = async () => {
     setCallError("");
@@ -496,6 +499,7 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
               <span className="inline-flex items-center gap-1"><Lock className="h-3.5 w-3.5" aria-hidden="true" /> End-to-end encrypted</span>
             )}
             {conversation.kind === "group" && <span>{conversation.member_ids.length} people</span>}
+            {conversation.destroy_at && <span className="inline-flex items-center gap-1 text-[hsl(var(--warning))]" title="The whole conversation is deleted for everyone then">Self-destructs {new Date(conversation.destroy_at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}</span>}
             {timer > 0 && (
               <span className="inline-flex items-center gap-1" title="New messages disappear after this long">
                 <Timer className="h-3.5 w-3.5" aria-hidden="true" /> {timerLabel(timer)}
@@ -513,6 +517,8 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
         </Button>
       </header>
 
+      <WaitingBar conversation={conversation} tick={waitTick} />
+      <WaitDialog conversation={conversation} mode={waitMode} open={waitMode !== null} onOpenChange={(v) => !v && setWaitMode(null)} onDone={() => setWaitTick((t) => t + 1)} />
       {inThisCall && (
         <div className="flex max-h-[55%] flex-col items-center overflow-y-auto border-b border-border bg-[hsl(var(--rail)/0.5)] p-4">
           <CallPanel nameOf={nameOf} profileOf={() => null} />
@@ -645,7 +651,7 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
         )}
         <CreatePollDialog open={pollOpen} onOpenChange={setPollOpen} onCreate={(poll) => sendPoll(conversation, poll)} />
         <div className="flex items-end gap-2">
-          {!editing && !pausedReason && <div className="pb-1.5"><ComposerPlus onPoll={() => setPollOpen(true)} onFiles={staged.add} onVoiceNote={() => setRecording(true)} /></div>}
+          {!editing && !pausedReason && <div className="pb-1.5"><ComposerPlus onPoll={() => setPollOpen(true)} onFiles={staged.add} onVoiceNote={() => setRecording(true)} onSchedule={() => setWaitMode("later")} onCheckIn={() => setWaitMode("checkin")} /></div>}
           <Textarea
             ref={input}
             value={text}

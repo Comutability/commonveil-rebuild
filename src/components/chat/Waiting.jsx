@@ -113,7 +113,7 @@ export function WaitingBar({ conversation, tick }) {
             {s.kind === "checkin" ? <HeartHandshake className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" /> : <Clock className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
             <span className="min-w-0 flex-1 truncate">
               <span className="font-medium">{s.kind === "checkin" ? `Check-in: sent ${left(s.deliver_at)} unless you're OK` : `Sends ${left(s.deliver_at)}`}</span>
-              <span className="text-muted-foreground"> · {s.text || "…"}</span>
+              <span className="ml-2 text-muted-foreground">{s.text || "…"}</span>
             </span>
             {s.kind === "checkin" && <Button size="sm" onClick={() => act(() => checkIn(s.id))}>I'm OK</Button>}
             <Button size="sm" variant="ghost" onClick={() => act(() => cancelScheduled(s.id))} aria-label={s.kind === "checkin" ? "End check-in" : "Cancel scheduled message"}>
