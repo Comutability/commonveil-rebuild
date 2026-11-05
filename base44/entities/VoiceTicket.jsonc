@@ -1,0 +1,36 @@
+{
+  "name": "VoiceTicket",
+  "type": "object",
+  "description": "A single-use pass to join one voice call. The voice function makes it after checking membership and permissions; the VoiceRoom actor reads and deletes it when the device joins. Lives one minute.",
+  "properties": {
+    "room": {
+      "type": "string",
+      "description": "server id and channel id, joined by a dot"
+    },
+    "user_id": {
+      "type": "string"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "can_speak": {
+      "type": "boolean",
+      "default": true
+    },
+    "expires_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "room",
+    "user_id",
+    "device_id",
+    "expires_at"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}
