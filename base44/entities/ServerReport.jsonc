@@ -1,0 +1,66 @@
+{
+  "name": "ServerReport",
+  "type": "object",
+  "description": "A report to a server's moderators. Its content is end-to-end encrypted to the moderators at the time (and the reporter): the service knows who reported whom, when, and what the moderators did with it.",
+  "properties": {
+    "server_id": {
+      "type": "string"
+    },
+    "report_id": {
+      "type": "string"
+    },
+    "reporter_id": {
+      "type": "string"
+    },
+    "target_id": {
+      "type": "string"
+    },
+    "recipient_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Who the report is encrypted to: the reporter and the moderators."
+    },
+    "envelope": {
+      "type": "string"
+    },
+    "signature": {
+      "type": "string"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "sent_at": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "resolved",
+        "dismissed",
+        "escalated"
+      ],
+      "default": "open"
+    },
+    "handled_by": {
+      "type": "string"
+    },
+    "handled_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "server_id",
+    "report_id",
+    "reporter_id",
+    "target_id"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

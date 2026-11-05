@@ -39,6 +39,26 @@
     },
     "handled_by": {
       "type": "string"
+    },
+    "source": {
+      "type": "string",
+      "description": "\"member\" (someone reporting directly) or \"server\" (a server's moderators escalating)."
+    },
+    "server_id": {
+      "type": "string"
+    },
+    "server_report_id": {
+      "type": "string"
+    },
+    "escalated_by": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string"
+    },
+    "server_name": {
+      "type": "string",
+      "description": "The server's name, as the escalating moderator gave it."
     }
   },
   "required": [

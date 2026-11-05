@@ -29,6 +29,10 @@
     },
     "reason_signature": {
       "type": "string"
+    },
+    "expires_at": {
+      "type": "string",
+      "description": "For a temporary ban: when it ends. Empty for a permanent one."
     }
   },
   "required": [

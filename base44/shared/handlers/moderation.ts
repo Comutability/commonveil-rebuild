@@ -10,8 +10,7 @@ import { ApiError, cleanText, id, isoTime, LIMITS, randomIdField, str, type Acti
 import { signedByActiveDevice } from "../deviceAuth.ts";
 import { P, has, topPosition } from "../permissions.ts";
 import {
-  acceptItem, audit, generationsOf, historyChainId, itemFields, itemOut, liveChainId, memberRow, needRotation,
-  permsOf, requireAbove, requireMember, serverParts, SERVER_LIMITS,
+  acceptItem, audit, generationsOf, itemFields, itemOut, memberRow, permsOf, requireAbove, requireMember, serverParts, SERVER_LIMITS,
 } from "../servers/model.ts";
 import { removeMember } from "../servers/build.ts";
 import { CASE_ACTIONS, MOD_PERMS, cleanPolicy, logCase, policyOf, thresholdFor } from "../servers/moderation.ts";
@@ -82,9 +81,6 @@ async function punish(sr: any, parts: any, target: any, action: string, minutes:
     const expires = minutes ? new Date(now.getTime() + minutes * 60_000).toISOString() : "";
     if (!existing) await sr.entities.ServerBan.create({ server_id: serverId, user_id: target.user_id, banned_by: "system", expires_at: expires });
     await removeMember(sr, serverId, target.user_id, { reason: "banned", now });
-    void needRotation;
-    void historyChainId;
-    void liveChainId;
   }
 }
 

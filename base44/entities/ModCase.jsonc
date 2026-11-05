@@ -1,0 +1,79 @@
+{
+  "name": "ModCase",
+  "type": "object",
+  "description": "A moderation case: a warning, a note, or a record of a timeout, kick, ban or purge. The reason is encrypted with the server's key; only moderators (and, for warnings, the person warned) are shown it.",
+  "properties": {
+    "server_id": {
+      "type": "string"
+    },
+    "case_number": {
+      "type": "number"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "warn",
+        "note",
+        "timeout",
+        "kick",
+        "ban",
+        "unban",
+        "purge",
+        "quarantine"
+      ]
+    },
+    "target_id": {
+      "type": "string"
+    },
+    "actor_id": {
+      "type": "string",
+      "description": "Who did it, or \"system\" for the server's automatic rules."
+    },
+    "minutes": {
+      "type": "number",
+      "default": 0
+    },
+    "active": {
+      "type": "boolean",
+      "default": false,
+      "description": "For warnings: still counts towards the server's automatic steps."
+    },
+    "report_id": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "reason_envelope": {
+      "type": "string",
+      "description": "Encrypted reason or note (server key)."
+    },
+    "reason_item_id": {
+      "type": "string"
+    },
+    "reason_sender_id": {
+      "type": "string"
+    },
+    "reason_device_id": {
+      "type": "string"
+    },
+    "reason_sent_at": {
+      "type": "string"
+    },
+    "reason_signature": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "server_id",
+    "case_number",
+    "action",
+    "target_id"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

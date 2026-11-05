@@ -230,6 +230,14 @@
     "changed_at": {
       "type": "string",
       "description": "When the server's layout or settings last changed, so members' apps know to reload them."
+    },
+    "mod_policy": {
+      "type": "object",
+      "description": "The server's moderation settings: warning steps, flood, raid and staff limits. Enforced by the service; no content involved."
+    },
+    "raid_detected_at": {
+      "type": "string",
+      "description": "When raid protection last paused joining."
     }
   },
   "required": [
