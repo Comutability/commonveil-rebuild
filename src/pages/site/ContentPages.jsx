@@ -313,7 +313,7 @@ export function ResourcesIndex() {
                     {r.pricing_summary && <Pill>{r.pricing_summary}</Pill>}
                   </div>
                   {r.website && (
-                    <a href={r.website} target="_blank" rel="noopener noreferrer nofollow" className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
+                    <a href={/^https?:\/\//i.test(r.website || "") ? r.website : undefined} target="_blank" rel="noopener noreferrer nofollow" className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
                       Visit site <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                     </a>
                   )}

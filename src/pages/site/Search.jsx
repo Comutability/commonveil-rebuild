@@ -75,7 +75,7 @@ export default function Search() {
                       </h2>
                       {snippet && <p className="mt-1 text-sm text-muted-foreground">{snippet}</p>}
                       {doc.external && (
-                        <a href={doc.external} target="_blank" rel="noopener noreferrer nofollow" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                        <a href={/^https?:\/\//i.test(doc.external || "") ? doc.external : undefined} target="_blank" rel="noopener noreferrer nofollow" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
                           Visit site <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                         </a>
                       )}
