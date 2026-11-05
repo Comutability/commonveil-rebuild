@@ -66,7 +66,7 @@ export function stepAt(chainId: string, startedAt: string, atMs: number) {
 
 // ---------- outputs ----------
 
-const itemOut = (row: any, prefix: string) =>
+export const itemOut = (row: any, prefix: string) =>
   row?.[`${prefix}_envelope`]
     ? {
         envelope: row[`${prefix}_envelope`],
