@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link, Outlet } from "react-router-dom";
+import QuickSwitcher from "@/components/shell/QuickSwitcher";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SecureProvider, useSecure } from "@/lib/secure/SecureContext";
@@ -103,6 +104,7 @@ function Gate() {
         <VoiceProvider>
           <div className="flex h-[100dvh] flex-col overflow-hidden">
             <ResetRequested />
+            <QuickSwitcher />
             <div className="relative min-h-0 flex-1">
               <Outlet />
             </div>
