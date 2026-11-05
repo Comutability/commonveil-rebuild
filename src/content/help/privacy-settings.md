@@ -39,9 +39,9 @@ Block someone from their profile, or from a conversation's details. Once blocked
 ## Reporting
 
 - **In a server:** use **Report message**. It goes, encrypted, to that server's moderators. See [moderation](/help/moderation).
-- **In a conversation:** choose **Report** in the conversation's details. It goes to the Commonveil team.
+- **In a conversation:** choose **Report** in the conversation's details. It goes to the Commonveil team. Staff can't read your messages, so paste anything they need to see.
 
-Because the team can't read your messages, a report includes only what you choose to share. You can get a copy of every report you've made from **Settings → Data and account**.
+Because the team can't read your messages, a report includes only what you choose to share. Every report you've made is included when you **Download your data** (under **Settings → Data and account**).
 
 If someone is in immediate danger, contact your local emergency services.
 

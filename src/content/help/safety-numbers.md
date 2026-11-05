@@ -27,7 +27,7 @@ You'll see **Their security keys changed** in the conversation. That happens whe
 
 ## When your keys change
 
-Removing a device renews your keys, but your safety number stays the same, because it's tied to your account's identity rather than any one device. Only a reset gives you a new identity, and the people you talk to are warned.
+Removing a device renews your keys. That's signed by your existing keys, so the people you talk to follow the change automatically, without a warning, and anyone who marked you as verified keeps you verified. Your safety number moves on with it, so if you compare again later it will be different. Only a reset starts a new identity, and that's when people are warned.
 
 ## What "unverified" means
 
