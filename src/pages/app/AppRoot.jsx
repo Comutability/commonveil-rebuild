@@ -4,6 +4,8 @@ import { AlertTriangle, Lock, MessagesSquare, Settings, Shield } from "lucide-re
 import { Button } from "@/components/ui/button";
 import { SecureProvider, useSecure } from "@/lib/secure/SecureContext";
 import { ChatProvider } from "@/lib/secure/ChatContext";
+import { ServerProvider } from "@/lib/secure/ServerContext";
+import { VoiceProvider } from "@/lib/voice/VoiceContext";
 import { LogoMark } from "@/components/site/Logo";
 import { FullScreenLoading } from "@/components/site/bits";
 import LockScreen from "@/components/app/LockScreen";
@@ -112,9 +114,16 @@ function Gate() {
   if (phase === "reset-waiting") return <Frame><ResetWaiting /></Frame>;
   return (
     <ChatProvider>
-      <Frame showNav>
-        <Outlet />
-      </Frame>
+      <ServerProvider>
+        <VoiceProvider>
+          <div className="flex h-[100dvh] flex-col overflow-hidden">
+            <ResetRequested />
+            <div className="relative min-h-0 flex-1">
+              <Outlet />
+            </div>
+          </div>
+        </VoiceProvider>
+      </ServerProvider>
     </ChatProvider>
   );
 }
