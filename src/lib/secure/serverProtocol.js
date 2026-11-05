@@ -190,7 +190,9 @@ export function itemContent(kind, payload) {
 
 /** A channel message, ready to send. kind: "message", "post", "reaction" or "edit". */
 export async function buildChannelMessage({ serverId, channel, generations, keys, userId, device, payload, kind, threadId = "", itemId = null }) {
-  const item = await buildServerItem({ kind: "message", serverId, channelId: channel.id, chainId: chainForChannel(serverId, channel), generations, keys, userId, device, payload, itemId });
+  // The thread (or forum post) it belongs to goes inside, so it can't be moved to another.
+  const sealed = threadId ? { ...payload, thread: threadId } : payload;
+  const item = await buildServerItem({ kind: "message", serverId, channelId: channel.id, chainId: chainForChannel(serverId, channel), generations, keys, userId, device, payload: sealed, itemId });
   return {
     action: "send",
     server_id: serverId,
@@ -243,6 +245,8 @@ export async function openServerItem({ kind, item, serverId, channelId = "", key
   if (kind === "message") {
     const content = serverMessageContent(decrypted.payload, item.kind);
     if (!content) return { status: "locked", code: "BAD_PAYLOAD" };
+    const thread = typeof decrypted.payload?.thread === "string" ? decrypted.payload.thread : "";
+    if (thread && thread !== (item.thread_id || "")) return { status: "locked", code: "MOVED" };
     return { ...out, content, text: textOf(content) };
   }
   const content = itemContent(kind, decrypted.payload);

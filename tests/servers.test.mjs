@@ -791,3 +791,28 @@ test("files can't be hung on someone else's message, and only the sender's own f
   w.rows("Attachment").find((r) => r.id === file_id).msg_id = sent.msg_id;
   assert.deepEqual((await alice.ok("files", { action: "download_links", file_ids: [file_id] })).links, {});
 });
+
+test("audit fixes: channel managers can't open private channels or hand out powers they lack; role denies really hide", async () => {
+  const { w, members: [alice, bob, carol] } = await world("alice", "bobby", "carol");
+  const sid = await serverWith(alice, bob, carol);
+  const state = await alice.server(sid);
+  const { keys } = await alice.keysOf(state);
+  const everyone = state.roles.find((r) => r.is_everyone);
+  const name = (n) => buildServerItem({ kind: "role", serverId: sid, generations: state.generations, keys, userId: alice.id, device: alice.device, payload: { name: n } });
+  const { role: chanMgr } = await alice.ok("servers", await signed(alice, "create_role", { server_id: sid, item: await name("Channel manager"), permissions: serverPerms.P.VIEW_CHANNEL | serverPerms.P.MANAGE_CHANNELS }));
+  await alice.ok("servers", await signed(alice, "set_member_roles", { server_id: sid, user_id: bob.id, role_ids: [chanMgr.id] }));
+  const chName = await buildServerItem({ kind: "channel", serverId: sid, generations: state.generations, keys, userId: alice.id, device: alice.device, payload: { name: "admins" } });
+  const { channel: secret } = await alice.ok("servers", await signed(alice, "create_channel", { server_id: sid, kind: "text", item: chName, overwrites: [{ role_id: everyone.id, deny: serverPerms.P.VIEW_CHANNEL }] }));
+  // bob can't see it, so can't manage it, and can't grant his role access.
+  await bob.fails("servers", await signed(bob, "update_channel", { server_id: sid, channel_id: secret.id, overwrites: [{ role_id: everyone.id, deny: serverPerms.P.VIEW_CHANNEL }, { role_id: chanMgr.id, allow: serverPerms.P.VIEW_CHANNEL }] }), "MISSING_PERMISSION");
+  await bob.fails("servers", await signed(bob, "delete_channel", { server_id: sid, channel_id: secret.id }), "MISSING_PERMISSION");
+  // On a channel he can see, he still can't change overwrites without MANAGE_ROLES.
+  const general = await alice.channelNamed(sid, "general");
+  await bob.fails("servers", await signed(bob, "update_channel", { server_id: sid, channel_id: general.id, overwrites: [{ role_id: chanMgr.id, allow: serverPerms.P.MUTE_MEMBERS }] }), "MISSING_PERMISSION");
+  // A role deny on an otherwise open channel makes it private: its own keys and audience.
+  const { role: muted } = await alice.ok("servers", await signed(alice, "create_role", { server_id: sid, item: await name("Muted"), permissions: 0 }));
+  await alice.ok("servers", await signed(alice, "update_channel", { server_id: sid, channel_id: general.id, overwrites: [{ role_id: muted.id, deny: serverPerms.P.VIEW_CHANNEL }] }));
+  const row = w.rows("Channel").find((c) => c.id === general.id);
+  assert.equal(row.private, true);
+  assert.equal(row.audience_id, general.id);
+});
