@@ -82,6 +82,13 @@
     },
     "ticket_opened_by": {
       "type": "string"
+    },
+    "destroy_at": {
+      "type": "string",
+      "description": "Self-destruct: when the whole conversation, every message and file in it, is deleted for everyone."
+    },
+    "destroy_set_by": {
+      "type": "string"
     }
   },
   "required": [

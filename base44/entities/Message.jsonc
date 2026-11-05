@@ -42,6 +42,11 @@
     "expires_at": {
       "type": "string",
       "description": "Disappearing messages: when the server deletes this message. Missing: kept until deleted."
+    },
+    "scheduled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Delivered from a schedule or a missed check-in, rather than straight away."
     }
   },
   "required": [

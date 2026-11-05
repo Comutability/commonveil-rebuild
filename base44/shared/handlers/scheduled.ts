@@ -25,8 +25,8 @@ async function mine(ctx: Ctx, rowId: string) {
 }
 
 /** Deliver what's due: into the conversation, for whoever is still in it. */
-export async function deliverDue(sr: any, now: Date, deadline: number) {
-  const due = await sr.entities.ScheduledMessage.filter({ deliver_at: { $gt: "", $lte: now.toISOString() } }, "deliver_at", SCHEDULE_LIMITS.perDelivery);
+export async function deliverDue(sr: any, now: Date, deadline: number, only: any = {}) {
+  const due = await sr.entities.ScheduledMessage.filter({ ...only, deliver_at: { $gt: "", $lte: now.toISOString() } }, "deliver_at", SCHEDULE_LIMITS.perDelivery);
   let delivered = 0;
   for (const row of due) {
     if (Date.now() > deadline) break;
@@ -127,8 +127,6 @@ export const scheduledActions: Actions = {
   /** Sender's app nudge: deliver anything of yours that's due now, rather than waiting for the next run. */
   async deliver_mine(ctx: Ctx) {
     const { sr, user, now } = ctx;
-    const due = (await sr.entities.ScheduledMessage.filter({ sender_id: user.id, deliver_at: { $gt: "", $lte: now.toISOString() } }, "deliver_at", 20));
-    if (!due.length) return { delivered: 0 };
-    return { delivered: await deliverDue(sr, now, Date.now() + 20_000) };
+    return { delivered: await deliverDue(sr, now, Date.now() + 20_000, { sender_id: user.id }) };
   },
 };

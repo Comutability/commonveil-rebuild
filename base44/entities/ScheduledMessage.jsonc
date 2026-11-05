@@ -1,0 +1,60 @@
+{
+  "name": "ScheduledMessage",
+  "type": "object",
+  "description": "A message waiting to be delivered: sent later, or a safety check-in that goes out unless its sender checks in. End-to-end encrypted and signed like any message; only the service can see it until it's delivered, and it can't read it.",
+  "properties": {
+    "conversation_id": {
+      "type": "string"
+    },
+    "sender_id": {
+      "type": "string"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "msg_id": {
+      "type": "string"
+    },
+    "envelope": {
+      "type": "string"
+    },
+    "signature": {
+      "type": "string"
+    },
+    "sent_at": {
+      "type": "string"
+    },
+    "recipient_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "deliver_at": {
+      "type": "string",
+      "description": "When it goes out. Cleared once delivered or cancelled."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "later",
+        "checkin"
+      ]
+    },
+    "checkin_hours": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "conversation_id",
+    "sender_id",
+    "msg_id"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}
