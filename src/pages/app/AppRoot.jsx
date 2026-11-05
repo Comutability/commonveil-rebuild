@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { Link, NavLink, Outlet } from "react-router-dom";
-import { AlertTriangle, Lock, MessagesSquare, Settings, Shield } from "lucide-react";
+import { Link, Outlet } from "react-router-dom";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SecureProvider, useSecure } from "@/lib/secure/SecureContext";
 import { ChatProvider } from "@/lib/secure/ChatContext";
@@ -53,38 +53,23 @@ function ResetRequested() {
   );
 }
 
-const tabClass = ({ isActive }) =>
-  `inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${isActive ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`;
-
-function Frame({ children, showNav }) {
-  const { me, isAdmin, lockInfo, lockNow } = useSecure();
+/** The plain frame around setup and lock screens. Once you're in, the app's own shell takes over. */
+function Frame({ children }) {
+  const { me } = useSecure();
   return (
     <div className="flex min-h-[100dvh] flex-col">
       <header className="border-b border-border bg-background">
         <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-3 px-3 sm:px-4">
-          <Link to={showNav ? "/app" : "/"} className="flex items-center gap-2">
+          <Link to="/" className="flex items-center gap-2">
             <LogoMark className="h-7 w-7 text-primary-foreground" />
             <span className="hidden font-heading text-lg font-semibold sm:inline">Commonveil</span>
           </Link>
-          {showNav && (
-            <nav className="flex items-center gap-1" aria-label="App">
-              <NavLink to="/app" end className={tabClass}><MessagesSquare className="h-4 w-4" aria-hidden="true" /><span className="hidden sm:inline">Messages</span></NavLink>
-              <NavLink to="/app/settings" className={tabClass}><Settings className="h-4 w-4" aria-hidden="true" /><span className="hidden sm:inline">Settings</span></NavLink>
-              {isAdmin && <NavLink to="/admin" className={tabClass}><Shield className="h-4 w-4" aria-hidden="true" /><span className="hidden sm:inline">Admin</span></NavLink>}
-            </nav>
-          )}
           <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            {showNav && lockInfo && (
-              <Button variant="ghost" size="sm" onClick={lockNow} aria-label="Lock now" title="Lock now">
-                <Lock className="h-4 w-4" aria-hidden="true" /><span className="ml-1 hidden sm:inline">Lock</span>
-              </Button>
-            )}
             {me?.profile && <span className="hidden md:inline">@{me.profile.username}</span>}
             <Link to="/" className="hover:text-foreground">Site</Link>
           </div>
         </div>
       </header>
-      {showNav && <ResetRequested />}
       <div className="flex min-h-0 flex-1 flex-col">{children}</div>
     </div>
   );
