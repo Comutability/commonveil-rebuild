@@ -816,3 +816,89 @@ test("audit fixes: channel managers can't open private channels or hand out powe
   assert.equal(row.private, true);
   assert.equal(row.audience_id, general.id);
 });
+
+test("moderation: reports are encrypted to the moderators and the reporter only; mods can act and escalate", async () => {
+  const { moderationActions } = await import("../base44/shared/handlers/moderation.ts");
+  const { safetyActions } = await import("../base44/shared/handlers/safety.ts");
+  addFunctions({ moderation: moderationActions });
+  const { buildReport, openReport } = await import("../src/lib/secure/protocol.js");
+  const { w, members: [alice, bob, carol, dave] } = await world("alice", "bobby", "carol", "daveo");
+  const sid = await serverWith(alice, bob, carol, dave);
+  // bob reports carol.
+  const { recipients } = await bob.ok("moderation", { action: "report_recipients", server_id: sid, target_id: carol.id });
+  assert.deepEqual(recipients, [bob.id, alice.id], "the reporter and the owner (the only moderator), never the person reported");
+  const { chains } = await bob.keysFor(recipients);
+  const item = await buildReport({ userId: bob.id, device: bob.device, serverId: sid, recipients, chains, keyring: bob.keyring, payload: { type: "report", server_id: sid, target_id: carol.id, reason: "harassment", note: "keeps messaging me", quote: { text: "a nasty message", author_id: carol.id } } });
+  await bob.ok("moderation", await signed(bob, "report", { server_id: sid, target_id: carol.id, item }));
+  // Encrypted to the wrong people: refused.
+  const sneaky = await buildReport({ userId: bob.id, device: bob.device, serverId: sid, recipients: [bob.id, alice.id, dave.id], chains: (await bob.keysFor([bob.id, alice.id, dave.id])).chains, keyring: bob.keyring, payload: { type: "report", server_id: sid, target_id: carol.id, reason: "spam" } });
+  await bob.fails("moderation", await signed(bob, "report", { server_id: sid, target_id: carol.id, item: sneaky }), "RECIPIENTS_CHANGED");
+  assert.equal(JSON.stringify(w.rows("ServerReport")).includes("nasty"), false, "the service can't read it");
+  const { reports } = await alice.ok("moderation", { action: "reports", server_id: sid });
+  assert.equal(reports.length, 1);
+  const peers = await alice.keysFor([bob.id]);
+  const opened = await openReport({ row: reports[0], userId: alice.id, keyring: alice.keyring, senderChain: peers.chains.get(bob.id), senderDevices: peers.devices.get(bob.id) });
+  assert.equal(opened.status, "ok");
+  assert.equal(opened.content.quote.text, "a nasty message");
+  assert.equal((await dave.ok("moderation", { action: "reports", server_id: sid })).reports.length, 0, "other members see nothing");
+  assert.equal((await carol.ok("moderation", { action: "reports", server_id: sid })).reports.length, 0, "nor does the person reported");
+  // Escalate to Commonveil: what the moderator writes is readable by the team, by design.
+  await dave.fails("moderation", await signed(dave, "escalate", { server_id: sid, report_id: reports[0].report_id, reason: "harassment", details: "x" }), "MISSING_PERMISSION");
+  await alice.ok("moderation", await signed(alice, "escalate", { server_id: sid, report_id: reports[0].report_id, reason: "harassment", details: "Repeated harassment of a member.", server_name: "Test" }));
+  const platform = w.rows("Report").find((r) => r.source === "server");
+  assert.deepEqual([platform.reported_user_id, platform.server_id, platform.escalated_by], [carol.id, sid, alice.id]);
+  assert.equal(w.rows("ServerReport")[0].status, "escalated");
+  void safetyActions;
+});
+
+test("moderation: warnings add up to the server's automatic steps, and the person warned sees their warnings", async () => {
+  const { moderationActions } = await import("../base44/shared/handlers/moderation.ts");
+  addFunctions({ moderation: moderationActions });
+  const { w, members: [alice, bob] } = await world("alice", "bobby");
+  const sid = await serverWith(alice, bob);
+  const state = await alice.server(sid);
+  const { keys } = await alice.keysOf(state);
+  const reason = (t) => buildServerItem({ kind: "case", serverId: sid, generations: state.generations, keys, userId: alice.id, device: alice.device, payload: { reason: t } });
+  await bob.fails("moderation", await signed(bob, "warn", { server_id: sid, user_id: alice.id, reason: await reason("no") }), "MISSING_PERMISSION");
+  let last;
+  for (let i = 0; i < 3; i += 1) last = await alice.ok("moderation", await signed(alice, "warn", { server_id: sid, user_id: bob.id, reason: await reason(`warning ${i}`) }));
+  assert.deepEqual(last.applied, { action: "timeout", minutes: 60 }, "the default third-warning step");
+  assert.ok(w.rows("ServerMember").find((m) => m.server_id === sid && m.user_id === bob.id).timeout_until);
+  const mine = await bob.ok("moderation", { action: "cases", server_id: sid });
+  assert.equal(mine.cases.length, 3);
+  assert.equal(mine.moderator, false);
+  assert.equal(JSON.stringify(w.rows("ModCase")).includes("warning 1"), false);
+  // Pardoning stops a warning counting.
+  await alice.ok("moderation", await signed(alice, "pardon", { server_id: sid, case_id: mine.cases[0].case_id }));
+  assert.equal((await alice.ok("moderation", { action: "cases", server_id: sid, user_id: bob.id })).cases.filter((c) => c.action === "warn" && c.active).length, 2);
+});
+
+test("moderation: flood and raid protection, staff limits and temporary bans are enforced by the service", async () => {
+  const { moderationActions } = await import("../base44/shared/handlers/moderation.ts");
+  addFunctions({ moderation: moderationActions });
+  const { w, members: [alice, bob, carol, dave] } = await world("alice", "bobby", "carol", "daveo");
+  const sid = await serverWith(alice, bob);
+  const general = await alice.channelNamed(sid, "general");
+  await alice.ok("moderation", await signed(alice, "set_policy", { server_id: sid, policy: { flood: { enabled: true, messages: 5, seconds: 10, timeout_minutes: 5 }, raid: { enabled: true, joins_per_minute: 5 }, nuke: { enabled: true, limit: 3 } } }));
+  // Flood: the sixth message in ten seconds times bob out.
+  let flooded = null;
+  for (let i = 0; i < 6 && !flooded; i += 1) {
+    const r = await bob.post(sid, general, textPayload(`hi ${i}`));
+    if (r.status !== 200) flooded = r.body.code;
+  }
+  assert.equal(flooded, "FLOOD");
+  assert.ok(w.rows("ServerMember").find((m) => m.server_id === sid && m.user_id === bob.id).timeout_until);
+  // Staff limits: a moderator who isn't the owner can't run through kicks and bans.
+  const state = await alice.server(sid);
+  const { keys } = await alice.keysOf(state);
+  const roleName = await buildServerItem({ kind: "role", serverId: sid, generations: state.generations, keys, userId: alice.id, device: alice.device, payload: { name: "Mod" } });
+  const { role } = await alice.ok("servers", await signed(alice, "create_role", { server_id: sid, item: roleName, permissions: P.VIEW_CHANNEL | P.BAN_MEMBERS }));
+  await alice.ok("servers", await signed(alice, "set_member_roles", { server_id: sid, user_id: bob.id, role_ids: [role.id] }));
+  for (const target of [carol, dave, { id: "someone0000001" }]) await bob.ok("servers", await signed(bob, "ban_member", { server_id: sid, user_id: target.id }));
+  await bob.fails("servers", await signed(bob, "ban_member", { server_id: sid, user_id: "someone0000002" }), "STAFF_LIMIT");
+  assert.deepEqual(w.rows("ServerMember").find((m) => m.server_id === sid && m.user_id === bob.id).role_ids, []);
+  // A temporary ban: once it's over, they can come back.
+  await alice.ok("servers", await signed(alice, "ban_member", { server_id: sid, user_id: "tempbanned0001", minutes: 60 }));
+  const ban = w.rows("ServerBan").find((b) => b.user_id === "tempbanned0001");
+  assert.ok(ban.expires_at);
+});
