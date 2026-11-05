@@ -10,6 +10,7 @@ import { signedByActiveDevice } from "../deviceAuth.ts";
 import { verifyServerItemSignature } from "../verify.ts";
 import { P, channelPermissions, has } from "../permissions.ts";
 import { countSince, profileOf, rateLimited, requireActiveDevice } from "../store.ts";
+import { floodedBy, logCase } from "../servers/moderation.ts";
 import {
   MESSAGE_KINDS,
   SERVER_LIMITS,
