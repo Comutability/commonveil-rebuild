@@ -1,13 +1,23 @@
 {
-  "name": "Deliver scheduled messages",
-  "description": "Delivers scheduled messages and missed safety check-ins, and deletes self-destructing conversations whose time is up.",
   "trigger": {
+    "condition": null,
     "config": {
       "trigger_type": "scheduled",
+      "events": [],
+      "schedule_mode": "recurring",
       "cron_expression": "*/5 * * * *",
-      "timezone": "Europe/London"
+      "one_time_date": null,
+      "timezone": "Europe/London",
+      "interval_value": null,
+      "interval_unit": null,
+      "interval_anchor": null,
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
     }
   },
+  "description": "Delivers scheduled messages and missed safety check-ins, and deletes self-destructing conversations whose time is up.",
+  "name": "Deliver scheduled messages",
   "definition": {
     "document": {
       "dsl": "1.0.0",
