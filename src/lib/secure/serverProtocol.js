@@ -21,7 +21,9 @@ import {
   verifyGrantSignature,
   verifyServerItem,
 } from "../crypto/serverKeys.js";
-import { MAX_MESSAGE_CHARS, REACTIONS, deviceIsCertified, sentAfterRemoval, signedRequest } from "./protocol.js";
+import { MAX_MESSAGE_CHARS, deviceIsCertified, sentAfterRemoval, signedRequest, textOf } from "./protocol.js";
+import { isReactionEmoji } from "../emoji.js";
+import { cleanPoll, cleanVote } from "./polls.js";
 
 export { ChainKeys, historyChain, liveChain, channelChain, parseChainId };
 
@@ -96,7 +98,7 @@ export function postPayload(title, text, { mentions = null } = {}) {
 
 export function reactionPayload(target, emoji, remove = false) {
   if (!isItemId(target)) throw new Error("That message can't be reacted to.");
-  if (!REACTIONS.includes(emoji)) throw new Error("Choose one of the offered reactions.");
+  if (!isReactionEmoji(emoji)) throw new Error("Choose one of the offered reactions.");
   return { type: "reaction", target, emoji, ...(remove ? { remove: true } : {}) };
 }
 
@@ -105,7 +107,11 @@ export function editPayload(target, text) {
   return { type: "edit", target, text: cleanText(text, MAX_MESSAGE_CHARS) };
 }
 
-const KIND_OF_TYPE = { text: "message", post: "post", reaction: "reaction", edit: "edit" };
+// The service files polls as messages and votes as reactions, so it can't tell them apart.
+const KIND_OF_TYPE = { text: "message", post: "post", reaction: "reaction", edit: "edit", poll: "message", vote: "reaction" };
+
+/** The kind the service files a payload under. */
+export const kindOfPayload = (payload) => KIND_OF_TYPE[payload?.type] || "message";
 
 /**
  * What a decrypted channel message says, checked field by field. The server sees each row's
@@ -124,9 +130,14 @@ export function serverMessageContent(payload, declaredKind) {
     return { type: "post", title: payload.title.slice(0, MAX_POST_TITLE), text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...(mentions ? { mentions } : {}) };
   }
   if (payload.type === "reaction") {
-    if (!isItemId(payload.target) || !REACTIONS.includes(payload.emoji)) return null;
+    if (!isItemId(payload.target) || !isReactionEmoji(payload.emoji)) return null;
     return { type: "reaction", target: payload.target, emoji: payload.emoji, remove: payload.remove === true };
   }
+  if (payload.type === "poll") {
+    const poll = cleanPoll(payload);
+    return poll && isItemId(payload.reply_to) ? { ...poll, reply_to: payload.reply_to } : poll;
+  }
+  if (payload.type === "vote") return cleanVote(payload);
   if (payload.type === "edit") {
     if (!isItemId(payload.target) || typeof payload.text !== "string" || !payload.text.trim()) return null;
     return { type: "edit", target: payload.target, text: payload.text.slice(0, MAX_MESSAGE_CHARS) };
@@ -202,7 +213,7 @@ export async function openServerItem({ kind, item, serverId, channelId = "", key
   if (kind === "message") {
     const content = serverMessageContent(decrypted.payload, item.kind);
     if (!content) return { status: "locked", code: "BAD_PAYLOAD" };
-    return { ...out, content, text: content.type === "reaction" ? "" : content.text };
+    return { ...out, content, text: textOf(content) };
   }
   const content = itemContent(kind, decrypted.payload);
   if (!content) return { status: "locked", code: "BAD_PAYLOAD" };
