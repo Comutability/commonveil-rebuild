@@ -45,3 +45,12 @@ test("attachments from messages are checked field by field", async () => {
   assert.equal(cleanAttachment({ ...meta, ids: ["abc"], size: 11 * 1024 * 1024 }), null);
   assert.equal(cleanAttachment({ ...meta, ids: ["abc"], extra: "x" }).extra, undefined);
 });
+
+test("an attachment must say exactly as many parts as its size needs, with a full key and IV prefix", async () => {
+  const { meta } = await sealFile(fileOf(new Uint8Array([1, 2, 3])));
+  const ok = { ...meta, ids: ["abc"] };
+  assert.ok(cleanAttachment(ok));
+  assert.equal(cleanAttachment({ ...ok, parts: 14, ids: Array(14).fill("abc") }), null, "no padding a small file with extra parts to download");
+  assert.equal(cleanAttachment({ ...ok, key: "AAAA" }), null);
+  assert.equal(cleanAttachment({ ...ok, ivp: "AAAAAAAAAAAAAAAA" }), null);
+});

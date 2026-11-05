@@ -775,3 +775,19 @@ test("calls in conversations and on stages: passes only for members, and stages 
   await carol.fails("voice", await signed(carol, "call_ticket", { conversation_id: "nosuchconversation", call_id: "abcdefgh1234" }), "NOT_FOUND");
   await alice.fails("voice", await signed(alice, "call_ticket", { conversation_id: "nosuchconversation", call_id: "../../x" }));
 });
+
+test("files can't be hung on someone else's message, and only the sender's own files get links", async () => {
+  const { fileActions, FILES_MAX_BODY } = await import("../base44/shared/handlers/files.ts");
+  addFunctions({ files: fileActions }, { options: { maxBodyBytes: FILES_MAX_BODY } });
+  const { w, members: [alice, bob] } = await world("alice", "bobby");
+  const sid = await serverWith(alice, bob);
+  const general = await alice.channelNamed(sid, "general");
+  const data = toB64(crypto.getRandomValues(new Uint8Array(1000)));
+  const sent = (await alice.post(sid, general, textPayload("my message"))).body.message;
+  // bob tries to attach a file to alice's (already sent) message.
+  await bob.fails("files", await signed(bob, "upload_part", { scope: "server", server_id: sid, channel_id: general.id, msg_id: sent.msg_id, part: 0, parts: 1, data }), "DUPLICATE_ID");
+  // Even if a row pointed there, it wouldn't get a link: the message isn't bob's.
+  const { file_id } = await bob.ok("files", await signed(bob, "upload_part", { scope: "server", server_id: sid, channel_id: general.id, msg_id: randomId(16), part: 0, parts: 1, data }));
+  w.rows("Attachment").find((r) => r.id === file_id).msg_id = sent.msg_id;
+  assert.deepEqual((await alice.ok("files", { action: "download_links", file_ids: [file_id] })).links, {});
+});
