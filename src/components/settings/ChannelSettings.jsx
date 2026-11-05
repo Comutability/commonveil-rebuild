@@ -10,7 +10,6 @@ import { ErrorNote } from "@/components/site/bits";
 import { useServers } from "@/lib/secure/ServerContext";
 import { P } from "@/lib/secure/permissions";
 import { cleanChannelName } from "@/lib/secure/serverTemplates";
-import { timerLabel } from "@/lib/secure/thread.js";
 import ConfirmDialog from "@/components/app/ConfirmDialog";
 import { ChannelIcon, KIND_LABELS, historyNote } from "@/components/servers/channelBits";
 import { ChoiceList, SettingsGroup, SettingsTitle } from "./SettingsLayout";
@@ -18,6 +17,7 @@ import { ChoiceList, SettingsGroup, SettingsTitle } from "./SettingsLayout";
 const SLOWMODE = [0, 5, 10, 30, 60, 300, 900, 3600];
 const EXPIRY = [0, 3600, 86_400, 604_800, 2_419_200];
 const slowLabel = (s) => (!s ? "Off" : s < 60 ? `${s} seconds` : s < 3600 ? `${s / 60} minutes` : "1 hour");
+const EXPIRY_LABELS = { 0: "Off", 3600: "After an hour", 86_400: "After a day", 604_800: "After a week", 2_419_200: "After four weeks" };
 
 /** Permissions that can be set per channel. */
 const CHANNEL_PERMS = [
@@ -203,7 +203,7 @@ export default function ChannelSettings({ serverId, channelId }) {
             <div className="space-y-1.5">
               <Label htmlFor="ch-expire">Disappearing messages</Label>
               <NativeSelect id="ch-expire" value={String(channel.expire_seconds)} disabled={state.busy} onChange={(ev) => run(() => updateChannel(serverId, channel, { expire_seconds: Number(ev.target.value) }))}>
-                {EXPIRY.map((s) => <option key={s} value={String(s)}>{s ? `After ${timerLabel(s) === "1 day" ? "a day" : timerLabel(s) === "Off" ? "an hour" : timerLabel(s).replace(/^1 /, "a ")}` : "Off"}</option>)}
+                {EXPIRY.map((s) => <option key={s} value={String(s)}>{EXPIRY_LABELS[s]}</option>)}
               </NativeSelect>
               <p className="text-xs text-muted-foreground">New messages are deleted from the server this long after they're sent.</p>
             </div>
