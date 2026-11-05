@@ -116,7 +116,7 @@ export default function PrivacyReport() {
 
   return (
     <>
-      <SettingsTitle intro="Everything Commonveil holds about you, and what you can do to share less. Messages, files, names of groups and reports are end-to-end encrypted: the service stores them but can't read them, so this page can only count them.">
+      <SettingsTitle intro="Everything Commonveil holds about you, and what you can do to share less. Messages, files, names of groups and reports are end-to-end encrypted: the service stores them but can't read them, so this page can only count them." help="privacy-report">
         Privacy report
       </SettingsTitle>
 

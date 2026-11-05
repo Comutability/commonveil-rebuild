@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Hash, Keyboard, MessageCircle, Server, Volume2 } from "lucide-react";
+import { Hash, Keyboard, LifeBuoy, MessageCircle, Server, Volume2 } from "lucide-react";
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useServers, MESSAGE_KINDS } from "@/lib/secure/ServerContext";
@@ -125,6 +125,9 @@ export default function QuickSwitcher() {
           <CommandGroup heading="Help">
             <CommandItem value="keyboard shortcuts help" onSelect={() => { setOpen(false); setHelp(true); }}>
               <Keyboard className="mr-2 h-4 w-4 text-muted-foreground" aria-hidden="true" /> Keyboard shortcuts
+            </CommandItem>
+            <CommandItem value="help centre guide how to" onSelect={() => { setOpen(false); navigate("/help"); }}>
+              <LifeBuoy className="mr-2 h-4 w-4 text-muted-foreground" aria-hidden="true" /> Help Centre
             </CommandItem>
           </CommandGroup>
         </CommandList>
