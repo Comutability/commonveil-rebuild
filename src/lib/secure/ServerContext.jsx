@@ -720,6 +720,24 @@ export function ServerProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [servers, keysTick]);
 
+  // ---------- calls ----------
+
+  /** The chain, generation and step a channel's newest items use right now (a call's audio key follows it). */
+  const voiceEpoch = useCallback((sid, channel) => {
+    const e = servers[sid];
+    const chainId = SP.chainForChannel(sid, channel);
+    const gen = SP.latestGeneration(e?.generations, chainId);
+    if (!gen) throw new ServerKeyError("NO_KEY", "This channel's keys aren't set up yet.");
+    return { chainId, generation: gen.generation, step: stepAt(chainId, gen.started_at, Date.now()) };
+  }, [servers]);
+
+  /** A copy of a chain's key at a generation and step. Throws if this device doesn't hold it. */
+  const chainKeyAt = useCallback((sid, chainId, generation, step) => {
+    const keys = keysRef.current[sid];
+    if (!keys) throw new ServerKeyError("NO_KEY", "This device hasn't been given this server's keys yet.");
+    return keys.get(chainId, generation, step).slice();
+  }, []);
+
   // ---------- messages ----------
 
   /** The newest page of a channel, a forum's posts, or a post's replies. */
@@ -1152,6 +1170,8 @@ export function ServerProvider({ children }) {
     can,
     myTop,
     keyState,
+    voiceEpoch,
+    chainKeyAt,
     isStaffIn: (sid, member) => {
       const e = servers[sid];
       return e?.roles ? isStaff(e.server, e.roles, member) : false;
