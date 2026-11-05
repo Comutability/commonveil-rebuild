@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import {
   Ban,
@@ -454,6 +454,8 @@ function Bans({ sid }) {
   const [data, setData] = useState(null);
   const [reasons, setReasons] = useState({});
   const [error, setError] = useState("");
+  const opener = useRef(openBanReason);
+  opener.current = openBanReason;
   useEffect(() => {
     let alive = true;
     callFn("servers", { action: "bans", server_id: sid })
@@ -461,14 +463,14 @@ function Bans({ sid }) {
         if (!alive) return;
         setData(res);
         const out = {};
-        for (const b of res.bans) if (b.reason) out[b.user_id] = await openBanReason(sid, b.reason).catch(() => "");
+        for (const b of res.bans) if (b.reason) out[b.user_id] = await opener.current(sid, b.reason).catch(() => "");
         if (alive) setReasons(out);
       })
       .catch((err) => alive && setError(err.message));
     return () => {
       alive = false;
     };
-  }, [sid, openBanReason]);
+  }, [sid]);
   const nameOf = (uid) => data?.profiles.find((p) => p.user_id === uid)?.username || "someone";
   return (
     <>
