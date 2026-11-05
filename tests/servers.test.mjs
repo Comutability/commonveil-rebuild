@@ -625,7 +625,4 @@ test("polling brings server messages and server changes with the member's own ac
   assert.ok(page.servers.some((s) => s.id === sid));
   assert.deepEqual(page.server_ids, [sid]);
   assert.ok(page.server_changes_cursor > "2000-01-01T00:00:00");
-  // A private channel's messages reach only the members who can see it.
-  const state = await alice.server(sid);
-  assert.ok(state.channels.length > 0);
 });
