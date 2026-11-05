@@ -116,7 +116,7 @@ export default function ChannelSettings({ serverId, channelId }) {
     setTopic(channelTopic(channel));
     setParentId(channel.parent_id || "");
     // Only when another channel is opened.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [channelId, Boolean(channel)]);
 
   if (!channel) return <p className="text-sm text-muted-foreground">That channel isn't here any more.</p>;

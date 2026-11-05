@@ -33,7 +33,7 @@ import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
 import InviteLanding from "@/pages/site/InviteLanding";
 import AppRoot from "@/pages/app/AppRoot";
-import Home from "@/pages/app/Home";
+import AppHome from "@/pages/app/Home";
 import ServerView from "@/pages/app/ServerView";
 import ServerSettings from "@/pages/app/ServerSettings";
 import Discover from "@/pages/app/Discover";
@@ -78,8 +78,8 @@ function AppRoutes() {
       <Route path="reset-password" element={<ResetPassword />} />
       <Route element={<ProtectedRoute unauthenticatedElement={<RedirectToLogin />} />}>
         <Route path="app" element={<AppRoot />}>
-          <Route index element={<Home />} />
-          <Route path="c/:conversationId" element={<Home />} />
+          <Route index element={<AppHome />} />
+          <Route path="c/:conversationId" element={<AppHome />} />
           <Route path="s/:serverId" element={<ServerView />} />
           <Route path="s/:serverId/settings" element={<ServerSettings />} />
           <Route path="s/:serverId/settings/channel/:channelId" element={<ServerSettings />} />

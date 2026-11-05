@@ -60,7 +60,7 @@ export function useChannelView(serverId, channel, opts = {}) {
       setActiveChannel(null, null);
     };
     // opts is a fresh object each render; the key captures what matters.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [serverId, key, openView, setActiveChannel]);
   return state;
 }

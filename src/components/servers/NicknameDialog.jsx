@@ -21,7 +21,7 @@ export default function NicknameDialog({ serverId, open, onOpenChange, targetId 
       setState({ busy: false, error: "" });
     }
     // Only when the dialog opens.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [open]);
 
   const save = async (e) => {

@@ -29,7 +29,7 @@ function RoleEditor({ serverId, role, myPerms, canEdit, onDeleted }) {
     setMentionable(role.mentionable);
     setState({ busy: false, msg: "", error: "" });
     // Reset when another role is chosen, not whenever names decrypt.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [role.id]);
 
   const dirty = perms !== role.permissions || hoist !== role.hoist || mentionable !== role.mentionable || (!role.is_everyone && (name !== roleName(role) || color !== roleColor(role)));
