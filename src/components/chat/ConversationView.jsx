@@ -150,6 +150,7 @@ function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSen
       <>
         <ReplyQuote replyTo={row.replyTo} mine={mine} nameOf={nameOf} onJump={onJump} />
         {result.content?.forwarded && <span className="mb-0.5 block text-xs italic opacity-80">Forwarded</span>}
+        {m.scheduled && <span className="mb-0.5 block text-xs italic opacity-80" title={`Written ${formatTime(m.sent_at)}`}>Scheduled</span>}
         {row.poll ? (
           <div className="text-foreground">
             <PollCard poll={row.poll} nameOf={nameOf} disabled={!canSend} onVote={onVote} />
