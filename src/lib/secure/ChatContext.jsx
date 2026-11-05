@@ -646,6 +646,54 @@ export function ChatProvider({ children }) {
     sendBuilt(conversation, (conv, chains) => P.buildPayloadMessage({ userId, device, conversation: conv, chains, keyring, payload: poll })),
   [sendBuilt, userId, device, keyring]);
 
+  // ---------- messages that wait ----------
+
+  /**
+   * Seal a message now and have the service hold it: until deliverAt ("later"), or, for a
+   * check-in, until you miss checking in. It's encrypted to the conversation's members as they
+   * are now, so anyone added later can't read it.
+   */
+  const scheduleMessage = useCallback(async (conversation, text, { deliverAt = null, checkinHours = 0 } = {}) => {
+    const problem = membershipProblem(conversation);
+    if (problem) throw new Error(problem);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const conv = attempt === 0 ? conversation : await refreshConversation(conversation.id);
+      try {
+        const body = await P.buildMessage({ userId, device, conversation: conv, chains: chainsFor(conv.member_ids), text, keyring });
+        const extra = checkinHours ? { kind: "checkin", checkin_hours: checkinHours } : { kind: "later", deliver_at: new Date(deliverAt).toISOString() };
+        const res = await callFn("messages", { ...body, action: "schedule", ...extra });
+        return res.scheduled;
+      } catch (err) {
+        if (attempt === 0 && err instanceof ApiError && RETRYABLE.has(err.code)) continue;
+        throw err;
+      }
+    }
+    return null;
+  }, [userId, device, keyring, chainsFor, membershipProblem, refreshConversation]);
+
+  /** Your waiting messages (for one conversation, or all), opened here so you can see what they say. */
+  const loadScheduled = useCallback(async (conversationId = null) => {
+    // Anything of yours that's already due goes out now, rather than at the next delivery run.
+    await callFn("messages", { action: "deliver_mine" }).catch(() => {});
+    const { scheduled } = await callFn("messages", { action: "scheduled", ...(conversationId ? { conversation_id: conversationId } : {}) });
+    const out = [];
+    for (const s of scheduled) {
+      const r = await P.openItem({ kind: "message", item: { ...s, deleted: false }, userId, keyring, senderChain: chainOf(userId), senderDevices: devicesOf(userId) });
+      out.push({ ...s, text: r.text || "" });
+    }
+    return out;
+  }, [userId, keyring, chainOf, devicesOf]);
+
+  const cancelScheduled = useCallback(async (id) => callFn("messages", await P.signedRequest({ userId, device, action: "cancel_scheduled", payload: { id } })), [userId, device]);
+  const checkIn = useCallback(async (id) => callFn("messages", await P.signedRequest({ userId, device, action: "check_in", payload: { id } })), [userId, device]);
+
+  /** Self-destruct the whole conversation after this many hours (0: off). */
+  const setSelfDestruct = useCallback(async (conversation, hours) => {
+    const res = await callFn("conversations", await P.signedRequest({ userId, device, action: "set_self_destruct", payload: { conversation_id: conversation.id, hours } }));
+    mergeConversations([res.conversation]);
+    return res.conversation;
+  }, [userId, device, mergeConversations]);
+
   /** Start a call: a fresh key, sent to everyone in the conversation inside an encrypted message. */
   const startCall = useCallback(async (conversation, { video = false } = {}) => {
     const callId = randomId(12);
@@ -776,6 +824,11 @@ export function ChatProvider({ children }) {
     react,
     sendPoll,
     startCall,
+    scheduleMessage,
+    loadScheduled,
+    cancelScheduled,
+    checkIn,
+    setSelfDestruct,
     vote,
     editMessage,
     setTitle,
@@ -797,7 +850,7 @@ export function ChatProvider({ children }) {
     membershipProblem,
     addPollExtension,
     touchActivity,
-  }), [loaded, conversations, messages, threads, hasMore, opened, titles, profiles, alerts, updateAlerts, openConversation, closeConversation, loadOlder, loadHistory, searchMessages, markRead, isUnread, send, react, sendPoll, startCall, vote, editMessage, setTitle, setExpiry, setAdmin, removeMember, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem, addPollExtension, touchActivity]);
+  }), [loaded, conversations, messages, threads, hasMore, opened, titles, profiles, alerts, updateAlerts, openConversation, closeConversation, loadOlder, loadHistory, searchMessages, markRead, isUnread, send, react, sendPoll, startCall, scheduleMessage, loadScheduled, cancelScheduled, checkIn, setSelfDestruct, vote, editMessage, setTitle, setExpiry, setAdmin, removeMember, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem, addPollExtension, touchActivity]);
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }
