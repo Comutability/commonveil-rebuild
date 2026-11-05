@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-selfhost
+data
+deploy/data
+.git
+.github
+tests/e2e/screenshots
+*.log
+.env
+.env.*

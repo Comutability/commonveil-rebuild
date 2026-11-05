@@ -4,37 +4,17 @@ import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 
+import { BASE44_CSP, SELF_HOSTED_CSP } from './csp.config.mjs'
+
+// "selfhost" builds the site for a self-hosted server (server/), with no Base44 code in it.
+const SELF_HOSTED = process.env.VITE_COMMONVEIL_BACKEND === 'selfhost'
+
 /**
- * Content Security Policy for the published site.
- *
- * Base44 can't send a CSP header, so it goes in a <meta> tag. It's added to production
+ * Content Security Policy, in a <meta> tag (see csp.config.mjs). It's added to production
  * builds only: the editor preview runs Vite's dev server, which needs inline scripts.
- * frame-ancestors can't be set from a meta tag; Base44 sends X-Frame-Options: DENY instead.
- * Keep docs/THREAT_MODEL.md in step with any change here.
+ * On Base44, frame-ancestors can't be set from a meta tag; Base44 sends X-Frame-Options: DENY.
  */
-export const CONTENT_SECURITY_POLICY = [
-  "default-src 'none'",
-  "script-src 'self'",
-  // Radix UI positions popovers with inline styles, and React style props are inline too.
-  "style-src 'self' 'unsafe-inline'",
-  // Images only from this site and Base44's media store: no third-party image requests.
-  "img-src 'self' data: blob: https://media.base44.com",
-  "font-src 'self' data:",
-  // This site's own API, and Base44's realtime host for call set-up (the VoiceRoom actor).
-  "connect-src 'self' wss://actors.base44-realtime.dev https://media.base44.com",
-  "manifest-src 'self'",
-  "form-action 'self'",
-  "base-uri 'none'",
-  "object-src 'none'",
-  "frame-src 'none'",
-  // Only the call audio encryption worker (see src/lib/voice/frameWorker.js).
-  "worker-src 'self'",
-  "media-src 'self' blob:",
-  // DOM XSS protection (Chromium): no string may reach innerHTML or similar sinks.
-  "require-trusted-types-for 'script'",
-  // One policy, which only ever returns the call audio worker's own URL.
-  "trusted-types voice-worker",
-].join("; ");
+export const CONTENT_SECURITY_POLICY = SELF_HOSTED ? SELF_HOSTED_CSP : BASE44_CSP;
 
 function contentSecurityPolicy() {
   return {
@@ -56,9 +36,11 @@ const { version } = JSON.parse(readFileSync(new URL("./package.json", import.met
 
 // https://vite.dev/config/
 export default defineConfig({
-  define: { __APP_VERSION__: JSON.stringify(version) },
+  define: {
+    __APP_VERSION__: JSON.stringify(process.env.COMMONVEIL_VERSION || version),
+  },
   plugins: [
-    base44({
+    !SELF_HOSTED && base44({
       // Support for legacy code that imports the base44 SDK with @/integrations, @/entities, etc.
       // can be removed if the code has been updated to use the new SDK imports from @base44/sdk
       legacySDKImports: process.env.BASE44_LEGACY_SDK_IMPORTS === 'true',
@@ -72,6 +54,14 @@ export default defineConfig({
   ],
   resolve: {
     alias: [
+      // The Base44 plugin provides this alias; a self-hosted build sets it itself.
+      ...(SELF_HOSTED
+        ? [
+            { find: /^@\//, replacement: fileURLToPath(new URL("./src/", import.meta.url)) },
+            // No Base44 code in a self-hosted build.
+            { find: /^@base44\/sdk$/, replacement: fileURLToPath(new URL("./src/api/sdkStub.js", import.meta.url)) },
+          ]
+        : []),
       // The browser build of this Markdown dependency decodes HTML entities through innerHTML,
       // which Trusted Types would block. Its default build uses a lookup table instead.
       {

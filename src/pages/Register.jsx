@@ -33,7 +33,13 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      await base44.auth.register({ email, password });
+      const result = await base44.auth.register({ email, password });
+      // A self-hosted site without email sending signs new accounts straight in.
+      if (result?.access_token) {
+        base44.auth.setToken(result.access_token);
+        window.location.href = returnTo;
+        return;
+      }
       setShowOtp(true);
     } catch (err) {
       setError(err?.message || "Couldn't create the account.");
