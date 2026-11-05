@@ -36,7 +36,7 @@ export const SERVER_ENVELOPE_VERSION = 1;
 
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const CHAIN_RE = /^([A-Za-z0-9_-]{1,64})\.(h|l|c\.[A-Za-z0-9_-]{1,64})$/;
-const KINDS = new Set(["message", "server", "channel", "role", "nick", "rules", "ban", "automod", "emoji", "stickers", "event", "rsvp"]);
+const KINDS = new Set(["message", "server", "channel", "role", "nick", "rules", "ban", "automod", "emoji", "stickers", "event", "rsvp", "case"]);
 
 export class ServerKeyError extends Error {
   constructor(code, message) {

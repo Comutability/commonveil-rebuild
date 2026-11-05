@@ -127,6 +127,17 @@ export const serverMessageActions: Actions = {
     }
     const recent = await countSince(own, "ServerMessage", { sender_id: user.id }, new Date(now.getTime() - 60_000), SERVER_LIMITS.messagesPerMinute);
     if (recent >= SERVER_LIMITS.messagesPerMinute) throw rateLimited("sending messages");
+    // The server's flood protection: too many messages too fast, and you're timed out for a bit.
+    if (!staff && (kind === "message" || kind === "post")) {
+      const flood = await floodedBy(sr, server, user.id, now);
+      if (flood) {
+        const until = new Date(now.getTime() + flood.timeout_minutes * 60_000).toISOString();
+        await sr.entities.ServerMember.update(member.id, { timeout_until: until });
+        await logCase(sr, server, { action: "timeout", targetId: user.id, actorId: "system", minutes: flood.timeout_minutes, now });
+        await audit(sr, server, "system", "member_timeout", "member", user.id, `flood protection, ${flood.timeout_minutes} min`, now);
+        throw new ApiError(429, "FLOOD", `That's too many messages too quickly for this server, so you're timed out for ${flood.timeout_minutes} minute${flood.timeout_minutes === 1 ? "" : "s"}.`);
+      }
+    }
     const lifetime = Number(channel.expire_seconds) || 0;
     const message = await sr.entities.ServerMessage.create({
       server_id: serverId, channel_id: channel.id, audience_id: channel.private ? channel.id : serverId,
