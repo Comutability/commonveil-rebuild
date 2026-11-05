@@ -19,7 +19,7 @@ import { buildExport, downloadJson } from "@/lib/secure/exportData.js";
 import { IDLE_CHOICES, MIN_PASSCODE_CHARS } from "@/lib/crypto/lock.js";
 import { groupDigits, linkCode, safetyFingerprint } from "@/lib/crypto/identity.js";
 
-function Section({ icon: Icon, title, children, description }) {
+export function Section({ icon: Icon, title, children, description }) {
   return (
     <section className="card-cv p-5 sm:p-6">
       <div className="flex items-center gap-2">
@@ -116,7 +116,7 @@ function PendingDevice({ d }) {
   );
 }
 
-function DevicesSection() {
+export function DevicesSection() {
   const { status, chain, device, removeDevice, refresh } = useSecure();
   const [target, setTarget] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -213,7 +213,7 @@ function DevicesSection() {
   );
 }
 
-function RecoverySection() {
+export function RecoverySection() {
   const { beginPhraseChange, finishPhraseChange, cancelPending, userId, chainDigest } = useSecure();
   const [phrase, setPhrase] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -285,7 +285,7 @@ function RecoverySection() {
   );
 }
 
-function Toggle({ id, checked, onChange, disabled, children, hint }) {
+export function Toggle({ id, checked, onChange, disabled, children, hint }) {
   return (
     <div className="flex items-start gap-3">
       <Checkbox id={id} checked={checked} disabled={disabled} onCheckedChange={(v) => onChange(Boolean(v))} className="mt-0.5" />
@@ -298,7 +298,7 @@ function Toggle({ id, checked, onChange, disabled, children, hint }) {
 }
 
 /** Notifications and an unread count, on this browser only. */
-function AlertsSection() {
+export function AlertsSection() {
   const { alerts, updateAlerts } = useChat();
   const [permission, setPermission] = useState(notificationPermission());
   const [error, setError] = useState("");
@@ -352,7 +352,7 @@ function AlertsSection() {
 }
 
 /** A passcode that encrypts this browser's keys, and locks after a while without use. */
-function LockSection() {
+export function LockSection() {
   const { lockInfo, setPasscode, setLockIdle, removePasscode, lockNow } = useSecure();
   const [editing, setEditing] = useState(false);
   const [first, setFirst] = useState("");
@@ -449,7 +449,7 @@ function LockSection() {
 }
 
 /** A copy of everything the service holds about you, decrypted here and saved as a file. */
-function DataSection() {
+export function DataSection() {
   const secure = useSecure();
   const { user } = useAuth();
   const [state, setState] = useState({ busy: false, progress: "", error: "", done: false });
@@ -488,7 +488,7 @@ function DataSection() {
 }
 
 /** Opt in to having the account deleted after a stretch without use. */
-function AutoDeleteSection() {
+export function AutoDeleteSection() {
   const { me, setAutoDelete, isAdmin } = useSecure();
   const current = me?.auto_delete || { days: 0 };
   const [state, setState] = useState({ busy: false, msg: "", error: "" });
@@ -526,7 +526,7 @@ function AutoDeleteSection() {
   );
 }
 
-function BlockedSection() {
+export function BlockedSection() {
   const [blocked, setBlocked] = useState(null);
   const load = () => callFn("safety", { action: "list_blocks" }).then((r) => setBlocked(r.blocked)).catch(() => setBlocked([]));
   useEffect(() => {
@@ -550,7 +550,7 @@ function BlockedSection() {
   );
 }
 
-function SignOutSection() {
+export function SignOutSection() {
   const { signOut } = useSecure();
   const [busy, setBusy] = useState(false);
   return (
@@ -571,7 +571,7 @@ function SignOutSection() {
   );
 }
 
-function DeleteSection() {
+export function DeleteSection() {
   const { isAdmin } = useSecure();
   return (
     <Section icon={Trash2} title="Delete your account">
