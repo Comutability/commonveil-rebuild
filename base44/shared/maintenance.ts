@@ -13,6 +13,8 @@ import { BLANK, OutOfTime, blankAndDeleteAll, purgeAccount, removePlatformUser }
 import { AUTO_DELETE_DAYS, dayOf } from "./store.ts";
 import { emailNotice, inactiveWarningEmail } from "./notify.ts";
 import { forgetOrphanedFiles } from "./handlers/files.ts";
+import { deliverDue } from "./handlers/scheduled.ts";
+import { eraseConversation } from "./accountDeletion.ts";
 
 const DAY = 24 * 3600_000;
 
@@ -23,7 +25,7 @@ export const WARN_DAYS = 7;
 const BUDGET_MS = 4 * 60_000;
 
 /** However often the address is called, a task starts at most this often on one server. */
-const MIN_GAP_MS: Record<string, number> = { expire: 60_000, inactive: 15 * 60_000 };
+const MIN_GAP_MS: Record<string, number> = { expire: 60_000, inactive: 15 * 60_000, deliver: 60_000 };
 const lastStarted = new Map<string, number>();
 
 const startOfDay = (day: string) => Date.parse(`${day}T00:00:00Z`);
@@ -140,6 +142,21 @@ export async function runMaintenance(sr: any, task: unknown, now: Date): Promise
     console.error("commonveil maintenance failure", { task, name: (error as any)?.name || "Error" });
     return json(500, { error: "Something went wrong. The next run picks this up.", code: "INTERNAL" });
   }
+}
+
+/**
+ * deliver: scheduled messages and missed check-ins that are due, and self-destructing
+ * conversations whose time is up (everything in them, blanked first).
+ */
+export async function deliverAndDestroy(sr: any, now: Date, deadline: number) {
+  const delivered = await deliverDue(sr, now, deadline);
+  let destroyed = 0;
+  for (const c of await sr.entities.Conversation.filter({ destroy_at: { $gt: "", $lte: now.toISOString() } }, "destroy_at", 50)) {
+    if (Date.now() > deadline) break;
+    await eraseConversation(sr, c.id, deadline);
+    destroyed += 1;
+  }
+  return { delivered, destroyed, done: true };
 }
 
 /** For tests: forget when tasks last started. */
