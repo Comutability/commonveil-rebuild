@@ -177,9 +177,14 @@ export function itemContent(kind, payload) {
       title: s(payload.title, 100), description: s(payload.description, 1000), place: s(payload.place, 100),
       voice_channel_id: typeof payload.voice_channel_id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(payload.voice_channel_id) ? payload.voice_channel_id : "",
       starts_at: startsAt, ends_at: endsAt && Date.parse(endsAt) > Date.parse(startsAt) ? endsAt : "",
+      event_id: typeof payload.event_id === "string" && /^[A-Za-z0-9_-]{16,64}$/.test(payload.event_id) ? payload.event_id : "",
     };
   }
-  if (kind === "rsvp") return payload.status === "going" || payload.status === "maybe" ? { status: payload.status } : null;
+  if (kind === "rsvp") {
+    // Which event it answers is inside the signed, encrypted answer, so it can't be moved to another.
+    if (payload.status !== "going" && payload.status !== "maybe") return null;
+    return typeof payload.event_id === "string" && /^[A-Za-z0-9_-]{16,64}$/.test(payload.event_id) ? { status: payload.status, event_id: payload.event_id } : null;
+  }
   return null;
 }
 

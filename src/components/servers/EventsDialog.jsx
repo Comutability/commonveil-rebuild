@@ -55,12 +55,14 @@ export function useServerEvents(serverId, active = true) {
         for (const ev of events) {
           const r = await openItemOf(serverId, "event", ev.item);
           if (r.status !== "ok" && r.status !== "unverified") continue;
+          // The event's first item has the event's id as its own; later edits name it inside.
+          if (ev.item.item_id !== ev.event_id && r.content.event_id !== ev.event_id) continue;
           const answers = { going: [], maybe: [] };
           let mine = null;
           for (const a of rsvps.filter((x) => x.event_id === ev.event_id)) {
             const o = await openItemOf(serverId, "rsvp", a.item);
             // An answer only counts from the person it's about.
-            if ((o.status !== "ok" && o.status !== "unverified") || a.item.sender_id !== a.user_id) continue;
+            if ((o.status !== "ok" && o.status !== "unverified") || a.item.sender_id !== a.user_id || o.content.event_id !== ev.event_id) continue;
             answers[o.content.status].push(a.user_id);
             if (a.user_id === userId) mine = o.content.status;
           }

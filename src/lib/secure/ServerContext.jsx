@@ -1134,9 +1134,9 @@ export function ServerProvider({ children }) {
   }, [makeItem, signed, loadState]);
 
   const createEvent = useCallback((sid, content) => eventCall(sid, "create_event", "event", content), [eventCall]);
-  const updateEvent = useCallback((sid, eventId, content) => eventCall(sid, "update_event", "event", content, { event_id: eventId }), [eventCall]);
+  const updateEvent = useCallback((sid, eventId, content) => eventCall(sid, "update_event", "event", { ...content, event_id: eventId }, { event_id: eventId }), [eventCall]);
   const cancelEvent = useCallback((sid, eventId) => signed("events", "cancel_event", { server_id: sid, event_id: eventId }), [signed]);
-  const rsvp = useCallback((sid, eventId, status) => eventCall(sid, "rsvp", "rsvp", status ? { status } : null, { event_id: eventId }), [eventCall]);
+  const rsvp = useCallback((sid, eventId, status) => eventCall(sid, "rsvp", "rsvp", status ? { status, event_id: eventId } : null, { event_id: eventId }), [eventCall]);
 
   /** A signed server action; reloads the server afterwards when it changes what members see. */
   const act = useCallback(async (sid, action, payload = {}, { reload = true } = {}) => {

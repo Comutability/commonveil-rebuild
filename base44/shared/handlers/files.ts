@@ -96,6 +96,8 @@ export const fileActions: Actions = {
     const links: Record<string, string> = {};
     for (const row of rows) {
       const key = `${row.scope}:${row.scope_id}:${row.channel_id}`;
+      // A message's files are all in one place: a request spanning many places is refused there.
+      if (!allowed.has(key) && allowed.size >= 5) continue;
       if (!allowed.has(key)) {
         const ok = await placeFor(ctx, row.scope === "server" ? { scope: "server", server_id: row.scope_id, channel_id: row.channel_id } : { scope: "conversation", conversation_id: row.scope_id }, { sending: false })
           .then(() => true)
@@ -124,7 +126,8 @@ async function messageRow(sr: any, row: any) {
 /** The file's message exists, wasn't deleted, and was sent by whoever uploaded the file. */
 async function messageExists(sr: any, row: any) {
   const m = await messageRow(sr, row);
-  return Boolean(m && !m.deleted && m.sender_id === row.owner_id);
+  const expired = m?.expires_at && Date.parse(m.expires_at) <= Date.now();
+  return Boolean(m && !m.deleted && !expired && m.sender_id === row.owner_id);
 }
 
 /**
