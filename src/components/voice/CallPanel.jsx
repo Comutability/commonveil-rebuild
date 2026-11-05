@@ -101,9 +101,6 @@ export default function CallPanel({ nameOf, profileOf }) {
                 {voice.video === "screen" ? <MonitorOff className="h-5 w-5" aria-hidden="true" /> : <MonitorUp className="h-5 w-5" aria-hidden="true" />}
               </Button>
             )}
-            {voice.stage && !voice.canModerate && (
-              <Button variant="outline" className="rounded-full" onClick={() => voice.setSpeaker(me?.userId, false)} disabled>Speaking</Button>
-            )}
           </>
         ) : (
           <Button variant={me?.hand ? "default" : "outline"} className="rounded-full" onClick={() => voice.raiseHand(!me?.hand)} aria-pressed={Boolean(me?.hand)}>
