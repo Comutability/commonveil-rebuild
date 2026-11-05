@@ -26,6 +26,7 @@ import Security from "@/pages/site/Security";
 import ReportSecurityIssue from "@/pages/site/ReportSecurityIssue";
 import Saved from "@/pages/site/Saved";
 import Search from "@/pages/site/Search";
+import { HelpArticle, HelpGuide, HelpIndex } from "@/pages/site/Help";
 import NotFound from "@/pages/site/NotFound";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
@@ -64,6 +65,9 @@ function AppRoutes() {
         <Route path="resources" element={<ResourcesIndex />} />
         <Route path="wiki" element={<WikiIndex />} />
         <Route path="wiki/:slug" element={<WikiArticle />} />
+        <Route path="help" element={<HelpIndex />} />
+        <Route path="help/guide" element={<HelpGuide />} />
+        <Route path="help/:slug" element={<HelpArticle />} />
         <Route path="privacy" element={<Privacy />} />
         <Route path="security" element={<Security />} />
         <Route path="security/report" element={<ReportSecurityIssue />} />

@@ -11,6 +11,7 @@ const NAV = [
   ["/wiki", "Wiki"],
   ["/blog", "Blog"],
   ["/resources", "Resources"],
+  ["/help", "Help"],
 ];
 
 const linkClass = ({ isActive }) =>
@@ -104,6 +105,8 @@ export default function SiteLayout() {
             <p className="mb-2 font-semibold">Commonveil</p>
             <ul className="space-y-1.5 text-muted-foreground">
               <li><Link className="hover:text-foreground" to="/app">Encrypted messages</Link></li>
+              <li><Link className="hover:text-foreground" to="/help">Help Centre</Link></li>
+              <li><Link className="hover:text-foreground" to="/help/guide">The complete guide</Link></li>
               <li><Link className="hover:text-foreground" to="/privacy">Privacy: what we hold</Link></li>
               <li><Link className="hover:text-foreground" to="/security">Security and status</Link></li>
               <li><Link className="hover:text-foreground" to="/security/report">Report a security problem</Link></li>
