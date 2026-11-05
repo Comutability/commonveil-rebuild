@@ -63,7 +63,7 @@ export const fileActions: Actions = {
   /** Store one encrypted part of a file about to be sent. Returns its handle for the message. */
   async upload_part(ctx: Ctx) {
     const { sr, user, now } = ctx;
-    const { data } = await signedByActiveDevice(ctx, "upload_part");
+    const { data } = await signedByActiveDevice(ctx, "upload_part", { maxBytes: FILES_MAX_BODY });
     const place = await placeFor(ctx, data, { sending: true });
     const msgId = randomIdField(data.msg_id, "message id");
     const part = Number(data.part);

@@ -5,8 +5,8 @@ import { ApiError, LIMITS, randomIdField, type Ctx } from "./http.ts";
 import { verifyProof } from "./verify.ts";
 import { requireActiveDevice } from "./store.ts";
 
-export function payloadOf(body: any): { json: string; data: any } {
-  if (typeof body.payload !== "string" || body.payload.length === 0 || body.payload.length > LIMITS.maxBodyBytes) {
+export function payloadOf(body: any, maxBytes: number = LIMITS.maxBodyBytes): { json: string; data: any } {
+  if (typeof body.payload !== "string" || body.payload.length === 0 || body.payload.length > maxBytes) {
     throw new ApiError(400, "BAD_PAYLOAD", "Missing payload.");
   }
   let data: any;
@@ -20,11 +20,12 @@ export function payloadOf(body: any): { json: string; data: any } {
 }
 
 /** The request is signed by one of this account's active devices. */
-export async function signedByActiveDevice(ctx: Ctx, action: string) {
+/** maxBytes: for functions that accept larger bodies (files); the body size was already checked by serve. */
+export async function signedByActiveDevice(ctx: Ctx, action: string, { maxBytes = LIMITS.maxBodyBytes }: { maxBytes?: number } = {}) {
   if (!ctx.body.proof || typeof ctx.body.proof !== "object") {
     throw new ApiError(401, "PROOF_REQUIRED", "This action must come from one of your devices.");
   }
-  const { json, data } = payloadOf(ctx.body);
+  const { json, data } = payloadOf(ctx.body, maxBytes);
   const deviceId = randomIdField(ctx.body.proof.device_id, "device id");
   // The member's own device row: read with their own access (see Ctx).
   const device = await requireActiveDevice(ctx.own, ctx.user.id, deviceId);
