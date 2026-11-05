@@ -57,9 +57,9 @@ You can [reset your encryption](/help/devices-and-recovery) to keep your account
 
 No. It stores them locked and doesn't have the keys. See [how the encryption works](/help/how-encryption-works).
 
-## Is Commonveil free? Are there adverts?
+## Are there adverts or trackers?
 
-There are no adverts and no tracking.
+No. There are no adverts, no analytics and no trackers, on the site or in the app.
 
 ## Still stuck?
 

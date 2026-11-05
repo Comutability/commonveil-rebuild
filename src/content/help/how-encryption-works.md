@@ -41,10 +41,10 @@ It **never** sees what anything says, and it doesn't collect contacts, phone num
 - **The people you talk to.** Anyone in a conversation can read it, and can copy or screenshot it, even disappearing messages.
 - **Your own device.** If someone can use your unlocked device, or installs software on it, they can read what you can. A [passcode lock](/help/security) helps.
 - **Before you compare safety numbers.** The very first time you talk to someone, you trust that the keys you're given are theirs. Comparing safety numbers removes that trust.
-- **The app itself.** Commonveil runs in your browser, so you're trusting the code the site sends you. Its source is published so it can be checked.
+- **The app itself.** Commonveil runs in your browser, so you're trusting the code the site sends you. That's one reason an independent review matters.
 - **Metadata.** It can see who talks to whom and when, as above.
 - **Delivery.** It could delay or drop messages, including a scheduled message or a check-in. It can't read or change them without it showing.
 
 ## No audit yet
 
-The design and code are tested, but not yet independently audited. The full technical details are in the [complete guide](/help/guide) and the protocol documents in the source repository.
+The design and code are tested, but not yet independently audited. The [complete guide](/help/guide) has everything on one page, and the [Security](/security) page covers the technical design and its status.
