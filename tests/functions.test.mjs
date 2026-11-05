@@ -1441,7 +1441,7 @@ test("auto-delete is off unless chosen, needs a device, and keeps only the day t
   const bob = await new Member(w, "bob").setup();
   await alice.dm(bob);
   const seen = await bob.ok("profile", { action: "get_many", user_ids: [alice.id] });
-  assert.deepEqual(Object.keys(seen.profiles[0]).sort(), ["bio", "display_name", "user_id", "username"]);
+  assert.deepEqual(Object.keys(seen.profiles[0]).sort(), ["accent_color", "avatar_emoji", "bio", "display_name", "pronouns", "user_id", "username"]);
 
   const staff = new Member(w, "staffer", "admin");
   assert.equal((await staff.call("profile", { action: "set_auto_delete", days: 183 })).body.code, "STAFF_ACCOUNT");
