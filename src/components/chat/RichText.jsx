@@ -139,7 +139,7 @@ export default function RichText({ text, ctx = {} }) {
           }
           blocks.push(
             <React.Fragment key={li}>
-              {blocks.length > 0 && !(lines[li - 1] !== undefined && /^> ?/.test(lines[li - 1])) && <br />}
+              {blocks.length > 0 && !(lines[li - 1] !== undefined && /^(> ?|#{1,3} \S|-# \S|\s*[-*] \S)/.test(lines[li - 1])) && <br />}
               {inline(line, ctx, `${pi}l${li}`)}
             </React.Fragment>,
           );
