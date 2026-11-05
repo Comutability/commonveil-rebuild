@@ -35,4 +35,4 @@ Type **DELETE** to confirm. It can't be undone.
 
 ## Sign out
 
-**Sign out** keeps your keys on this browser, ready for next time. To remove them from this browser too, remove this device under **Settings → Devices and keys**.
+**Sign out** keeps this browser's keys so you can sign back in quickly. On a shared or borrowed computer, choose **Sign out and remove this device** instead.

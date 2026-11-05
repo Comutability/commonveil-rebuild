@@ -27,7 +27,7 @@ Open **Settings → Appearance**. These choices are saved in this browser only.
 - **Theme:** light, dark, or **Match my system**.
 - **Text size.**
 - **Message display:** **Cozy** (avatars and names at the start of each run of messages) or **Compact** (one line per message, with the time and name in front).
-- **Motion:** reduce animations.
+- **Reduce motion:** turns off animations, whatever your system says.
 
 ## Keyboard shortcuts
 
