@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ArrowDown, ArrowUp, BellOff, Check, Compass, Link2, LogOut, Plus, Settings, ShieldCheck } from "lucide-react";
+import { ArrowDown, ArrowUp, BellOff, Check, Compass, Folder, FolderMinus, FolderPlus, Link2, LogOut, Plus, Settings, ShieldCheck } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { LogoMark } from "@/components/site/Logo";
 import { useServers } from "@/lib/secure/ServerContext";
 import { useChat } from "@/lib/secure/ChatContext";
@@ -50,9 +50,9 @@ function RailButton({ label, children, to, onClick, active, unread = false, ment
   );
 }
 
-function ServerItem({ sid, active, onInvite, onLeave }) {
+function ServerItem({ sid, active, onInvite, onLeave, folderId = null }) {
   const navigate = useNavigate();
-  const { serverLook, unread, prefs, muted, toggleMute, markServerRead, moveServer, can, servers } = useServers();
+  const { serverLook, unread, prefs, muted, toggleMute, markServerRead, moveServer, can, servers, folders, moveToFolder } = useServers();
   const look = serverLook(sid);
   const u = unread.servers[sid] || { unread: false, mentions: 0 };
   const last = prefs.last?.[sid];
@@ -76,6 +76,16 @@ function ServerItem({ sid, active, onInvite, onLeave }) {
           <ContextMenuItem onSelect={() => navigate(`/app/s/${sid}/settings/privacy`)}><ShieldCheck className="mr-2 h-4 w-4" aria-hidden="true" /> Privacy settings</ContextMenuItem>
           <ContextMenuItem onSelect={() => navigate(`/app/s/${sid}/settings`)}><Settings className="mr-2 h-4 w-4" aria-hidden="true" /> Server settings</ContextMenuItem>
           <ContextMenuSeparator />
+          <ContextMenuSub>
+            <ContextMenuSubTrigger><Folder className="mr-2 h-4 w-4" aria-hidden="true" /> Add to folder</ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-48">
+              {folders.filter((f) => f.id !== folderId).map((f) => (
+                <ContextMenuItem key={f.id} onSelect={() => moveToFolder(sid, f.id)}><Folder className="mr-2 h-4 w-4" aria-hidden="true" /> {f.name}</ContextMenuItem>
+              ))}
+              <ContextMenuItem onSelect={() => moveToFolder(sid, "new", "New folder")}><FolderPlus className="mr-2 h-4 w-4" aria-hidden="true" /> New folder</ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          {folderId && <ContextMenuItem onSelect={() => moveToFolder(sid, null)}><FolderMinus className="mr-2 h-4 w-4" aria-hidden="true" /> Take out of folder</ContextMenuItem>}
           <ContextMenuItem onSelect={() => moveServer(sid, -1)}><ArrowUp className="mr-2 h-4 w-4" aria-hidden="true" /> Move up</ContextMenuItem>
           <ContextMenuItem onSelect={() => moveServer(sid, 1)}><ArrowDown className="mr-2 h-4 w-4" aria-hidden="true" /> Move down</ContextMenuItem>
           {!isOwner && !entry?.server?.is_default && (
@@ -92,11 +102,48 @@ function ServerItem({ sid, active, onInvite, onLeave }) {
   );
 }
 
+/** A folder of servers: a little grid of their icons, opening to show them. Only on this device. */
+function FolderItem({ folder, activeServer, onInvite, onLeave }) {
+  const { serverLook, unread, prefs, toggleCollapsed, renameFolder } = useServers();
+  const open = !prefs.collapsed?.[folder.id];
+  const mentions = folder.servers.reduce((n, sid) => n + (unread.servers[sid]?.mentions || 0), 0);
+  const anyUnread = folder.servers.some((sid) => unread.servers[sid]?.unread);
+  const holdsActive = folder.servers.includes(activeServer);
+  return (
+    <li className={`flex flex-col items-center gap-2 rounded-[1.6rem] ${open ? "bg-panel/70 pb-2" : ""}`}>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div>
+            <RailButton label={`${folder.name}, ${folder.servers.length} servers`} onClick={() => toggleCollapsed(folder.id)} active={!open && holdsActive} unread={!open && anyUnread} mentions={open ? 0 : mentions}>
+              <span className="server-icon grid grid-cols-2 gap-0.5 bg-panel p-1.5" aria-hidden="true">
+                {open ? <Folder className="col-span-2 m-auto h-6 w-6 text-primary" /> : folder.servers.slice(0, 4).map((sid) => (
+                  <span key={sid} className="flex items-center justify-center overflow-hidden rounded-full text-[0.5rem]" style={{ background: serverLook(sid).color || undefined }}>
+                    {(serverLook(sid).icon || serverLook(sid).name || "?").slice(0, 2)}
+                  </span>
+                ))}
+              </span>
+            </RailButton>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-48">
+          <ContextMenuItem onSelect={() => {
+            const name = window.prompt("Folder name", folder.name);
+            if (name !== null) renameFolder(folder.id, name);
+          }}>Rename folder</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+      {open && folder.servers.map((sid) => (
+        <ServerItem key={sid} sid={sid} active={activeServer === sid} onInvite={onInvite} onLeave={onLeave} folderId={folder.id} />
+      ))}
+    </li>
+  );
+}
+
 /** Home (direct messages), your servers, and ways to add one. */
 export default function ServerRail() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { order, loaded, serverLook, leaveServer } = useServers();
+  const { order, loaded, serverLook, leaveServer, folders } = useServers();
   const { conversations, isUnread } = useChat();
   const [creating, setCreating] = useState(false);
   const [inviteFor, setInviteFor] = useState(null);
@@ -116,9 +163,13 @@ export default function ServerRail() {
         </RailButton>
         <span className="h-0.5 w-8 rounded-full bg-border" aria-hidden="true" />
         <ul className="flex flex-col items-center gap-2" aria-label="Your servers">
-          {order.map((sid) => (
-            <ServerItem key={sid} sid={sid} active={activeServer === sid} onInvite={setInviteFor} onLeave={setLeaving} />
-          ))}
+          {order.map((sid) => {
+            const folder = folders.find((f) => f.servers.includes(sid));
+            if (!folder) return <ServerItem key={sid} sid={sid} active={activeServer === sid} onInvite={setInviteFor} onLeave={setLeaving} />;
+            // A folder sits where its first server would.
+            if (order.find((id) => folder.servers.includes(id)) !== sid) return null;
+            return <FolderItem key={folder.id} folder={folder} activeServer={activeServer} onInvite={setInviteFor} onLeave={setLeaving} />;
+          })}
           {!loaded && <li className="h-12 w-12 animate-pulse rounded-full bg-panel" aria-label="Loading servers" />}
         </ul>
         <RailButton label="Add a server" onClick={() => setCreating(true)}>
