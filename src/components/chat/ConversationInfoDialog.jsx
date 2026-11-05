@@ -40,7 +40,7 @@ function SelfDestruct({ conversation, canChange, busy, run, setMessage }) {
         }}
       >
         <option value="" disabled>{at ? `Set for ${at.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}` : "Off"}</option>
-        {DESTRUCT.map(([h, l]) => <option key={h} value={String(h)}>{l}</option>)}
+        {DESTRUCT.filter(([h]) => h || at).map(([h, l]) => <option key={h} value={String(h)}>{h ? l : "Turn off"}</option>)}
       </NativeSelect>
       <p className="text-xs text-muted-foreground">
         At that time the whole conversation (every message and file, and the conversation itself) is deleted for everyone, from the server and from each member's app.
