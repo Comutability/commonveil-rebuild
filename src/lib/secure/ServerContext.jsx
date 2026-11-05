@@ -12,7 +12,9 @@ import { useSecure } from "./SecureContext.jsx";
 import { useChat } from "./ChatContext.jsx";
 import * as SP from "./serverProtocol.js";
 import { P, basePermissions, channelPermissions, has, isStaff, topPosition } from "./permissions.js";
+import { useNavigate } from "react-router-dom";
 import { buildThread } from "./thread.js";
+import { showAlert } from "./alerts.js";
 import { votePayload } from "./polls.js";
 import { ChainKeys, ServerKeyError, newInviteSecret, openInvitePreview, sealInvitePreview, stepAt } from "../crypto/serverKeys.js";
 import * as S from "./store.js";
@@ -98,7 +100,8 @@ function mentionsMe(result, userId, roleIds) {
 
 export function ServerProvider({ children }) {
   const { userId, device, keyring, peers, loadPeers, chainOf, devicesOf, latestChainOf, chainsFor, ownMinCertVersion, me } = useSecure();
-  const { addPollExtension, touchActivity, loadProfiles, profiles, refreshConversation } = useChat();
+  const { addPollExtension, touchActivity, loadProfiles, profiles, refreshConversation, alerts } = useChat();
+  const navigate = useNavigate();
 
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -952,6 +955,77 @@ export function ServerProvider({ children }) {
     return ids.sort((a, b) => (servers[b].server.is_default ? 1 : 0) - (servers[a].server.is_default ? 1 : 0) || rank(a) - rank(b));
   }, [servers, prefs.order]);
 
+  // ---------- notifications, saved messages, notes, folders (all only on this device) ----------
+
+  /** "all", "mentions" or "none" for a channel or server, or null to follow the server (or the default). */
+  const notifyLevel = useCallback((id) => prefs.notify?.[id] || null, [prefs]);
+  const setNotifyLevel = useCallback((id, level) => savePrefs((p) => {
+    const notify = { ...(p.notify || {}) };
+    if (level) notify[id] = level;
+    else delete notify[id];
+    return { ...p, notify };
+  }), [savePrefs]);
+  /** What actually applies to a channel: its own choice, else its server's, else everything (mentions in the community server). */
+  const effectiveLevel = useCallback((sid, channelId) => {
+    if (prefs.muted?.[sid] || prefs.muted?.[channelId]) return "none";
+    return prefs.notify?.[channelId] || prefs.notify?.[sid] || (serversRef.current[sid]?.server?.is_default ? "mentions" : "all");
+  }, [prefs]);
+
+  const savedList = useMemo(() => prefs.saved || [], [prefs.saved]);
+  const isSaved = useCallback((msgId) => savedList.some((x) => x.m === msgId), [savedList]);
+  /** Save a message for later: only where it is, never its text. */
+  const toggleSaved = useCallback(({ serverId: sid, channelId, threadId = "", msgId }) => savePrefs((p) => {
+    const list = p.saved || [];
+    if (list.some((x) => x.m === msgId)) return { ...p, saved: list.filter((x) => x.m !== msgId) };
+    return { ...p, saved: [{ s: sid, c: channelId, t: threadId, m: msgId, at: new Date().toISOString() }, ...list].slice(0, 500) };
+  }), [savePrefs]);
+
+  const noteOf = useCallback((uid) => prefs.notes?.[uid] || "", [prefs]);
+  const setNote = useCallback((uid, text) => savePrefs((p) => {
+    const notes = { ...(p.notes || {}) };
+    const clean = String(text || "").slice(0, 500);
+    if (clean.trim()) notes[uid] = clean;
+    else delete notes[uid];
+    return { ...p, notes };
+  }), [savePrefs]);
+
+  /** Folders in the server list: [{ id, name, color, servers: [serverId] }]. */
+  const folders = useMemo(() => (prefs.folders || []).map((f) => ({ ...f, servers: f.servers.filter((id) => servers[id]) })).filter((f) => f.servers.length), [prefs.folders, servers]);
+  const moveToFolder = useCallback((sid, folderId, newName = "") => savePrefs((p) => {
+    let list = (p.folders || []).map((f) => ({ ...f, servers: f.servers.filter((x) => x !== sid) }));
+    if (folderId === "new") list.push({ id: `f${Date.now().toString(36)}`, name: newName.slice(0, 40) || "Folder", color: "", servers: [sid] });
+    else if (folderId) list = list.map((f) => (f.id === folderId ? { ...f, servers: [...f.servers, sid] } : f));
+    return { ...p, folders: list.filter((f) => f.servers.length) };
+  }), [savePrefs]);
+  const renameFolder = useCallback((folderId, name) => savePrefs((p) => ({ ...p, folders: (p.folders || []).map((f) => (f.id === folderId ? { ...f, name: name.slice(0, 40) || f.name } : f)) })), [savePrefs]);
+
+  // Browser notifications for server messages, only if you turned alerts on, following each
+  // channel's notification setting. Worked out here, after decrypting: nothing tells the service.
+  const alerted = useRef(new Set());
+  const alertsFrom = useRef(Date.now());
+  useEffect(() => {
+    if (!alerts?.notify) return;
+    for (const [cid, list] of Object.entries(rows)) {
+      for (const m of list) {
+        if (alerted.current.has(m.id)) continue;
+        if (ts(m.created_date) < alertsFrom.current || m.sender_id === userId || m.deleted || (m.kind !== "message" && m.kind !== "post")) {
+          alerted.current.add(m.id);
+          continue;
+        }
+        const r = opened[m.id];
+        if (!r) continue;
+        alerted.current.add(m.id);
+        const sid = m.server_id || Object.keys(serversRef.current).find((id) => serversRef.current[id]?.channels?.some((c) => c.id === cid));
+        if (!sid) continue;
+        const level = effectiveLevel(sid, cid);
+        const e = serversRef.current[sid];
+        if (level === "none" || (level === "mentions" && !mentionsMe(r, userId, e?.member?.role_ids || []))) continue;
+        if (document.visibilityState === "visible" && activeChannel.current?.channelId === cid) continue;
+        showAlert({ body: alerts.showSender ? "New message in one of your servers" : "New message", tag: `server-${cid}`, onClick: () => navigate(`/app/s/${sid}/${cid}`) });
+      }
+    }
+  }, [rows, opened, alerts, userId, effectiveLevel, navigate]);
+
   // ---------- members ----------
 
   const loadMembers = useCallback(async (sid, { force = false } = {}) => {
@@ -1199,6 +1273,18 @@ export function ServerProvider({ children }) {
     loadPins,
     loadMembers,
     memberCard,
+    // on this device
+    notifyLevel,
+    setNotifyLevel,
+    effectiveLevel,
+    savedList,
+    isSaved,
+    toggleSaved,
+    noteOf,
+    setNote,
+    folders,
+    moveToFolder,
+    renameFolder,
     // sending
     sendText,
     sendPost,
@@ -1243,6 +1329,7 @@ export function ServerProvider({ children }) {
     renewKeys,
     retryKeys: (sid) => serviceKeys(sid),
   }), [
+    notifyLevel, setNotifyLevel, effectiveLevel, savedList, isSaved, toggleSaved, noteOf, setNote, folders, moveToFolder, renameFolder,
     loaded, loadError, servers, order, rows, opened, hasMore, readState, prefs, unread, memberLists, keysTick,
     serverLook, serverName, channelName, channelTopic, roleName, roleColor, serverRules, memberName, nickOf, memberColor, profileOf, rolesOfMember,
     permsFor, can, myTop, keyState, loadState, openView, loadOlder, threadOf, postsOf, loadPins, loadMembers, memberCard,
