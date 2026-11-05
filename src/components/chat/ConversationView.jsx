@@ -36,6 +36,7 @@ import StagedStrip from "./StagedStrip";
 import VoiceRecorder from "./VoiceRecorder";
 import ForwardDialog from "./ForwardDialog";
 import { progressText, useStagedFiles } from "./useStagedFiles";
+import { typingText, usePresence, usePresenceRoom } from "@/lib/secure/PresenceContext";
 import { hideAt, timerLabel } from "@/lib/secure/thread.js";
 import { formatTime, Loading } from "@/components/site/bits";
 import Avatar from "./Avatar";
@@ -265,6 +266,9 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
     nameOf, handleOf, conversationName, newMembersOf, acknowledgeMembers,
   } = useChat();
   const { userId, peers, loadPeers } = useSecure();
+  usePresenceRoom("c", conversation.id);
+  const presence = usePresence();
+  const typers = presence.typingIn("c", conversation.id).map(nameOf);
   const rows = threads[conversation.id] || [];
   const stored = messages[conversation.id] || [];
   const [text, setText] = useState("");
@@ -583,7 +587,10 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
           <Textarea
             ref={input}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              if (e.target.value && !editing) presence.sendTyping("c", conversation.id);
+            }}
             onPaste={(e) => {
               if (canAttach && e.clipboardData?.files?.length) {
                 e.preventDefault();
@@ -622,6 +629,7 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
             <SendHorizontal className="h-5 w-5" />
           </Button>
         </div>
+        {typingText(typers) && <p className="mt-1 text-xs text-muted-foreground" aria-live="polite">{typingText(typers)}</p>}
         {progressText(staged.progress) && <p className="mt-1 text-xs text-muted-foreground" role="status">{progressText(staged.progress)}</p>}
         {text.length > MAX_MESSAGE_CHARS - 300 && (
           <p className="mt-1 text-right text-xs text-muted-foreground">{MAX_MESSAGE_CHARS - text.length} characters left</p>

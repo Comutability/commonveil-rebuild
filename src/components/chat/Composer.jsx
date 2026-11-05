@@ -11,7 +11,7 @@ const TOKEN_RE = /(^|\s)([@#:])([\p{L}\p{N}_-]{0,32})$/u;
 /**
  * Where you write. Enter sends, Shift+Enter starts a new line, Escape cancels a reply or edit.
  * Typing @ or # suggests people and channels; suggestions are worked out on this device.
- * There's no "typing…" signal: nobody learns you're writing until you send.
+ * "Typing…" is only shared if you turned it on in privacy settings (see PresenceContext).
  * staged (from useStagedFiles): files waiting to go with the next message. Paste or drop files
  * to add them; they're encrypted on this device when you send.
  */

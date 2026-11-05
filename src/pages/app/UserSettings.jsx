@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ErrorNote } from "@/components/site/bits";
+import { usePresence } from "@/lib/secure/PresenceContext";
 import { useSecure } from "@/lib/secure/SecureContext";
 import { setAppearance, TEXT_SIZES, useAppearance } from "@/lib/appearance";
 import Avatar, { ACCENT_HUES } from "@/components/chat/Avatar";
@@ -130,6 +131,28 @@ function ProfileSettings() {
   );
 }
 
+function PresenceGroup() {
+  const { settings, setSettings } = usePresence();
+  return (
+    <SettingsGroup title="Online status and typing" description="Off unless you turn them on, and mutual: you see other people's only while you share yours. They pass through a live room that writes nothing down, and only for the server or conversation you have open. Typing is never shared in private channels. This choice is kept on this device.">
+      <label className="flex items-start gap-3">
+        <Checkbox checked={settings.presence} onCheckedChange={(v) => setSettings({ presence: Boolean(v) })} className="mt-0.5" />
+        <span>
+          <span className="block text-sm font-medium">Show when I'm online</span>
+          <span className="block text-xs text-muted-foreground">People in the same server or conversation see a dot by your name while you have it open.</span>
+        </span>
+      </label>
+      <label className="mt-3 flex items-start gap-3">
+        <Checkbox checked={settings.typing} disabled={!settings.presence} onCheckedChange={(v) => setSettings({ typing: Boolean(v) })} className="mt-0.5" />
+        <span>
+          <span className="block text-sm font-medium">Show when I'm typing</span>
+          <span className="block text-xs text-muted-foreground">Others see "typing…" while you write, before you send anything.</span>
+        </span>
+      </label>
+    </SettingsGroup>
+  );
+}
+
 function PrivacySettings() {
   const { me, updateProfile } = useSecure();
   const privacy = me?.privacy || { profile_visibility: "shared", dm_policy: "anyone", default_listed: false };
@@ -137,7 +160,7 @@ function PrivacySettings() {
   const change = (changes) => run(() => updateProfile(changes));
   return (
     <>
-      <SettingsTitle intro="Commonveil has no member directory and no online status. These choices decide the little that others can learn about you.">Privacy and safety</SettingsTitle>
+      <SettingsTitle intro="Commonveil has no member directory, and online status is off unless you turn it on. These choices decide the little that others can learn about you.">Privacy and safety</SettingsTitle>
       <SettingsGroup title="Who can start a conversation with you" description="People you already have a conversation with can always keep writing to you.">
         <ChoiceList
           name="dm"
@@ -164,6 +187,7 @@ function PrivacySettings() {
           ]}
         />
       </SettingsGroup>
+      <PresenceGroup />
       <SettingsGroup title="Member lists" description="Servers list their staff. Everyone else chooses, server by server, whether to appear. This is your starting choice for servers you join.">
         <label className="flex items-start gap-3">
           <Checkbox checked={privacy.default_listed} disabled={state.busy} onCheckedChange={(v) => change({ default_listed: Boolean(v) })} className="mt-0.5" />
