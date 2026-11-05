@@ -12,6 +12,7 @@ import {
   LogOut,
   Shield,
   ShieldAlert,
+  Smile,
   Sparkles,
   Trash2,
   Users,
@@ -39,6 +40,8 @@ import SettingsLayout, { ChoiceList, SettingsGroup, SettingsTitle, useCloseSetti
 import RolesSettings from "@/components/settings/RolesSettings";
 import ChannelSettings from "@/components/settings/ChannelSettings";
 import { ALL_TAGS, tagLabel } from "./Discover";
+import { EMOJI_LIMITS, EMOJI_NAME_RE, imageForSet, nameFromFile, newEmojiId } from "@/lib/customEmoji";
+import { MENTION_LIMITS } from "@/lib/secure/automod";
 
 function useRun() {
   const [state, setState] = useState({ busy: false, msg: "", error: "" });
@@ -263,7 +266,110 @@ function Safety({ sid }) {
         <ToggleRow label="Pause joining" help="Nobody new can join, by invite or from Discover." checked={st.joins_paused} disabled={state.busy} onChange={(v) => set({ joins_paused: v })} />
       </SettingsGroup>
       <Status state={state} />
+      <AutoMod sid={sid} />
     </>
+  );
+}
+
+// ---------- emoji and stickers ----------
+
+function ExpressionSet({ sid, kind }) {
+  const { serverEmoji, setServerSet } = useServers();
+  const [state, run] = useRun();
+  const picker = useRef(null);
+  const set = serverEmoji(sid)[kind];
+  const max = kind === "stickers" ? EMOJI_LIMITS.stickers : EMOJI_LIMITS.emoji;
+  const save = (items, msg) => run(() => setServerSet(sid, kind, items.length ? { items } : null), msg);
+  const add = async (files) => {
+    const room = max - set.length;
+    const picked = [...files].slice(0, Math.max(0, room));
+    if (!picked.length) return;
+    await run(async () => {
+      const made = [];
+      for (const f of picked) made.push({ id: newEmojiId(), name: uniqueName(nameFromFile(f.name), [...set, ...made]), img: await imageForSet(f, kind) });
+      await setServerSet(sid, kind, { items: [...set, ...made] });
+    }, picked.length === 1 ? "Added." : `Added ${picked.length}.`);
+  };
+  const rename = (id, name) => {
+    const clean = name.toLowerCase().replace(/[^a-z0-9_]+/g, "_").slice(0, 32);
+    if (!EMOJI_NAME_RE.test(clean) || set.some((x) => x.id !== id && x.name === clean)) return;
+    save(set.map((x) => (x.id === id ? { ...x, name: clean } : x)), "Renamed.");
+  };
+  return (
+    <SettingsGroup
+      title={kind === "stickers" ? `Stickers (${set.length} of ${max})` : `Emoji (${set.length} of ${max})`}
+      description={kind === "stickers" ? "Pictures members can send on their own. Up to 160 pixels square." : "Members use them in messages as :name: and as reactions. Up to 64 pixels square."}
+    >
+      <input ref={picker} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple className="hidden" aria-hidden="true" tabIndex={-1} onChange={(ev) => { add(ev.target.files || []); ev.target.value = ""; }} />
+      <Button type="button" size="sm" disabled={state.busy || set.length >= max} onClick={() => picker.current?.click()}>
+        {kind === "stickers" ? "Upload stickers" : "Upload emoji"}
+      </Button>
+      {set.length > 0 && (
+        <ul className="mt-3 divide-y divide-border rounded-md border border-border">
+          {set.map((x) => (
+            <li key={x.id} className="flex items-center gap-3 px-3 py-2">
+              <img src={x.img} alt="" className={kind === "stickers" ? "h-14 w-14" : "h-8 w-8"} />
+              <span className="text-muted-foreground" aria-hidden="true">:</span>
+              <Input defaultValue={x.name} aria-label={`Name for ${x.name}`} className="h-8 max-w-[14rem]" disabled={state.busy} onBlur={(ev) => ev.target.value !== x.name && rename(x.id, ev.target.value)} />
+              <span className="text-muted-foreground" aria-hidden="true">:</span>
+              <button type="button" disabled={state.busy} onClick={() => save(set.filter((y) => y.id !== x.id), "Removed.")} className="ml-auto rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive" aria-label={`Remove ${x.name}`}>
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Status state={state} />
+    </SettingsGroup>
+  );
+}
+
+function uniqueName(base, taken) {
+  let name = base;
+  for (let i = 2; taken.some((x) => x.name === name); i += 1) name = `${base.slice(0, 29)}_${i}`;
+  return name;
+}
+
+function Expressions({ sid }) {
+  return (
+    <>
+      <SettingsTitle intro="Pictures are shrunk on your device and encrypted with the server's key, so only members can see them, or their names.">Emoji and stickers</SettingsTitle>
+      <ExpressionSet sid={sid} kind="emoji" />
+      <ExpressionSet sid={sid} kind="stickers" />
+    </>
+  );
+}
+
+// ---------- AutoMod ----------
+
+function AutoMod({ sid }) {
+  const { automodOf, setServerSet } = useServers();
+  const rules = automodOf(sid);
+  const [state, run] = useRun();
+  const [words, setWords] = useState(rules.words.join("\n"));
+  useEffect(() => setWords(rules.words.join("\n")), [rules.words.join("\n")]); // eslint-disable-line react-hooks/exhaustive-deps
+  const save = (changes, msg = "Saved.") => run(() => setServerSet(sid, "automod", { ...rules, ...changes }), msg);
+  return (
+    <SettingsGroup
+      title="AutoMod"
+      description="Messages are encrypted, so the service can't filter them. These rules are encrypted too, and members' apps apply them: the sender's app won't send a message that breaks them, and everyone else's hides one that does. People who can manage messages are exempt."
+    >
+      <ToggleRow label="Use AutoMod" checked={rules.enabled} disabled={state.busy} onChange={(v) => save({ enabled: v })} />
+      <ToggleRow label="Block links" help="Web addresses in messages." checked={rules.block_links} disabled={state.busy || !rules.enabled} onChange={(v) => save({ block_links: v })} />
+      <ToggleRow label="Block invites to other servers" checked={rules.block_invites} disabled={state.busy || !rules.enabled} onChange={(v) => save({ block_invites: v })} />
+      <div className="space-y-1.5 py-2">
+        <Label htmlFor="am-mentions">Most people or roles one message can mention</Label>
+        <NativeSelect id="am-mentions" value={String(rules.mention_limit)} disabled={state.busy || !rules.enabled} onChange={(ev) => save({ mention_limit: Number(ev.target.value) })}>
+          {MENTION_LIMITS.map((n) => <option key={n} value={String(n)}>{n === 0 ? "No limit" : n}</option>)}
+        </NativeSelect>
+      </div>
+      <div className="space-y-1.5 py-2">
+        <Label htmlFor="am-words">Blocked words</Label>
+        <Textarea id="am-words" rows={5} value={words} disabled={state.busy || !rules.enabled} onChange={(ev) => setWords(ev.target.value)} placeholder={"One per line. Use * for any letters, like spam*"} />
+        <Button type="button" size="sm" variant="outline" disabled={state.busy || !rules.enabled} onClick={() => save({ words: words.split(/\n|,/).map((w) => w.trim()).filter(Boolean) })}>Save words</Button>
+      </div>
+      <Status state={state} />
+    </SettingsGroup>
   );
 }
 
@@ -662,6 +768,7 @@ export default function ServerSettings() {
   }, [e, serverId, loadState]);
   const perms = useMemo(() => ({
     server: can(serverId, P.MANAGE_SERVER),
+    expressions: can(serverId, P.MANAGE_EXPRESSIONS),
     roles: can(serverId, P.MANAGE_ROLES),
     channels: can(serverId, P.MANAGE_CHANNELS),
     invites: can(serverId, P.CREATE_INVITES) || can(serverId, P.MANAGE_INVITES),
@@ -684,6 +791,7 @@ export default function ServerSettings() {
     roles: perms.roles && RolesSettings,
     members: perms.mod && Members,
     invites: perms.invites && Invites,
+    expressions: perms.expressions && Expressions,
     community: perms.server && Community,
     discovery: perms.server && Discovery,
     safety: perms.server && Safety,
@@ -707,6 +815,7 @@ export default function ServerSettings() {
         sections.overview && { id: "overview", label: "Overview", icon: Sparkles },
         sections.roles && { id: "roles", label: "Roles", icon: Shield },
         sections.invites && { id: "invites", label: "Invites", icon: Link2 },
+        sections.expressions && { id: "expressions", label: "Emoji and stickers", icon: Smile },
         { id: "privacy", label: "Privacy and encryption", icon: Eye },
       ].filter(Boolean),
     },
