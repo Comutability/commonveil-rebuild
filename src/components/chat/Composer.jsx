@@ -16,7 +16,7 @@ const TOKEN_RE = /(^|\s)([@#:])([\p{L}\p{N}_-]{0,32})$/u;
  * to add them; they're encrypted on this device when you send.
  */
 const Composer = forwardRef(function Composer(
-  { value, onChange, onSubmit, placeholder, disabledReason = "", replyTo = null, editing = false, onCancel, suggest, hint = null, sealed = true, tools = null, staged = null },
+  { value, onChange, onSubmit, placeholder, disabledReason = "", replyTo = null, editing = false, onCancel, suggest, hint = null, sealed = true, tools = null, staged = null, customEmoji = [] },
   ref,
 ) {
   const input = useRef(null);
@@ -206,7 +206,7 @@ const Composer = forwardRef(function Composer(
                 </button>
               </PopoverTrigger>
               <PopoverContent align="end" side="top" className="w-auto p-0">
-                <EmojiPicker onPick={insertEmoji} label="Add an emoji" />
+                <EmojiPicker onPick={insertEmoji} label="Add an emoji" custom={customEmoji} onPickCustom={customEmoji.length ? (x) => insertEmoji(`<:${x.name}:${x.id}>`) : null} />
               </PopoverContent>
             </Popover>
           )}

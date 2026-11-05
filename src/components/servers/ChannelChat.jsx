@@ -320,6 +320,7 @@ export function ChannelComposer({ serverId, channel, threadId = "", reply, setRe
       ref={input}
       tools={editing || block ? null : <ComposerPlus onPoll={() => setPollOpen(true)} onFiles={staged.add} onVoiceNote={() => setRecording(true)} onSticker={stickers.length ? () => setStickerOpen(true) : undefined} />}
       staged={block ? null : staged}
+      customEmoji={useServers().serverEmoji(serverId).emoji}
       value={text}
       onChange={(v) => {
         setText(v);
