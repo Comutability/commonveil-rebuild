@@ -77,7 +77,16 @@ function ToggleRow({ label, help, checked, onChange, disabled }) {
 function Overview({ sid }) {
   const { serverLook, setServerProfile, servers } = useServers();
   const look = serverLook(sid);
-  const [form, setForm] = useState({ name: look.name, description: look.description, icon: look.icon, color: look.color });
+  const [form, setFormState] = useState({ name: look.name, description: look.description, icon: look.icon, color: look.color });
+  // Until someone edits the form, follow the server's details (they may still be decrypting).
+  const edited = useRef(false);
+  const setForm = useCallback((fn) => {
+    edited.current = true;
+    setFormState(fn);
+  }, []);
+  useEffect(() => {
+    if (!edited.current) setFormState({ name: look.name, description: look.description, icon: look.icon, color: look.color });
+  }, [look.name, look.description, look.icon, look.color]);
   const [state, run] = useRun();
   const isDefault = servers[sid]?.server?.is_default;
   return (
@@ -438,7 +447,9 @@ function Invites({ sid }) {
           <li key={i.code} className="flex flex-wrap items-center gap-3 py-3 text-sm">
             <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{i.code}</code>
             <span className="text-muted-foreground">by {memberName(sid, i.creator_id)}</span>
-            <span className="text-muted-foreground">{i.uses}{i.max_uses ? ` of ${i.max_uses}` : ""} uses</span>
+            <span className="text-muted-foreground">
+              {i.max_uses ? `${i.uses} of ${i.max_uses} uses` : `${i.uses} ${i.uses === 1 ? "use" : "uses"}`}
+            </span>
             <span className="text-muted-foreground">{AGE_LABEL(i)}</span>
             <Button size="sm" variant="ghost" className="ml-auto text-destructive" onClick={async () => { try { await revokeInvite(sid, i.code); load(); } catch (err) { setError(err.message); } }}>Revoke</Button>
           </li>
