@@ -208,6 +208,7 @@ export default function MessageRow({
           </div>
         )}
         {row.poll && readableNow && <PollCard poll={row.poll} nameOf={nameOf} disabled={!can.react || !onVote} onVote={(choices) => onVote?.(choices)} />}
+        {readableNow && <AttachmentList attachments={row.attachments} />}
         <Reactions reactions={row.reactions} nameOf={nameOf} disabled={!can.react} onToggle={(emoji, already) => onReact?.(emoji, already)} />
       </div>
 
