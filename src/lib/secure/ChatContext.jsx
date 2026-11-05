@@ -90,6 +90,19 @@ export function ChatProvider({ children }) {
   const navigateRef = useRef(navigate);
   // Sender devices we've already re-fetched keys for, so an unknown device triggers one refresh, not a loop.
   const refetchedDevices = useRef(new Set());
+  // Others that ride along on the same poll request (servers): { params(), onPage(page), more(page) }.
+  const pollExtensions = useRef(new Set());
+
+  /** Add to every poll request, and get each page. Returns a function that removes it. */
+  const addPollExtension = useCallback((ext) => {
+    pollExtensions.current.add(ext);
+    return () => pollExtensions.current.delete(ext);
+  }, []);
+
+  /** Something happened worth polling quickly for (used by servers too). */
+  const touchActivity = useCallback(() => {
+    lastActivity.current = Date.now();
+  }, []);
 
   useEffect(() => {
     openedRef.current = opened;
@@ -301,14 +314,27 @@ export function ChatProvider({ children }) {
     };
     const pollOnce = async () => {
       let page;
+      let more = false;
       do {
         const withConversations = needConversations.current || Date.now() - convCheckedAt.current > CONVERSATIONS_EVERY_MS;
+        const extensions = [...pollExtensions.current];
+        const extra = {};
+        for (const ext of extensions) Object.assign(extra, ext.params?.() || {});
         page = await callFn("messages", {
           action: "poll",
           since: cursor.current,
           ...(withConversations ? { conversations_since: convCursor.current } : {}),
+          ...extra,
         });
         cursor.current = page.cursor;
+        for (const ext of extensions) {
+          try {
+            ext.onPage?.(page);
+          } catch {
+            /* one extension's trouble doesn't stop the others */
+          }
+        }
+        more = extensions.some((ext) => ext.more?.(page));
         if (page.conversation_ids) {
           needConversations.current = false;
           convCheckedAt.current = Date.now();
@@ -328,7 +354,7 @@ export function ChatProvider({ children }) {
           if (page.messages.some((m) => m.sender_id !== userId)) lastActivity.current = Date.now();
           mergeMessages(page.messages);
         }
-      } while (page.has_more || (needConversations.current && !page.conversation_ids));
+      } while (page.has_more || more || (needConversations.current && !page.conversation_ids));
     };
     const tick = async () => {
       if (!polling.current) {
@@ -732,7 +758,9 @@ export function ChatProvider({ children }) {
     newMembersOf,
     acknowledgeMembers,
     membershipProblem,
-  }), [loaded, conversations, messages, threads, hasMore, opened, titles, profiles, alerts, updateAlerts, openConversation, closeConversation, loadOlder, loadHistory, searchMessages, markRead, isUnread, send, react, editMessage, setTitle, setExpiry, setAdmin, removeMember, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem]);
+    addPollExtension,
+    touchActivity,
+  }), [loaded, conversations, messages, threads, hasMore, opened, titles, profiles, alerts, updateAlerts, openConversation, closeConversation, loadOlder, loadHistory, searchMessages, markRead, isUnread, send, react, editMessage, setTitle, setExpiry, setAdmin, removeMember, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem, addPollExtension, touchActivity]);
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }
