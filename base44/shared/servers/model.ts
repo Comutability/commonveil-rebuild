@@ -96,6 +96,7 @@ export const serverOut = (s: any) => ({
     audit_retention_days: Number(s.audit_retention_days) || 90,
     default_history: s.default_history || "joined",
     allow_member_dms: s.allow_member_dms !== false,
+    key_handout: s.key_handout === "staff" ? "staff" : "members",
   },
   member_count: Number(s.member_count) || 0,
   keys_pending_at: s.keys_pending_at || null,
@@ -237,6 +238,14 @@ export async function serverParts(db: any, serverId: string) {
 
 export function permsOf(parts: { server: any; roles: any[] }, member: any, channel: any = null) {
   return channel ? channelPermissions(parts.server, parts.roles, member, channel) : basePermissions(parts.server, parts.roles, member);
+}
+
+/**
+ * Whether this member's app hands keys to people waiting for them (and so may learn who's
+ * waiting). Servers choose: any member, or only staff with MANAGE_KEYS.
+ */
+export function canHandOutKeys(parts: { server: any; roles: any[] }, member: any) {
+  return parts.server.key_handout !== "staff" || has(basePermissions(parts.server, parts.roles, member), P.MANAGE_KEYS);
 }
 
 export function requirePerm(perms: number, bit: number, what: string) {
