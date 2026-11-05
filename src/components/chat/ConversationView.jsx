@@ -30,6 +30,11 @@ import PollCard from "./PollCard";
 import ComposerPlus from "./ComposerPlus";
 import CreatePollDialog from "./CreatePollDialog";
 import RichText from "./RichText";
+import AttachmentList from "./Attachments";
+import StagedStrip from "./StagedStrip";
+import VoiceRecorder from "./VoiceRecorder";
+import ForwardDialog from "./ForwardDialog";
+import { progressText, useStagedFiles } from "./useStagedFiles";
 import { hideAt, timerLabel } from "@/lib/secure/thread.js";
 import { formatTime, Loading } from "@/components/site/bits";
 import Avatar from "./Avatar";
@@ -102,7 +107,7 @@ function Reactions({ reactions, mine, nameOf, onToggle, disabled }) {
   );
 }
 
-function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSend, onReply, onReact, onVote, onEdit, onDelete, onJump }) {
+function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSend, onReply, onReact, onVote, onEdit, onDelete, onJump, onForward }) {
   const [picker, setPicker] = useState(false);
   const { m, result } = row;
   const base = `max-w-[min(34rem,85%)] rounded-2xl px-3.5 py-2 text-[0.95rem] leading-relaxed ${mine ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted"} ${highlighted ? "ring-2 ring-[hsl(var(--warning))] ring-offset-2 ring-offset-background" : ""}`;
@@ -125,12 +130,14 @@ function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSen
           <div className="text-foreground">
             <PollCard poll={row.poll} nameOf={nameOf} disabled={!canSend} onVote={onVote} />
           </div>
-        ) : (
+        ) : row.text ? (
           <span className="whitespace-pre-wrap break-words"><RichText text={row.text} ctx={{}} /></span>
-        )}
+        ) : null}
       </>
     );
   }
+  // A message that's only files shows them without a bubble around them.
+  const filesOnly = readable && !row.poll && !row.text && !row.replyTo && !result.content?.forwarded && row.attachments.length > 0;
   const disappearsAt = hideAt(m, result);
 
   return (
@@ -141,7 +148,10 @@ function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSen
         </span>
       )}
       <div className={`flex max-w-full items-center gap-1 ${mine ? "flex-row-reverse" : ""}`}>
-        <div className={row.poll ? "max-w-[min(30rem,92%)]" : base}>{body}</div>
+        <div className={`flex min-w-0 flex-col gap-1 ${mine ? "items-end" : "items-start"}`}>
+          {!filesOnly && <div className={row.poll ? "max-w-[min(30rem,92%)]" : base}>{body}</div>}
+          {readable && row.attachments.length > 0 && <div className="max-w-[min(26rem,85vw)]"><AttachmentList attachments={row.attachments} /></div>}
+        </div>
         {readable && canSend && (
           <Popover open={picker} onOpenChange={setPicker}>
             <PopoverTrigger asChild>
@@ -195,6 +205,11 @@ function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSen
                   <DropdownMenuItem disabled={!canSend} onSelect={onReply}>
                     <CornerUpLeft className="mr-2 h-4 w-4" aria-hidden="true" /> Reply
                   </DropdownMenuItem>
+                  {onForward && result.content?.type === "text" && (
+                    <DropdownMenuItem onSelect={onForward}>
+                      <Forward className="mr-2 h-4 w-4" aria-hidden="true" /> Forward
+                    </DropdownMenuItem>
+                  )}
                   {row.canEdit && (
                     <DropdownMenuItem disabled={!canSend} onSelect={onEdit}>
                       <Pencil className="mr-2 h-4 w-4" aria-hidden="true" /> Edit
@@ -354,9 +369,16 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
     setReplyTo(null);
   };
 
+  const staged = useStagedFiles();
+  const [recording, setRecording] = useState(false);
+  const [forwarding, setForwarding] = useState(null);
+  const [dragging, setDragging] = useState(false);
+  const canAttach = !editing && !pausedReason;
+  const canSubmit = Boolean(text.trim() || (!editing && staged.items.length));
+
   const submit = async (e) => {
     e?.preventDefault();
-    if (!text.trim() || sending) return;
+    if (!canSubmit || sending) return;
     setSending(true);
     setError("");
     nearBottom.current = true;
@@ -364,7 +386,13 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
       if (editing) {
         if (text !== editing.text) await editMessage(conversation, editing.m, text);
       } else {
-        await send(conversation, text, { replyTo: replyTo?.m.msg_id || null });
+        const files = staged.items.map(({ file, spoiler }) => ({ file, spoiler }));
+        try {
+          await send(conversation, text, { replyTo: replyTo?.m.msg_id || null, files, onProgress: staged.onProgress });
+        } finally {
+          staged.setProgress(null);
+        }
+        staged.clear();
       }
       setText("");
       setReplyTo(null);
@@ -500,6 +528,7 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
                 onEdit={() => startEdit(row)}
                 onDelete={() => deleteMessage(row.m).catch((err) => setError(err.message))}
                 onJump={jumpTo}
+                onForward={() => setForwarding({ text: row.text, attachments: row.attachments })}
               />
             );
             return i === noteIndex ? [timerNote, bubble] : [bubble];
@@ -507,8 +536,33 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
         )}
       </div>
 
-      <form onSubmit={submit} className="border-t border-border p-3 sm:p-4">
+      <ForwardDialog text={forwarding?.text || ""} attachments={forwarding?.attachments || []} open={forwarding !== null} onOpenChange={(v) => !v && setForwarding(null)} />
+      <VoiceRecorder open={recording} onOpenChange={setRecording} onSend={(file, seconds) => send(conversation, "", { files: [{ file, voice: true, duration: seconds }] })} />
+      <form
+        onSubmit={submit}
+        className="relative border-t border-border p-3 sm:p-4"
+        onDragOver={(e) => {
+          if (!canAttach || ![...(e.dataTransfer?.types || [])].includes("Files")) return;
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget) && setDragging(false)}
+        onDrop={(e) => {
+          setDragging(false);
+          if (canAttach && e.dataTransfer?.files?.length) {
+            e.preventDefault();
+            staged.add(e.dataTransfer.files);
+          }
+        }}
+      >
+        {dragging && (
+          <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-background/90 text-sm font-medium">
+            Drop to attach. Files are encrypted before they leave this device.
+          </div>
+        )}
         {error && <p className="mb-2 text-sm text-destructive" role="alert">{error}</p>}
+        {staged.notice && <p className="mb-2 text-sm text-destructive" role="alert">{staged.notice}</p>}
+        {canAttach && <StagedStrip staged={staged} items={staged.items} busy={sending} className="mb-2" />}
         {(replyTo || editing) && (
           <div className="mb-2 flex items-start gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm">
             {editing ? <Pencil className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" /> : <CornerUpLeft className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
@@ -524,11 +578,17 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
         )}
         <CreatePollDialog open={pollOpen} onOpenChange={setPollOpen} onCreate={(poll) => sendPoll(conversation, poll)} />
         <div className="flex items-end gap-2">
-          {!editing && !pausedReason && <div className="pb-1.5"><ComposerPlus onPoll={() => setPollOpen(true)} /></div>}
+          {!editing && !pausedReason && <div className="pb-1.5"><ComposerPlus onPoll={() => setPollOpen(true)} onFiles={staged.add} onVoiceNote={() => setRecording(true)} /></div>}
           <Textarea
             ref={input}
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => {
+              if (canAttach && e.clipboardData?.files?.length) {
+                e.preventDefault();
+                staged.add(e.clipboardData.files);
+              }
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
@@ -557,10 +617,11 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
               </PopoverContent>
             </Popover>
           )}
-          <Button type="submit" size="icon" className="h-11 w-11 shrink-0" disabled={!text.trim() || sending || Boolean(pausedReason)} aria-label={editing ? "Save edit" : "Send"}>
+          <Button type="submit" size="icon" className="h-11 w-11 shrink-0" disabled={!canSubmit || sending || Boolean(pausedReason)} aria-label={editing ? "Save edit" : "Send"}>
             <SendHorizontal className="h-5 w-5" />
           </Button>
         </div>
+        {progressText(staged.progress) && <p className="mt-1 text-xs text-muted-foreground" role="status">{progressText(staged.progress)}</p>}
         {text.length > MAX_MESSAGE_CHARS - 300 && (
           <p className="mt-1 text-right text-xs text-muted-foreground">{MAX_MESSAGE_CHARS - text.length} characters left</p>
         )}

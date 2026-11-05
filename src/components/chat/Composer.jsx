@@ -1,7 +1,7 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { CornerUpLeft, EyeOff, FileText, Lock, Pencil, SendHorizontal, Smile, X } from "lucide-react";
-import { sizeLabel } from "@/lib/secure/attachments.js";
+import { CornerUpLeft, Lock, Pencil, SendHorizontal, Smile, X } from "lucide-react";
 import { progressText } from "./useStagedFiles";
+import StagedStrip from "./StagedStrip";
 import { MAX_MESSAGE_CHARS } from "@/lib/secure/protocol.js";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import EmojiPicker from "./EmojiPicker";
@@ -174,27 +174,7 @@ const Composer = forwardRef(function Composer(
             </button>
           </div>
         )}
-        {files.length > 0 && (
-          <ul className="flex gap-2 overflow-x-auto border-b border-border/60 px-3 py-2" aria-label="Files to send">
-            {files.map((it) => (
-              <li key={it.key} className="relative flex w-28 shrink-0 flex-col overflow-hidden rounded-md border border-border bg-background">
-                <div className="flex h-20 items-center justify-center bg-muted">
-                  {it.preview ? <img src={it.preview} alt="" className={`h-full w-full object-cover ${it.spoiler ? "blur-md" : ""}`} /> : <FileText className="h-8 w-8 text-muted-foreground" aria-hidden="true" />}
-                </div>
-                <p className="truncate px-1.5 pt-1 text-xs font-medium" title={it.file.name}>{it.file.name}</p>
-                <p className="px-1.5 pb-1 text-[0.7rem] text-muted-foreground">{sizeLabel(it.file.size)}{it.spoiler ? ", spoiler" : ""}</p>
-                <div className="absolute right-1 top-1 flex gap-0.5">
-                  <button type="button" onClick={() => staged.toggleSpoiler(it.key)} disabled={busy} className={`rounded bg-background/90 p-0.5 hover:bg-muted ${it.spoiler ? "text-primary" : "text-muted-foreground"}`} aria-label={it.spoiler ? `Don't hide ${it.file.name}` : `Mark ${it.file.name} as a spoiler`} aria-pressed={it.spoiler}>
-                    <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
-                  </button>
-                  <button type="button" onClick={() => staged.remove(it.key)} disabled={busy} className="rounded bg-background/90 p-0.5 text-muted-foreground hover:bg-muted" aria-label={`Remove ${it.file.name}`}>
-                    <X className="h-3.5 w-3.5" aria-hidden="true" />
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+        <StagedStrip staged={staged} items={files} busy={busy} className="border-b border-border/60 px-3 py-2" />
         <div className="flex items-end gap-2 px-3 py-2">
           {tools}
           {sealed && !tools && <Lock className="mb-2 h-4 w-4 shrink-0 text-primary/70" aria-hidden="true" />}
