@@ -363,15 +363,16 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
         <Avatar id={other} name={nameOf(other)} group={conversation.kind === "group"} size="h-9 w-9" />
         <div className="min-w-0 flex-1">
           <h2 className="truncate font-semibold">{conversationName(conversation)}</h2>
-          <p className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
             {allVerified ? (
-              <><ShieldCheck className="h-3.5 w-3.5 text-primary" aria-hidden="true" /> Verified · end-to-end encrypted</>
+              <span className="inline-flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5 text-primary" aria-hidden="true" /> Verified and end-to-end encrypted</span>
             ) : (
-              <><Lock className="h-3.5 w-3.5" aria-hidden="true" /> End-to-end encrypted{conversation.kind === "group" ? ` · ${conversation.member_ids.length} people` : ""}</>
+              <span className="inline-flex items-center gap-1"><Lock className="h-3.5 w-3.5" aria-hidden="true" /> End-to-end encrypted</span>
             )}
+            {conversation.kind === "group" && <span>{conversation.member_ids.length} people</span>}
             {timer > 0 && (
               <span className="inline-flex items-center gap-1" title="New messages disappear after this long">
-                · <Timer className="h-3.5 w-3.5" aria-hidden="true" /> {timerLabel(timer)}
+                <Timer className="h-3.5 w-3.5" aria-hidden="true" /> {timerLabel(timer)}
               </span>
             )}
           </p>
