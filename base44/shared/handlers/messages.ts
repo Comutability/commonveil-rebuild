@@ -112,7 +112,7 @@ export const messageActions: Actions = {
   async poll({ own, user, body, now }) {
     if (body.since === undefined) {
       const start = platformTime(new Date(now.getTime() - 5_000));
-      return { cursor: start, conversations_cursor: start, servers_cursor: start, messages: [], conversations: [], conversation_ids: [] };
+      return { cursor: start, conversations_cursor: start, servers_cursor: start, server_changes_cursor: start, messages: [], conversations: [], conversation_ids: [] };
     }
     const since = str(body.since, "cursor", 40);
     // A row can turn up in queries a moment after it's written, so the cursor never passes
@@ -140,9 +140,10 @@ export const messageActions: Actions = {
       Object.assign(out, { conversations: changed.map(conversationOut), conversation_ids: convs.map((c: any) => c.id), conversations_cursor: convCursor });
     }
 
-    // Servers: their messages and changes, on their own cursor (see serverMessages.ts).
+    // Servers: their messages on their own cursor, and now and then server changes on another (see serverMessages.ts).
     if (body.servers_since !== undefined) {
-      Object.assign(out, await pollServers(own, user.id, str(body.servers_since, "cursor", 40), settled, LIMITS.pollLimit, now, Boolean(body.with_servers)));
+      const changesSince = body.server_changes_since === undefined ? undefined : str(body.server_changes_since, "cursor", 40);
+      Object.assign(out, await pollServers(own, user.id, { since: str(body.servers_since, "cursor", 40), changesSince }, settled, LIMITS.pollLimit, now));
     }
     return out;
   },
