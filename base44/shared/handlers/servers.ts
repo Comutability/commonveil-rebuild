@@ -1013,7 +1013,7 @@ export function serverActions(config: ServerConfig): Actions {
         server_id: serverId, code, creator_id: user.id, channel_id: data.channel_id ? id(data.channel_id, "channel") : "",
         expires_at: age ? new Date(now.getTime() + age * 1000).toISOString() : "", max_uses: uses, uses: 0, revoked: false, preview,
       });
-      await audit(sr, parts.server, user.id, "invite_create", "invite", row.id, `${age ? `${age / 3600} h` : "no expiry"}, ${uses || "unlimited"} uses`, now);
+      await audit(sr, parts.server, user.id, "invite_create", "invite", row.id, inviteSummary(age, uses), now);
       return { invite: inviteOut(row) };
     },
 
