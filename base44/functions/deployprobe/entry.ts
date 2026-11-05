@@ -1,8 +1,18 @@
-// Temporary: reports which actions the deployed shared code has. Deleted after checking. r2
-import { keysActions } from "../../shared/handlers/keys.ts";
-import { messageActions } from "../../shared/handlers/messages.ts";
-import { PROBE } from "../../shared/deployprobe.ts";
+// Temporary: checks how secrets reach functions. Reports only whether one is set. Deleted after checking. r3
+import { secrets } from "base44:runtime";
 
 export default async function (req: Request): Promise<Response> {
-  return Response.json({ keys: Object.keys(keysActions).length, messages: Object.keys(messageActions), probe: PROBE });
+  let fromRuntime = false;
+  let fromEnv = false;
+  try {
+    fromRuntime = Boolean(secrets.get("DEFAULT_SERVER_ADMINS"));
+  } catch {
+    fromRuntime = false;
+  }
+  try {
+    fromEnv = Boolean(Deno.env.get("DEFAULT_SERVER_ADMINS"));
+  } catch {
+    fromEnv = false;
+  }
+  return Response.json({ fromRuntime, fromEnv });
 }
