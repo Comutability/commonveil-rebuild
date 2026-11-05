@@ -242,6 +242,7 @@ export function ServerProvider({ children }) {
   /** A server's full state: layout, roles, keys. Reads with your own access. */
   const loadState = useCallback(async (serverId) => {
     let st;
+    if (serversRef.current[serverId] && !serversRef.current[serverId].roles) putServer(serverId, { status: "loading" });
     try {
       st = await withRetry(() => callFn("servers", { action: "state", server_id: serverId }));
     } catch (err) {
