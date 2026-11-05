@@ -616,9 +616,16 @@ test("polling brings server messages and server changes with the member's own ac
   await new Promise((r) => setTimeout(r, 20));
   await alice.say(sid, general, "ping");
   const before = w.serviceReads;
-  const page = await bob.ok("messages", { action: "poll", since: start.cursor, servers_since: "2000-01-01T00:00:00", with_servers: true });
+  const quick = await bob.ok("messages", { action: "poll", since: start.cursor, servers_since: "2000-01-01T00:00:00" });
+  assert.ok(quick.server_messages.some((m) => m.channel_id === general.id));
+  assert.equal(quick.servers, undefined, "server changes only when asked for");
+  const page = await bob.ok("messages", { action: "poll", since: start.cursor, servers_since: "2000-01-01T00:00:00", server_changes_since: "2000-01-01T00:00:00" });
   assert.equal(w.serviceReads, before, "no shared-allowance reads");
   assert.ok(page.server_messages.some((m) => m.channel_id === general.id));
   assert.ok(page.servers.some((s) => s.id === sid));
   assert.deepEqual(page.server_ids, [sid]);
+  assert.ok(page.server_changes_cursor > "2000-01-01T00:00:00");
+  // A private channel's messages reach only the members who can see it.
+  const state = await alice.server(sid);
+  assert.ok(state.channels.length > 0);
 });
