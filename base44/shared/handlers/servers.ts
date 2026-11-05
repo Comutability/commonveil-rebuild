@@ -315,7 +315,7 @@ export function serverActions(config: ServerConfig): Actions {
       const ids = [...new Set(members.map((m: any) => m.server_id))];
       const servers = ids.length ? await own.entities.Server.filter({ audience_id: { $in: ids } }, "created_date", ids.length + 5) : [];
       return {
-        servers: servers.filter((s: any) => s.status !== "deleting").map(serverOut),
+        servers: servers.filter((s: any) => s.status !== "deleting").map((s: any) => serverOut(s, { sets: false })),
         members: members.map((m: any) => memberOut(m, { self: true })),
       };
     },

@@ -12,10 +12,12 @@ const ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const STATUSES = new Set(["online", "idle"]);
 const RECHECK_MS = 5 * 60_000; // membership is checked again this often
 const TYPING_EVERY_MS = 2500;
+const MAX_MESSAGES_PER_10S = 30;
 
 export default class Presence extends Actor {
   // conn.id -> { userId, status, checkedAt, typedAt }
   people = new Map();
+  counts = new Map();
 
   async handleStart() {
     // A wake from hibernation keeps sockets but not this memory. Apps say hello again every
@@ -71,6 +73,7 @@ export default class Presence extends Actor {
 
   async handleMessage(conn, msg) {
     if (!msg || typeof msg !== "object" || typeof msg.type !== "string") return;
+    if (this.flooding(conn.id)) return;
     const fresh = !this.people.has(conn.id);
     const me = await this.admit(conn);
     if (!me) return;
@@ -92,7 +95,20 @@ export default class Presence extends Actor {
   }
 
   async handleClose(conn) {
+    this.counts.delete(conn.id);
     if (this.people.delete(conn.id)) this.broadcastPeople();
+  }
+
+  flooding(connId) {
+    const now = Date.now();
+    const entry = this.counts.get(connId) || { start: now, n: 0 };
+    if (now - entry.start > 10_000) {
+      entry.start = now;
+      entry.n = 0;
+    }
+    entry.n += 1;
+    this.counts.set(connId, entry);
+    return entry.n > MAX_MESSAGES_PER_10S;
   }
 
   /** One entry per person (they may be here on several devices): online beats idle. */

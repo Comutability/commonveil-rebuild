@@ -370,7 +370,9 @@ export function ServerProvider({ children }) {
     for (const id of Object.keys(serversRef.current)) if (!ids.has(id)) dropServer(id);
     for (const s of res.servers) {
       const prev = serversRef.current[s.id];
-      putServer(s.id, { server: s, member: mine.get(s.id) || prev?.member, status: prev?.status || "listed" });
+      // The list leaves out emoji and stickers (they're big); keep the ones the server's state brought.
+      const server = s.sets_omitted ? { ...s, emoji: prev?.server?.emoji, stickers: prev?.server?.stickers } : s;
+      putServer(s.id, { server, member: mine.get(s.id) || prev?.member, status: prev?.status || "listed" });
     }
   }, [putServer, dropServer]);
 

@@ -139,7 +139,7 @@ function PresenceGroup() {
         <Checkbox checked={settings.presence} onCheckedChange={(v) => setSettings({ presence: Boolean(v) })} className="mt-0.5" />
         <span>
           <span className="block text-sm font-medium">Show when I'm online</span>
-          <span className="block text-xs text-muted-foreground">People in the same server or conversation see a dot by your name while you have it open.</span>
+          <span className="block text-xs text-muted-foreground">People in the same server or conversation see a dot by your name while you have it open, even in servers where you aren't listed as a member.</span>
         </span>
       </label>
       <label className="mt-3 flex items-start gap-3">

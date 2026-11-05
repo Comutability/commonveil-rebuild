@@ -78,7 +78,8 @@ export const itemOut = (row: any, prefix: string) =>
       }
     : null;
 
-export const serverOut = (s: any) => ({
+/** sets: false leaves out the emoji and sticker images (the server list); state and changes have them. */
+export const serverOut = (s: any, { sets = true }: { sets?: boolean } = {}) => ({
   id: s.id,
   owner_id: s.owner_id || "",
   is_default: Boolean(s.is_default),
@@ -88,8 +89,7 @@ export const serverOut = (s: any) => ({
   public: s.discoverable || s.is_default ? { name: s.public_name || "", description: s.public_description || "", tags: s.public_tags || [], icon: s.public_icon || "", color: s.public_color || "" } : null,
   profile: itemOut(s, "profile"),
   rules: itemOut(s, "rules"),
-  emoji: itemOut(s, "emoji"),
-  stickers: itemOut(s, "stickers"),
+  ...(sets ? { emoji: itemOut(s, "emoji"), stickers: itemOut(s, "stickers") } : { sets_omitted: true }),
   automod: itemOut(s, "automod"),
   settings: {
     rules_required: Boolean(s.rules_required),
