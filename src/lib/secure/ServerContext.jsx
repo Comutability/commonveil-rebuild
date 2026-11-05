@@ -17,6 +17,7 @@ import { buildThread } from "./thread.js";
 import { showAlert } from "./alerts.js";
 import { votePayload } from "./polls.js";
 import { copyAttachments, uploadAttachments } from "./fileTransfer.js";
+import { EMPTY_AUTOMOD, automodReason } from "./automod.js";
 import { randomId } from "../crypto/encoding.js";
 import { ChainKeys, ServerKeyError, newInviteSecret, openInvitePreview, sealInvitePreview, stepAt } from "../crypto/serverKeys.js";
 import * as S from "./store.js";
@@ -514,6 +515,7 @@ export function ServerProvider({ children }) {
         if (!keysRef.current[sid]) continue;
         if (e.server?.profile) todo.push({ key: `server:${sid}`, kind: "server", item: e.server.profile, sid });
         if (e.server?.rules) todo.push({ key: `rules:${sid}`, kind: "rules", item: e.server.rules, sid });
+        for (const slot of ["emoji", "stickers", "automod"]) if (e.server?.[slot]) todo.push({ key: `${slot}:${sid}`, kind: slot, item: e.server[slot], sid });
         for (const c of e.channels || []) if (c.name) todo.push({ key: `channel:${c.id}`, kind: "channel", item: c.name, sid });
         for (const r of e.roles || []) if (r.name) todo.push({ key: `role:${r.id}`, kind: "role", item: r.name, sid });
         if (e.member?.nick) todo.push({ key: `nick:${sid}:${userId}`, kind: "nick", item: e.member.nick, sid });
@@ -657,6 +659,15 @@ export function ServerProvider({ children }) {
     const tpl = templateServer(e?.server?.template);
     return { rules: enc?.rules?.length ? enc.rules : tpl?.rules || [], intro: enc ? enc.intro || "" : tpl?.intro || "", custom: Boolean(enc) };
   }, [servers, itemContent]);
+
+  /** The server's own emoji and stickers: { emoji: [...], stickers: [...], byId: Map }. */
+  const serverEmoji = useCallback((sid) => {
+    const emoji = itemContent(`emoji:${sid}`)?.items || [];
+    const stickers = itemContent(`stickers:${sid}`)?.items || [];
+    return { emoji, stickers, byId: new Map([...emoji, ...stickers].map((x) => [x.id, x])) };
+  }, [itemContent]);
+
+  const automodOf = useCallback((sid) => itemContent(`automod:${sid}`) || EMPTY_AUTOMOD, [itemContent]);
 
   const profileOf = useCallback((sid, uid) => {
     if (uid === userId && me?.profile) return me.profile;
@@ -825,8 +836,10 @@ export function ServerProvider({ children }) {
    * files: [{ file, voice?, duration?, spoiler? }] to seal and attach; forwardFiles: attachments
    * from another message, copied here as they are. onProgress(done, total) while uploading.
    */
-  const sendText = useCallback(async (sid, channel, text, { replyTo = null, mentions = null, threadId = "", forwarded = false, files = [], forwardFiles = [], onProgress = null } = {}) => {
+  const sendText = useCallback(async (sid, channel, text, { replyTo = null, mentions = null, threadId = "", forwarded = false, files = [], forwardFiles = [], onProgress = null, sticker = null } = {}) => {
     touchActivity();
+    const blocked = !has(permsForRef.current(sid, channel), P.MANAGE_MESSAGES) && automodReason(automodRef.current(sid), text, mentions);
+    if (blocked) throw new Error(`AutoMod stopped this message. ${blocked}`);
     const itemId = randomId(16);
     const place = { scope: "server", server_id: sid, channel_id: channel.id };
     let attachments = [];
@@ -836,7 +849,7 @@ export function ServerProvider({ children }) {
     } catch (err) {
       throw friendly(err);
     }
-    const m = await sendBuilt(sid, channel, SP.textPayload(text, { replyTo, mentions, forwarded, attachments }), { kind: "message", threadId, itemId });
+    const m = await sendBuilt(sid, channel, SP.textPayload(text, { replyTo, mentions, forwarded, attachments, sticker }), { kind: "message", threadId, itemId });
     if (m) markChannelRead(channel.id, m.created_date);
     return m;
   }, [sendBuilt, markChannelRead, touchActivity, userId, device]);
@@ -1106,6 +1119,9 @@ export function ServerProvider({ children }) {
     name: String(profile.name || "").slice(0, SP.MAX_NAME), description: String(profile.description || "").slice(0, 500), icon: String(profile.icon || "").slice(0, 8), color: profile.color || "", banner: profile.banner || "",
   }), [actWithItem]);
 
+  /** Replace the server's emoji, stickers or AutoMod rules (slot), or clear them with null. */
+  const setServerSet = useCallback((sid, slot, content) => actWithItem(sid, "set_server_set", slot, content, { slot }), [actWithItem]);
+
   const setServerRules = useCallback((sid, rules, intro) => actWithItem(sid, "set_server_rules", "rules", rules === null ? null : { rules, intro: intro || "" }), [actWithItem]);
 
   const updateSettings = useCallback((sid, changes) => act(sid, "update_server_settings", changes), [act]);
@@ -1263,6 +1279,8 @@ export function ServerProvider({ children }) {
     roleName,
     roleColor,
     serverRules,
+    serverEmoji,
+    automodOf,
     memberName,
     nickOf,
     memberColor,
@@ -1322,6 +1340,7 @@ export function ServerProvider({ children }) {
     act,
     setServerProfile,
     setServerRules,
+    setServerSet,
     updateSettings,
     setNickname,
     createChannel,
@@ -1347,10 +1366,10 @@ export function ServerProvider({ children }) {
   }), [
     notifyLevel, setNotifyLevel, effectiveLevel, savedList, isSaved, toggleSaved, noteOf, setNote, folders, moveToFolder, renameFolder,
     loaded, loadError, servers, order, rows, opened, hasMore, readState, prefs, unread, memberLists, keysTick,
-    serverLook, serverName, channelName, channelTopic, roleName, roleColor, serverRules, memberName, nickOf, memberColor, profileOf, rolesOfMember,
+    serverLook, serverName, channelName, channelTopic, roleName, roleColor, serverRules, serverEmoji, automodOf, memberName, nickOf, memberColor, profileOf, rolesOfMember,
     permsFor, can, myTop, keyState, loadState, openView, loadOlder, threadOf, postsOf, loadPins, loadMembers, memberCard,
     sendText, sendPost, sendPoll, vote, react, edit, deleteMessage, pinMessage, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
-    toggleCollapsed, moveServer, act, setServerProfile, setServerRules, updateSettings, setNickname, createChannel, updateChannel,
+    toggleCollapsed, moveServer, act, setServerProfile, setServerRules, setServerSet, updateSettings, setNickname, createChannel, updateChannel,
     createRole, updateRole, banMember, openBanReason, joinServer, leaveServer, deleteServer, createServer, createInvite, listInvites,
     revokeInvite, discover, listTickets, openTicket, setTicketStatus, renewKeys, serviceKeys,
   ]);
