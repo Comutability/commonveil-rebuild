@@ -2,7 +2,8 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 
 // Message formatting, done here as React elements (never HTML strings): code blocks, inline
-// code, bold, italics, strikethrough, spoilers, quotes, links, @mentions and #channels.
+// code, headings, lists, small text, bold, italics, underline, strikethrough, spoilers, quotes,
+// links, @mentions and #channels.
 // Links aren't previewed: nothing is fetched until you choose to open one.
 
 const INLINE = new RegExp(
@@ -14,8 +15,9 @@ const INLINE = new RegExp(
     "(https?:\\/\\/[^\\s<>\"]+[^\\s<>\".,:;'!?)\\]])", // 5 link
     "(@[A-Za-z0-9_]{3,20}\\b)", // 6 mention
     "(#[\\p{L}\\p{N}][\\p{L}\\p{N}-]{0,99})", // 7 channel
-    "(\\*[^*\\s][^*\\n]*\\*)", // 8 italic
-    "(\\b_[^_\\n]+_\\b)", // 9 italic
+    "(__[^_\\n]+__)", // 8 underline
+    "(\\*[^*\\s][^*\\n]*\\*)", // 9 italic
+    "(\\b_[^_\\n]+_\\b)", // 10 italic
   ].join("|"),
   "gu",
 );
@@ -73,7 +75,8 @@ function inline(text, ctx, keyBase) {
           </Link>,
         );
       } else out.push(token);
-    } else if (m[8] || m[9]) out.push(<em key={k}>{inline(token.slice(1, -1), ctx, k)}</em>);
+    } else if (m[8]) out.push(<u key={k}>{inline(token.slice(2, -2), ctx, k)}</u>);
+    else if (m[9] || m[10]) out.push(<em key={k}>{inline(token.slice(1, -1), ctx, k)}</em>);
     last = m.index + token.length;
   }
   if (last < text.length) out.push(text.slice(last));
@@ -118,6 +121,22 @@ export default function RichText({ text, ctx = {} }) {
             return;
           }
           flush(li);
+          const heading = /^(#{1,3}) (\S.*)$/.exec(line);
+          if (heading) {
+            const size = ["text-xl", "text-lg", "text-base"][heading[1].length - 1];
+            blocks.push(<span key={li} className={`mt-1 block font-heading font-semibold leading-snug ${size}`}>{inline(heading[2], ctx, `${pi}h${li}`)}</span>);
+            return;
+          }
+          const small = /^-# (\S.*)$/.exec(line);
+          if (small) {
+            blocks.push(<span key={li} className="block text-xs text-muted-foreground">{inline(small[1], ctx, `${pi}s${li}`)}</span>);
+            return;
+          }
+          const bullet = /^\s*[-*] (\S.*)$/.exec(line);
+          if (bullet) {
+            blocks.push(<span key={li} className="flex gap-2 pl-1"><span aria-hidden="true">•</span><span className="min-w-0">{inline(bullet[1], ctx, `${pi}b${li}`)}</span></span>);
+            return;
+          }
           blocks.push(
             <React.Fragment key={li}>
               {blocks.length > 0 && !(lines[li - 1] !== undefined && /^> ?/.test(lines[li - 1])) && <br />}
