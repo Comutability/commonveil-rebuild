@@ -3,7 +3,8 @@ import { createClientFromRequest } from "npm:@base44/sdk@0.8.57";
 import { json } from "../../shared/http.ts";
 import { runMaintenance } from "../../shared/maintenance.ts";
 
-// Started by the scheduled automations in function.jsonc, which send { args: { task } }.
+// Started by the scheduled workflows in base44/workflows, which send { task } (older
+// automations sent { args: { task } }; both are accepted).
 // There's no signed-in user here, so it works as the service role. Its address is public like
 // every function's; see maintenance.ts for why that's safe.
 export default async function (req: Request): Promise<Response> {
@@ -12,7 +13,8 @@ export default async function (req: Request): Promise<Response> {
   let task: unknown = "";
   if (raw.length <= 4096) {
     try {
-      task = JSON.parse(raw)?.args?.task;
+      const parsed = JSON.parse(raw);
+      task = parsed?.args?.task ?? parsed?.task;
     } catch {
       task = "";
     }
