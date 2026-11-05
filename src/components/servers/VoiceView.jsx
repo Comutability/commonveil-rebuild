@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Headphones, HeadphoneOff, Mic, MicOff, PhoneOff, ShieldCheck, Volume2 } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { Headphones, HeadphoneOff, Mic, MicOff, MonitorOff, MonitorUp, PhoneOff, ShieldCheck, Video, VideoOff, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ErrorNote } from "@/components/site/bits";
 import { useServers } from "@/lib/secure/ServerContext";
@@ -14,6 +14,15 @@ const STATE_LABEL = {
   unverified: "Couldn't verify, not connected",
   failed: "Can't connect",
 };
+
+/** A camera or shared screen. Sound plays separately, so the video element stays muted. */
+function VideoTile({ stream, mirrored = false, label }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) ref.current.srcObject = stream;
+  }, [stream]);
+  return <video ref={ref} autoPlay playsInline muted aria-label={label} className={`aspect-video w-full rounded-lg bg-black object-contain ${mirrored ? "-scale-x-100" : ""}`} />;
+}
 
 /** A voice channel: who's talking, and joining in. Audio goes straight between people's devices. */
 export default function VoiceView({ serverId, channel }) {
@@ -43,8 +52,12 @@ export default function VoiceView({ serverId, channel }) {
               {voice.participants.map((p) => {
                 const prof = profileOf(serverId, p.userId);
                 return (
-                  <li key={p.userId} className={`flex flex-col items-center gap-2 rounded-xl border bg-card px-4 py-6 transition-shadow ${p.speaking ? "border-primary ring-2 ring-primary/50" : "border-border"}`}>
-                    <Avatar id={p.userId} name={memberName(serverId, p.userId)} emoji={prof?.avatar_emoji} accent={prof?.accent_color} size="h-16 w-16" className="text-xl" />
+                  <li key={`${p.userId}-${p.self ? "me" : p.state}`} className={`flex flex-col items-center gap-2 rounded-xl border bg-card transition-shadow ${p.stream ? "col-span-full p-2 sm:col-span-2" : "px-4 py-6"} ${p.speaking ? "border-primary ring-2 ring-primary/50" : "border-border"}`}>
+                    {p.stream ? (
+                      <VideoTile stream={p.stream} mirrored={p.self && p.video === "camera"} label={`${memberName(serverId, p.userId)}'s ${p.video === "screen" ? "screen" : "camera"}`} />
+                    ) : (
+                      <Avatar id={p.userId} name={memberName(serverId, p.userId)} emoji={prof?.avatar_emoji} accent={prof?.accent_color} size="h-16 w-16" className="text-xl" />
+                    )}
                     <span className="max-w-full truncate text-sm font-medium">{memberName(serverId, p.userId)}{p.self ? " (you)" : ""}</span>
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
                       {p.muted && <MicOff className="h-3.5 w-3.5" aria-label="Muted" />}
@@ -62,6 +75,14 @@ export default function VoiceView({ serverId, channel }) {
               <Button variant="outline" size="icon" className="h-11 w-11 rounded-full" onClick={voice.toggleDeafen} aria-pressed={voice.deafened} aria-label={voice.deafened ? "Undeafen" : "Deafen"}>
                 {voice.deafened ? <HeadphoneOff className="h-5 w-5 text-destructive" aria-hidden="true" /> : <Headphones className="h-5 w-5" aria-hidden="true" />}
               </Button>
+              <Button variant="outline" size="icon" className="h-11 w-11 rounded-full" onClick={voice.toggleCamera} aria-pressed={voice.video === "camera"} aria-label={voice.video === "camera" ? "Turn camera off" : "Turn camera on"}>
+                {voice.video === "camera" ? <VideoOff className="h-5 w-5" aria-hidden="true" /> : <Video className="h-5 w-5" aria-hidden="true" />}
+              </Button>
+              {voice.canShareScreen && (
+                <Button variant="outline" size="icon" className="h-11 w-11 rounded-full" onClick={voice.toggleScreen} aria-pressed={voice.video === "screen"} aria-label={voice.video === "screen" ? "Stop sharing your screen" : "Share your screen"}>
+                  {voice.video === "screen" ? <MonitorOff className="h-5 w-5" aria-hidden="true" /> : <MonitorUp className="h-5 w-5" aria-hidden="true" />}
+                </Button>
+              )}
               <Button variant="destructive" size="icon" className="h-11 w-11 rounded-full" onClick={voice.leave} aria-label="Leave the call">
                 <PhoneOff className="h-5 w-5" aria-hidden="true" />
               </Button>

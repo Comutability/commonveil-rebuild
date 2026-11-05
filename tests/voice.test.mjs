@@ -99,3 +99,16 @@ test("the frame transform never passes audio on in the clear", async () => {
   const unsealed = await run("recv", { keyFor: async () => key }, plain);
   assert.equal(unsealed.out.length, 0, "unencrypted frames are dropped");
 });
+
+test("video frames keep VP8's own header readable, and it's still authenticated", async () => {
+  const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  const data = crypto.getRandomValues(new Uint8Array(500));
+  const sealed = await sealFrame(key, 1, 2, data, 10);
+  assert.deepEqual(sealed.subarray(0, 10), data.subarray(0, 10));
+  assert.equal(sealed[10], FRAME_VERSION);
+  assert.deepEqual(await openFrame(async () => key, sealed, 10), data);
+  const bent = sealed.slice();
+  bent[3] ^= 1;
+  assert.equal(await openFrame(async () => key, bent, 10), null, "the readable header can't be changed");
+  assert.equal(await openFrame(async () => key, sealed, 3), null, "a different split doesn't open");
+});
