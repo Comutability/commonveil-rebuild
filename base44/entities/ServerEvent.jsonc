@@ -1,0 +1,54 @@
+{
+  "name": "ServerEvent",
+  "type": "object",
+  "description": "A scheduled event in a server. Its title, description, place and times are one encrypted item (server key): the service only knows that the server has an event.",
+  "properties": {
+    "server_id": {
+      "type": "string"
+    },
+    "audience_id": {
+      "type": "string",
+      "description": "The server's id: row rules let its members (and only them) read it."
+    },
+    "event_id": {
+      "type": "string"
+    },
+    "creator_id": {
+      "type": "string"
+    },
+    "event_envelope": {
+      "type": "string",
+      "description": "Encrypted title, description, place and times."
+    },
+    "event_item_id": {
+      "type": "string"
+    },
+    "event_sender_id": {
+      "type": "string"
+    },
+    "event_device_id": {
+      "type": "string"
+    },
+    "event_sent_at": {
+      "type": "string"
+    },
+    "event_signature": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "server_id",
+    "audience_id",
+    "event_id"
+  ],
+  "rls": {
+    "read": {
+      "data.audience_id": {
+        "$in": "{{user.data.cv_access}}"
+      }
+    },
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

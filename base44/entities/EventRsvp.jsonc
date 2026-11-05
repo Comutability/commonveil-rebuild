@@ -1,0 +1,54 @@
+{
+  "name": "EventRsvp",
+  "type": "object",
+  "description": "One member's answer to one event. The answer itself (going, maybe) is encrypted with the server key: the service knows only that this member answered.",
+  "properties": {
+    "server_id": {
+      "type": "string"
+    },
+    "audience_id": {
+      "type": "string"
+    },
+    "event_id": {
+      "type": "string"
+    },
+    "user_id": {
+      "type": "string"
+    },
+    "rsvp_envelope": {
+      "type": "string",
+      "description": "Encrypted answer."
+    },
+    "rsvp_item_id": {
+      "type": "string"
+    },
+    "rsvp_sender_id": {
+      "type": "string"
+    },
+    "rsvp_device_id": {
+      "type": "string"
+    },
+    "rsvp_sent_at": {
+      "type": "string"
+    },
+    "rsvp_signature": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "server_id",
+    "audience_id",
+    "event_id",
+    "user_id"
+  ],
+  "rls": {
+    "read": {
+      "data.audience_id": {
+        "$in": "{{user.data.cv_access}}"
+      }
+    },
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}
