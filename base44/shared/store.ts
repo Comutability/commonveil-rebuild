@@ -309,6 +309,8 @@ export const conversationOut = (c: any) => ({
   expire_seconds: Number(c.expire_seconds) || 0,
   expiry_set_by: c.expiry_set_by || null,
   expiry_set_at: c.expiry_set_at || null,
+  destroy_at: c.destroy_at || null,
+  destroy_set_by: c.destroy_set_by || null,
   ...(c.server_id ? { server_id: c.server_id, ticket: { number: Number(c.ticket_number) || 0, status: c.ticket_status || "open", opened_by: c.ticket_opened_by || "", channel_id: c.ticket_channel_id || "" } } : {}),
   title: c.title_envelope
     ? {
@@ -334,6 +336,7 @@ export const messageOut = (m: any) => ({
   created_date: m.created_date,
   expires_at: m.expires_at || null,
   deleted: Boolean(m.deleted),
+  scheduled: Boolean(m.scheduled),
 });
 
 /**

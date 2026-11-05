@@ -5,6 +5,7 @@ import { ApiError, LIMITS, id, int, isoTime, platformTime, randomIdField, str, t
 import { parseEnvelopeShape, verifyItemSignature } from "../verify.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
 import { pollServers } from "./serverMessages.ts";
+import { scheduledActions } from "./scheduled.ts";
 import {
   addressedTo,
   assertWrapsMatchMembers,
@@ -28,6 +29,7 @@ const BLANK_MESSAGE = {
 };
 
 export const messageActions: Actions = {
+  ...scheduledActions,
   /**
    * Reads that only touch the sender's own rows use their own access; the block check and
    * the other members' key versions need the service role (see Ctx).

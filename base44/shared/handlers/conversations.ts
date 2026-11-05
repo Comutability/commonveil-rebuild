@@ -224,6 +224,23 @@ export const conversationActions: Actions = {
     return { conversation: conversationOut({ ...conv, ...updated, ...changes }) };
   },
 
+  /**
+   * Self-destruct: the whole conversation (every message and file, for everyone) is deleted at
+   * this time. Either person in a direct message, or a group's admins, set it; 0 turns it off.
+   */
+  async set_self_destruct(ctx) {
+    const { sr, user, now } = ctx;
+    const { data } = await signedByActiveDevice(ctx, "set_self_destruct");
+    const conv = await conversationForMember(sr, user.id, id(data.conversation_id, "conversation"));
+    if (conv.server_id) throw new ApiError(400, "BAD_FIELD", "Support tickets can't self-destruct.");
+    requireGroupAdmin(conv, user.id, "set a self-destruct time");
+    const hours = Number(data.hours);
+    if (![0, 1, 6, 24, 72, 168, 720].includes(hours)) throw new ApiError(400, "BAD_FIELD", "Choose off, or a time from an hour to 30 days.");
+    const changes = { destroy_at: hours ? new Date(now.getTime() + hours * 3600_000).toISOString() : "", destroy_set_by: hours ? user.id : "" };
+    const updated = await sr.entities.Conversation.update(conv.id, changes);
+    return { conversation: conversationOut({ ...conv, ...updated, ...changes }) };
+  },
+
   /** Set or re-encrypt the group name, e.g. after adding people. */
   async set_title({ sr, own, user, body, now }) {
     const conv = await conversationForMember(own, user.id, id(body.conversation_id, "conversation"));
