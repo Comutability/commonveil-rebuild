@@ -20,6 +20,8 @@ import { randomId, utf8 } from "@/lib/crypto/encoding";
 import { hkdfAesKey } from "@/lib/crypto/primitives";
 import { epochId, frameTransform } from "./frames";
 import { signHello, verifyHello, fingerprintOf } from "./hello";
+// Bundled as its own script (with frames.js inside), served from this site.
+import frameWorkerUrl from "./frameWorker.js?worker&url";
 
 // A STUN server tells each device its public address so devices on different networks can
 // reach each other. It sees that address, never the call. There's no relay (TURN) server, so
@@ -46,17 +48,17 @@ export function useVoice() {
 
 let workerPolicy = null;
 function startWorker() {
-  const url = new URL("./frameWorker.js", import.meta.url);
+  const href = new URL(frameWorkerUrl, window.location.href).href;
   // The page only allows script URLs made by this one policy (see the Content Security Policy).
   if (window.trustedTypes && !workerPolicy) {
     workerPolicy = window.trustedTypes.createPolicy("voice-worker", {
       createScriptURL: (u) => {
-        if (u !== url.href) throw new TypeError("Unexpected worker script");
+        if (u !== href) throw new TypeError("Unexpected worker script");
         return u;
       },
     });
   }
-  return new Worker(workerPolicy ? workerPolicy.createScriptURL(url.href) : url, { type: "module" });
+  return new Worker(workerPolicy ? workerPolicy.createScriptURL(href) : href);
 }
 
 async function certificateFingerprint(cert) {
