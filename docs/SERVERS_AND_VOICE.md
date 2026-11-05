@@ -66,7 +66,7 @@ invite can expire and have a use limit; the creator isn't shown to people who op
 tags, icon, colour) that isn't encrypted; everything inside stays encrypted.
 
 **Member lists.** Nobody is listed unless they choose to be, except staff (so members can see who runs a server). Servers
-can also show only staff, or only a count. There's no online status. Moderators act on people through their messages or
+can also show only staff, or only a count. Online status is opt-in (section 5). Moderators act on people through their messages or
 profile; they don't get a list of everyone.
 
 **Support tickets** are end-to-end encrypted group conversations (`PROTOCOL.md` section 7) between the member and up to 31
@@ -103,7 +103,55 @@ Limits: the people in a call see each other's network addresses, as with any pee
 (`stun.cloudflare.com`) sees yours. There's no relay (TURN) server, so some strict networks can't connect. The service
 knows who joined which call and when. Mute is enforced by each device, not cryptographically.
 
-## 4. Platform notes for maintainers
+**Video and screen sharing** use the same path: each connection carries one video slot, switched with `replaceTrack`, and
+video frames are sealed like audio frames, leaving the codec header in the clear where the browser needs it (VP8: 10 bytes
+on key frames, 3 on others). Who's showing what is sent device to device, not through the relay.
+
+**Stages** (channel kind `stage`, up to 16 people). The pass says whether the device may speak and whether it may
+moderate (`MUTE_MEMBERS`). Listeners start unable to speak; they can ask to, and a moderator can bring them up, move them
+back or mute them, through the relay. Every app stops playing (and showing) anyone the relay says can't speak, so a
+modified app that sends audio anyway isn't heard.
+
+**Calls in conversations.** Starting a call sends an ordinary end-to-end encrypted message `{type: "call", call_id, key}`
+with a fresh 256-bit key. The `voice` function's `call_ticket` checks the caller is in the conversation and gives a pass
+for room `dm.<conversation>.<call_id>`. Frames are sealed with keys derived from the call key the same way (generation 0,
+step 0). The key is only ever inside the encrypted message, so it disappears with it.
+
+## 4. Files, threads, events, emoji and AutoMod
+
+**Files and voice messages.** Each file gets a random 256-bit key and is cut into parts of up to 768 KB, each sealed with
+AES-256-GCM: IV = 8 random bytes plus the part number, additional data `commonveil/file/v1|<part>|<parts>|<size>`, so
+parts can't be swapped, dropped, truncated or reordered. Up to 10 MB a file and 10 files a message. The `files` function
+stores sealed parts as private files (`Attachment` rows: place, owner, message id, part, size), and hands out five-minute
+links only to people who can see where the file was sent, and only while its message exists. The message carries the key,
+name, type, size and part handles. Previews are shown only for plain image, video and audio types, from blob URLs; anything
+else (SVG and HTML included) downloads as data. Forwarding copies the sealed parts to the new place without opening them.
+Maintenance forgets parts whose message is gone (deleted, disappeared, or never sent within an hour).
+
+**Threads.** A reply in a thread is a channel message whose `thread_id` is the thread's first message (a forum post, or
+an ordinary message in a text channel). The service keeps a reply count and the time of the last reply, and lets people
+with `MANAGE_THREADS` lock a thread.
+
+**Events** (`events` function, `ServerEvent` and `EventRsvp`). An event's title, description, place and times are one
+encrypted server item (kind `event`); an answer is another (kind `rsvp`, `going` or `maybe`), counted only when signed by
+the person it's about. Only `MANAGE_EVENTS` can schedule, change or cancel. The service knows a server has an event and who
+answered it. "Add to calendar" makes the .ics file on the device.
+
+**Emoji, stickers and AutoMod** are encrypted server items on the server row (`set_server_set`, slots `emoji`, `stickers`,
+`automod`). Emoji are 64 px and stickers 160 px WebP or PNG, made on the uploader's device (40 emoji, 8 stickers). Messages
+use `<:name:id>`, reactions `c:<id>`, stickers `{sticker: id}`. AutoMod rules (blocked words with `*`, links, invites,
+mention limits) are applied by the sender's app before sending and by everyone else's when showing; people with
+`MANAGE_MESSAGES` are exempt. The service can't read messages, so it can't filter them.
+
+## 5. Online status and typing
+
+Off by default, kept on the device, and mutual: an app connects to the `Presence` actor (room `s.<server>` or
+`c.<conversation>`) only while its person shares their own status, and only for the server or conversation on screen.
+The actor admits members only (it checks membership with the platform-verified account id, and again every few minutes),
+keeps who's here and who's typing in memory, and writes nothing, not even to its own storage. Typing is never sent for
+private channels. Status is online, or away after five minutes without input.
+
+## 6. Platform notes for maintainers
 
 - **Backend changes reach members only when the app is published.** Base44 serves the published version of every backend
   function and actor to everyone except the app's editors. A function or actor that has never been published is only
@@ -115,7 +163,7 @@ knows who joined which call and when. Mute is enforced by each device, not crypt
   Trusted Types policy, `voice-worker`, which only returns that worker's own address. The editor preview doesn't apply
   the policy.
 
-## 5. Tests
+## 7. Tests
 
 `tests/pq.test.mjs` (hybrid sealing, statement forms), `tests/servers.test.mjs` (chains, grants, permissions, invites,
 member lists, tickets, the community server, call passes), `tests/voice.test.mjs` (signed offers, frame encryption) and

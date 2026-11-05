@@ -151,7 +151,7 @@ Payloads are `{"type":"title","title":…}` (at most 80 characters) for group na
 
 - `{"type":"text","text":…, "reply_to"?: msg_id}`: text of at most 4000 characters, optionally answering another message.
   Only the id of the message answered is sent, never a copy of it.
-- `{"type":"reaction","target": msg_id, "emoji":…, "remove"?: true}`: one of six fixed emoji, added or taken back.
+- `{"type":"reaction","target": msg_id, "emoji":…, "remove"?: true}`: one of a fixed list of emoji (src/lib/emoji.js), added or taken back.
 - `{"type":"edit","target": msg_id, "text":…}`: new text for one of the sender's own messages.
 
 Any message payload also carries `"expire_seconds"` when the conversation has a disappearing-message timer (below). To the

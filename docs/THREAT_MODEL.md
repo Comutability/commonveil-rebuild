@@ -77,6 +77,16 @@ What Commonveil protects, against whom, and what it doesn't. Read with `PROTOCOL
   for the whole app. Frequent reads use each member's own allowance instead, but a burst of activity across many members
   can still produce "the service is busy" errors; sends are retried as the same message, so nothing is sent twice.
 
+- **AutoMod is enforced by apps.** The service can't read messages, so a modified app can send something that breaks a
+  server's AutoMod rules. Other members' apps hide it, but it has been delivered and stored (encrypted).
+- **Files.** The service sees each file's size, part count and upload and download times. A download link works for five
+  minutes for whoever holds it, though what it fetches is ciphertext.
+- **Presence.** When someone turns it on, the presence room (and so the hosting platform) sees which servers and
+  conversations they have open and when, and who is typing where. It's off by default.
+- **Events.** The service knows that a server has events and which members answered them, though not the answers.
+- **Stages.** Who may speak is decided by the relay on moderators' instructions; apps refuse to play anyone else. A relay
+  run by an attacker could let someone speak, but couldn't add a device that isn't certified for its account.
+
 ## Assumptions
 
 - The platform serves the code in this repository unmodified.
