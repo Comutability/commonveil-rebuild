@@ -141,7 +141,11 @@ export default function ChannelSidebar({ serverId, activeChannelId }) {
       {ready && waiting && (
         <p className="flex items-start gap-2 border-b border-border/60 bg-[hsl(var(--warning)/0.08)] px-4 py-2 text-xs text-muted-foreground" role="status">
           <Hourglass className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--warning))]" aria-hidden="true" />
-          <span>Waiting for keys. Members' apps hand them out, so this can take a little while if nobody who can is online.</span>
+          <span>
+            {e.server?.key_handout === "staff"
+              ? "Waiting for keys. Here only staff hand them out, from their own devices, so other members can't see who joins. It can take a while if no staff are online."
+              : "Waiting for keys. Members' apps hand them out, so it can take a little while if nobody is online."}
+          </span>
         </p>
       )}
 
