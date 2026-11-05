@@ -45,8 +45,10 @@ src/lib/crypto/      primitives, keyring, recovery, envelopes, identity (no netw
 src/lib/secure/      client protocol flows, local storage, React state for keys and chat
 src/pages/site/      public pages
 src/pages/app/       sign-in gate, onboarding, messages, settings, admin
-base44/functions/    8 backend functions: profile, keys, conversations, messages, safety, admin, disclose, and
-                     maintenance (run on a schedule: disappearing messages, opt-in deletion of unused accounts)
+base44/functions/    14 backend functions: profile, keys, conversations, messages, safety, admin, disclose, invite,
+                     servers, channels, voice, files, events, and maintenance (run on a schedule: disappearing
+                     messages, orphaned files, opt-in deletion of unused accounts)
+base44/actors/       realtime rooms: VoiceRoom (call set-up relay) and Presence (opt-in status and typing, memory only)
 base44/shared/       request handling, signature checks, data access, security emails, scheduled tasks, the handlers
 base44/entities/     16 tables; nothing private can be written directly, and members can read only rows that name them
 src/lib/site/        saved pages and search for the public site (in the browser only)
