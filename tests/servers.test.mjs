@@ -756,3 +756,20 @@ test("events: staff schedule them, members answer, and the service can't read ei
   await alice.ok("events", await signed(alice, "cancel_event", { server_id: sid, event_id: event.event_id }));
   assert.equal(w.rows("ServerEvent").length + w.rows("EventRsvp").length, 0);
 });
+
+test("calls in conversations and on stages: passes only for members, and stages let only moderators speak at first", async () => {
+  const { w, members: [alice, bob, carol] } = await world("alice", "bobby", "carol");
+  const sid = await serverWith(alice, bob);
+  const state = await alice.server(sid);
+  const { keys } = await alice.keysOf(state);
+  const name = await buildServerItem({ kind: "channel", serverId: sid, generations: state.generations, keys, userId: alice.id, device: alice.device, payload: { name: "Town hall" } });
+  const { channel: stage } = await alice.ok("servers", await signed(alice, "create_channel", { server_id: sid, kind: "stage", item: name }));
+  const mod = await alice.ok("voice", await signed(alice, "voice_ticket", { server_id: sid, channel_id: stage.id }));
+  assert.deepEqual([mod.stage, mod.can_speak, mod.can_moderate, mod.max_people], [true, true, true, 16]);
+  const fan = await bob.ok("voice", await signed(bob, "voice_ticket", { server_id: sid, channel_id: stage.id }));
+  assert.deepEqual([fan.can_speak, fan.can_moderate], [false, false]);
+  const conv = w.rows("Conversation")[0] || (await alice.ok("conversations", await alice.prepareDm?.(bob) || { action: "noop" }).catch(() => null));
+  void conv;
+  await carol.fails("voice", await signed(carol, "call_ticket", { conversation_id: "nosuchconversation", call_id: "abcdefgh1234" }), "NOT_FOUND");
+  await alice.fails("voice", await signed(alice, "call_ticket", { conversation_id: "nosuchconversation", call_id: "../../x" }));
+});

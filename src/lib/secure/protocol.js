@@ -50,7 +50,7 @@ import { cleanAttachments } from "./attachments.js";
 export const MAX_MESSAGE_CHARS = 4000;
 
 /** What a message shows as text in lists, previews and search. */
-export const textOf = (content) => (content.type === "reaction" || content.type === "vote" ? "" : content.type === "poll" ? content.question : content.text);
+export const textOf = (content) => (content.type === "reaction" || content.type === "vote" ? "" : content.type === "poll" ? content.question : content.type === "call" ? "Started a call" : content.text);
 
 /** The reactions on offer. Anything else in a reaction is ignored, so a reaction can't carry a message. */
 export const REACTIONS = Object.freeze(["\u{1F44D}", "\u2764\uFE0F", "\u{1F602}", "\u{1F62E}", "\u{1F622}", "\u{1F64F}"]);
