@@ -1,5 +1,5 @@
 import React from "react";
-import { Bookmark, BookmarkCheck, Copy, CornerUpLeft, Forward, Hourglass, Lock, MoreHorizontal, Pencil, Pin, PinOff, ShieldQuestion, SmilePlus, Trash2 } from "lucide-react";
+import { Bookmark, BookmarkCheck, Copy, MessagesSquare, CornerUpLeft, Forward, Hourglass, Lock, MoreHorizontal, Pencil, Pin, PinOff, ShieldQuestion, SmilePlus, Trash2 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { QUICK_REACTIONS, emojiName } from "@/lib/emoji";
@@ -167,6 +167,7 @@ export default function MessageRow({
   onSave,
   saved = false,
   hiddenReason = null,
+  onThread,
 }) {
   const [picker, setPicker] = React.useState(false);
   const [reveal, setReveal] = React.useState(false);
@@ -232,6 +233,14 @@ export default function MessageRow({
         {row.poll && readableNow && <PollCard poll={row.poll} nameOf={nameOf} disabled={!can.react || !onVote} onVote={(choices) => onVote?.(choices)} />}
         {readableNow && !hidden && result.content?.sticker && <Sticker id={result.content.sticker} ctx={ctx} />}
         {readableNow && !hidden && <AttachmentList attachments={row.attachments} />}
+        {onThread && m.reply_count > 0 && (
+          <button type="button" onClick={onThread} className="mt-1 flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-1 text-xs hover:bg-muted">
+            <MessagesSquare className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+            <span className="font-semibold text-primary">{m.reply_count === 1 ? "1 reply" : `${m.reply_count} replies`}</span>
+            {m.last_reply_at && <span className="text-muted-foreground">Last {stamp(m.last_reply_at)}</span>}
+            {m.thread_locked && <span className="text-muted-foreground">(locked)</span>}
+          </button>
+        )}
         <Reactions ctx={ctx} reactions={row.reactions} nameOf={nameOf} disabled={!can.react} onToggle={(emoji, already) => onReact?.(emoji, already)} />
       </div>
 
@@ -293,6 +302,7 @@ export default function MessageRow({
                   {m.pinned ? <PinOff className="mr-2 h-4 w-4" aria-hidden="true" /> : <Pin className="mr-2 h-4 w-4" aria-hidden="true" />} {m.pinned ? "Unpin" : "Pin"}
                 </DropdownMenuItem>
               )}
+              {readableNow && onThread && <DropdownMenuItem onSelect={onThread}><MessagesSquare className="mr-2 h-4 w-4" aria-hidden="true" /> {m.reply_count > 0 ? "Open thread" : "Start a thread"}</DropdownMenuItem>}
               {readableNow && onForward && <DropdownMenuItem onSelect={onForward}><Forward className="mr-2 h-4 w-4" aria-hidden="true" /> Forward</DropdownMenuItem>}
               {readableNow && onSave && (
                 <DropdownMenuItem onSelect={onSave}>
