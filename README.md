@@ -85,5 +85,6 @@ Base44 limits how many queries an app makes per minute. Everyday reads (polling 
 member's own allowance, but writes and lookups across members share one allowance for the whole app, which is larger on
 higher Base44 plans. If members see "the service is busy" often, that allowance is the place to look.
 
-The scheduled clean-up (`base44/functions/maintenance/function.jsonc`) runs on the published app: disappearing messages
-every 30 minutes and the opt-in deletion of unused accounts daily. Security emails use Base44's built-in email sending.
+The scheduled tasks are workflows in `base44/workflows/`, each calling the `maintenance` function: scheduled messages,
+check-ins and self-destructing conversations every 5 minutes, disappearing messages every 30 minutes, and the opt-in
+deletion of unused accounts daily. Security emails use Base44's built-in email sending.

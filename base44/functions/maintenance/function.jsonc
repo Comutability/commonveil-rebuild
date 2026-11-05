@@ -1,38 +1,5 @@
 {
   "name": "maintenance",
-  "entry": "entry.ts",
-  "automations": [
-    {
-      "type": "scheduled",
-      "name": "deliver_scheduled",
-      "description": "Delivers scheduled messages and missed safety check-ins, and deletes self-destructing conversations whose time is up.",
-      "function_args": { "task": "deliver" },
-      "is_active": true,
-      "schedule_mode": "recurring",
-      "schedule_type": "simple",
-      "repeat_unit": "minutes",
-      "repeat_interval": 5
-    },
-    {
-      "type": "scheduled",
-      "name": "expire_messages",
-      "description": "Deletes disappearing messages whose time is up. The app hides them as soon as it is.",
-      "function_args": { "task": "expire" },
-      "is_active": true,
-      "schedule_mode": "recurring",
-      "schedule_type": "simple",
-      "repeat_unit": "minutes",
-      "repeat_interval": 30
-    },
-    {
-      "type": "scheduled",
-      "name": "delete_inactive_accounts",
-      "description": "Warns, then deletes, accounts whose owners chose to have them deleted after a stretch without use.",
-      "function_args": { "task": "inactive" },
-      "is_active": true,
-      "schedule_mode": "recurring",
-      "schedule_type": "cron",
-      "cron_expression": "17 3 * * *"
-    }
-  ]
+  "entry": "entry.ts"
+  // Started by the workflows in base44/workflows.
 }

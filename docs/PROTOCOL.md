@@ -312,8 +312,8 @@ The server never holds a private key. It checks, and refuses otherwise:
   without one; timers only from the offered choices; expired messages are never listed;
 - auto-delete only from the offered choices, signed by a device, and never for staff.
 
-**Scheduled tasks.** One function, `maintenance`, is started by two automations: `expire` every 30 minutes, `inactive`
-daily. Like every function its address is public, so it takes nothing but a task name and acts only on what's already due
+**Scheduled tasks.** One function, `maintenance`, is started by three workflows (`base44/workflows/`): `deliver` every
+5 minutes, `expire` every 30 minutes, `inactive` daily. Like every function its address is public, so it takes nothing but a task name and acts only on what's already due
 by the server's clock; calling it early, late or twice does nothing extra, and a repeat within a minute (fifteen for
 `inactive`) is skipped without touching the database. It answers with counts only.
 
