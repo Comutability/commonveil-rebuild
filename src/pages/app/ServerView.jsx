@@ -33,7 +33,7 @@ export default function ServerView() {
 
   // Load a server that's listed but not yet loaded (just joined, say).
   useEffect(() => {
-    if (e && !e.roles && e.status !== "loading") loadState(serverId).catch(() => {});
+    if (e && !e.roles && e.status === "listed") loadState(serverId).catch(() => {});
   }, [e, serverId, loadState]);
 
   if (!loaded) {
