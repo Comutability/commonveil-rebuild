@@ -8,6 +8,13 @@ import { P } from "@/lib/secure/permissions";
 import Avatar from "@/components/chat/Avatar";
 import ChannelHeader from "./ChannelHeader";
 
+const STATE_LABEL = {
+  checking: "Checking their keys…",
+  connecting: "Connecting…",
+  unverified: "Couldn't verify, not connected",
+  failed: "Can't connect",
+};
+
 /** A voice channel: who's talking, and joining in. Audio goes straight between people's devices. */
 export default function VoiceView({ serverId, channel }) {
   const { channelName, can, memberName, profileOf } = useServers();
@@ -42,7 +49,7 @@ export default function VoiceView({ serverId, channel }) {
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
                       {p.muted && <MicOff className="h-3.5 w-3.5" aria-label="Muted" />}
                       {p.deafened && <HeadphoneOff className="h-3.5 w-3.5" aria-label="Deafened" />}
-                      {!p.self && p.state && p.state !== "connected" && <span>{p.state === "connecting" ? "Connecting…" : "Can't connect"}</span>}
+                      {!p.self && p.state && p.state !== "connected" && <span>{STATE_LABEL[p.state] || "Can't connect"}</span>}
                     </span>
                   </li>
                 );
@@ -74,8 +81,13 @@ export default function VoiceView({ serverId, channel }) {
               <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
               Connecting directly means the people in the call can see your device's network address, as with any peer-to-peer call.
             </p>
-            <ErrorNote>{state.error}</ErrorNote>
-            <Button className="mt-5" onClick={join} disabled={!allowed || state.busy}>
+            <p className="mt-2 flex items-start justify-center gap-1.5 text-xs text-muted-foreground">
+              <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+              Each audio frame is also encrypted with this channel's post-quantum protected keys, and your app checks every device's keys before connecting.
+            </p>
+            <ErrorNote>{state.error || voice.error}</ErrorNote>
+            {!voice.supported && <p className="mt-3 text-sm text-muted-foreground">This browser can't join encrypted calls. A recent Firefox, Safari, Chrome or Edge can.</p>}
+            <Button className="mt-5" onClick={join} disabled={!allowed || state.busy || !voice.supported}>
               {!allowed ? "You can't join this channel" : state.busy ? "Joining…" : voice.room ? "Switch to this call" : "Join voice"}
             </Button>
           </div>
