@@ -136,6 +136,11 @@ export const adminActions: Actions = {
         status: r.status,
         resolution_note: r.resolution_note || "",
         created_date: r.created_date,
+        // Escalated by a server's moderators: which server, and what kind of problem.
+        source: r.source || "member",
+        server_id: r.server_id || "",
+        server_name: r.server_name || "",
+        category: r.category || r.reason,
       })),
     };
   },
