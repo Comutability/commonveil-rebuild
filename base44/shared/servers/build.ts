@@ -201,11 +201,19 @@ export async function removeMember(sr: any, serverId: string, userId: string, { 
  * administrator role, and the owner. (@everyone can't, or it wouldn't be private.)
  */
 export async function membersWhoCanSee(sr: any, parts: any, channel: any) {
-  const overwriteRoles = (channel.overwrites || []).filter((o: any) => (Number(o.allow) & P.VIEW_CHANNEL) !== 0).map((o: any) => o.role_id);
-  const adminRoles = parts.roles.filter((r: any) => !r.is_everyone && (Number(r.permissions) & P.ADMINISTRATOR) !== 0).map((r: any) => r.id);
-  const roleIds = [...new Set([...overwriteRoles, ...adminRoles])];
+  // If @everyone can see it (it's private because some role is denied), everyone is a candidate.
+  const everyone = parts.roles.find((r: any) => r.is_everyone);
+  const ev = (channel.overwrites || []).find((o: any) => everyone && o.role_id === everyone.id);
+  const everyoneSees = Boolean(everyone) && ((((Number(everyone.permissions) || 0) & ~(Number(ev?.deny) || 0)) | (Number(ev?.allow) || 0)) & P.VIEW_CHANNEL) !== 0;
   const found: any[] = [];
-  if (roleIds.length) found.push(...(await sr.entities.ServerMember.filter({ server_id: parts.server.id, role_ids: { $in: roleIds } }, "joined_at", 5000)));
+  if (everyoneSees) {
+    found.push(...(await sr.entities.ServerMember.filter({ server_id: parts.server.id }, "joined_at", 10_000)));
+  } else {
+    const overwriteRoles = (channel.overwrites || []).filter((o: any) => (Number(o.allow) & P.VIEW_CHANNEL) !== 0).map((o: any) => o.role_id);
+    const adminRoles = parts.roles.filter((r: any) => !r.is_everyone && (Number(r.permissions) & P.ADMINISTRATOR) !== 0).map((r: any) => r.id);
+    const roleIds = [...new Set([...overwriteRoles, ...adminRoles])];
+    if (roleIds.length) found.push(...(await sr.entities.ServerMember.filter({ server_id: parts.server.id, role_ids: { $in: roleIds } }, "joined_at", 5000)));
+  }
   if (parts.server.owner_id && !found.some((m) => m.user_id === parts.server.owner_id)) {
     const owner = await memberRow(sr, parts.server.id, parts.server.owner_id);
     if (owner) found.push(owner);

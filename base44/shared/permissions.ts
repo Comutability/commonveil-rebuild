@@ -111,8 +111,9 @@ export function isStaff(server: any, roles: any[], member: any): boolean {
 }
 
 /**
- * A channel is private when @everyone can't see it (an overwrite denies VIEW_CHANNEL, or
- * @everyone doesn't have it). Private channels get their own key chain.
+ * A channel is private when not everyone can see it: @everyone can't (an overwrite denies
+ * VIEW_CHANNEL, or @everyone doesn't have it), or some role is denied it. Private channels get
+ * their own key chain, given only to those who can see them, so a deny really hides messages.
  */
 export function channelIsPrivate(roles: any[], channel: any): boolean {
   if (channel?.kind === "category") return false;
@@ -122,5 +123,6 @@ export function channelIsPrivate(roles: any[], channel: any): boolean {
   if (perms & P.ADMINISTRATOR) return false;
   const ev = (Array.isArray(channel?.overwrites) ? channel.overwrites : []).find((o: any) => o.role_id === everyone.id);
   if (ev) perms = (perms & ~toInt(ev.deny)) | toInt(ev.allow);
-  return !(perms & P.VIEW_CHANNEL);
+  if (!(perms & P.VIEW_CHANNEL)) return true;
+  return (Array.isArray(channel?.overwrites) ? channel.overwrites : []).some((o: any) => o.role_id !== everyone.id && (toInt(o.deny) & P.VIEW_CHANNEL) !== 0);
 }

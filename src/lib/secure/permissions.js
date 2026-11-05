@@ -136,5 +136,6 @@ export function channelIsPrivate(roles, channel) {
   if (perms & P.ADMINISTRATOR) return false;
   const ev = (Array.isArray(channel?.overwrites) ? channel.overwrites : []).find((o) => o.role_id === everyone.id);
   if (ev) perms = (perms & ~toInt(ev.deny)) | toInt(ev.allow);
-  return !(perms & P.VIEW_CHANNEL);
+  if (!(perms & P.VIEW_CHANNEL)) return true;
+  return (Array.isArray(channel?.overwrites) ? channel.overwrites : []).some((o) => o.role_id !== everyone.id && (toInt(o.deny) & P.VIEW_CHANNEL) !== 0);
 }

@@ -252,6 +252,38 @@ function roleChanges(parts: any, actor: any, data: any) {
   return changes;
 }
 
+/**
+ * Who may set a channel's permission overwrites, and to what: changing them needs MANAGE_ROLES,
+ * only roles below your own (and @everyone) can be changed, and you can only allow or deny
+ * permissions you have in that channel yourself. Unchanged entries pass as they are.
+ */
+function checkOverwrites(parts: any, member: any, channel: any, next: any[]) {
+  const before = new Map((channel?.overwrites || []).map((o: any) => [o.role_id, o]));
+  const changedIds = new Set<string>();
+  for (const o of next) {
+    const b: any = before.get(o.role_id);
+    if (!b || Number(b.allow) !== o.allow || Number(b.deny) !== o.deny) changedIds.add(o.role_id);
+  }
+  for (const id of before.keys()) if (!next.some((o) => o.role_id === id)) changedIds.add(id as string);
+  if (!changedIds.size) return;
+  if (!has(permsOf(parts, member), P.MANAGE_ROLES)) throw new ApiError(403, "MISSING_PERMISSION", "You need permission to manage roles to change who can do what in a channel.");
+  const mine = channel ? permsOf(parts, member, channel) : permsOf(parts, member);
+  const top = topPosition(parts.server, parts.roles, member);
+  for (const id of changedIds) {
+    const role = parts.roles.find((r: any) => r.id === id);
+    if (role && !role.is_everyone && (Number(role.position) || 0) >= top) throw new ApiError(403, "HIERARCHY", "You can only change permissions for roles below your own.");
+    const o: any = next.find((x) => x.role_id === id) || before.get(id) || { allow: 0, deny: 0 };
+    const bits = (Number(o.allow) || 0) | (Number(o.deny) || 0);
+    if ((bits & ~mine) !== 0) throw new ApiError(403, "MISSING_PERMISSION", "You can't allow or deny permissions you don't have here.");
+  }
+}
+
+/** You manage this channel: MANAGE_CHANNELS where it counts, in the channel, and you can see it. */
+function requireChannelManager(parts: any, member: any, channel: any) {
+  const p = permsOf(parts, member, channel);
+  if (!has(p, P.VIEW_CHANNEL) || !has(p, P.MANAGE_CHANNELS)) throw new ApiError(403, "MISSING_PERMISSION", "You don't have permission to manage this channel.");
+}
+
 function overwritesFrom(parts: any, raw: unknown) {
   if (!Array.isArray(raw) || raw.length > 50) throw new ApiError(400, "BAD_FIELD", "Invalid permissions.");
   const out: any[] = [];
@@ -801,6 +833,9 @@ export function serverActions(config: ServerConfig): Actions {
       if (parentId && !parts.channels.some((c: any) => c.id === parentId && c.kind === "category")) throw new ApiError(404, "CHANNEL_NOT_FOUND", "Category not found.");
       if (kind === "category" && parentId) throw new ApiError(400, "BAD_FIELD", "Categories can't go inside categories.");
       const overwrites = data.overwrites ? overwritesFrom(parts, data.overwrites) : [];
+      const parent = parentId ? parts.channels.find((c: any) => c.id === parentId) : null;
+      if (parent) requireChannelManager(parts, member, parent);
+      checkOverwrites(parts, member, null, overwrites);
       const isPrivate = channelIsPrivate(parts.roles, { kind, overwrites });
       const history = data.history ? choice(data.history, ["full", "joined"], "history setting") : parts.server.default_history || "joined";
       const name = data.item ? itemFields("name", await acceptItem(ctx, { kind: "channel", serverId, item: data.item, gens: await generationsOf(sr, serverId) })) : {};
@@ -812,15 +847,15 @@ export function serverActions(config: ServerConfig): Actions {
       if (isPrivate) await applyPrivacy(ctx, parts, row, true, []);
       await touchServer(sr, serverId, now);
       await audit(sr, parts.server, user.id, "channel_create", "channel", row.id, kind, now);
-      void member;
       return { channel: channelOut({ ...row, private: isPrivate }) };
     },
 
     async update_channel(ctx) {
       const { sr, user, now } = ctx;
-      const { data, serverId, parts, perms } = await signedMember(ctx, "update_channel");
+      const { data, serverId, member, parts, perms } = await signedMember(ctx, "update_channel");
       requirePerm(perms, P.MANAGE_CHANNELS, "manage channels");
       const channel = channelIn(parts, id(data.channel_id, "channel"));
+      requireChannelManager(parts, member, channel);
       const changes: any = {};
       const changed: string[] = [];
       if (data.item !== undefined) {
@@ -830,6 +865,7 @@ export function serverActions(config: ServerConfig): Actions {
       if (data.parent_id !== undefined && channel.kind !== "category") {
         const parentId = data.parent_id ? id(data.parent_id, "category") : "";
         if (parentId && !parts.channels.some((c: any) => c.id === parentId && c.kind === "category")) throw new ApiError(404, "CHANNEL_NOT_FOUND", "Category not found.");
+        if (parentId) requireChannelManager(parts, member, parts.channels.find((c: any) => c.id === parentId));
         changes.parent_id = parentId;
         changed.push("category");
       }
@@ -853,6 +889,7 @@ export function serverActions(config: ServerConfig): Actions {
       let before: any[] = [];
       if (data.overwrites !== undefined) {
         const overwrites = overwritesFrom(parts, data.overwrites);
+        checkOverwrites(parts, member, channel, overwrites);
         changes.overwrites = overwrites;
         changed.push("permissions");
         const nowPrivate = channelIsPrivate(parts.roles, { kind: channel.kind, overwrites });
@@ -870,9 +907,10 @@ export function serverActions(config: ServerConfig): Actions {
     /** Delete a channel and everything in it (blanked first). A category's channels move to the top level. */
     async delete_channel(ctx) {
       const { sr, user, now } = ctx;
-      const { data, serverId, parts, perms } = await signedMember(ctx, "delete_channel");
+      const { data, serverId, member, parts, perms } = await signedMember(ctx, "delete_channel");
       requirePerm(perms, P.MANAGE_CHANNELS, "manage channels");
       const channel = channelIn(parts, id(data.channel_id, "channel"));
+      requireChannelManager(parts, member, channel);
       if (channel.kind === "category") {
         for (const c of parts.channels.filter((x: any) => x.parent_id === channel.id)) await sr.entities.Channel.update(c.id, { parent_id: "" });
       }
