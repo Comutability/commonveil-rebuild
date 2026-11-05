@@ -515,13 +515,21 @@ test("the community server: everyone joins once, the listed addresses become its
     assert.deepEqual((await first.server(community.id)).member.role_ids, []);
     assert.equal(w.rows("Server").filter((s) => s.is_default).length, 1, "only ever one community server");
 
-    // The first member whose app is ready sets up its keys; staff channels get theirs from staff.
-    const firstState = await first.initKeys(community.id);
-    assert.ok(firstState.generations.some((g) => g.chain_id === historyChain(community.id)));
-    assert.ok(!firstState.chains.some((c) => c.kind === "c"), "staff channels aren't hers to see");
-    await first.fulfil(community.id);
+    // Only staff set up and hand out the community server's keys, so ordinary members' apps
+    // never learn who's joining. Until an admin's app has been by, newcomers wait.
+    assert.equal(state.server.settings.key_handout, "staff");
+    const firstChains = (await first.keysFor([first.id])).chains;
+    const early = await prepareGeneration({ serverId: community.id, chainId: historyChain(community.id), generation: 0, userId: first.id, device: first.device, chains: firstChains, recipientIds: [] });
+    assert.equal((await first.call("servers", early.request)).body.code, "MISSING_PERMISSION");
+    const firstPending = await first.ok("servers", { action: "pending_grants", server_id: community.id });
+    assert.deepEqual([firstPending.items, firstPending.staff_only], [[], true]);
     await owner.initKeys(community.id);
     await owner.fulfil(community.id);
+    const firstState = await first.server(community.id);
+    assert.equal(firstState.member.key_status, "ok");
+    assert.ok(firstState.generations.some((g) => g.chain_id === historyChain(community.id)));
+    assert.ok(!firstState.chains.some((c) => c.kind === "c"), "staff channels aren't hers to see");
+    assert.equal((await second.server(community.id)).member.key_status, "ok", "admins get the staff channels' keys too");
     const general = state.channels.find((c) => c.template_key === "general");
     await owner.ok("servers", await signed(owner, "accept_rules", { server_id: community.id }));
     assert.equal((await owner.say(community.id, general, "Welcome, everyone")).status, 200);
