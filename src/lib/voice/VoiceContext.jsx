@@ -33,6 +33,18 @@ const EPOCH_CHECK_MS = 60_000;
 const hasLegacyStreams = () => typeof RTCRtpSender !== "undefined" && "createEncodedStreams" in RTCRtpSender.prototype;
 const hasScriptTransform = () => typeof window !== "undefined" && "RTCRtpScriptTransform" in window;
 
+/** Video uses VP8, whose frame headers the extra encryption knows how to leave readable. */
+function preferVp8(tx) {
+  try {
+    const codecs = RTCRtpReceiver.getCapabilities?.("video")?.codecs || [];
+    const vp8 = codecs.filter((x) => /vp8/i.test(x.mimeType));
+    const rest = codecs.filter((x) => /rtx|red|ulpfec/i.test(x.mimeType));
+    if (vp8.length) tx.setCodecPreferences([...vp8, ...rest]);
+  } catch {
+    // The browser picks; VP8 is offered by all of them.
+  }
+}
+
 /** True if this browser can take part in calls (including the extra layer of frame encryption). */
 export function voiceSupported() {
   return typeof RTCPeerConnection !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia) && (hasLegacyStreams() || hasScriptTransform());
@@ -85,6 +97,7 @@ export function VoiceProvider({ children }) {
   const [room, setRoom] = useState(null);
   const [muted, setMuted] = useState(false);
   const [deafened, setDeafened] = useState(false);
+  const [videoKind, setVideoKind] = useState(null);
   const [error, setError] = useState("");
   const [tick, setTick] = useState(0);
   const bump = useCallback(() => setTick((t) => t + 1), []);
@@ -195,8 +208,21 @@ export function VoiceProvider({ children }) {
     p.initiator = initiator;
     p.state = "connecting";
     for (const track of c.stream.getAudioTracks()) attachSend(c, pc.addTrack(track, c.stream));
+    if (initiator) {
+      // One video slot, for a camera or a shared screen, switched without renegotiating.
+      const tx = pc.addTransceiver("video", { direction: "sendrecv" });
+      preferVp8(tx);
+      attachSend(c, tx.sender);
+      p.videoSender = tx.sender;
+      if (c.videoTrack) tx.sender.replaceTrack(c.videoTrack).catch(() => {});
+    }
     pc.ontrack = (e) => {
       attachRecv(c, e.receiver);
+      if (e.track.kind === "video") {
+        p.videoStream = new MediaStream([e.track]);
+        bump();
+        return;
+      }
       const stream = e.streams[0] || new MediaStream([e.track]);
       if (!p.audio) {
         p.audio = document.createElement("audio");
@@ -216,7 +242,11 @@ export function VoiceProvider({ children }) {
       const s = pc.connectionState;
       p.state = s === "connected" ? "connected" : s === "failed" || s === "closed" ? "failed" : p.state === "unverified" ? "unverified" : "connecting";
       clearTimeout(p.restartTimer);
-      if (s === "connected") p.restarts = 0;
+      if (s === "connected") {
+        p.restarts = 0;
+        // Tell them what this device is showing; it travels encrypted inside the connection set-up.
+        send(c, { type: "signal", to: seat, data: { show: c.videoKind || null } });
+      }
       // Networks change and connections drop: whoever called first finds a new route, keeping the same keys.
       if (initiator && (s === "failed" || s === "disconnected")) {
         p.restartTimer = setTimeout(() => restartIce(c, seat), s === "failed" ? 0 : 4000);
@@ -252,6 +282,17 @@ export function VoiceProvider({ children }) {
         }
         await pc.setRemoteDescription(data.sdp);
         if (data.sdp.type === "offer") {
+          if (!p.videoSender) {
+            // Answering: use the video slot the caller offered.
+            const tx = pc.getTransceivers().find((t) => t.receiver.track?.kind === "video" && !t.stopped);
+            if (tx) {
+              tx.direction = "sendrecv";
+              preferVp8(tx);
+              attachSend(c, tx.sender);
+              p.videoSender = tx.sender;
+              if (c.videoTrack) await tx.sender.replaceTrack(c.videoTrack).catch(() => {});
+            }
+          }
           await pc.setLocalDescription(await pc.createAnswer());
           send(c, { type: "signal", to: seat, data: { sdp: pc.localDescription.toJSON() } });
         }
@@ -259,6 +300,9 @@ export function VoiceProvider({ children }) {
       } else if (data?.candidate) {
         if (pc.remoteDescription) await pc.addIceCandidate(data.candidate).catch(() => {});
         else p.candidates.push(data.candidate);
+      } else if (data && "show" in data) {
+        p.video = data.show === "camera" || data.show === "screen" ? data.show : null;
+        bump();
       }
     } catch {
       p.state = "failed";
@@ -307,6 +351,8 @@ export function VoiceProvider({ children }) {
     }
     for (const seat of [...c.peers.keys()]) closePeer(c, seat);
     for (const t of c.stream?.getTracks() || []) t.stop();
+    c.videoTrack?.stop();
+    if (call.current === c) setVideoKind(null);
     c.audioCtx?.close().catch(() => {});
     c.worker?.terminate();
     c.keys.clear();
@@ -490,6 +536,49 @@ export function VoiceProvider({ children }) {
     send(c, { type: "state", muted: c.muted, deafened: c.deafened });
   }, []);
 
+  const setVideo = useCallback(async (kind) => {
+    const c = call.current;
+    if (!c) return;
+    if (!c.canSpeak && kind) {
+      setError("You don't have permission to share video in this channel.");
+      return;
+    }
+    let track = null;
+    if (kind) {
+      try {
+        const stream = kind === "screen"
+          ? await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15 }, audio: false })
+          : await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24 } }, audio: false });
+        track = stream.getVideoTracks()[0];
+      } catch (err) {
+        if (err?.name !== "NotAllowedError" && err?.name !== "AbortError") setError(kind === "screen" ? "Couldn't share your screen." : "Couldn't start your camera.");
+        return;
+      }
+      if (kind === "screen") track.contentHint = "detail";
+      track.onended = () => {
+        if (call.current === c && c.videoTrack === track) setVideoRef.current?.(null);
+      };
+    }
+    if (call.current !== c) {
+      track?.stop();
+      return;
+    }
+    const old = c.videoTrack;
+    c.videoTrack = track;
+    c.videoKind = kind;
+    c.localVideo = track ? new MediaStream([track]) : null;
+    for (const p of c.peers.values()) {
+      p.videoSender?.replaceTrack(track).catch(() => {});
+      if (p.pc) send(c, { type: "signal", to: p.seat, data: { show: kind } });
+    }
+    old?.stop();
+    setVideoKind(kind);
+  }, []);
+  const setVideoRef = useRef(null);
+  setVideoRef.current = setVideo;
+  const toggleCamera = useCallback(() => setVideo(call.current?.videoKind === "camera" ? null : "camera"), [setVideo]);
+  const toggleScreen = useCallback(() => setVideo(call.current?.videoKind === "screen" ? null : "screen"), [setVideo]);
+
   // Leave the call when signing out or closing the app.
   useEffect(() => () => teardown(call.current), [teardown]);
   useEffect(() => {
@@ -499,14 +588,14 @@ export function VoiceProvider({ children }) {
   const participants = useMemo(() => {
     const c = call.current;
     if (!c || !room) return [];
-    const list = [{ userId: secure.userId, self: true, muted, deafened, speaking: Boolean(c.levels.get("self")?.speaking), state: "connected" }];
+    const list = [{ userId: secure.userId, self: true, muted, deafened, speaking: Boolean(c.levels.get("self")?.speaking), state: "connected", video: videoKind, stream: c.localVideo || null }];
     for (const p of c.peers.values()) {
-      list.push({ userId: p.userId, self: false, muted: p.muted, deafened: p.deafened, speaking: Boolean(c.levels.get(p.seat)?.speaking), state: p.state });
+      list.push({ userId: p.userId, self: false, muted: p.muted, deafened: p.deafened, speaking: Boolean(c.levels.get(p.seat)?.speaking), state: p.state, video: p.video || null, stream: p.video ? p.videoStream || null : null });
     }
     return list;
     // tick re-reads the refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [room, muted, deafened, tick, secure.userId]);
+  }, [room, muted, deafened, videoKind, tick, secure.userId]);
 
   const value = useMemo(() => ({
     room,
@@ -516,12 +605,16 @@ export function VoiceProvider({ children }) {
     deafened,
     toggleMute,
     toggleDeafen,
+    video: videoKind,
+    toggleCamera,
+    toggleScreen,
+    canShareScreen: typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.getDisplayMedia),
     participants,
     error,
     supported: voiceSupported(),
     /** Frame counts for this call (sealed, opened, dropped), for the call's details. */
     frameStats: () => ({ ...(call.current?.stats || {}) }),
-  }), [room, join, leave, muted, deafened, toggleMute, toggleDeafen, participants, error]);
+  }), [room, join, leave, muted, deafened, toggleMute, toggleDeafen, videoKind, toggleCamera, toggleScreen, participants, error]);
 
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>;
 }
