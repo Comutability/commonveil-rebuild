@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { FakeWorld, Member, addFunctions, signed, world } from "./support/harness.mjs";
 import { inviteActions, serverActions } from "../base44/shared/handlers/servers.ts";
 import { serverMessageActions } from "../base44/shared/handlers/serverMessages.ts";
+import { voiceActions } from "../base44/shared/handlers/voice.ts";
 import * as serverPerms from "../base44/shared/permissions.ts";
 import * as clientPerms from "../src/lib/secure/permissions.js";
 import { fromB64, randomId, toB64 } from "../src/lib/crypto/encoding.js";
@@ -45,6 +46,7 @@ import { REACTIONS } from "../src/lib/secure/protocol.js";
 let ADMINS = [];
 addFunctions({ servers: serverActions({ defaultAdmins: () => ADMINS }), channels: serverMessageActions });
 addFunctions({ invite: inviteActions }, { anonymous: true });
+addFunctions({ voice: voiceActions });
 
 const P = clientPerms.P;
 
@@ -625,4 +627,27 @@ test("polling brings server messages and server changes with the member's own ac
   assert.ok(page.servers.some((s) => s.id === sid));
   assert.deepEqual(page.server_ids, [sid]);
   assert.ok(page.server_changes_cursor > "2000-01-01T00:00:00");
+});
+
+test("voice: a pass to join a call needs membership, a voice channel and no timeout", async () => {
+  const { w, members: [alice, bob, carol] } = await world("alice", "bobby", "carol");
+  const sid = await serverWith(alice, bob);
+  const voice = await alice.channelNamed(sid, "general-voice");
+  const text = await alice.channelNamed(sid, "general");
+  const pass = await bob.ok("voice", await signed(bob, "voice_ticket", { server_id: sid, channel_id: voice.id }));
+  assert.equal(pass.room, `${sid}.${voice.id}`);
+  assert.equal(pass.can_speak, true);
+  const row = w.rows("VoiceTicket").find((t) => t.id === pass.ticket);
+  assert.equal(row.user_id, bob.id);
+  assert.equal(row.device_id, bob.device.device_id);
+  assert.ok(Date.parse(row.expires_at) - Date.now() <= 60_000 && Date.parse(row.expires_at) > Date.now());
+  await bob.fails("voice", await signed(bob, "voice_ticket", { server_id: sid, channel_id: text.id }), "BAD_FIELD");
+  await carol.fails("voice", await signed(carol, "voice_ticket", { server_id: sid, channel_id: voice.id }));
+  await bob.fails("voice", { action: "voice_ticket", payload: JSON.stringify({ server_id: sid, channel_id: voice.id }) }, "PROOF_REQUIRED");
+  const member = w.rows("ServerMember").find((m) => m.server_id === sid && m.user_id === bob.id);
+  member.timeout_until = new Date(Date.now() + 600_000).toISOString();
+  await bob.fails("voice", await signed(bob, "voice_ticket", { server_id: sid, channel_id: voice.id }), "TIMED_OUT");
+  member.timeout_until = "";
+  for (let i = 0; i < 5; i += 1) await alice.ok("voice", await signed(alice, "voice_ticket", { server_id: sid, channel_id: voice.id }));
+  await alice.fails("voice", await signed(alice, "voice_ticket", { server_id: sid, channel_id: voice.id }), "RATE_LIMITED");
 });
