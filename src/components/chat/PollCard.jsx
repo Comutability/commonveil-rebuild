@@ -68,8 +68,8 @@ export default function PollCard({ poll, onVote, disabled = false, nameOf = (id)
                 title={showResults && o.people.length ? o.people.map(nameOf).join(", ") : undefined}
                 className={`relative flex w-full items-center gap-2 overflow-hidden rounded-md border px-3 py-2 text-left text-sm transition-colors disabled:cursor-default ${picked ? "border-primary/70" : "border-border hover:border-primary/40"}`}
               >
-                {showResults && <span className="absolute inset-y-0 left-0 bg-primary/12" style={{ width: `${share}%` }} aria-hidden="true" />}
-                <span className={`relative flex h-4 w-4 shrink-0 items-center justify-center rounded-${poll.multi ? "sm" : "full"} border ${picked ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/50"}`} aria-hidden="true">
+                {showResults && <span className="absolute inset-y-0 left-0 bg-primary/15" style={{ width: `${share}%` }} aria-hidden="true" />}
+                <span className={`relative flex h-4 w-4 shrink-0 items-center justify-center ${poll.multi ? "rounded-sm" : "rounded-full"} border ${picked ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/50"}`} aria-hidden="true">
                   {picked && <Check className="h-3 w-3" />}
                 </span>
                 <span className="relative min-w-0 flex-1 break-words">{o.text}</span>
