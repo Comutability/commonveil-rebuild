@@ -26,8 +26,12 @@ function ReportRow({ r, onSaved }) {
   return (
     <li className="card-cv space-y-3 p-4">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <Pill tone="warn">{r.reason}</Pill>
-        <span><strong>@{r.reporter}</strong> reported <strong>@{r.reported}</strong></span>
+        <Pill tone="warn">{r.category || r.reason}</Pill>
+        {r.source === "server" ? (
+          <span>Escalated by <strong>@{r.reporter}</strong>, a moderator of {r.server_name ? <strong>{r.server_name}</strong> : "a server"}{r.server_id ? <span className="text-muted-foreground"> ({r.server_id})</span> : null}, about <strong>@{r.reported}</strong></span>
+        ) : (
+          <span><strong>@{r.reporter}</strong> reported <strong>@{r.reported}</strong></span>
+        )}
         <span className="text-muted-foreground">{formatDate(r.created_date)}</span>
       </div>
       {r.details ? <p className="whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">{r.details}</p> : <p className="text-sm text-muted-foreground">No details given.</p>}
