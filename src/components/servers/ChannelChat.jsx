@@ -231,6 +231,7 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
           <button type="button" onClick={() => setActionError("")} aria-label="Dismiss"><X className="h-4 w-4" aria-hidden="true" /></button>
         </p>
       )}
+      <ForwardDialog text={forwarding || ""} open={forwarding !== null} onOpenChange={(v) => !v && setForwarding(null)} />
     </div>
   );
 }
