@@ -19,7 +19,8 @@ export const CONTENT_SECURITY_POLICY = [
   // Images only from this site and Base44's media store: no third-party image requests.
   "img-src 'self' data: blob: https://media.base44.com",
   "font-src 'self' data:",
-  "connect-src 'self'",
+  // This site's own API, and Base44's realtime host for call set-up (the VoiceRoom actor).
+  "connect-src 'self' wss://actors.base44-realtime.dev",
   "manifest-src 'self'",
   "form-action 'self'",
   "base-uri 'none'",
