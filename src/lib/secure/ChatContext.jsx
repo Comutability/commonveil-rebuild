@@ -12,7 +12,7 @@ import { buildThread, hideAt, isShowing, searchThreads } from "./thread.js";
 import { votePayload } from "./polls.js";
 import { copyAttachments, uploadAttachments } from "./fileTransfer.js";
 import { randomId, toB64 } from "../crypto/encoding.js";
-import { DEFAULT_ALERTS, alertText, cleanAlerts, showAlert } from "./alerts.js";
+import { DEFAULT_ALERTS, alertText, cleanAlerts, isQuiet, showAlert } from "./alerts.js";
 
 const ChatContext = createContext(null);
 
@@ -406,7 +406,7 @@ export function ChatProvider({ children }) {
     if (result.content?.type !== "text" || (result.status !== "ok" && result.status !== "unverified")) return;
     alerted.current.add(m.id);
     const looking = document.visibilityState === "visible" && document.hasFocus() && activeConversation.current === m.conversation_id;
-    if (looking) return;
+    if (looking || isQuiet(settings)) return;
     const sender = profilesRef.current[m.sender_id];
     showAlert({
       body: alertText(settings, sender ? sender.display_name || sender.username : ""),
