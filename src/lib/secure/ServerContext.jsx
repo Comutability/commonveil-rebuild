@@ -1202,6 +1202,8 @@ export function ServerProvider({ children }) {
     // sending
     sendText,
     sendPost,
+    sendPoll,
+    vote,
     react,
     edit,
     deleteMessage,
