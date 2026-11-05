@@ -10,6 +10,7 @@ import MessageRow, { DayDivider, newDay, sameRun, stamp } from "@/components/cha
 import Composer from "@/components/chat/Composer";
 import ComposerPlus from "@/components/chat/ComposerPlus";
 import CreatePollDialog from "@/components/chat/CreatePollDialog";
+import ForwardDialog from "@/components/chat/ForwardDialog";
 import ChannelHeader from "./ChannelHeader";
 import MemberList from "./MemberList";
 import MemberCard from "./MemberCard";
@@ -199,6 +200,9 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
               }}
               onReact={(emoji, already) => act(() => react(serverId, channel, row, emoji, already))}
               onVote={(choices) => s.vote(serverId, channel, row, choices)}
+              onForward={row.result?.content?.type === "text" ? () => setForwarding(row.text) : undefined}
+              onSave={() => s.toggleSaved({ serverId, channelId: channel.id, threadId: row.m.thread_id || "", msgId: row.m.msg_id })}
+              saved={s.isSaved(row.m.msg_id)}
               onReply={() => onReply?.(row)}
               onEdit={() => onEdit?.(row)}
               onDelete={() => act(() => deleteMessage(serverId, row))}

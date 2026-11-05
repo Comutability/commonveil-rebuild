@@ -192,6 +192,7 @@ export default function MessageRow({
           </div>
         )}
         {readableNow && <ReplyQuote replyTo={row.replyTo} nameOf={nameOf} onJump={onJump} />}
+        {readableNow && result.content?.forwarded && <p className="mb-0.5 flex items-center gap-1 text-xs italic text-muted-foreground"><Forward className="h-3 w-3" aria-hidden="true" /> Forwarded</p>}
         {title}
         <div className="whitespace-pre-wrap break-words text-[0.95rem] leading-relaxed">
           <Body row={row} ctx={ctx} />
