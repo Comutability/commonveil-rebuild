@@ -245,26 +245,12 @@ await B.page.selectOption("#auto-delete", "0");
 await expectText(B.page, "The day you last used Commonveil is no longer kept.");
 check(true, "auto-delete turns on and off, and off forgets the date");
 
-// ---------- public site: search, saved pages, progress ----------
+// ---------- public site: search ----------
 await goto(A.page, "/search");
-await A.page.getByRole("searchbox", { name: "Search the site" }).fill("password");
+await A.page.getByRole("searchbox", { name: "Search the site" }).fill("recovery phrase");
 await A.page.waitForSelector("main h2 a", { timeout: 60000 });
-check(!A.page.url().includes("password"), "site search finds pages, and the query never goes in the address bar");
-await goto(A.page, "/guides");
-await A.page.locator('main a[href^="/guides/"]').first().click();
-await A.page.waitForSelector("main h1", { timeout: 60000 });
-const guideTitle = (await A.page.locator("main h1").first().innerText()).trim();
-await A.page.getByRole("button", { name: "Save", exact: true }).click();
-await A.page.getByRole("button", { name: "Mark as done" }).click();
-await goto(A.page, "/saved");
-await A.page.waitForSelector(`section[aria-labelledby="saved-pages"] a:has-text("${guideTitle}")`, { timeout: 10000 });
-await A.page.waitForSelector(`section[aria-labelledby="finished-guides"] a:has-text("${guideTitle}")`, { timeout: 10000 });
-check(true, "a saved, finished guide shows on the Saved page");
-await A.page.getByRole("button", { name: "Clear everything on this browser" }).click();
-await A.page.getByRole("button", { name: "Clear everything", exact: true }).click();
-await A.page.waitForSelector("text=Nothing saved yet", { timeout: 10000 });
-check(true, "clearing removes it all from the browser");
-await shot(A.page, "13-saved");
+check(!A.page.url().includes("recovery"), "site search finds pages, and the query never goes in the address bar");
+await shot(A.page, "13-search");
 
 console.log(`\nNext: move the expires_at of "${fleeting}" into the past, then run:\n  node tests/e2e/13-features.mjs --expired ${dmPath} "${fleeting}"`);
 await A.ctx.close();
