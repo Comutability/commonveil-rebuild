@@ -15,6 +15,8 @@ export class Actor {
   get storage() { return this.env.storage; }
   get client() { return this.env.client; }
   getConnections() { return [...this.env.conns.values()]; }
+  async schedule(key, at) { this.env.wakes.set(key, at); }
+  async cancelSchedule(key) { this.env.wakes.delete(key); }
 }`;
 
 const dir = mkdtempSync(join(tmpdir(), "voiceroom-"));
@@ -33,6 +35,7 @@ function env() {
   return {
     room: ROOM,
     conns: new Map(),
+    wakes: new Map(),
     tickets,
     storage: { get: async (k) => saved.get(k), put: async (k, v) => void saved.set(k, structuredClone(v)), delete: async (k) => saved.delete(k) },
     client: {
@@ -161,4 +164,37 @@ test("voice room: a call holds eight, the same device rejoining replaces itself,
   assert.equal(woken2.people.size, 7, "people whose sockets went while it slept are dropped");
   const seat = woken2.people.get("conn-user2-1").seat;
   assert.ok(woken2.nextSeat > seat);
+});
+
+test("voice room: a dropped socket keeps its place for a while, and coming back changes nothing for the others", async () => {
+  const e = env();
+  const room = new VoiceRoom(e);
+  await room.handleStart();
+  const a = await joined(room, e, "conn-alice-1", "alice");
+  const b = await joined(room, e, "conn-bob-1", "bob");
+  const seatB = b.got.find((m) => m.type === "welcome").seat;
+  e.conns.delete("conn-bob-1");
+  await room.handleClose(b);
+  assert.equal(a.got.some((m) => m.type === "peer-left"), false, "not yet");
+  assert.ok(e.wakes.has("drop:conn-bob-1"));
+  // The SDK reconnects with the same id: same place, no pass needed, nobody told.
+  const back = connect(e, "conn-bob-1", "bob");
+  await room.handleConnect(back);
+  assert.equal(back.got.at(-1).type, "welcome");
+  assert.equal(back.got.at(-1).seat, seatB);
+  assert.equal(e.wakes.has("drop:conn-bob-1"), false);
+  await room.handleWake("drop:conn-bob-1");
+  assert.equal(a.got.some((m) => m.type === "peer-left"), false);
+  // Gone for good: the wake tells the others.
+  e.conns.delete("conn-bob-1");
+  await room.handleClose(back);
+  await room.handleWake("drop:conn-bob-1");
+  assert.deepEqual(a.got.at(-1), { type: "peer-left", seat: seatB });
+  // Someone else can't take over a place by reusing its connection id.
+  const c = await joined(room, e, "conn-carol-1", "carol");
+  e.conns.delete("conn-carol-1");
+  await room.handleClose(c);
+  const thief = connect(e, "conn-carol-1", "mallory");
+  await room.handleConnect(thief);
+  assert.deepEqual(thief.got.map((m) => m.type), ["pass-needed"]);
 });
