@@ -790,7 +790,7 @@ export function ServerProvider({ children }) {
 
   /** A channel (or one forum post's thread) as it reads now: edits applied, reactions gathered. */
   const threadOf = useCallback((channelId, threadId = "") => {
-    const list = (rows[channelId] || []).filter((m) => (threadId ? m.thread_id === threadId || (m.kind === "post" && m.msg_id === threadId) : !m.thread_id && m.kind !== "post"));
+    const list = (rows[channelId] || []).filter((m) => (threadId ? m.thread_id === threadId || (!m.thread_id && (m.kind === "post" || m.kind === "message") && m.msg_id === threadId) : !m.thread_id && m.kind !== "post"));
     return buildThread(list, opened, { userId, now: Date.now() });
   }, [rows, opened, userId]);
 
@@ -894,6 +894,12 @@ export function ServerProvider({ children }) {
   const pinMessage = useCallback(async (sid, row, pinned) => {
     await signed("channels", "pin_server_message", { server_id: sid, channel_id: row.m.channel_id, msg_id: row.m.msg_id, pinned });
     mergeRows([{ ...row.m, pinned }]);
+  }, [signed, mergeRows]);
+
+  /** Lock or unlock a thread or forum post (row is its first message). */
+  const lockThread = useCallback(async (sid, row, locked) => {
+    await signed("channels", "lock_thread", { server_id: sid, channel_id: row.m.channel_id, msg_id: row.m.msg_id, locked });
+    mergeRows([{ ...row.m, thread_locked: locked }]);
   }, [signed, mergeRows]);
 
   const loadPins = useCallback(async (sid, channelId) => {
@@ -1331,7 +1337,7 @@ export function ServerProvider({ children }) {
     react,
     edit,
     deleteMessage,
-    pinMessage,
+    pinMessage, lockThread,
     // unread and local preferences
     markChannelRead,
     markServerRead,
@@ -1372,7 +1378,7 @@ export function ServerProvider({ children }) {
     loaded, loadError, servers, order, rows, opened, hasMore, readState, prefs, unread, memberLists, keysTick,
     serverLook, serverName, channelName, channelTopic, roleName, roleColor, serverRules, serverEmoji, automodOf, memberName, nickOf, memberColor, profileOf, rolesOfMember,
     permsFor, can, myTop, keyState, loadState, openView, loadOlder, threadOf, postsOf, loadPins, loadMembers, memberCard,
-    sendText, sendPost, sendPoll, vote, react, edit, deleteMessage, pinMessage, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
+    sendText, sendPost, sendPoll, vote, react, edit, deleteMessage, pinMessage, lockThread, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
     toggleCollapsed, moveServer, act, setServerProfile, setServerRules, setServerSet, updateSettings, setNickname, createChannel, updateChannel,
     createRole, updateRole, banMember, openBanReason, joinServer, leaveServer, deleteServer, createServer, createInvite, listInvites,
     revokeInvite, discover, listTickets, openTicket, setTicketStatus, renewKeys, serviceKeys,
