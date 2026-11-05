@@ -6,7 +6,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useServers, viewKey } from "@/lib/secure/ServerContext";
 import { useSecure } from "@/lib/secure/SecureContext";
 import { useAppearance } from "@/lib/appearance";
-import { P, has } from "@/lib/secure/permissions";
+import { P, channelPermissions, has } from "@/lib/secure/permissions";
+import { automodReason } from "@/lib/secure/automod";
 import MessageRow, { DayDivider, newDay, sameRun, stamp } from "@/components/chat/MessageRow";
 import Composer from "@/components/chat/Composer";
 import ComposerPlus from "@/components/chat/ComposerPlus";
@@ -94,6 +95,14 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
   const e = servers[serverId];
   const myRoles = e?.member?.role_ids || [];
   const members = memberLists[serverId]?.members || [];
+  const automod = s.automodOf(serverId);
+  /** Why AutoMod hides a message, or null. Staff who can manage messages are exempt. */
+  const hiddenBy = (row) => {
+    if (!automod.enabled || row.m.sender_id === userId || !row.text) return null;
+    const sender = members.find((mm) => mm.user_id === row.m.sender_id);
+    if (sender && e?.roles && has(channelPermissions(e.server, e.roles, sender, channel), P.MANAGE_MESSAGES)) return null;
+    return automodReason(automod, row.text, row.result?.content?.mentions);
+  };
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -218,6 +227,7 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
               onForward={row.result?.content?.type === "text" ? () => setForwarding({ text: row.text, attachments: row.result.content.attachments || [] }) : undefined}
               onSave={() => s.toggleSaved({ serverId, channelId: channel.id, threadId: row.m.thread_id || "", msgId: row.m.msg_id })}
               saved={s.isSaved(row.m.msg_id)}
+              hiddenReason={hiddenBy(row)}
               onReply={() => onReply?.(row)}
               onEdit={() => onEdit?.(row)}
               onDelete={() => act(() => deleteMessage(serverId, row))}
