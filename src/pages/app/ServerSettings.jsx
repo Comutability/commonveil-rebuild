@@ -656,7 +656,13 @@ export default function ServerSettings() {
     mod: can(serverId, P.KICK_MEMBERS) || can(serverId, P.BAN_MEMBERS) || can(serverId, P.TIMEOUT_MEMBERS) || can(serverId, P.MANAGE_ROLES),
   }), [can, serverId]);
 
-  if (!loaded || (e && !e.roles)) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</div>;
+  if (!loaded || (e && !e.roles)) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        {e?.status === "error" ? "Couldn't load this server. Trying again shortly." : "Loading…"}
+      </div>
+    );
+  }
   if (!e) return <Navigate to="/app" replace />;
 
   const sections = {
