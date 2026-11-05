@@ -45,6 +45,7 @@ import { decryptEnvelope, encryptEnvelope } from "../crypto/envelope.js";
 import { publicDevice } from "../crypto/device.js";
 import { isReactionEmoji } from "../emoji.js";
 import { cleanPoll, cleanVote } from "./polls.js";
+import { cleanAttachments } from "./attachments.js";
 
 export const MAX_MESSAGE_CHARS = 4000;
 
@@ -407,7 +408,7 @@ function recipientsFor(memberIds, chains) {
   });
 }
 
-async function buildItem({ kind, userId, device, conversation, chains, payload, keyring }) {
+async function buildItem({ kind, userId, device, conversation, chains, payload, keyring, itemId: presetId = null }) {
   // Your own copy goes to your own current key, as this device's keyring proves it to be.
   if (keyring) {
     const own = chains.get(userId);
@@ -416,7 +417,7 @@ async function buildItem({ kind, userId, device, conversation, chains, payload, 
       throw new IdentityError("KEYRING_MISMATCH", "Your keys changed. Refresh and try again.");
     }
   }
-  const itemId = randomId(16);
+  const itemId = presetId && isItemId(presetId) ? presetId : randomId(16);
   const sentAt = new Date().toISOString();
   const scope = { kind, conversation_id: conversation.id, item_id: itemId, sender_id: userId, device_id: device.device_id };
   const envelope = JSON.stringify(await encryptEnvelope({ scope, recipients: recipientsFor(conversation.member_ids, chains), payload }));
@@ -442,8 +443,8 @@ const timerOf = (conversation) => {
   return EXPIRY_CHOICES.includes(seconds) && seconds > 0 ? { expire_seconds: seconds } : {};
 };
 
-async function buildMessageBody({ userId, device, conversation, chains, payload, keyring }) {
-  const item = await buildItem({ kind: "message", userId, device, conversation, chains, payload: { ...payload, ...timerOf(conversation) }, keyring });
+async function buildMessageBody({ userId, device, conversation, chains, payload, keyring, itemId = null }) {
+  const item = await buildItem({ kind: "message", userId, device, conversation, chains, payload: { ...payload, ...timerOf(conversation) }, keyring, itemId });
   return {
     action: "send",
     conversation_id: conversation.id,
@@ -477,9 +478,9 @@ export async function buildReaction({ userId, device, conversation, chains, keyr
 }
 
 /** Any other checked payload (a poll, a vote), built like a message. */
-export async function buildPayloadMessage({ userId, device, conversation, chains, keyring = null, payload }) {
+export async function buildPayloadMessage({ userId, device, conversation, chains, keyring = null, payload, itemId = null }) {
   if (!messageContent(payload)) throw new Error("That can't be sent.");
-  return buildMessageBody({ userId, device, conversation, chains, payload, keyring });
+  return buildMessageBody({ userId, device, conversation, chains, payload, keyring, itemId });
 }
 
 /** New text for one of your own messages. Everyone sees that it was edited. */
@@ -496,7 +497,9 @@ function messageContent(payload) {
   const timer = EXPIRY_CHOICES.includes(seconds) && seconds > 0 ? { expire_seconds: seconds } : {};
   if (payload.type === "text" || payload.type === undefined) {
     if (typeof payload.text !== "string") return null;
-    return { type: "text", text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...(isItemId(payload.reply_to) ? { reply_to: payload.reply_to } : {}), ...(payload.forwarded === true ? { forwarded: true } : {}), ...timer };
+    const files = cleanAttachments(payload.attachments);
+    if (!payload.text.trim() && !files.length) return null;
+    return { type: "text", text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...(isItemId(payload.reply_to) ? { reply_to: payload.reply_to } : {}), ...(payload.forwarded === true ? { forwarded: true } : {}), ...(files.length ? { attachments: files } : {}), ...timer };
   }
   if (payload.type === "reaction") {
     if (!isItemId(payload.target) || !isReactionEmoji(payload.emoji)) return null;

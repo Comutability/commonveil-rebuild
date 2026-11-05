@@ -24,6 +24,7 @@ import {
 import { MAX_MESSAGE_CHARS, deviceIsCertified, sentAfterRemoval, signedRequest, textOf } from "./protocol.js";
 import { isReactionEmoji } from "../emoji.js";
 import { cleanPoll, cleanVote } from "./polls.js";
+import { cleanAttachments } from "./attachments.js";
 
 export { ChainKeys, historyChain, liveChain, channelChain, parseChainId };
 
@@ -47,12 +48,12 @@ export function latestGeneration(generations, chainId) {
 }
 
 /** Encrypt and sign one item with a chain's current key. Returns the item fields the server stores. */
-export async function buildServerItem({ kind, serverId, channelId = "", chainId = historyChain(serverId), generations, keys, userId, device, payload, at = Date.now() }) {
+export async function buildServerItem({ kind, serverId, channelId = "", chainId = historyChain(serverId), generations, keys, userId, device, payload, at = Date.now(), itemId: presetId = null }) {
   const gen = latestGeneration(generations, chainId);
   if (!gen) throw new ServerKeyError("NO_KEYS_YET", "This server's encryption is still being set up. Try again in a moment.");
   const step = stepAt(chainId, gen.started_at, at);
   const chainKey = keys.get(chainId, gen.generation, step);
-  const itemId = randomId(16);
+  const itemId = presetId && isItemId(presetId) ? presetId : randomId(16);
   const sentAt = new Date(at).toISOString();
   const scope = { kind, server_id: serverId, channel_id: channelId, item_id: itemId, sender_id: userId, device_id: device.device_id, chain_id: chainId, generation: gen.generation, step };
   const envelope = JSON.stringify(await encryptServerItem({ scope, chainKey, payload }));
@@ -78,8 +79,10 @@ function mentionsOf(m) {
   return { users, roles, ...(everyone ? { everyone: true } : {}) };
 }
 
-export function textPayload(text, { replyTo = null, mentions = null, forwarded = false } = {}) {
-  const payload = { type: "text", text: cleanText(text, MAX_MESSAGE_CHARS) };
+export function textPayload(text, { replyTo = null, mentions = null, forwarded = false, attachments = [] } = {}) {
+  // A message can be just files.
+  const payload = { type: "text", text: attachments.length && !String(text || "").trim() ? "" : cleanText(text, MAX_MESSAGE_CHARS) };
+  if (attachments.length) payload.attachments = attachments;
   // A forwarded copy says only that it was forwarded, never where from.
   if (forwarded) payload.forwarded = true;
   if (replyTo) {
@@ -125,7 +128,9 @@ export function serverMessageContent(payload, declaredKind) {
   const mentions = mentionsOf(payload.mentions);
   if (payload.type === "text") {
     if (typeof payload.text !== "string") return null;
-    return { type: "text", text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...(isItemId(payload.reply_to) ? { reply_to: payload.reply_to } : {}), ...(mentions ? { mentions } : {}), ...(payload.forwarded === true ? { forwarded: true } : {}) };
+    const files = cleanAttachments(payload.attachments);
+    if (!payload.text.trim() && !files.length) return null;
+    return { type: "text", text: payload.text.slice(0, MAX_MESSAGE_CHARS), ...(isItemId(payload.reply_to) ? { reply_to: payload.reply_to } : {}), ...(mentions ? { mentions } : {}), ...(payload.forwarded === true ? { forwarded: true } : {}), ...(files.length ? { attachments: files } : {}) };
   }
   if (payload.type === "post") {
     if (typeof payload.title !== "string" || typeof payload.text !== "string" || !payload.title.trim()) return null;
@@ -161,8 +166,8 @@ export function itemContent(kind, payload) {
 }
 
 /** A channel message, ready to send. kind: "message", "post", "reaction" or "edit". */
-export async function buildChannelMessage({ serverId, channel, generations, keys, userId, device, payload, kind, threadId = "" }) {
-  const item = await buildServerItem({ kind: "message", serverId, channelId: channel.id, chainId: chainForChannel(serverId, channel), generations, keys, userId, device, payload });
+export async function buildChannelMessage({ serverId, channel, generations, keys, userId, device, payload, kind, threadId = "", itemId = null }) {
+  const item = await buildServerItem({ kind: "message", serverId, channelId: channel.id, chainId: chainForChannel(serverId, channel), generations, keys, userId, device, payload, itemId });
   return {
     action: "send",
     server_id: serverId,
