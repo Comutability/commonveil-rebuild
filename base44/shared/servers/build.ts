@@ -43,6 +43,8 @@ export async function createFromTemplate(sr: any, template: Template, { ownerId,
     audit_retention_days: 90,
     default_history: "joined",
     allow_member_dms: true,
+    // In the community server only staff hand out keys, so ordinary members never learn who joins.
+    key_handout: isDefault ? "staff" : "members",
     member_count: 0,
     status: "active",
     changed_at: now.toISOString(),
