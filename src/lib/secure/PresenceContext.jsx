@@ -125,7 +125,7 @@ export function PresenceProvider({ children }) {
         cur.refs -= 1;
         if (cur.refs <= 0) close(key);
       };
-    }, [key]);
+    }, [key, settings.presence]); // eslint-disable-line react-hooks/exhaustive-deps
   };
 
   const value = useMemo(() => {
