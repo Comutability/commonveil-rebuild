@@ -4,7 +4,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Shell, { NavButton } from "@/components/shell/Shell";
 import ChannelSidebar from "@/components/servers/ChannelSidebar";
-import ChannelChat from "@/components/servers/ChannelChat";
+import ChannelChat, { ThreadView } from "@/components/servers/ChannelChat";
 import ForumView from "@/components/servers/ForumView";
 import TicketsView from "@/components/servers/TicketsView";
 import VoiceView from "@/components/servers/VoiceView";
