@@ -1,0 +1,11 @@
+{
+  "name": "Delete inactive accounts",
+  "description": "Warns, then deletes, accounts whose owners chose to have them deleted after a stretch without use.",
+  "trigger": { "config": { "trigger_type": "scheduled", "cron_expression": "17 3 * * *", "timezone": "Europe/London" } },
+  "definition": {
+    "document": { "dsl": "1.0.0", "name": "delete_inactive_accounts", "version": "1.0", "namespace": "base44" },
+    "do": [
+      { "delete_inactive_accounts": { "call": "invoke_backend_function", "with": { "function_name": "maintenance", "args": { "task": "inactive" } }, "then": "end", "x-base44": { "title": "Delete inactive accounts" } } }
+    ]
+  }
+}

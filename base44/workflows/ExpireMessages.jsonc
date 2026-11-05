@@ -1,0 +1,11 @@
+{
+  "name": "Delete disappearing messages",
+  "description": "Deletes disappearing messages whose time is up. The app hides them as soon as it is.",
+  "trigger": { "config": { "trigger_type": "scheduled", "cron_expression": "*/30 * * * *", "timezone": "Europe/London" } },
+  "definition": {
+    "document": { "dsl": "1.0.0", "name": "expire_messages", "version": "1.0", "namespace": "base44" },
+    "do": [
+      { "expire_messages": { "call": "invoke_backend_function", "with": { "function_name": "maintenance", "args": { "task": "expire" } }, "then": "end", "x-base44": { "title": "Delete disappearing messages" } } }
+    ]
+  }
+}
