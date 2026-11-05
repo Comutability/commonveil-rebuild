@@ -668,7 +668,6 @@ test("files: parts are stored as ciphertext for members who can post, and links 
   // No message with that id yet: no link, even for a member.
   assert.deepEqual((await alice.ok("files", { action: "download_links", file_ids: [file_id] })).links, {});
   // Once the message exists, members get a link and outsiders don't.
-  w.rows("ServerMessage").push?.({});
   const sent = await bob.post(sid, general, { type: "text", text: "a file" });
   assert.equal(sent.status, 200);
   const row = w.rows("Attachment").find((r) => r.id === file_id);
