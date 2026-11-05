@@ -706,3 +706,25 @@ test("emoji, stickers and AutoMod rules are encrypted server items; only the rig
   const swapped = await openServerItem({ kind: "automod", item: after.server.emoji, serverId: sid, keys, senderChain: chains.get(alice.id), senderDevices: devices.get(alice.id) });
   assert.notEqual(swapped.status, "ok");
 });
+
+test("threads: replies hang off a text-channel message, stay out of the channel's list, and can be locked", async () => {
+  const { w, members: [alice, bob] } = await world("alice", "bobby");
+  const sid = await serverWith(alice, bob);
+  const general = await alice.channelNamed(sid, "general");
+  const root = (await bob.post(sid, general, textPayload("Shall we plan Saturday?"))).body.message;
+  const reply = await alice.post(sid, general, textPayload("Yes, in a thread"), "message", root.msg_id);
+  assert.equal(reply.status, 200);
+  // A reply can't start its own thread.
+  assert.equal((await bob.post(sid, general, textPayload("nested"), "message", reply.body.message.msg_id)).status, 404);
+  const main = await bob.ok("channels", { action: "list", server_id: sid, channel_id: general.id });
+  assert.ok(main.messages.every((m) => !m.thread_id));
+  assert.equal(main.messages.find((m) => m.msg_id === root.msg_id).reply_count, 1);
+  const thread = await bob.ok("channels", { action: "list", server_id: sid, channel_id: general.id, thread_id: root.msg_id });
+  assert.deepEqual(thread.messages.map((m) => m.msg_id), [root.msg_id, reply.body.message.msg_id]);
+  // Only people who can manage threads lock them; then others can't reply.
+  await bob.fails("channels", await signed(bob, "lock_thread", { server_id: sid, channel_id: general.id, msg_id: root.msg_id }), "MISSING_PERMISSION");
+  await alice.ok("channels", await signed(alice, "lock_thread", { server_id: sid, channel_id: general.id, msg_id: root.msg_id }));
+  const blocked = await bob.post(sid, general, textPayload("too late"), "message", root.msg_id);
+  assert.equal(blocked.body.code, "THREAD_LOCKED");
+  assert.equal((await alice.post(sid, general, textPayload("moderator note"), "message", root.msg_id)).status, 200);
+});
