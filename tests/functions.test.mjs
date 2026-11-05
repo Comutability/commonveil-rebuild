@@ -18,6 +18,7 @@ import { serverMessageActions } from "../base44/shared/handlers/serverMessages.t
 import { voiceActions } from "../base44/shared/handlers/voice.ts";
 import { fileActions } from "../base44/shared/handlers/files.ts";
 import { eventActions } from "../base44/shared/handlers/events.ts";
+import { moderationActions } from "../base44/shared/handlers/moderation.ts";
 import { resetMaintenanceThrottle, runMaintenance } from "../base44/shared/maintenance.ts";
 
 import { createDeviceKeys } from "../src/lib/crypto/device.js";
@@ -61,7 +62,7 @@ import {
 /** Functions that only signed-in members can call. */
 const FUNCTIONS = {
   profile: profileActions, keys: keysActions, conversations: conversationActions, messages: messageActions, safety: safetyActions, admin: adminActions,
-  servers: serverActions({ defaultAdmins: () => [] }), channels: serverMessageActions, voice: voiceActions, files: fileActions, events: eventActions,
+  servers: serverActions({ defaultAdmins: () => [] }), channels: serverMessageActions, voice: voiceActions, files: fileActions, events: eventActions, moderation: moderationActions,
 };
 /** Functions that also accept anonymous callers, exactly as their entry files set it up. */
 const PUBLIC_FUNCTIONS = { disclose: disclosureActions, invite: inviteActions };

@@ -28,7 +28,7 @@ export async function eraseServer(sr: any, server: any, deadline: number) {
     await sr.entities.ServerMember.delete(m.id);
     await refreshAccess(sr, m.user_id);
   }
-  for (const entity of ["KeyGrant", "KeyGeneration", "KeyChain", "Invite", "ServerBan", "AuditEntry", "EventRsvp", "ServerEvent", "Channel", "Role"]) {
+  for (const entity of ["KeyGrant", "KeyGeneration", "KeyChain", "Invite", "ServerBan", "AuditEntry", "EventRsvp", "ServerEvent", "ServerReport", "ModCase", "Channel", "Role"]) {
     if (Date.now() > deadline) return false;
     await sr.entities[entity].deleteMany({ server_id: sid });
   }
@@ -71,5 +71,8 @@ export async function eraseServerTraces(sr: any, userId: string, deadline: numbe
   }
   await sr.entities.KeyGrant.deleteMany({ user_id: userId });
   await sr.entities.EventRsvp.deleteMany({ user_id: userId });
+  // Reports they sent, and cases about them, go with the account.
+  await sr.entities.ServerReport.deleteMany({ reporter_id: userId });
+  await sr.entities.ModCase.deleteMany({ target_id: userId });
   return true;
 }
