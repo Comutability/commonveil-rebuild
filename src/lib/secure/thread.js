@@ -52,7 +52,7 @@ export function buildThread(list, opened, { userId, now = Date.now() } = {}) {
     const result = opened[m.id];
     const type = result?.content?.type;
     if (type === "reaction" || type === "edit" || type === "vote") continue;
-    const row = { m, result, text: readable(result) ? result.text : "", edited: false, editedAt: null, reactions: [], replyTo: null, canEdit: false, poll: null };
+    const row = { m, result, text: readable(result) ? result.text : "", attachments: readable(result) && type === "text" && !m.deleted ? result.content.attachments || [] : [], edited: false, editedAt: null, reactions: [], replyTo: null, canEdit: false, poll: null };
     rows.push(row);
     if (m.msg_id) byMsgId.set(m.msg_id, row);
   }
