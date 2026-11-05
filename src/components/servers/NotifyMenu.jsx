@@ -1,6 +1,6 @@
 import React from "react";
 import { Bell, BellOff, BellRing } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useServers } from "@/lib/secure/ServerContext";
 
 const LEVELS = [
@@ -34,9 +34,7 @@ export default function NotifyMenu({ serverId, channel = null }) {
           {LEVELS.map((l) => <DropdownMenuRadioItem key={l.id} value={l.id}>{l.label}</DropdownMenuRadioItem>)}
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuRadioGroup value={isMuted ? "muted" : "on"} onValueChange={() => toggleMute(id)}>
-          <DropdownMenuRadioItem value="muted">{channel ? "Mute channel" : "Mute server"}</DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
+        <DropdownMenuCheckboxItem checked={isMuted} onCheckedChange={() => toggleMute(id)}>{channel ? "Mute channel" : "Mute server"}</DropdownMenuCheckboxItem>
         <p className="px-2 pb-1.5 pt-1 text-xs text-muted-foreground">Alerts show only if you've turned them on in Settings. This choice stays on this device.</p>
       </DropdownMenuContent>
     </DropdownMenu>
