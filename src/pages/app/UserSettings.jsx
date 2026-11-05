@@ -376,6 +376,7 @@ export default function UserSettings() {
           <button type="button" onClick={() => signOut()} className="panel-item">
             <LogOut className="h-4 w-4" aria-hidden="true" /> Sign out
           </button>
+          <Link to="/help" className="panel-item">Help Centre</Link>
           <Link to="/" className="panel-item">Commonveil website</Link>
         </div>
       }
