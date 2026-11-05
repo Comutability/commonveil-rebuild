@@ -143,6 +143,7 @@ export function VoiceProvider({ children }) {
   const closePeer = useCallback((c, seat) => {
     const p = c.peers.get(seat);
     if (!p) return;
+    clearTimeout(p.restartTimer);
     try {
       p.pc?.close();
     } catch {
@@ -171,11 +172,27 @@ export function VoiceProvider({ children }) {
     }
   };
 
+  const restartIce = useCallback(async (c, seat) => {
+    const p = c.peers.get(seat);
+    const pc = p?.pc;
+    if (!pc || call.current !== c || c.closed || pc.connectionState === "connected" || pc.signalingState !== "stable") return;
+    p.restarts = (p.restarts || 0) + 1;
+    if (p.restarts > 5) return;
+    try {
+      pc.restartIce();
+      await pc.setLocalDescription(await pc.createOffer({ iceRestart: true }));
+      send(c, { type: "signal", to: seat, data: { sdp: pc.localDescription.toJSON() } });
+    } catch {
+      // The next state change tries again.
+    }
+  }, []);
+
   const connectPeer = useCallback(async (c, seat, initiator) => {
     const p = c.peers.get(seat);
     if (!p || p.pc) return;
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, certificates: [c.cert], ...(c.worker ? {} : { encodedInsertableStreams: true }) });
     p.pc = pc;
+    p.initiator = initiator;
     p.state = "connecting";
     for (const track of c.stream.getAudioTracks()) attachSend(c, pc.addTrack(track, c.stream));
     pc.ontrack = (e) => {
@@ -198,6 +215,11 @@ export function VoiceProvider({ children }) {
     pc.onconnectionstatechange = () => {
       const s = pc.connectionState;
       p.state = s === "connected" ? "connected" : s === "failed" || s === "closed" ? "failed" : p.state === "unverified" ? "unverified" : "connecting";
+      clearTimeout(p.restartTimer);
+      // Networks change and connections drop: whoever called first finds a new route, keeping the same keys.
+      if (initiator && (s === "failed" || s === "disconnected")) {
+        p.restartTimer = setTimeout(() => restartIce(c, seat), s === "failed" ? 0 : 4000);
+      }
       bump();
     };
     if (initiator) {
@@ -205,7 +227,7 @@ export function VoiceProvider({ children }) {
       send(c, { type: "signal", to: seat, data: { sdp: pc.localDescription.toJSON() } });
     }
     bump();
-  }, [bump, watchLevel]);
+  }, [bump, watchLevel, restartIce]);
 
   const handleSignal = useCallback(async (c, seat, data) => {
     const p = c.peers.get(seat);
