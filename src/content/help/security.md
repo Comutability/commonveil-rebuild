@@ -9,10 +9,10 @@ order: 4
 
 **What it's for:** if someone else can use your computer or phone, a passcode stops them reading your messages there.
 
-Open **Settings → Devices and keys → Passcode lock** and set a passcode. Your keys on this browser are then stored **encrypted with it**, and Commonveil locks itself after a while without use. You choose how long. You can also lock it straight away.
+Open **Settings → Devices and keys → Passcode lock** and set a passcode. Your keys on this browser are then stored **encrypted with it**, and Commonveil locks itself after a while without use: choose how long with **Lock after**. You can also lock it straight away, or **Change passcode**.
 
 - The passcode is for this browser only. Each device has its own.
-- It never leaves the device and Commonveil can't reset it. If you forget it, choose to forget this browser's keys and set the device up again from another device or with your recovery phrase.
+- It never leaves the device and Commonveil can't recover it. If you forget it, choose **Forgot your passcode?** on the lock screen to remove this browser and set it up again. See [troubleshooting](/help/troubleshooting).
 
 ## Habits that help
 

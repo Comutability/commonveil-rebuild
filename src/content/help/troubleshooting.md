@@ -11,7 +11,7 @@ Your device is waiting for the keys to open a message. Wait a moment, or reload 
 
 ## "Waiting for your latest keys"
 
-This device has missed a change to your keys, for example after you removed another device. Open Commonveil on one of your other devices: it sends the latest keys over by itself. If that's not possible, remove this device and set it up again with your recovery phrase.
+This device is approved, but your keys changed since, for example because you removed another device. Your other devices send the update automatically the next time one of them opens Commonveil. If that's not possible, remove this device and set it up again with your recovery phrase.
 
 ## "Sent before you could read here"
 
@@ -43,7 +43,7 @@ They're delivered by a task that runs every few minutes, so they can arrive up t
 
 ## I forgot my passcode
 
-The passcode can't be reset. On the lock screen, choose to forget this browser's keys, then set the device up again from another device or with your recovery phrase.
+There's no way to recover a passcode: Commonveil never had it. On the lock screen choose **Forgot your passcode?** and type **REMOVE**. This browser is removed from your account and its keys wiped; set it up again by linking it from another device or with your recovery phrase. Your account and messages stay as they are on your other devices.
 
 ## I lost my phone
 
