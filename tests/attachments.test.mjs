@@ -2,10 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { cleanAttachment, openFile, PART_PLAIN, previewKind, sealFile } from "../src/lib/secure/attachments.js";
 
+const randomBytes = (n) => { const b = new Uint8Array(n); for (let i = 0; i < n; i += 65536) crypto.getRandomValues(b.subarray(i, Math.min(n, i + 65536))); return b; };
 const fileOf = (bytes, name = "a.bin", type = "application/octet-stream") => new File([bytes], name, { type });
 
 test("a file seals into parts and opens back to the same bytes", async () => {
-  const bytes = crypto.getRandomValues(new Uint8Array(PART_PLAIN + 1234));
+  const bytes = randomBytes(PART_PLAIN + 1234);
   const { meta, parts } = await sealFile(fileOf(bytes));
   assert.equal(parts.length, 2);
   assert.equal(meta.parts, 2);
@@ -15,7 +16,7 @@ test("a file seals into parts and opens back to the same bytes", async () => {
 });
 
 test("swapped, altered or missing parts are refused", async () => {
-  const bytes = crypto.getRandomValues(new Uint8Array(PART_PLAIN * 2 + 10));
+  const bytes = randomBytes(PART_PLAIN * 2 + 10);
   const { meta, parts } = await sealFile(fileOf(bytes));
   await assert.rejects(openFile(meta, [parts[1], parts[0], parts[2]]), /integrity/);
   await assert.rejects(openFile(meta, parts.slice(0, 2)), /missing/);
