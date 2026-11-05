@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import Shell, { NavButton } from "@/components/shell/Shell";
 import ChannelSidebar from "@/components/servers/ChannelSidebar";
 import ChannelChat, { ThreadView } from "@/components/servers/ChannelChat";
+import { usePresenceRoom } from "@/lib/secure/PresenceContext";
 import ForumView from "@/components/servers/ForumView";
 import TicketsView from "@/components/servers/TicketsView";
 import VoiceView from "@/components/servers/VoiceView";
@@ -24,6 +25,7 @@ function Centered({ children }) {
 /** A server: its channels on the left, the open channel in the middle. */
 export default function ServerView() {
   const { serverId, channelId, threadId } = useParams();
+  usePresenceRoom("s", serverId);
   const navigate = useNavigate();
   const { servers, loaded, prefs, permsFor, loadState } = useServers();
   const e = servers[serverId];

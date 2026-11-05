@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { EyeOff, Loader2 } from "lucide-react";
 import { useServers } from "@/lib/secure/ServerContext";
 import Avatar from "@/components/chat/Avatar";
+import { usePresence } from "@/lib/secure/PresenceContext";
 import MemberCard from "./MemberCard";
 
 /**
@@ -16,6 +17,7 @@ export default function MemberList({ serverId, className = "" }) {
   const [error, setError] = useState("");
   const [card, setCard] = useState(null);
   const [busy, setBusy] = useState(false);
+  const presence = usePresence();
 
   useEffect(() => {
     let alive = true;
@@ -76,7 +78,16 @@ export default function MemberList({ serverId, className = "" }) {
               return (
                 <li key={m.user_id}>
                   <button type="button" onClick={() => setCard(m.user_id)} className="panel-item">
-                    <Avatar id={m.user_id} name={memberName(serverId, m.user_id)} emoji={p?.avatar_emoji} accent={p?.accent_color} size="h-8 w-8" />
+                    <span className="relative shrink-0">
+                      <Avatar id={m.user_id} name={memberName(serverId, m.user_id)} emoji={p?.avatar_emoji} accent={p?.accent_color} size="h-8 w-8" />
+                      {presence.statusIn("s", serverId, m.user_id) && (
+                        <span
+                          className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[hsl(var(--panel))] ${presence.statusIn("s", serverId, m.user_id) === "online" ? "bg-emerald-500" : "bg-amber-400"}`}
+                          title={presence.statusIn("s", serverId, m.user_id) === "online" ? "Online" : "Away"}
+                          aria-label={presence.statusIn("s", serverId, m.user_id) === "online" ? "Online" : "Away"}
+                        />
+                      )}
+                    </span>
                     <span className="min-w-0 text-left">
                       <span className="block truncate font-medium" style={color ? { color } : undefined}>{memberName(serverId, m.user_id)}</span>
                       {m.timeout_until && <span className="block text-xs text-muted-foreground">Timed out</span>}

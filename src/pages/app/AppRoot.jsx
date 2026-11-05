@@ -7,6 +7,7 @@ import { SecureProvider, useSecure } from "@/lib/secure/SecureContext";
 import { ChatProvider } from "@/lib/secure/ChatContext";
 import { ServerProvider } from "@/lib/secure/ServerContext";
 import { VoiceProvider } from "@/lib/voice/VoiceContext";
+import { PresenceProvider } from "@/lib/secure/PresenceContext";
 import { LogoMark } from "@/components/site/Logo";
 import { FullScreenLoading } from "@/components/site/bits";
 import LockScreen from "@/components/app/LockScreen";
@@ -102,6 +103,7 @@ function Gate() {
     <ChatProvider>
       <ServerProvider>
         <VoiceProvider>
+         <PresenceProvider>
           <div className="flex h-[100dvh] flex-col overflow-hidden">
             <ResetRequested />
             <QuickSwitcher />
@@ -109,6 +111,7 @@ function Gate() {
               <Outlet />
             </div>
           </div>
+         </PresenceProvider>
         </VoiceProvider>
       </ServerProvider>
     </ChatProvider>
