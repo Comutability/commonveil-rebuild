@@ -12,6 +12,7 @@ import {
   LogOut,
   Shield,
   ShieldAlert,
+  Flag,
   Smile,
   Sparkles,
   Trash2,
@@ -42,6 +43,7 @@ import ChannelSettings from "@/components/settings/ChannelSettings";
 import { ALL_TAGS, tagLabel } from "./Discover";
 import { EMOJI_LIMITS, EMOJI_NAME_RE, imageForSet, nameFromFile, newEmojiId } from "@/lib/customEmoji";
 import { MENTION_LIMITS } from "@/lib/secure/automod";
+import { CaseLog, ModerationRules, ReportsQueue } from "@/components/settings/ModerationSettings";
 
 function useRun() {
   const [state, setState] = useState({ busy: false, msg: "", error: "" });
@@ -266,6 +268,7 @@ function Safety({ sid }) {
         <ToggleRow label="Pause joining" help="Nobody new can join, by invite or from Discover." checked={st.joins_paused} disabled={state.busy} onChange={(v) => set({ joins_paused: v })} />
       </SettingsGroup>
       <Status state={state} />
+      <ModerationRules sid={sid} />
       <AutoMod sid={sid} />
     </>
   );
@@ -370,6 +373,15 @@ function AutoMod({ sid }) {
       </div>
       <Status state={state} />
     </SettingsGroup>
+  );
+}
+
+function CasesPage({ sid }) {
+  return (
+    <>
+      <SettingsTitle intro="Warnings, notes, and every timeout, kick, ban and purge, by people or by the server's own rules.">Cases</SettingsTitle>
+      <CaseLog sid={sid} />
+    </>
   );
 }
 
@@ -641,6 +653,16 @@ const ACTIONS = {
   server_emoji: "changed the emoji",
   server_stickers: "changed the stickers",
   server_automod: "changed AutoMod",
+  member_warn: "warned",
+  report_sent: "reported",
+  report_resolved: "closed a report about",
+  report_dismissed: "dismissed a report about",
+  report_escalated: "sent a report to Commonveil about",
+  case_pardon: "pardoned a warning for",
+  messages_purge: "deleted recent messages from",
+  mod_policy: "changed the moderation rules",
+  raid_lockdown: "paused joining (raid protection)",
+  staff_quarantine: "took away roles (staff limits) from",
   thread_lock: "locked a thread",
   thread_unlock: "unlocked a thread",
   event_create: "scheduled an event",
@@ -780,6 +802,7 @@ export default function ServerSettings() {
     bans: can(serverId, P.BAN_MEMBERS),
     audit: can(serverId, P.VIEW_AUDIT_LOG),
     mod: can(serverId, P.KICK_MEMBERS) || can(serverId, P.BAN_MEMBERS) || can(serverId, P.TIMEOUT_MEMBERS) || can(serverId, P.MANAGE_ROLES),
+    reports: can(serverId, P.KICK_MEMBERS) || can(serverId, P.BAN_MEMBERS) || can(serverId, P.TIMEOUT_MEMBERS) || can(serverId, P.MANAGE_MESSAGES),
   }), [can, serverId]);
 
   if (!loaded || (e && !e.roles)) {
@@ -802,6 +825,8 @@ export default function ServerSettings() {
     safety: perms.server && Safety,
     privacy: Privacy,
     bans: perms.bans && Bans,
+    reports: perms.reports && ReportsQueue,
+    cases: perms.reports && CasesPage,
     audit: perms.audit && AuditLog,
     leave: DangerZone,
   };
@@ -832,9 +857,11 @@ export default function ServerSettings() {
         { id: "safety", label: "Safety", icon: ShieldAlert },
       ],
     },
-    (perms.mod || perms.bans || perms.audit) && {
+    (perms.mod || perms.bans || perms.audit || perms.reports) && {
       label: "Moderation",
       items: [
+        sections.reports && { id: "reports", label: "Reports", icon: Flag },
+        sections.cases && { id: "cases", label: "Cases", icon: ListChecks },
         sections.members && { id: "members", label: "Members", icon: Users },
         sections.bans && { id: "bans", label: "Bans", icon: Ban },
         sections.audit && { id: "audit", label: "Audit log", icon: ListChecks },
