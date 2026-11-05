@@ -28,3 +28,12 @@ test("emoji sets drop bad entries; messages accept custom reactions and stickers
   assert.equal(sticker.sticker, "abcd1234");
   assert.equal(serverMessageContent({ type: "text", text: "", sticker: "<img>" }, "message"), null);
 });
+
+test("AutoMod: wildcard rules can't be made to hang on a crafted message", () => {
+  const rules = cleanAutomod({ enabled: true, words: ["f*u*c*k*e*r", "a*a*a*a*a*b"] });
+  const t0 = Date.now();
+  assert.equal(automodReason(rules, "f" + "u".repeat(3990)), null);
+  assert.equal(automodReason(rules, "a".repeat(3999)), null);
+  assert.ok(Date.now() - t0 < 1500, `took ${Date.now() - t0} ms`);
+  assert.ok(automodReason(rules, "you fuuucker"));
+});

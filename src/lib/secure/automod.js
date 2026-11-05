@@ -22,18 +22,56 @@ export function cleanAutomod(payload) {
   };
 }
 
-const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/** A word list entry as a pattern: whole words, with * standing for any letters. */
-function wordPattern(w) {
-  const body = w.split("*").map(escape).join("[\\p{L}\\p{N}]*");
-  return new RegExp(`(^|[^\\p{L}\\p{N}])${body}($|[^\\p{L}\\p{N}])`, "iu");
+/**
+ * Glob match of one word against one pattern word, where * stands for any letters. The classic
+ * two-pointer method: time grows with the lengths multiplied, never exponentially, so no rule
+ * and no message can make it hang.
+ */
+function globWord(pattern, word) {
+  let p = 0;
+  let w = 0;
+  let star = -1;
+  let mark = 0;
+  while (w < word.length) {
+    if (p < pattern.length && pattern[p] === word[w]) {
+      p += 1;
+      w += 1;
+    } else if (p < pattern.length && pattern[p] === "*") {
+      star = p;
+      mark = w;
+      p += 1;
+    } else if (star !== -1) {
+      p = star + 1;
+      mark += 1;
+      w = mark;
+    } else {
+      return false;
+    }
+  }
+  while (p < pattern.length && pattern[p] === "*") p += 1;
+  return p === pattern.length;
 }
+
+const WORD_RE = /[\p{L}\p{N}]+/gu;
+const wordsOf = (text) => (String(text).slice(0, 8000).toLowerCase().match(WORD_RE) || []).map((w) => w.slice(0, 200));
 
 const cache = new WeakMap();
 function compiled(rules) {
-  if (!cache.has(rules)) cache.set(rules, rules.words.map(wordPattern));
+  if (!cache.has(rules)) cache.set(rules, rules.words.map((r) => r.split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}*]+/gu, "")).filter(Boolean)));
   return cache.get(rules);
+}
+
+/** Does any rule (a word, or several words in a row) appear in these words? */
+function hitsWords(rules, words) {
+  for (const seq of compiled(rules)) {
+    if (!seq.length) continue;
+    for (let i = 0; i + seq.length <= words.length; i += 1) {
+      let ok = true;
+      for (let j = 0; j < seq.length && ok; j += 1) ok = globWord(seq[j], words[i + j]);
+      if (ok) return true;
+    }
+  }
+  return false;
 }
 
 const LINK_RE = /\bhttps?:\/\/|\bwww\.[a-z0-9-]+\.[a-z]/i;
@@ -46,7 +84,7 @@ const INVITE_RE = /\b(?:discord(?:app)?\.(?:gg|com\/invite)|commonveil\.[a-z]+\/
 export function automodReason(rules, text, mentions = null) {
   if (!rules?.enabled) return null;
   const t = String(text || "");
-  if (rules.words.length && compiled(rules).some((re) => re.test(t))) return "It uses a word this server's AutoMod blocks.";
+  if (rules.words.length && hitsWords(rules, wordsOf(t))) return "It uses a word this server's AutoMod blocks.";
   if (rules.block_invites && INVITE_RE.test(t)) return "Invites to other servers aren't allowed here.";
   if (rules.block_links && LINK_RE.test(t)) return "Links aren't allowed here.";
   if (rules.mention_limit && mentions) {
