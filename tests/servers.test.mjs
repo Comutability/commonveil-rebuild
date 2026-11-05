@@ -663,6 +663,8 @@ test("files: parts are stored as ciphertext for members who can post, and links 
   const part = (who, extra = {}) => signed(who, "upload_part", { scope: "server", server_id: sid, channel_id: general.id, msg_id: msgId, part: 0, parts: 1, data, ...extra });
   const { file_id } = await bob.ok("files", await part(bob));
   await carol.fails("files", await part(carol));
+  // A full-size part (bigger than other functions accept) goes through.
+  await bob.ok("files", await part(bob, { data: toB64(new Uint8Array(768 * 1024).fill(7)), parts: 2 }));
   await bob.fails("files", await part(bob, { parts: 99 }), "BAD_FIELD");
   await bob.fails("files", await part(bob, { data: "not base64!" }), "BAD_FIELD");
   // No message with that id yet: no link, even for a member.
