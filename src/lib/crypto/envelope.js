@@ -31,7 +31,7 @@ export class EnvelopeError extends Error {
 }
 
 function checkScope(scope) {
-  if (!scope || (scope.kind !== "message" && scope.kind !== "title")) {
+  if (!scope || (scope.kind !== "message" && scope.kind !== "title" && scope.kind !== "report")) {
     throw new EnvelopeError("BAD_SCOPE", "Unknown item kind");
   }
   for (const name of ["conversation_id", "item_id", "sender_id", "device_id"]) {

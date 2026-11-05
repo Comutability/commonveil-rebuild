@@ -483,6 +483,42 @@ export async function buildPayloadMessage({ userId, device, conversation, chains
   return buildMessageBody({ userId, device, conversation, chains, payload, keyring, itemId });
 }
 
+// ---------- reports to a server's moderators ----------
+
+export const REPORT_REASONS = Object.freeze(["spam", "harassment", "hate", "sexual", "violence", "self_harm", "scam", "illegal", "other"]);
+
+/** A report's content, checked field by field. */
+export function cleanReport(p, serverId) {
+  if (!p || typeof p !== "object" || p.type !== "report" || p.server_id !== serverId) return null;
+  if (!REPORT_REASONS.includes(p.reason) || !isUserish(p.target_id)) return null;
+  const s = (v, max) => (typeof v === "string" ? v.slice(0, max) : "");
+  const quote = p.quote && typeof p.quote === "object" && typeof p.quote.text === "string"
+    ? { text: p.quote.text.slice(0, MAX_MESSAGE_CHARS), author_id: isUserish(p.quote.author_id) ? p.quote.author_id : "", sent_at: s(p.quote.sent_at, 40) }
+    : null;
+  return {
+    type: "report", server_id: serverId, target_id: p.target_id, reason: p.reason, note: s(p.note, 1000),
+    channel_id: isUserish(p.channel_id) ? p.channel_id : "", msg_id: isItemId(p.msg_id) ? p.msg_id : "", quote,
+  };
+}
+const isUserish = (v) => typeof v === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(v);
+
+/**
+ * A report sealed to exactly these people (the reporter and the moderators), with each one's
+ * current account key, like a group message: the service can't read it.
+ */
+export async function buildReport({ userId, device, serverId, recipients, chains, keyring = null, payload }) {
+  const content = cleanReport(payload, serverId);
+  if (!content) throw new Error("That report isn't complete.");
+  const item = await buildItem({ kind: "report", userId, device, conversation: { id: serverId, member_ids: recipients }, chains, payload: content, keyring });
+  return { item_id: item.itemId, envelope: item.envelope, signature: item.signature, device_id: device.device_id, sent_at: item.sentAt };
+}
+
+/** Open a report row from the moderation function. */
+export async function openReport({ row, userId, keyring, senderChain, senderDevices }) {
+  const item = { msg_id: row.report_id, conversation_id: row.server_id, sender_id: row.reporter_id, device_id: row.device_id, envelope: row.envelope, signature: row.signature, sent_at: row.sent_at };
+  return openItem({ kind: "report", item, userId, keyring, senderChain, senderDevices, reportServerId: row.server_id });
+}
+
 /** New text for one of your own messages. Everyone sees that it was edited. */
 export async function buildEdit({ userId, device, conversation, chains, keyring = null, target, text }) {
   if (!isItemId(target)) throw new Error("That message can't be edited.");
@@ -562,7 +598,7 @@ export function sentAfterRemoval(chain, certVersion, sentAt) {
  * minCertVersion: the oldest key version whose device certificates count (for your own
  * account, the first version in your keyring).
  */
-export async function openItem({ kind, item, userId, keyring, senderChain, senderDevices, minCertVersion = 1 }) {
+export async function openItem({ kind, item, userId, keyring, senderChain, senderDevices, minCertVersion = 1, reportServerId = null }) {
   if (item.deleted || !item.envelope) return { status: "deleted" };
   const itemId = kind === "title" ? item.item_id : item.msg_id;
   const conversationId = item.conversation_id;
@@ -597,6 +633,11 @@ export async function openItem({ kind, item, userId, keyring, senderChain, sende
   if (kind === "title") {
     if (typeof payload?.title !== "string") return { status: "locked", code: "BAD_PAYLOAD", message: "Unrecognised content." };
     return { ...base, text: payload.title.slice(0, 80) };
+  }
+  if (kind === "report") {
+    const report = cleanReport(payload, reportServerId);
+    // A report is about the person it says it's about: the service can't relabel it.
+    return report ? { ...base, content: report, text: report.note } : { status: "locked", code: "BAD_PAYLOAD", message: "Unrecognised report." };
   }
   const content = messageContent(payload);
   if (!content) return { status: "locked", code: "BAD_PAYLOAD", message: "This message needs a newer version of Commonveil." };
