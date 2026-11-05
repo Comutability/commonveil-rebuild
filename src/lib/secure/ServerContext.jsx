@@ -1234,9 +1234,16 @@ export function ServerProvider({ children }) {
     return null;
   }, [userId, device, keyring, chainsFor, loadPeers, modCall]);
 
+  /** Names for people a moderator sees in reports and cases, who may not be in the member list. */
+  const learnNames = useCallback((sid, ids) => {
+    const known = memberListsRef.current[sid]?.profiles || {};
+    for (const uid of [...new Set(ids)].filter((u) => u && u !== "system" && !known[u]).slice(0, 25)) memberCard(sid, uid).catch(() => {});
+  }, [memberCard]);
+
   /** Reports you can read here, opened on this device. */
   const loadReports = useCallback(async (sid) => {
     const { reports, moderator } = await callFn("moderation", { action: "reports", server_id: sid });
+    learnNames(sid, reports.flatMap((r) => [r.reporter_id, r.target_id, r.handled_by]));
     await loadPeers([...new Set(reports.map((r) => r.reporter_id))].filter((u) => u !== userId)).catch(() => {});
     const out = [];
     for (const r of reports) {
@@ -1244,7 +1251,7 @@ export function ServerProvider({ children }) {
       out.push({ ...r, opened });
     }
     return { reports: out, moderator };
-  }, [userId, keyring, chainOf, devicesOf, loadPeers]);
+  }, [userId, keyring, chainOf, devicesOf, loadPeers, learnNames]);
 
   const caseItem = useCallback(async (sid, text) => (text && text.trim() ? makeItem(sid, "case", { reason: text.trim().slice(0, 1000) }) : null), [makeItem]);
 
@@ -1259,13 +1266,14 @@ export function ServerProvider({ children }) {
   /** Cases, with their reasons opened here. */
   const loadCases = useCallback(async (sid, uid = null) => {
     const res = await callFn("moderation", { action: "cases", server_id: sid, ...(uid ? { user_id: uid } : {}) });
+    learnNames(sid, res.cases.flatMap((c) => [c.actor_id, c.target_id]));
     const out = [];
     for (const c of res.cases) {
       const r = c.reason ? await openItemOf(sid, "case", c.reason) : null;
       out.push({ ...c, reasonText: r && (r.status === "ok" || r.status === "unverified") ? r.content.reason : "" });
     }
     return { cases: out, moderator: res.moderator };
-  }, [openItemOf]);
+  }, [openItemOf, learnNames]);
 
   const banMember = useCallback(async (sid, uid, { deleteSeconds = 0, reason = "", minutes = 0 } = {}) => {
     const payload = { user_id: uid, delete_seconds: deleteSeconds, minutes };
