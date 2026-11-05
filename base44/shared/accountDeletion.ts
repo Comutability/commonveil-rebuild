@@ -123,6 +123,8 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
     if (!(await eraseServerTraces(sr, userId, deadline, new Date()))) throw new OutOfTime("deletion paused");
     // 2. Everything else the account sent or is named in.
     await blankAndDeleteAll(sr, "Message", { sender_id: userId }, BLANK.Message, deadline);
+    // Messages they'd scheduled, and check-ins, never go out.
+    await blankAndDeleteAll(sr, "ScheduledMessage", { sender_id: userId }, { envelope: "", signature: "", msg_id: "", recipient_ids: [], deliver_at: "" }, deadline);
     await blankAndDeleteAll(sr, "Block", { user_id: userId }, BLANK.Block, deadline);
     await blankAndDeleteAll(sr, "Block", { blocked_user_id: userId }, BLANK.Block, deadline);
     // Reports this account made go. Reports other people made about it stay, so a deletion
