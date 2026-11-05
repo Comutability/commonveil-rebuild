@@ -26,7 +26,7 @@ import { ErrorNote } from "@/components/site/bits";
 import { callFn } from "@/lib/api";
 import { useServers } from "@/lib/secure/ServerContext";
 import { useSecure } from "@/lib/secure/SecureContext";
-import { P, has } from "@/lib/secure/permissions";
+import { P } from "@/lib/secure/permissions";
 import { stamp } from "@/components/chat/MessageRow";
 import Avatar from "@/components/chat/Avatar";
 import ServerIcon from "@/components/shell/ServerIcon";
