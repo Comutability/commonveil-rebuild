@@ -254,7 +254,7 @@ export default function MessageRow({
                 </DropdownMenuItem>
               )}
               {readableNow && (
-                <DropdownMenuItem onSelect={() => navigator.clipboard?.writeText(row.text).catch(() => {})}><Copy className="mr-2 h-4 w-4" aria-hidden="true" /> Copy text</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => Promise.resolve(navigator.clipboard?.writeText(row.text)).catch(() => {})}><Copy className="mr-2 h-4 w-4" aria-hidden="true" /> Copy text</DropdownMenuItem>
               )}
               {can.delete && (
                 <>
