@@ -6,8 +6,10 @@
 //      no profiles, nothing anyone sends you.
 //   2. Shows push notifications that say only that there's something new. A push carries its kind
 //      and a one-time code, nothing else; tapping it opens the app, which asks (signed in) where to go.
-const SHELL = "cv-shell-v1";
-const ASSETS = "cv-assets-v1";
+// Bumping these names is also what tells every browser there's a new version to fetch: the file's
+// bytes change, so a new worker installs, and the old kept copies are cleared when it takes over.
+const SHELL = "cv-shell-v2";
+const ASSETS = "cv-assets-v2";
 const MAX_ASSETS = 300;
 
 self.addEventListener("install", (event) => {

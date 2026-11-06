@@ -17,6 +17,8 @@ function workerUrl() {
 
 const listeners = new Set();
 const state = { installPrompt: null, installed: false, updateReady: null };
+// Set once the page is on its way to reloading for a new version, so it only happens once.
+let reloading = false;
 const emit = () => listeners.forEach((fn) => fn({ ...state }));
 
 export const isStandalone = () =>
@@ -62,8 +64,10 @@ export function startApp() {
       // No service worker (a private window, or blocked): the site works as an ordinary page.
     }
   });
-  let reloading = false;
   navigator.serviceWorker?.addEventListener("controllerchange", () => {
+    // The new version has taken over: there's nothing left to offer.
+    state.updateReady = null;
+    emit();
     if (reloading || !state.updating) return;
     reloading = true;
     window.location.reload();
@@ -83,9 +87,20 @@ export async function install() {
 
 /** Switch to the new version that's waiting. */
 export function applyUpdate() {
-  if (!state.updateReady) return;
+  const waiting = state.updateReady;
+  if (!waiting) return;
   state.updating = true;
-  state.updateReady.postMessage({ type: "skip-waiting" });
+  try {
+    waiting.postMessage({ type: "skip-waiting" });
+  } catch {
+    // An older version of the service worker may not listen for this: the reload below still applies it.
+  }
+  // Taking over is immediate (the change of controller reloads the page). If it doesn't, a worker
+  // left over from an older version is standing in the way: a reload lets the waiting one take over
+  // as this page goes away, which is how browsers apply a queued update.
+  window.setTimeout(() => {
+    if (!reloading) window.location.reload();
+  }, 1200);
 }
 
 /** { installPrompt, installed, updateReady } */
