@@ -429,6 +429,10 @@ export default function Admin() {
       {SELF_HOSTED && <UpdateBanner onOpen={() => setTab("updates")} />}
       <main className="mx-auto w-full max-w-5xl px-4 py-8">
         <h1 className="text-3xl font-semibold">Admin</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {user.site_owner ? "You own this site." : "You're site staff."}
+          {user.email ? ` Signed in as ${user.email}.` : ""}
+        </p>
         <Tabs value={tab} onValueChange={setTab} className="mt-6">
           <TabsList className="h-auto flex-wrap justify-start">
             <TabsTrigger value="reports"><Flag className="mr-1.5 h-4 w-4" aria-hidden="true" /> Reports</TabsTrigger>

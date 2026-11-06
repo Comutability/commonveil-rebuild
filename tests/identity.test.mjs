@@ -224,3 +224,11 @@ test("deleting an account removes everything it signs in with", async () => {
     assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE user_id = ?`).get(acct.user.id).n, 0, table);
   }
 });
+
+test("nobody can make themselves an admin or the site's owner", async () => {
+  const acct = await ok("register", { username: "quin", password: PW });
+  const r = await http(site, "/api/entities/User/update", { method: "POST", body: { id: acct.user.id, data: { role: "admin", site_owner: true } }, token: acct.access_token });
+  assert.equal(r.status, 403);
+  const user = await site.app.store.entities.User.get(acct.user.id);
+  assert.deepEqual([user.role, Boolean(user.site_owner)], ["user", false]);
+});
