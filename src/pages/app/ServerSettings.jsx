@@ -39,6 +39,7 @@ import MemberCard from "@/components/servers/MemberCard";
 import NicknameDialog from "@/components/servers/NicknameDialog";
 import ConfirmDialog from "@/components/app/ConfirmDialog";
 import SettingsLayout, { ChoiceList, SettingsGroup, SettingsTitle, useCloseSettings } from "@/components/settings/SettingsLayout";
+import ServerPictures from "@/components/settings/ServerPictures";
 import RolesSettings from "@/components/settings/RolesSettings";
 import ChannelSettings from "@/components/settings/ChannelSettings";
 import { ALL_TAGS, tagLabel } from "./Discover";
@@ -104,16 +105,17 @@ function Overview({ sid }) {
   const isDefault = servers[sid]?.server?.is_default;
   return (
     <>
-      <SettingsTitle intro="The name, description, icon, banner and traits members see. They're encrypted with the server's keys: Commonveil can't read them." help="create-a-server">Overview</SettingsTitle>
+      <SettingsTitle intro="The picture, banner, name, description and traits members see. All of it is encrypted with the server's keys: Commonveil can't read or see any of it." help="create-a-server">Overview</SettingsTitle>
       <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); run(() => setServerProfile(sid, form)); }}>
         <div className="flex items-center gap-5">
-          <ServerIcon look={form} size="h-20 w-20" rounded className="!text-2xl" />
+          <ServerIcon look={{ ...form, picture: look.picture }} size="h-20 w-20" rounded className="!text-2xl" />
           <div className="min-w-0 flex-1 space-y-1.5">
             <Label htmlFor="ov-icon">Icon</Label>
             <Input id="ov-icon" value={form.icon} onChange={(e) => setForm((f) => ({ ...f, icon: e.target.value.slice(0, 8) }))} placeholder="An emoji, or up to two letters" className="max-w-xs" />
-            <p className="text-xs text-muted-foreground">Icons are text, so showing one never fetches an image.</p>
+            <p className="text-xs text-muted-foreground">An emoji or letters, used when the server has no picture. Nothing is fetched to show it.</p>
           </div>
         </div>
+        <ServerPictures sid={sid} />
         <div className="space-y-1.5">
           <Label htmlFor="ov-name">Server name</Label>
           <Input id="ov-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} maxLength={100} required />

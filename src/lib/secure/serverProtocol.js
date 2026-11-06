@@ -27,6 +27,7 @@ import { cleanPoll, cleanVote } from "./polls.js";
 import { cleanAttachments } from "./attachments.js";
 import { cleanSet, isCustomReaction, EMOJI_ID_RE } from "../customEmoji.js";
 import { cleanAutomod } from "./automod.js";
+import { cleanPicture } from "./serverPictures.js";
 
 export { ChainKeys, historyChain, liveChain, channelChain, parseChainId };
 
@@ -183,6 +184,7 @@ export function itemContent(kind, payload) {
   if (kind === "rules") return { rules: Array.isArray(payload.rules) ? payload.rules.filter((r) => typeof r === "string" && r.trim()).slice(0, 25).map((r) => r.slice(0, 500)) : [], intro: s(payload.intro, 1000) };
   if (kind === "ban") return { reason: s(payload.reason, 500) };
   if (kind === "emoji" || kind === "stickers") return cleanSet(kind, payload);
+  if (kind === "icon" || kind === "banner") return cleanPicture(kind, payload);
   if (kind === "case") return { reason: s(payload.reason, 1000) };
   if (kind === "automod") return cleanAutomod(payload);
   if (kind === "event") {

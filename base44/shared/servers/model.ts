@@ -26,6 +26,8 @@ export const SERVER_LIMITS = Object.freeze({
   maxItemEnvelopeChars: 16 * 1024,
   /** Emoji and sticker sets carry small images, so their items can be bigger. */
   maxImageSetEnvelopeChars: 180 * 1024,
+  /** A server's picture or banner: shrunk so its envelope stays inside what one field holds. */
+  maxPictureEnvelopeChars: 19 * 1024,
   maxMessageEnvelopeChars: 24 * 1024,
   maxPreviewChars: 4096,
   auditRetentionChoices: [30, 90, 180],
@@ -90,7 +92,9 @@ export const serverOut = (s: any, { sets = true }: { sets?: boolean } = {}) => (
   public: s.discoverable || s.is_default ? { name: s.public_name || "", description: s.public_description || "", tags: s.public_tags || [], icon: s.public_icon || "", color: s.public_color || "" } : null,
   profile: itemOut(s, "profile"),
   rules: itemOut(s, "rules"),
-  ...(sets ? { emoji: itemOut(s, "emoji"), stickers: itemOut(s, "stickers") } : { sets_omitted: true }),
+  ...(sets
+    ? { emoji: itemOut(s, "emoji"), stickers: itemOut(s, "stickers"), icon: itemOut(s, "icon"), banner: itemOut(s, "banner") }
+    : { sets_omitted: true }),
   automod: itemOut(s, "automod"),
   onboarding: itemOut(s, "onboarding"),
   settings: {

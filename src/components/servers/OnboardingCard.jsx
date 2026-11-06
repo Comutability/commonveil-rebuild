@@ -11,7 +11,11 @@ import ServerIcon from "@/components/shell/ServerIcon";
 export default function OnboardingCard({ look, welcome, steps = [], rulesRequired = false, onOpenStep, onOpenRules, onDone, doneLabel = "Start exploring", preview = false }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card">
-      <div className="h-20 w-full" style={{ backgroundColor: look?.banner || "hsl(var(--accent))" }} aria-hidden="true" />
+      <div
+        className="h-20 w-full bg-cover bg-center"
+        style={look?.banner_image ? { backgroundImage: `url(${look.banner_image})` } : { backgroundColor: look?.banner || "hsl(var(--accent))" }}
+        aria-hidden="true"
+      />
       <div className="px-5 pb-5">
         <div className="-mt-8 flex items-end gap-3">
           <ServerIcon look={look} size="h-16 w-16" rounded className="!text-2xl" />

@@ -72,6 +72,44 @@
     "profile_signature": {
       "type": "string"
     },
+    "icon_envelope": {
+      "type": "string",
+      "description": "The server's picture, encrypted (server key), shrunk on the device that uploaded it. The service can't see it."
+    },
+    "icon_item_id": {
+      "type": "string"
+    },
+    "icon_sender_id": {
+      "type": "string"
+    },
+    "icon_device_id": {
+      "type": "string"
+    },
+    "icon_sent_at": {
+      "type": "string"
+    },
+    "icon_signature": {
+      "type": "string"
+    },
+    "banner_envelope": {
+      "type": "string",
+      "description": "The server's banner picture, encrypted (server key). The service can't see it."
+    },
+    "banner_item_id": {
+      "type": "string"
+    },
+    "banner_sender_id": {
+      "type": "string"
+    },
+    "banner_device_id": {
+      "type": "string"
+    },
+    "banner_sent_at": {
+      "type": "string"
+    },
+    "banner_signature": {
+      "type": "string"
+    },
     "rules_envelope": {
       "type": "string",
       "description": "Encrypted rules (server key). The service can't read it."

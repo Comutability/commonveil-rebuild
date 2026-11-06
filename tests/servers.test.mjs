@@ -745,6 +745,31 @@ test("the welcome a new member sees, and the server's traits, are encrypted serv
   assert.deepEqual(opened.content.steps, [{ label: "Introduce yourself", channel_id: general.id }]);
 });
 
+test("a server's picture and banner are encrypted items only staff can set, and stay small enough to store", async () => {
+  const { w, members: [alice, bob] } = await world("alice", "bobby");
+  const sid = await serverWith(alice, bob);
+  const state = await alice.server(sid);
+  const { keys } = await alice.keysOf(state);
+  const { chains, devices } = await alice.keysFor([alice.id]);
+  const img = `data:image/webp;base64,${"B".repeat(600)}`;
+
+  for (const slot of ["icon", "banner"]) {
+    const item = await buildServerItem({ kind: slot, serverId: sid, generations: state.generations, keys, userId: alice.id, device: alice.device, payload: { img } });
+    await alice.ok("servers", await signed(alice, "set_server_set", { server_id: sid, slot, item }));
+    await bob.fails("servers", await signed(bob, "set_server_set", { server_id: sid, slot, item }), "MISSING_PERMISSION");
+    const stored = JSON.stringify(w.rows("Server").find((s) => s.id === sid));
+    assert.equal(stored.includes("B".repeat(600)), false);
+    const after = await alice.server(sid);
+    const opened = await openServerItem({ kind: slot, item: after.server[slot], serverId: sid, keys, senderChain: chains.get(alice.id), senderDevices: devices.get(alice.id) });
+    assert.equal(opened.status, "ok");
+    assert.equal(opened.content.img, img);
+  }
+
+  // A picture that would overflow the field it's stored in is refused rather than saved broken.
+  const huge = await buildServerItem({ kind: "icon", serverId: sid, generations: state.generations, keys, userId: alice.id, device: alice.device, payload: { img: `data:image/webp;base64,${"B".repeat(20_000)}` } });
+  await alice.fails("servers", await signed(alice, "set_server_set", { server_id: sid, slot: "icon", item: huge }), "BAD_FIELD");
+});
+
 test("threads: replies hang off a text-channel message, stay out of the channel's list, and can be locked", async () => {
   const { w, members: [alice, bob] } = await world("alice", "bobby");
   const sid = await serverWith(alice, bob);
