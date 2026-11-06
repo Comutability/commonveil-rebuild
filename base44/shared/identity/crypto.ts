@@ -49,28 +49,57 @@ export async function hmac(secret: string, text: string): Promise<string> {
 
 // ---------- passwords ----------
 
-/** PBKDF2-SHA256, 600,000 rounds (OWASP's 2023 figure), 16-byte salt, 32-byte key. */
+/** PBKDF2-SHA256, 600,000 rounds of work (OWASP's 2023 figure), 16-byte salt, 32-byte key. */
 export const PASSWORD_ROUNDS = 600_000;
+/**
+ * One WebCrypto call refuses more than 100,000 rounds (Base44's functions throw NotSupportedError
+ * above that), so the rounds are spread over several calls, each one feeding the next. A hash
+ * made this way ends in "$2"; older single-call hashes are still checked where the runtime allows
+ * their round count.
+ */
+const ROUNDS_PER_CALL = 100_000;
+
+async function derive(material: Uint8Array, salt: Uint8Array, rounds: number): Promise<Uint8Array> {
+  const key = await subtle().importKey("raw", material, "PBKDF2", false, ["deriveBits"]);
+  return new Uint8Array(await subtle().deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: rounds }, key, 256));
+}
 
 async function pbkdf2(password: string, salt: Uint8Array, rounds: number): Promise<Uint8Array> {
-  const key = await subtle().importKey("raw", utf8(password.normalize("NFKC")), "PBKDF2", false, ["deriveBits"]);
-  return new Uint8Array(await subtle().deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: rounds }, key, 256));
+  const runs = Math.max(1, Math.ceil(rounds / ROUNDS_PER_CALL));
+  const each = Math.ceil(rounds / runs);
+  let material = utf8(String(password || "").normalize("NFKC"));
+  let out = material;
+  for (let i = 0; i < runs; i += 1) {
+    out = await derive(material, salt, each);
+    material = out;
+  }
+  return out;
 }
 
 export async function hashPassword(password: string, rounds = PASSWORD_ROUNDS): Promise<string> {
   const salt = new Uint8Array(16);
   globalThis.crypto.getRandomValues(salt);
-  return `pbkdf2-sha256$${rounds}$${b64url(salt)}$${b64url(await pbkdf2(password, salt, rounds))}`;
+  return `pbkdf2-sha256$${rounds}$${b64url(salt)}$${b64url(await pbkdf2(password, salt, rounds))}$2`;
 }
 
 export async function checkPassword(password: string, stored: string): Promise<boolean> {
-  const [kind, rounds, salt, want] = String(stored || "").split("$");
-  if (kind !== "pbkdf2-sha256" || !Number(rounds)) {
+  const [kind, rounds, salt, want, version] = String(stored || "").split("$");
+  const count = Number(rounds);
+  if (kind !== "pbkdf2-sha256" || !count) {
     // Spend the same time on a missing or unusable hash.
     await pbkdf2(String(password || ""), new Uint8Array(16), PASSWORD_ROUNDS);
     return false;
   }
-  const got = b64url(await pbkdf2(String(password || ""), fromB64url(salt), Number(rounds)));
+  let got: string;
+  try {
+    got =
+      version === "2"
+        ? b64url(await pbkdf2(String(password || ""), fromB64url(salt), count))
+        : b64url(await derive(utf8(String(password || "").normalize("NFKC")), fromB64url(salt), count));
+  } catch {
+    // A single-call hash with more rounds than this runtime allows: it can't be checked here.
+    return false;
+  }
   return sameString(got, want);
 }
 
