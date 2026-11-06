@@ -69,13 +69,40 @@ export async function createApp(config, options = {}) {
   updates.start();
   federation.start();
 
+  // A new account's username is its profile's, claimed the same way the app claims one.
+  auth.onRegistered = async (user, username) => {
+    const [actions, opts = {}] = functions.profile;
+    const r = await runAction(clientFor(user), JSON.stringify({ action: "claim_username", username }), actions, opts);
+    if (r.status !== 200) {
+      const data = await r.json().catch(() => ({}));
+      throw Object.assign(new Error(data.error || "That username isn't available."), { status: r.status, code: data.code });
+    }
+  };
+
+  // Sign-in (server/auth.mjs). `open` routes work signed out; `mine` need a session.
   const authRoutes = {
-    register: (b, ip) => auth.register(b, ip),
-    "verify-otp": (b) => auth.verifyOtp(b),
-    "resend-otp": (b) => auth.resendOtp(b.email),
-    login: (b, ip) => auth.login(b, ip),
-    "reset-request": (b) => auth.resetPasswordRequest(b.email),
-    reset: (b) => auth.resetPassword(b),
+    open: {
+      register: (b, ip) => auth.register(b, ip),
+      "verify-otp": (b) => auth.verifyOtp(b),
+      "resend-otp": (b) => auth.resendOtp(b.email),
+      login: (b, ip) => auth.login(b, ip),
+      "check-options": (b) => auth.checkPasskeyOptions(b),
+      check: (b, ip) => auth.checkDevice(b, ip),
+      "passkey-login-options": (b, ip) => auth.passkeyLoginOptions(b, ip),
+      "passkey-login": (b) => auth.passkeyLogin(b),
+      "recover-options": (b, ip) => auth.recoverOptions(b, ip),
+      recover: (b, ip) => auth.recover(b, ip),
+      "reset-request": (b) => auth.resetPasswordRequest(b.email),
+      reset: (b) => auth.resetPassword(b),
+    },
+    mine: {
+      identity: (b, s) => (b.action ? auth.identityAction(s, b) : auth.identity(s, b.device_name)),
+      approvals: (b, s) => (b.id ? auth.approve(s, b) : auth.approvals(s)),
+      "passkey-options": (b, s) => auth.passkeyRegisterOptions(s, b),
+      "passkey-add": (b, s) => auth.passkeyRegister(s, b),
+      "owner-challenge": (b, s) => auth.ownerChallenge(s),
+      owner: (b, s) => auth.setOwner(s, b),
+    },
   };
 
   async function handle(req, res) {
@@ -105,9 +132,13 @@ export async function createApp(config, options = {}) {
           auth.logout(bearer(req));
           return json(res, 200, { ok: true });
         }
-        if (req.method !== "POST" || !Object.hasOwn(authRoutes, what)) return json(res, 404, { error: "Not found", code: "NOT_FOUND" });
-        const body = JSON.parse((await readBody(req, 16 * 1024)) || "{}");
-        return json(res, 200, await authRoutes[what](body, ip));
+        if (req.method !== "POST" || !(Object.hasOwn(authRoutes.open, what) || Object.hasOwn(authRoutes.mine, what))) return json(res, 404, { error: "Not found", code: "NOT_FOUND" });
+        const body = JSON.parse((await readBody(req, 64 * 1024)) || "{}");
+        if (!body || typeof body !== "object" || Array.isArray(body)) return json(res, 400, { error: "Bad request.", code: "BAD_REQUEST" });
+        if (Object.hasOwn(authRoutes.open, what)) return json(res, 200, await authRoutes.open[what](body, ip));
+        const session = await auth.sessionFor(bearer(req));
+        if (!session) return json(res, 401, { error: "Please sign in again.", code: "SIGN_IN_REQUIRED" });
+        return json(res, 200, await authRoutes.mine[what](body, session));
       } catch (err) {
         const status = err instanceof AuthError ? err.status : err?.status === 413 ? 413 : err instanceof SyntaxError ? 400 : 500;
         if (status === 500) log.error?.("[auth]", err);

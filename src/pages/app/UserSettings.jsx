@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { Bell, ClipboardCheck, Database, Eye, KeyRound, LogOut, Palette, Shield, ShieldCheck, UserRound } from "lucide-react";
+import { Bell, ClipboardCheck, Database, Eye, Fingerprint, KeyRound, LogOut, Palette, Shield, ShieldCheck, UserRound } from "lucide-react";
+import SignInSettings from "./SignInSettings";
+import { SELF_HOSTED } from "@/api/base44Client";
 import PrivacyReport from "./PrivacyReport";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -343,6 +345,7 @@ const SECTIONS = {
   appearance: AppearanceSettings,
   notifications: NotificationSettings,
   data: DataSettings,
+  ...(SELF_HOSTED ? { "sign-in": SignInSettings } : {}),
 };
 
 export default function UserSettings() {
@@ -366,6 +369,7 @@ export default function UserSettings() {
         { id: "profile", label: "My profile", icon: UserRound },
         { id: "privacy", label: "Privacy and safety", icon: Eye },
         { id: "privacy-report", label: "Privacy report", icon: ClipboardCheck },
+        ...(SELF_HOSTED ? [{ id: "sign-in", label: "Sign-in and recovery", icon: Fingerprint }] : []),
         { id: "keys", label: "Devices and keys", icon: KeyRound },
         { id: "data", label: "Data and account", icon: Database },
       ],

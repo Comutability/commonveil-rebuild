@@ -31,6 +31,7 @@ export function loadConfig(env = process.env) {
     secret,
     siteName: env.SITE_NAME || "Commonveil",
     adminEmails: list(env.ADMIN_EMAILS),
+    adminUsernames: list(env.ADMIN_USERNAMES),
     defaultServerAdmins: list(env.DEFAULT_SERVER_ADMINS),
     openRegistration: bool(env.OPEN_REGISTRATION, true),
     smtpUrl: env.SMTP_URL || "",

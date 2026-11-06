@@ -144,12 +144,17 @@ export async function addMember(sr: any, server: any, user: any, { listed = fals
 
   const roleIds: string[] = [];
   let makeOwner = false;
-  if (server.is_default && adminEmails.length && user.email) {
-    const email = String(user.email).toLowerCase();
-    if (adminEmails.includes(email)) {
+  if (server.is_default && adminEmails.length) {
+    // Listed by email, or (on self-hosted sites, where accounts have no email) by username.
+    const names = new Set<string>();
+    if (user.email) names.add(String(user.email).toLowerCase());
+    const [profile] = await sr.entities.Profile.filter({ user_id: user.id }, "created_date", 1);
+    if (profile?.username_key) names.add(String(profile.username_key).toLowerCase());
+    const match = adminEmails.find((e: string) => names.has(e));
+    if (match) {
       const [admin] = await sr.entities.Role.filter({ server_id: server.id, template_key: "admin" }, "created_date", 1);
       if (admin) roleIds.push(admin.id);
-      if (!server.owner_id && email === adminEmails[0]) makeOwner = true;
+      if (!server.owner_id && match === adminEmails[0]) makeOwner = true;
     }
   }
   const created = await sr.entities.ServerMember.create({

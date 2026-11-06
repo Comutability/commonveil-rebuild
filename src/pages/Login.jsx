@@ -1,14 +1,15 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
+import { base44, SELF_HOSTED } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Lock, LogIn, Mail } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 import { safeReturnTo } from "@/lib/authReturnTo";
+import IdentityLogin from "@/pages/identity/IdentityLogin";
 
-export default function Login() {
+function EmailLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -74,4 +75,9 @@ export default function Login() {
       </p>
     </AuthLayout>
   );
+}
+
+/** Self-hosted sites use Commonveil Identity (usernames and passkeys); Base44 signs in by email. */
+export default function Login() {
+  return SELF_HOSTED ? <IdentityLogin /> : <EmailLogin />;
 }

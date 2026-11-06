@@ -8,6 +8,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { callFn } from "@/lib/api";
+import { SELF_HOSTED } from "@/api/base44Client";
+import { setOwnerKey } from "@/lib/identity/client";
 import * as P from "./protocol.js";
 import * as S from "./store.js";
 import { createDeviceKeys, defaultDeviceLabel, withDeviceKem } from "../crypto/device.js";
@@ -15,6 +17,15 @@ import { anchorChain, assertKeyringMatchesChain, compareWithPin, headDigest, lin
 import { latestKey, parseKeyring, serializeKeyring } from "../crypto/keyring.js";
 import { clearEnvelopeKeyCache } from "../crypto/envelope.js";
 import { IDLE_CHOICES, createLock, isSealedKeyring, openKeyringText, sealKeyringText, unlock as openLock } from "../crypto/lock.js";
+
+/**
+ * On a self-hosted site, the recovery phrase is also how you prove the account is yours (signing in
+ * on a new device, getting back in): record its owner key whenever the phrase is to hand.
+ */
+async function recordOwner(phrase) {
+  if (!SELF_HOSTED || !phrase) return;
+  await setOwnerKey(phrase).catch(() => {});
+}
 
 const SecureContext = createContext(null);
 
@@ -379,7 +390,7 @@ export function SecureProvider({ children }) {
     return res.profile;
   }, []);
 
-  // ---------- first device ----------
+    // ---------- first device ----------
 
   /** Step 1: make keys locally and return the phrase to show. Nothing is sent yet. */
   const beginCreateAccount = useCallback(async () => {
@@ -396,6 +407,7 @@ export function SecureProvider({ children }) {
     await callFn("keys", p.request);
     await setDevice(p.device);
     await setKeyring(p.keyring);
+    await recordOwner(p.phrase);
     pendingRef.current = null;
     await refresh();
   }, [setDevice, setKeyring, refresh]);
@@ -590,6 +602,7 @@ export function SecureProvider({ children }) {
       await callFn("keys", request);
       await setDevice(d);
       await setKeyring(recovered);
+      await recordOwner(phrase);
     };
     const existing = deviceRef.current;
     try {
@@ -693,6 +706,7 @@ export function SecureProvider({ children }) {
     if (!p || p.kind !== "phrase") throw new Error("Start again: the change was interrupted.");
     await callFn("keys", p.request);
     await setKeyring(p.keyring);
+    await recordOwner(p.phrase);
     pendingRef.current = null;
     await refresh();
   }, [setKeyring, refresh]);

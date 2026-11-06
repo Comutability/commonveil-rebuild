@@ -12,6 +12,7 @@ import { LogoMark } from "@/components/site/Logo";
 import { FullScreenLoading } from "@/components/site/bits";
 import LockScreen from "@/components/app/LockScreen";
 import { AddDevice, AwaitingKeys, BrowserRemoved, ResetWaiting, SetupKeys, Welcome, formatWhen } from "./Onboarding";
+import IdentityPrompts from "@/components/identity/IdentityPrompts";
 
 /** Shown on every screen while someone's asked to reset this account: any of its devices can stop it. */
 function ResetRequested() {
@@ -106,6 +107,7 @@ function Gate() {
          <PresenceProvider>
           <div className="flex h-[100dvh] flex-col overflow-hidden">
             <ResetRequested />
+            <IdentityPrompts />
             <QuickSwitcher />
             <div className="relative min-h-0 flex-1">
               <Outlet />

@@ -33,11 +33,10 @@ class Person {
     return signedRequest({ userId: this.id, device: this.device, action, payload });
   }
   async setup() {
-    const r = await http(this.site, "/api/auth/register", { method: "POST", body: { email: `${this.name}@example.com`, password: "correct horse battery staple" } });
+    const r = await http(this.site, "/api/auth/register", { method: "POST", body: { username: this.name, password: "correct horse battery staple" } });
     assert.equal(r.status, 200, JSON.stringify(r.data));
     this.token = r.data.access_token;
     this.id = r.data.user.id;
-    await this.ok("profile", { action: "claim_username", username: this.name });
     this.device = await createDeviceKeys(`${this.name} laptop`);
     const prepared = await prepareNewAccount({ userId: this.id, device: this.device });
     await this.ok("keys", prepared.request);

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
+import { base44, SELF_HOSTED } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,8 +9,9 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 import AuthLayout from "@/components/AuthLayout";
 import { toast } from "@/components/ui/use-toast";
 import { safeReturnTo } from "@/lib/authReturnTo";
+import IdentityRegister from "@/pages/identity/IdentityRegister";
 
-export default function Register() {
+function EmailRegister() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -138,4 +139,9 @@ export default function Register() {
       </form>
     </AuthLayout>
   );
+}
+
+/** Self-hosted sites use Commonveil Identity (usernames and passkeys); Base44 signs in by email. */
+export default function Register() {
+  return SELF_HOSTED ? <IdentityRegister /> : <EmailRegister />;
 }

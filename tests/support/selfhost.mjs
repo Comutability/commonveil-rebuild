@@ -13,7 +13,7 @@ const { Transport } = await import("../../server/federation/net.mjs");
 const quiet = { info() {}, warn() {}, error: (...a) => console.error(...a) };
 
 /** Start sites by name ("alpha.test", ...). Answers { sites: { name: { app, port, url } }, close() }. */
-export async function startSites(names, env = {}) {
+export async function startSites(names, env = {}, { prepare } = {}) {
   const ports = {};
   const portFor = (host) => {
     const h = host.replace(/:\d+$/, "");
@@ -29,6 +29,7 @@ export async function startSites(names, env = {}) {
   const sites = {};
   for (const name of names) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), `cv-${name}-`));
+    await prepare?.(name, dir);
     const config = loadConfig({ DATA_DIR: dir, SITE_URL: `http://${name}`, TRUST_PROXY: "true", FEDERATION_ALLOW_PRIVATE: "true", UPDATE_CHECK_HOURS: "1000", ...env });
     const app = await createApp(config, { log: quiet, transport });
     await new Promise((r) => app.server.listen(0, "127.0.0.1", r));
@@ -48,10 +49,10 @@ export async function startSites(names, env = {}) {
 }
 
 /** HTTP to a site, as if from a browser on it. */
-export async function http(site, p, { method = "GET", body, token, host } = {}) {
+export async function http(site, p, { method = "GET", body, token, host, ip } = {}) {
   const res = await fetch(`${site.url}${p}`, {
     method,
-    headers: { ...(body !== undefined ? { "Content-Type": "application/json" } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), "X-Forwarded-Host": host || site.config.host },
+    headers: { ...(body !== undefined ? { "Content-Type": "application/json" } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), "X-Forwarded-Host": host || site.config.host, "X-Forwarded-For": ip || `10.${(Math.random() * 250) | 0}.${(Math.random() * 250) | 0}.${(Math.random() * 250) | 0}` },
     body: body !== undefined ? JSON.stringify(body) : undefined,
     redirect: "manual",
   });
