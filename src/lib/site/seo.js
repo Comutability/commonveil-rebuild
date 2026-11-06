@@ -3,8 +3,10 @@
 // (sitemap.xml, in vite.config.js) and the self-hosted server (its HTML) all use this file, so
 // they always agree.
 //
-// Only the public site is indexed. The app, sign-in pages, search results, invites and people's
-// profiles never are: a profile is someone's, not ours to put in a search engine.
+// Everything that works without signing in is indexed. Everything behind sign-in (the app and
+// site admin) never is. Three public kinds of page are kept out too, because listing them would do
+// harm: invites (their address is the invite code), password reset links (one-time tokens), and
+// people's profiles (there's deliberately no directory of people, and a search engine would be one).
 
 export const SITE_NAME = "Commonveil";
 /** Where the site lives when nothing else says (the Base44 build). Self-hosted sites use their own. */
@@ -68,6 +70,30 @@ export const PAGES = Object.freeze([
     priority: "0.5",
   },
   {
+    path: "/login",
+    title: "Sign in",
+    description: "Sign in to Commonveil with your username and password or a passkey. New on this device? You'll confirm it's you once.",
+    priority: "0.5",
+  },
+  {
+    path: "/register",
+    title: "Create a free account",
+    description: "Join Commonveil with just a username and password. No email or phone number, and your messages are end-to-end encrypted from the start.",
+    priority: "0.7",
+  },
+  {
+    path: "/forgot-password",
+    title: "Can't sign in?",
+    description: "Forgotten your password or lost a device? Get back into Commonveil with a passkey, your recovery phrase or your private key.",
+    priority: "0.3",
+  },
+  {
+    path: "/search",
+    title: "Search the help and resources",
+    description: "Search Commonveil's Help Centre and resources. The search runs in your browser: what you type is never sent anywhere.",
+    priority: "0.3",
+  },
+  {
     path: "/security/report",
     title: "Report a security problem",
     description: "Found a security problem in Commonveil? How to tell us privately, and what happens next.",
@@ -78,8 +104,8 @@ export const PAGES = Object.freeze([
 /** Old addresses (guides, learning paths, the wiki and the blog, removed in 0.15.0), now the Help Centre. */
 export const MOVED = /^\/(blog|guides|paths|wiki)(\/[^/]+)?$|^\/saved$/;
 
-/** Paths that are never indexed: they're someone's, they're private, or they say nothing new. */
-const PRIVATE = [/^\/app(\/|$)/, /^\/admin(\/|$)/, /^\/login\/?$/, /^\/register\/?$/, /^\/forgot-password\/?$/, /^\/reset-password\/?$/, /^\/search\/?$/, /^\/invite\//, /^\/u\//];
+/** Never indexed: behind sign-in, or public but harmful to list (see the top of this file). */
+const PRIVATE = [/^\/app(\/|$)/, /^\/admin(\/|$)/, /^\/reset-password$/, /^\/invite\//, /^\/u\//];
 
 /** "/help/" and "/help" are the same page; only the first is kept as written. */
 export function normalPath(pathname) {
@@ -121,7 +147,7 @@ export function seoFor(pathname, { articles = [], siteUrl = DEFAULT_SITE_URL } =
   }
   if (MOVED.test(path)) return { path, url, title: fullTitle("Help Centre"), description: DEFAULT_DESCRIPTION, noindex: true, notFound: false, movedTo: "/help", ogType: "website", jsonLd: [] };
   if (PRIVATE.some((re) => re.test(path))) {
-    const title = /^\/(login|register|forgot-password|reset-password)$/.test(path) ? `${{ login: "Sign in", register: "Create an account", "forgot-password": "Can't sign in?", "reset-password": "Choose a new password" }[path.slice(1)]} | ${SITE_NAME}` : SITE_NAME;
+    const title = path === "/reset-password" ? `Choose a new password | ${SITE_NAME}` : SITE_NAME;
     return { path, url, title, description: DEFAULT_DESCRIPTION, noindex: true, notFound: false, ogType: "website", jsonLd: [] };
   }
   return { path, url, title: `Page not found | ${SITE_NAME}`, description: DEFAULT_DESCRIPTION, noindex: true, notFound: true, ogType: "website", jsonLd: [] };

@@ -1,7 +1,7 @@
 # Search engines and link previews
 
-The public site (home, Help Centre, security, privacy, terms, resources, releases) is built to be
-found and to preview well when shared. The app is never indexed.
+Every page that works without signing in is built to be found and to preview well when shared.
+Nothing that needs a sign-in is ever indexed.
 
 ## What each page says
 
@@ -12,9 +12,12 @@ found and to preview well when shared. The app is never indexed.
 - structured data (schema.org JSON-LD): Organization, WebSite and WebApplication on the home page,
   TechArticle for each help article, an ItemList of articles on the Help Centre, and breadcrumbs.
 
-Never indexed, and given no preview tags or structured data: `/app` and everything in it, `/admin`,
-sign-in pages, search results, invites and people's profiles (`/u/…`). A profile is someone's, not
-ours to put in a search engine. Unknown addresses say "noindex" too.
+The rule: every page you can open without signing in is indexed (including sign-in, sign-up,
+"Can't sign in?" and search); everything that needs a sign-in is not (`/app` and everything in it,
+`/admin`). Three kinds of address need no sign-in but are still kept out, with no preview tags or
+structured data, because each is private: invites (the code lets someone in), password-reset links
+(a one-time key) and people's profiles (`/u/…`: there's deliberately no directory of people, and a
+search engine would make one). Unknown addresses say "noindex" too.
 
 `tests/seo.test.mjs` checks all of that, including that no two pages share a title.
 
@@ -34,10 +37,10 @@ ours to put in a search engine. Unknown addresses say "noindex" too.
 ## sitemap.xml and robots.txt
 
 The build writes `sitemap.xml` (every public page and article). `public/robots.txt` points to it,
-keeps crawlers out of `/app` and `/admin`, and lets them read the sign-in pages only so they see
-their "noindex" (a blocked page can still be listed by its address alone). AI-training crawlers
-(GPTBot, ClaudeBot, Google-Extended, CCBot and others) are refused, as before; that doesn't affect
-search results.
+keeps crawlers out of `/app` and `/admin`, and lets them read invites, reset links and profiles
+only so they see their "noindex" (a blocked page can still be listed by its address alone).
+AI-training crawlers (GPTBot, ClaudeBot, Google-Extended, CCBot and others) are refused, as before;
+that doesn't affect search results.
 
 ## When the address changes
 

@@ -1,6 +1,6 @@
-# The public site may be indexed. The app may not be crawled at all. Sign-in pages, search
-# results, invites and people's profiles can be crawled only so that their "noindex" is seen:
-# a page blocked here can still be listed by its address alone.
+# Everything that works without signing in may be indexed. The app and site admin need sign-in
+# and may not be crawled at all. Invites, reset links and people's profiles can be crawled only so
+# that their "noindex" is seen: a page blocked here can still be listed by its address alone.
 User-agent: *
 Disallow: /app
 Disallow: /admin

@@ -1,6 +1,7 @@
 // What search engines and link previews are told (src/lib/site/seo.js), and how the self-hosted
-// server sends it (server/http.mjs): public pages are described and findable; the app, sign-in,
-// search, invites and people's profiles are never indexed; unknown pages are real 404s.
+// server sends it (server/http.mjs): everything that works without signing in is described and
+// findable, including sign-in itself; what needs sign-in, invites, reset links and people's profiles
+// are never indexed; unknown pages are real 404s.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -31,7 +32,7 @@ test("every public page has its own title and a description of a useful length",
 });
 
 test("private places are never indexed, and unknown pages are not found", () => {
-  for (const path of ["/app", "/app/c/123", "/app/settings/profile", "/admin", "/login", "/register", "/forgot-password", "/reset-password", "/search", "/invite/abc", "/u/ann"]) {
+  for (const path of ["/app", "/app/c/123", "/app/settings/profile", "/admin", "/reset-password", "/invite/abc", "/u/ann"]) {
     const m = seoFor(path, { articles });
     assert.equal(m.noindex, true, path);
     assert.equal(m.notFound, false, path);
@@ -45,7 +46,7 @@ test("the sitemap lists every public page and article, and nothing private", () 
   const xml = sitemapXml({ siteUrl: "https://chat.example.org", articles, lastmod: "2026-11-06" });
   for (const p of PAGES) assert.ok(xml.includes(`<loc>https://chat.example.org${p.path === "/" ? "/" : p.path}</loc>`), p.path);
   for (const a of articles) assert.ok(xml.includes(`<loc>https://chat.example.org/help/${a.slug}</loc>`), a.slug);
-  for (const bad of ["/app", "/login", "/u/", "/search", "/invite"]) assert.ok(!xml.includes(`example.org${bad}`), bad);
+  for (const bad of ["/app", "/admin", "/u/", "/reset-password", "/invite"]) assert.ok(!xml.includes(`example.org${bad}`), bad);
   assert.equal((xml.match(/<url>/g) || []).length, PAGES.length + articles.length);
 });
 
@@ -78,6 +79,11 @@ test("a self-hosted server sends each page with its own tags, real 404s and its 
     assert.ok(html.includes('content="https://chat.example.org/og-image.png"'));
     assert.equal((html.match(/<title>/g) || []).length, 1, "one title");
     assert.equal((html.match(/name="description"/g) || []).length, 1, "one description");
+
+    r = await get("/login");
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get("x-robots-tag"), null, "sign-in works without signing in, so it's findable");
+    assert.match(await r.text(), /<title>Sign in \| Commonveil<\/title>/);
 
     r = await get("/app/settings");
     assert.equal(r.status, 200);
