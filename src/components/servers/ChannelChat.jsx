@@ -238,6 +238,8 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
               onReport={!mine ? () => setReporting({ target: row.m.sender_id, message: { text: row.text, channelId: channel.id, msgId: row.m.msg_id, sentAt: row.m.sent_at } }) : undefined}
               onThread={threadsHere && row.m.kind === "message" && !row.m.deleted && (row.m.reply_count > 0 || has(perms, P.SEND_MESSAGES)) ? () => navigate(`/app/s/${serverId}/${channel.id}/${row.m.msg_id}`) : undefined}
               onReply={() => onReply?.(row)}
+              onResend={row.m.waiting ? (text) => act(async () => { await s.discardWaitingRow(row.m); await s.sendText(serverId, channel, text, { threadId: row.m.thread_id || "" }); }) : undefined}
+              onDiscard={row.m.waiting ? () => s.discardWaitingRow(row.m) : undefined}
               onEdit={() => onEdit?.(row)}
               onDelete={() => act(() => deleteMessage(serverId, row))}
               onPin={() => act(() => pinMessage(serverId, row, !row.m.pinned))}

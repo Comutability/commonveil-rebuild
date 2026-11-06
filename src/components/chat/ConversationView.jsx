@@ -131,10 +131,14 @@ function CallCard({ row, mine, name, onJoin, inThisCall }) {
   );
 }
 
-function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSend, onReply, onReact, onVote, onEdit, onDelete, onJump, onForward, onJoinCall, inCall }) {
+function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSend: canSendHere, onReply, onReact, onVote, onEdit, onDelete, onJump, onForward, onJoinCall, inCall, onResend, onDiscard }) {
   const [picker, setPicker] = useState(false);
   const { m, result } = row;
-  const base = `max-w-[min(34rem,85%)] rounded-2xl px-3.5 py-2 text-[0.95rem] leading-relaxed ${mine ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted"} ${highlighted ? "ring-2 ring-[hsl(var(--warning))] ring-offset-2 ring-offset-background" : ""}`;
+  // Written offline (docs/OFFLINE.md): still waiting, or it couldn't go out. Not reacted to or replied to until it's sent.
+  const waiting = Boolean(m.waiting);
+  const canSend = canSendHere && !waiting;
+  const lateBy = !waiting && m.sent_at ? Date.parse(m.created_date) - Date.parse(m.sent_at) : 0;
+  const base = `max-w-[min(34rem,85%)] rounded-2xl px-3.5 py-2 text-[0.95rem] leading-relaxed ${mine ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md bg-muted"}${waiting ? " opacity-70" : ""} ${highlighted ? "ring-2 ring-[hsl(var(--warning))] ring-offset-2 ring-offset-background" : ""}`;
   const readable = result && (result.status === "ok" || result.status === "unverified");
   let body;
   if (!result) body = <span className="opacity-70">Decrypting…</span>;
@@ -203,7 +207,7 @@ function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSen
             </PopoverContent>
           </Popover>
         )}
-        {(readable || (mine && result?.status === "locked")) && (
+        {!waiting && (readable || (mine && result?.status === "locked")) && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -259,8 +263,16 @@ function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSen
         )}
       </div>
       <Reactions reactions={row.reactions} mine={mine} nameOf={nameOf} disabled={!canSend} onToggle={(emoji, already) => onReact(emoji, already)} />
+      {waiting && (
+        <span className={`mt-1 flex flex-wrap items-center gap-2 text-[0.7rem] ${m.failed ? "text-destructive" : "text-muted-foreground"} ${mine ? "mr-1 justify-end" : "ml-1"}`} role="status">
+          {m.failed ? `Not sent. ${m.failed}` : m.held ? `Your site is holding it until ${m.held} can be reached` : "Waiting to send"}
+          {m.failed && readable && row.text && onResend && <button type="button" className="font-medium underline-offset-2 hover:underline" onClick={() => onResend(row.text)}>Send again</button>}
+          {onDiscard && <button type="button" className="font-medium underline-offset-2 hover:underline" onClick={onDiscard}>{m.failed ? "Delete" : "Don't send"}</button>}
+        </span>
+      )}
       <span className={`mt-1 flex items-center gap-1 text-[0.7rem] text-muted-foreground ${mine ? "mr-1" : "ml-1"}`}>
         {formatTime(m.created_date)}
+        {lateBy > 120_000 && <span title={`Written ${formatTime(m.sent_at)}, delivered ${formatTime(m.created_date)}`}>· written offline</span>}
         {row.edited && <span title={row.editedAt ? `Edited ${formatTime(row.editedAt)}` : "Edited"}>· edited</span>}
         {disappearsAt && (
           <span className="inline-flex items-center" title={`Disappears ${new Date(disappearsAt).toLocaleString("en-GB")}`}>
@@ -292,7 +304,7 @@ function TimerNote({ conversation, nameOf }) {
 
 export default function ConversationView({ conversation, onBack, onInfo }) {
   const {
-    threads, messages, opened, hasMore, openConversation, closeConversation, loadOlder, markRead, send, react, sendPoll, vote, editMessage, deleteMessage,
+    threads, messages, opened, hasMore, openConversation, closeConversation, loadOlder, markRead, send, resendWaiting, discardWaiting, react, sendPoll, vote, editMessage, deleteMessage,
     profiles, nameOf, handleOf, conversationName, newMembersOf, acknowledgeMembers,
   } = useChat();
   const { userId, peers, loadPeers } = useSecure();
@@ -602,6 +614,8 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
                 onJump={jumpTo}
                 onForward={() => setForwarding({ text: row.text, attachments: row.attachments })}
                 onJoinCall={() => joinCallFrom(row)}
+                onResend={(text) => resendWaiting(conversation, row.m, text).catch((err) => setError(err.message))}
+                onDiscard={() => discardWaiting(row.m)}
                 inCall={voice.room?.conversationId === conversation.id ? voice.room.callId : null}
               />
             );

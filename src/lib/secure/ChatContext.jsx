@@ -13,6 +13,8 @@ import { votePayload } from "./polls.js";
 import { copyAttachments, uploadAttachments } from "./fileTransfer.js";
 import { randomId, toB64 } from "../crypto/encoding.js";
 import { DEFAULT_ALERTS, alertText, cleanAlerts, isQuiet, showAlert } from "./alerts.js";
+import * as O from "../offline/outbox.js";
+import { isOffline, offlineChosen, onOfflineChange, reportReachable } from "../offline/mode.js";
 
 const ChatContext = createContext(null);
 
@@ -213,7 +215,8 @@ export function ChatProvider({ children }) {
     setMessages((prev) => {
       const next = { ...prev };
       for (const m of list) {
-        const current = next[m.conversation_id] || [];
+        // The real message replaces its waiting copy (docs/OFFLINE.md).
+        const current = (next[m.conversation_id] || []).filter((x) => m.waiting || !x.waiting || x.msg_id !== m.msg_id);
         const i = current.findIndex((x) => x.id === m.id);
         const updated = i >= 0 ? current.map((x) => (x.id === m.id ? m : x)) : [...current, m];
         next[m.conversation_id] = updated.sort(byCreated);
@@ -360,6 +363,11 @@ export function ChatProvider({ children }) {
       } while (page.has_more || more || (needConversations.current && !page.conversation_ids));
     };
     const tick = async () => {
+      // Offline mode: after the first load (the page itself just came from the server), stay quiet.
+      if (offlineChosen() && cursor.current) {
+        schedule(POLL_QUIET_MS);
+        return;
+      }
       if (!polling.current) {
         polling.current = true;
         try {
@@ -369,7 +377,9 @@ export function ChatProvider({ children }) {
             await pollOnce();
           }
           backoff = 0;
-        } catch {
+          reportReachable(true);
+        } catch (err) {
+          if (!(err instanceof ApiError) || err.code === "NETWORK") reportReachable(false);
           backoff = Math.min(BACKOFF_MAX_MS, backoff ? backoff * 2 : POLL_QUIET_MS);
         } finally {
           polling.current = false;
@@ -597,19 +607,110 @@ export function ChatProvider({ children }) {
    * members or their keys changed, refresh once and build it again: the membership check
    * runs every time, so a refresh can't quietly add recipients.
    */
+  // ---------- messages written offline (docs/OFFLINE.md) ----------
+
+  const holdForLater = useCallback(async (conv, body, heldBy = "") => {
+    const entry = await O.queue(userId, { msg_id: body.msg_id, fn: "messages", body, place: { conversation_id: conv.id } });
+    if (heldBy) await O.markHeld(userId, body.msg_id, heldBy);
+    const m = O.asMessage({ ...entry, held: heldBy }, userId);
+    mergeMessages([m]);
+    return m;
+  }, [userId, mergeMessages]);
+
+  const dropWaiting = useCallback((conversationId, msgId) => {
+    setMessages((prev) => ({ ...prev, [conversationId]: (prev[conversationId] || []).filter((x) => !(x.waiting && x.msg_id === msgId)) }));
+  }, []);
+
+  const flushing = useRef(false);
+  const heldTried = useRef(new Map());
+  /** Send what's waiting, oldest first. Stops at the first sign the server still can't be reached. */
+  const flushOutbox = useCallback(async () => {
+    if (flushing.current || !userId || isOffline()) return;
+    flushing.current = true;
+    try {
+      for (const e of await O.waiting(userId)) {
+        if (e.fn !== "messages" || e.failed) continue;
+        // Held by your site: it's trying already, so this device only checks in now and then.
+        if (e.held && Date.now() - (heldTried.current.get(e.msg_id) || 0) < 120_000) continue;
+        heldTried.current.set(e.msg_id, Date.now());
+        const showFailed = async (reason) => {
+          await O.markFailed(userId, e.msg_id, reason);
+          mergeMessages([O.asMessage({ ...e, failed: reason }, userId)]);
+        };
+        if (Date.now() - Date.parse(e.body.sent_at) > O.MAX_AGE_MS) {
+          await showFailed("It waited more than a week, so it wasn't sent.");
+          continue;
+        }
+        try {
+          const res = await callFn("messages", { ...e.body, queued: true });
+          reportReachable(true);
+          if (res.queued) {
+            // Your site has it now and keeps trying; this device checks back now and then.
+            if (!e.held) {
+              await O.markHeld(userId, e.msg_id, res.site);
+              mergeMessages([O.asMessage({ ...e, held: res.site }, userId)]);
+            }
+            continue;
+          }
+          await O.remove(userId, e.msg_id);
+          mergeMessages([res.message]);
+          touchConversation(res.message.conversation_id, res.message.created_date);
+        } catch (err) {
+          if (err instanceof ApiError && err.code === "NETWORK") {
+            reportReachable(false);
+            break;
+          }
+          if (err instanceof ApiError && err.status === 429) break;
+          await showFailed(err.message || "It couldn't be sent.");
+        }
+      }
+    } finally {
+      flushing.current = false;
+    }
+  }, [userId, mergeMessages, touchConversation]);
+
+  // Show what's waiting from before, and send it whenever the connection comes back.
+  useEffect(() => {
+    if (!userId) return undefined;
+    O.waiting(userId)
+      .then((list) => mergeMessages(list.filter((e) => e.fn === "messages").map((e) => O.asMessage(e, userId))))
+      .catch(() => {});
+    const off = onOfflineChange(({ chosen, cutOff }) => {
+      if (!chosen && !cutOff) flushOutbox();
+    });
+    const t = setInterval(flushOutbox, 15_000);
+    flushOutbox();
+    return () => {
+      off();
+      clearInterval(t);
+    };
+  }, [userId, mergeMessages, flushOutbox]);
+
+  const discardWaiting = useCallback(async (message) => {
+    await O.remove(userId, message.msg_id);
+    dropWaiting(message.conversation_id, message.msg_id);
+  }, [userId, dropWaiting]);
+
   const sendBuilt = useCallback(async (conversation, build) => {
     lastActivity.current = Date.now();
     let conv = conversation;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const problem = membershipProblem(conv);
       if (problem) throw new Error(problem);
+      const body = await build(conv, chainsFor(conv.member_ids));
+      // Offline: it's sealed and signed already, so it waits here and goes out when you're back.
+      if (isOffline()) return holdForLater(conv, body);
       try {
-        const body = await build(conv, chainsFor(conv.member_ids));
         const res = await deliver(body);
+        if (res.queued) return holdForLater(conv, body, res.site);
         mergeMessages([res.message]);
         touchConversation(conv.id, res.message.created_date);
         return res.message;
       } catch (err) {
+        if (err instanceof ApiError && err.code === "NETWORK") {
+          reportReachable(false);
+          return holdForLater(conv, body);
+        }
         if (attempt === 0 && err instanceof ApiError && RETRYABLE.has(err.code)) {
           conv = await refreshConversation(conv.id);
           continue;
@@ -618,7 +719,7 @@ export function ChatProvider({ children }) {
       }
     }
     return null;
-  }, [chainsFor, mergeMessages, touchConversation, refreshConversation, membershipProblem]);
+  }, [chainsFor, mergeMessages, touchConversation, refreshConversation, membershipProblem, holdForLater]);
 
   /** files / forwardFiles / onProgress as in servers' sendText. */
   const send = useCallback(async (conversation, text, { replyTo = null, forwarded = false, files = [], forwardFiles = [], onProgress = null } = {}) => {
@@ -636,6 +737,13 @@ export function ChatProvider({ children }) {
     const payload = { type: "text", text: String(text || "").trim() ? text : "", ...(replyTo ? { reply_to: replyTo } : {}), ...(forwarded ? { forwarded: true } : {}), ...(attachments.length ? { attachments } : {}) };
     return sendBuilt(conversation, (conv, chains) => P.buildPayloadMessage({ userId, device, conversation: conv, chains, keyring, payload, itemId }));
   }, [sendBuilt, userId, device, keyring, membershipProblem]);
+
+  /** A waiting message that couldn't be sent: send its text again (sealed afresh), or let it go. */
+  const resendWaiting = useCallback(async (conversation, message, text) => {
+    await O.remove(userId, message.msg_id);
+    dropWaiting(conversation.id, message.msg_id);
+    return send(conversation, text);
+  }, [userId, dropWaiting, send]);
 
   const react = useCallback((conversation, message, emoji, remove = false) =>
     sendBuilt(conversation, (conv, chains) => P.buildReaction({ userId, device, conversation: conv, chains, keyring, target: message.msg_id, emoji, remove })),
@@ -830,6 +938,8 @@ export function ChatProvider({ children }) {
     markRead,
     isUnread,
     send,
+    resendWaiting,
+    discardWaiting,
     react,
     sendPoll,
     startCall,
@@ -859,7 +969,7 @@ export function ChatProvider({ children }) {
     membershipProblem,
     addPollExtension,
     touchActivity,
-  }), [loaded, liveConversations, messages, threads, hasMore, opened, titles, profiles, alerts, updateAlerts, openConversation, closeConversation, loadOlder, loadHistory, searchMessages, markRead, isUnread, send, react, sendPoll, startCall, scheduleMessage, loadScheduled, cancelScheduled, checkIn, setSelfDestruct, vote, editMessage, setTitle, setExpiry, setAdmin, removeMember, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem, addPollExtension, touchActivity]);
+  }), [loaded, liveConversations, messages, threads, hasMore, opened, titles, profiles, alerts, updateAlerts, openConversation, closeConversation, loadOlder, loadHistory, searchMessages, markRead, isUnread, send, resendWaiting, discardWaiting, react, sendPoll, startCall, scheduleMessage, loadScheduled, cancelScheduled, checkIn, setSelfDestruct, vote, editMessage, setTitle, setExpiry, setAdmin, removeMember, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem, addPollExtension, touchActivity]);
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }

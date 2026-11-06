@@ -339,3 +339,15 @@ export function parseEnvelopeShape(envelopeJson: string, maxChars: number) {
   }
   return wraps;
 }
+
+/**
+ * A message's own send time, as its signature covers it. Never more than a few minutes ahead; at
+ * most a few minutes behind, unless it was written offline and queued (then up to a week).
+ */
+export function checkSentAt(sentAt: string, now: Date, queued: unknown) {
+  const age = now.getTime() - Date.parse(sentAt);
+  if (age < -LIMITS.sentAtSkewMs || age > (queued === true ? LIMITS.queuedMaxAgeMs : LIMITS.sentAtSkewMs)) {
+    if (queued === true && age > 0) throw new ApiError(400, "TOO_OLD", "This message waited too long to be sent. Copy it and send it again.");
+    throw new ApiError(400, "CLOCK_SKEW", "Your device clock looks wrong. Check it and try again.");
+  }
+}

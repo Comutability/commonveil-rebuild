@@ -169,13 +169,18 @@ export default function MessageRow({
   hiddenReason = null,
   onThread,
   onReport,
+  onResend,
+  onDiscard,
 }) {
   const [picker, setPicker] = React.useState(false);
   const [reveal, setReveal] = React.useState(false);
   const hidden = Boolean(hiddenReason) && !reveal;
   const { m, result } = row;
   const readableNow = result && (result.status === "ok" || result.status === "unverified");
-  const showTools = (readableNow && (can.react || can.reply || can.edit || can.pin || onForward || onSave)) || can.delete;
+  // Written offline (docs/OFFLINE.md): waiting to go out, couldn't go out, or delivered late.
+  const waiting = Boolean(m.waiting);
+  const lateBy = !waiting && m.sent_at ? Date.parse(m.created_date) - Date.parse(m.sent_at) : 0;
+  const showTools = !waiting && (readableNow && (can.react || can.reply || can.edit || can.pin || onForward || onSave)) || can.delete;
   const time = (
     <time dateTime={m.created_date} title={fullTime(m.created_date)} className="text-xs text-muted-foreground">
       {head && !compact ? stamp(m.created_date) : clockTime(m.created_date)}
@@ -190,7 +195,7 @@ export default function MessageRow({
   return (
     <div
       id={`msg-${m.id}`}
-      className={`msg-row group relative flex gap-3 px-3 sm:px-4 ${head && !compact ? "mt-3 pt-1 pb-0.5" : "py-0.5"} ${mention ? "msg-mention" : ""} ${highlighted ? "bg-[hsl(var(--warning)/0.12)]" : ""} ${m.pinned ? "border-l-2 border-primary/60" : ""}`}
+      className={`msg-row group relative flex gap-3 px-3 sm:px-4 ${waiting ? "opacity-70" : ""} ${head && !compact ? "mt-3 pt-1 pb-0.5" : "py-0.5"} ${mention ? "msg-mention" : ""} ${highlighted ? "bg-[hsl(var(--warning)/0.12)]" : ""} ${m.pinned ? "border-l-2 border-primary/60" : ""}`}
     >
       {compact ? (
         <span className="w-12 shrink-0 pt-0.5 text-right">{time}</span>
@@ -225,6 +230,16 @@ export default function MessageRow({
             <span className="ml-1 text-[0.7rem] text-muted-foreground" title={row.editedAt ? `Edited ${fullTime(row.editedAt)}` : "Edited"}>(edited)</span>
           )}
         </div>
+        {waiting && (
+          <p className={`mt-0.5 flex flex-wrap items-center gap-2 text-xs ${m.failed ? "text-destructive" : "text-muted-foreground"}`} role="status">
+            {m.failed ? <>Not sent. {m.failed}</> : m.held ? <>Your site is holding it until {m.held} can be reached.</> : <>Waiting to send. It goes out when you're back online.</>}
+            {m.failed && readableNow && onResend && <button type="button" className="font-medium underline-offset-2 hover:underline" onClick={() => onResend(row.text)}>Send again</button>}
+            {onDiscard && <button type="button" className="font-medium underline-offset-2 hover:underline" onClick={onDiscard}>{m.failed ? "Delete" : "Don't send"}</button>}
+          </p>
+        )}
+        {lateBy > 120_000 && (
+          <p className="mt-0.5 text-[0.7rem] text-muted-foreground" title={`Written ${fullTime(m.sent_at)}, delivered ${fullTime(m.created_date)}`}>Written offline at {clockTime(m.sent_at)}</p>
+        )}
         {(meta || result?.status === "unverified") && (
           <div className="mt-0.5 flex flex-wrap items-center gap-2">
             <Caution result={result} />

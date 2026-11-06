@@ -39,7 +39,8 @@ export class Updates {
     const hours = this.config.updateCheckHours;
     const tick = () => this.check().catch(() => {});
     setTimeout(tick, 60_000).unref?.();
-    this.timer = setInterval(tick, hours * 3600_000);
+    // Timers top out at about 24 days; checking less often than that isn't useful anyway.
+    this.timer = setInterval(tick, Math.min(hours * 3600_000, 2 ** 31 - 1));
     this.timer.unref?.();
   }
 

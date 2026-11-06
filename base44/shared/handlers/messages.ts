@@ -2,7 +2,7 @@
 // signature and that every current member got a copy of the key, then stores
 // ciphertext it cannot read.
 import { ApiError, LIMITS, id, int, isoTime, platformTime, randomIdField, str, type Actions } from "../http.ts";
-import { parseEnvelopeShape, verifyItemSignature } from "../verify.ts";
+import { checkSentAt, parseEnvelopeShape, verifyItemSignature } from "../verify.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
 import { pollServers } from "./serverMessages.ts";
 import { scheduledActions } from "./scheduled.ts";
@@ -43,9 +43,7 @@ export const messageActions: Actions = {
     const device = await requireActiveDevice(own, user.id, randomIdField(body.device_id, "device id"));
     const msgId = randomIdField(body.msg_id, "message id");
     const sentAt = isoTime(body.sent_at, "sent time");
-    if (Math.abs(now.getTime() - Date.parse(sentAt)) > LIMITS.sentAtSkewMs) {
-      throw new ApiError(400, "CLOCK_SKEW", "Your device clock looks wrong. Check it and try again.");
-    }
+    checkSentAt(sentAt, now, body.queued);
     const envelope = typeof body.envelope === "string" ? body.envelope : "";
     const wraps = parseEnvelopeShape(envelope, LIMITS.maxEnvelopeChars);
     await assertWrapsMatchMembers(sr, wraps, conv.member_ids);

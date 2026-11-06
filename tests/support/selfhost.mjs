@@ -15,11 +15,13 @@ const quiet = { info() {}, warn() {}, error: (...a) => console.error(...a) };
 /** Start sites by name ("alpha.test", ...). Answers { sites: { name: { app, port, url } }, close() }. */
 export async function startSites(names, env = {}, { prepare } = {}) {
   const ports = {};
+  const down = new Set();
   const portFor = (host) => {
     const h = host.replace(/:\d+$/, "");
     const site = names.find((n) => h === n || h.endsWith(`.${n}`));
     if (!site) throw new Error(`unknown test site ${host}`);
-    return ports[site];
+    // A site that's "down" can't be reached by the others (nothing listens on port 1).
+    return down.has(site) ? 1 : ports[site];
   };
   const transport = new Transport({
     allowPrivate: true,
@@ -39,6 +41,11 @@ export async function startSites(names, env = {}, { prepare } = {}) {
   return {
     sites,
     transport,
+    /** Cut a site off from the others (true), or bring it back (false). */
+    setDown(name, isDown) {
+      if (isDown) down.add(name);
+      else down.delete(name);
+    },
     async close() {
       for (const s of Object.values(sites)) {
         await s.app.close().catch(() => {});

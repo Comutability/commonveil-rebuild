@@ -24,6 +24,12 @@ const ID_KEYS = new Set(["conversation_id", "server_id", "channel_id", "event_id
 const ID_LIST_KEYS = new Set(["conversation_ids", "server_ids", "channel_ids", "file_ids", "message_ids"]);
 const CURSOR_FIELDS = { since: "cursor", conversations_since: "conversations_cursor", servers_since: "servers_cursor", server_changes_since: "server_changes_cursor" };
 const MAX_ACT_BODY = 9 * 1024 * 1024;
+// Held messages (docs/OFFLINE.md): tried again after 30 seconds, then less and less often (at
+// most every 30 minutes), for up to a week; the same week a message written offline may wait.
+const HELD_EVERY_MS = 30_000;
+const HELD_FIRST_RETRY_MS = 30_000;
+const HELD_MAX_WAIT_MS = 30 * 60_000;
+const HELD_MAX_AGE_MS = 7 * 24 * 3600_000;
 const SHADOW_FIELDS = ["display_name", "bio", "pronouns", "accent_color", "avatar_emoji", "avatar_image"];
 const ACTOR_NAMES = new Set(["VoiceRoom", "Presence"]);
 
@@ -59,6 +65,9 @@ export class Federation {
     db.exec(`CREATE TABLE IF NOT EXISTS fed_user_hosts (user_id TEXT NOT NULL, host TEXT NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, host))`);
     db.exec(`CREATE TABLE IF NOT EXISTS fed_shadows (user_id TEXT PRIMARY KEY, home TEXT NOT NULL, handle TEXT NOT NULL, digest TEXT NOT NULL DEFAULT '', updated INTEGER NOT NULL)`);
     db.exec(`CREATE TABLE IF NOT EXISTS fed_notified (user_id TEXT NOT NULL, room TEXT NOT NULL, PRIMARY KEY (user_id, room))`);
+    // Messages held for a site that can't be reached right now (docs/OFFLINE.md): each is the
+    // sender's own sealed, signed request, delivered as it is once the site answers again.
+    db.exec(`CREATE TABLE IF NOT EXISTS fed_outbox (host TEXT NOT NULL, msg_id TEXT NOT NULL, user_id TEXT NOT NULL, fn TEXT NOT NULL, body TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_at INTEGER NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (host, msg_id))`);
     this.q = {
       route: db.prepare("SELECT host FROM fed_routes WHERE id = ?"),
       putRoute: db.prepare("INSERT INTO fed_routes (id, host, seen) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET seen = excluded.seen"),
@@ -91,9 +100,65 @@ export class Federation {
     this.timers = new Map();
   }
 
-  start() {}
+  start() {
+    if (!this.enabled) return;
+    this.heldTimer = setInterval(() => this.deliverHeld().catch((e) => this.log.warn?.("[federation] held messages", e?.message)), HELD_EVERY_MS);
+    this.heldTimer.unref?.();
+  }
   stop() {
     for (const t of this.timers.values()) clearTimeout(t);
+    clearInterval(this.heldTimer);
+  }
+
+  // ---------- holding messages for sites that can't be reached ----------
+
+  #holdable(fn, body) {
+    return (fn === "messages" || fn === "channels") && body.action === "send" && typeof body.msg_id === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(body.msg_id);
+  }
+
+  #hold(host, user, fn, body) {
+    const now = Date.now();
+    this.store.db
+      .prepare("INSERT INTO fed_outbox (host, msg_id, user_id, fn, body, attempts, next_at, created) VALUES (?, ?, ?, ?, ?, 0, ?, ?) ON CONFLICT(host, msg_id) DO NOTHING")
+      .run(host, body.msg_id, user.id, fn, JSON.stringify({ ...body, queued: true }), now + HELD_FIRST_RETRY_MS, now);
+    return { status: 202, data: { queued: true, held_by: this.host, site: host, msg_id: body.msg_id } };
+  }
+
+  /** Try held messages that are due. Answers how many went out. */
+  async deliverHeld(now = Date.now()) {
+    const db = this.store.db;
+    db.prepare("DELETE FROM fed_outbox WHERE created < ?").run(now - HELD_MAX_AGE_MS);
+    const due = db.prepare("SELECT * FROM fed_outbox WHERE next_at <= ? ORDER BY created LIMIT 100").all(now);
+    let sent = 0;
+    const down = new Set();
+    for (const row of due) {
+      const drop = () => db.prepare("DELETE FROM fed_outbox WHERE host = ? AND msg_id = ?").run(row.host, row.msg_id);
+      const later = () =>
+        db.prepare("UPDATE fed_outbox SET attempts = attempts + 1, next_at = ? WHERE host = ? AND msg_id = ?").run(now + Math.min(HELD_MAX_WAIT_MS, HELD_FIRST_RETRY_MS * 2 ** (row.attempts + 1)), row.host, row.msg_id);
+      if (down.has(row.host)) {
+        later();
+        continue;
+      }
+      const user = await this.sr.entities.User.get(row.user_id).catch(() => null);
+      if (!user) {
+        drop();
+        continue;
+      }
+      try {
+        const r = await this.act(row.host, user, row.fn, JSON.parse(row.body));
+        if (r.status === 200) sent += 1;
+        if (r.status >= 500 || r.status === 429) {
+          later();
+          continue;
+        }
+        // Delivered, or turned down for good (the sender's device sees why when it next tries).
+        drop();
+      } catch (err) {
+        down.add(row.host);
+        later();
+      }
+    }
+    return sent;
   }
 
   #soon(key, fn) {
@@ -376,8 +441,12 @@ export class Federation {
     delete body._site;
     if (target) {
       try {
-        return await this.act(target, user, fn, body);
+        const r = await this.act(target, user, fn, body);
+        // The site answered, but isn't well: hold the message rather than lose it.
+        if ((r.status === 502 || r.status === 503 || r.status === 504) && this.#holdable(fn, body)) return this.#hold(target, user, fn, body);
+        return r;
       } catch (err) {
+        if (err?.code === "SITE_UNREACHABLE" && this.#holdable(fn, body)) return this.#hold(target, user, fn, body);
         return { status: err.status || 502, data: { error: err.message, code: err.code || "SITE_ERROR" } };
       }
     }

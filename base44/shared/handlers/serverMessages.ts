@@ -7,7 +7,7 @@
 // react but not post). Readers check the encrypted payload says the same, or ignore the row.
 import { ApiError, LIMITS, id, int, isoTime, parsePlatformTime, platformTime, randomIdField, str, type Actions } from "../http.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
-import { verifyServerItemSignature } from "../verify.ts";
+import { checkSentAt, verifyServerItemSignature } from "../verify.ts";
 import { P, channelPermissions, has } from "../permissions.ts";
 import { countSince, profileOf, rateLimited, requireActiveDevice } from "../store.ts";
 import { floodedBy, logCase } from "../servers/moderation.ts";
@@ -101,7 +101,7 @@ export const serverMessageActions: Actions = {
     const device = await requireActiveDevice(own, user.id, randomIdField(body.device_id, "device id"));
     const msgId = randomIdField(body.msg_id, "message id");
     const sentAt = isoTime(body.sent_at, "sent time");
-    if (Math.abs(now.getTime() - Date.parse(sentAt)) > LIMITS.sentAtSkewMs) throw new ApiError(400, "CLOCK_SKEW", "Your device clock looks wrong. Check it and try again.");
+    checkSentAt(sentAt, now, body.queued);
     const envelope = str(body.envelope, "message", SERVER_LIMITS.maxMessageEnvelopeChars);
     const env = parseItemEnvelope(envelope);
     const chainId = chainForChannel(serverId, channel);

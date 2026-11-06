@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { Bell, ClipboardCheck, Database, Eye, Fingerprint, KeyRound, LogOut, Palette, Shield, ShieldCheck, UserRound } from "lucide-react";
+import { Bell, ClipboardCheck, CloudOff, Database, Eye, Fingerprint, KeyRound, LogOut, Palette, Shield, ShieldCheck, UserRound } from "lucide-react";
 import SignInSettings from "./SignInSettings";
+import OfflineSettings from "./OfflineSettings";
 import { SELF_HOSTED } from "@/api/base44Client";
 import PrivacyReport from "./PrivacyReport";
 import { Button } from "@/components/ui/button";
@@ -345,6 +346,7 @@ const SECTIONS = {
   appearance: AppearanceSettings,
   notifications: NotificationSettings,
   data: DataSettings,
+  offline: OfflineSettings,
   ...(SELF_HOSTED ? { "sign-in": SignInSettings } : {}),
 };
 
@@ -379,6 +381,7 @@ export default function UserSettings() {
       items: [
         { id: "appearance", label: "Appearance", icon: Palette },
         { id: "notifications", label: "Notifications", icon: Bell },
+        { id: "offline", label: "Offline mode", icon: CloudOff },
       ],
     },
   ];

@@ -15,6 +15,8 @@ export const LIMITS = Object.freeze({
   pendingDeviceMinutes: 15,
   proofSkewMs: 5 * 60 * 1000,
   sentAtSkewMs: 10 * 60 * 1000,
+  // A message written offline and sent when the device is back (docs/OFFLINE.md) may be this old.
+  queuedMaxAgeMs: 7 * 24 * 3600 * 1000,
   messagesPerMinute: 30,
   conversationsPerHour: 30,
   reportsPerDay: 20,

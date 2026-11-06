@@ -22,6 +22,8 @@ import * as P2 from "./protocol.js";
 import { randomId } from "../crypto/encoding.js";
 import { ChainKeys, ServerKeyError, newInviteSecret, openInvitePreview, sealInvitePreview, stepAt } from "../crypto/serverKeys.js";
 import * as S from "./store.js";
+import * as O from "../offline/outbox.js";
+import { isOffline, onOfflineChange, reportReachable } from "../offline/mode.js";
 import { templateChannel, templateRole, templateServer } from "./serverTemplates.js";
 
 const ServerContext = createContext(null);
@@ -187,6 +189,8 @@ export function ServerProvider({ children }) {
         next[m.channel_id] = [...(next[m.channel_id] || [])];
         touched.add(m.channel_id);
       }
+      // The real message replaces its waiting copy (docs/OFFLINE.md).
+      if (!m.waiting) next[m.channel_id] = next[m.channel_id].filter((x) => !x.waiting || x.msg_id !== m.msg_id);
       const current = next[m.channel_id];
       const i = current.findIndex((x) => x.id === m.id);
       if (i >= 0) current[i] = m;
@@ -815,7 +819,26 @@ export function ServerProvider({ children }) {
       if (!e?.generations || !keys) throw new Error("This server is still loading. Try again in a moment.");
       try {
         const body = await SP.buildChannelMessage({ serverId: sid, channel, generations: e.generations, keys, userId, device, payload, kind, threadId, itemId });
-        const res = await withRetry(() => callFn("channels", body));
+        const hold = async (heldBy = "") => {
+          const entry = await O.queue(userId, { msg_id: body.msg_id, fn: "channels", body, place: { server_id: sid, channel_id: channel.id, thread_id: threadId, kind } });
+          if (heldBy) await O.markHeld(userId, body.msg_id, heldBy);
+          const m = O.asMessage({ ...entry, held: heldBy }, userId);
+          mergeRows([m]);
+          return m;
+        };
+        // Offline: it's sealed and signed already, so it waits here and goes out when you're back.
+        if (isOffline()) return hold();
+        let res;
+        try {
+          res = await withRetry(() => callFn("channels", body));
+        } catch (err) {
+          if (err instanceof ApiError && err.code === "NETWORK") {
+            reportReachable(false);
+            return hold();
+          }
+          throw err;
+        }
+        if (res.queued) return hold(res.site);
         mergeRows([res.message]);
         return res.message;
       } catch (err) {
@@ -828,6 +851,80 @@ export function ServerProvider({ children }) {
     }
     return null;
   }, [touchActivity, userId, device, mergeRows, loadState]);
+
+  // ---------- channel messages written offline (docs/OFFLINE.md) ----------
+
+  const dropWaitingRow = useCallback((channelId, msgId) => {
+    const next = { ...rowsRef.current, [channelId]: (rowsRef.current[channelId] || []).filter((x) => !(x.waiting && x.msg_id === msgId)) };
+    rowsRef.current = next;
+    setRows(next);
+  }, []);
+
+  const flushing = useRef(false);
+  const heldTried = useRef(new Map());
+  const flushChannels = useCallback(async () => {
+    if (flushing.current || !userId || isOffline()) return;
+    flushing.current = true;
+    try {
+      for (const e of await O.waiting(userId)) {
+        if (e.fn !== "channels" || e.failed) continue;
+        // Held by your site: it's trying already, so this device only checks in now and then.
+        if (e.held && Date.now() - (heldTried.current.get(e.msg_id) || 0) < 120_000) continue;
+        heldTried.current.set(e.msg_id, Date.now());
+        const showFailed = async (reason) => {
+          await O.markFailed(userId, e.msg_id, reason);
+          mergeRows([O.asMessage({ ...e, failed: reason }, userId)]);
+        };
+        if (Date.now() - Date.parse(e.body.sent_at) > O.MAX_AGE_MS) {
+          await showFailed("It waited more than a week, so it wasn't sent.");
+          continue;
+        }
+        try {
+          const res = await callFn("channels", { ...e.body, queued: true });
+          reportReachable(true);
+          if (res.queued) {
+            if (!e.held) {
+              await O.markHeld(userId, e.msg_id, res.site);
+              mergeRows([O.asMessage({ ...e, held: res.site }, userId)]);
+            }
+            continue;
+          }
+          await O.remove(userId, e.msg_id);
+          mergeRows([res.message]);
+        } catch (err) {
+          if (err instanceof ApiError && err.code === "NETWORK") {
+            reportReachable(false);
+            break;
+          }
+          if (err instanceof ApiError && err.status === 429) break;
+          await showFailed(err.code === "STALE_SERVER_KEYS" ? "The channel's keys changed while you were away." : err.message || "It couldn't be sent.");
+        }
+      }
+    } finally {
+      flushing.current = false;
+    }
+  }, [userId, mergeRows]);
+
+  useEffect(() => {
+    if (!userId) return undefined;
+    O.waiting(userId)
+      .then((list) => mergeRows(list.filter((e) => e.fn === "channels").map((e) => O.asMessage(e, userId))))
+      .catch(() => {});
+    const off = onOfflineChange(({ chosen, cutOff }) => {
+      if (!chosen && !cutOff) flushChannels();
+    });
+    const t = setInterval(flushChannels, 15_000);
+    flushChannels();
+    return () => {
+      off();
+      clearInterval(t);
+    };
+  }, [userId, mergeRows, flushChannels]);
+
+  const discardWaitingRow = useCallback(async (m) => {
+    await O.remove(userId, m.msg_id);
+    dropWaitingRow(m.channel_id, m.msg_id);
+  }, [userId, dropWaitingRow]);
 
   const markChannelRead = useCallback((channelId, at = null) => {
     const list = rowsRef.current[channelId] || [];
@@ -1442,6 +1539,7 @@ export function ServerProvider({ children }) {
     renameFolder,
     // sending
     sendText,
+    discardWaitingRow,
     sendPost,
     sendPoll,
     vote,
@@ -1489,7 +1587,7 @@ export function ServerProvider({ children }) {
     loaded, loadError, servers, order, rows, opened, hasMore, readState, prefs, unread, memberLists, keysTick,
     serverLook, serverName, channelName, channelTopic, roleName, roleColor, serverRules, serverEmoji, automodOf, memberName, nickOf, memberColor, profileOf, rolesOfMember,
     permsFor, can, myTop, keyState, loadState, openView, loadOlder, threadOf, postsOf, loadPins, loadMembers, memberCard,
-    sendText, sendPost, sendPoll, vote, react, edit, deleteMessage, pinMessage, lockThread, openItemOf, modCall, reportToMods, loadReports, warnMember, addModNote, loadCases, caseItem, loadEvents, createEvent, updateEvent, cancelEvent, rsvp, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
+    sendText, discardWaitingRow, sendPost, sendPoll, vote, react, edit, deleteMessage, pinMessage, lockThread, openItemOf, modCall, reportToMods, loadReports, warnMember, addModNote, loadCases, caseItem, loadEvents, createEvent, updateEvent, cancelEvent, rsvp, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
     toggleCollapsed, moveServer, act, setServerProfile, setServerRules, setServerSet, updateSettings, setNickname, createChannel, updateChannel,
     createRole, updateRole, banMember, openBanReason, joinServer, leaveServer, deleteServer, createServer, createInvite, listInvites,
     revokeInvite, discover, listTickets, openTicket, setTicketStatus, renewKeys, serviceKeys,
