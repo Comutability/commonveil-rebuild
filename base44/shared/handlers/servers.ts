@@ -1002,8 +1002,9 @@ export function serverActions(config: ServerConfig): Actions {
     async set_server_set(ctx) {
       const { sr, user, now } = ctx;
       const { data, serverId, parts, perms } = await signedMember(ctx, "set_server_set");
-      const slot = choice(data.slot, ["emoji", "stickers", "automod"], "set");
-      requirePerm(perms, slot === "automod" ? P.MANAGE_SERVER : P.MANAGE_EXPRESSIONS, slot === "automod" ? "change AutoMod" : "manage emoji and stickers");
+      const slot = choice(data.slot, ["emoji", "stickers", "automod", "onboarding"], "set");
+      const withServer = slot === "automod" || slot === "onboarding";
+      requirePerm(perms, withServer ? P.MANAGE_SERVER : P.MANAGE_EXPRESSIONS, slot === "automod" ? "change AutoMod" : slot === "onboarding" ? "change the welcome" : "manage emoji and stickers");
       const maxChars = slot === "automod" ? SERVER_LIMITS.maxItemEnvelopeChars : SERVER_LIMITS.maxImageSetEnvelopeChars;
       const fields = data.item === null ? clearedItem(slot) : itemFields(slot, await acceptItem(ctx, { kind: slot, serverId, item: data.item, gens: await generationsOf(sr, serverId), maxChars }));
       await sr.entities.Server.update(parts.server.id, { ...fields, changed_at: now.toISOString() });

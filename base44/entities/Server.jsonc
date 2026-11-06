@@ -55,7 +55,7 @@
     },
     "profile_envelope": {
       "type": "string",
-      "description": "Encrypted name, description and icon (server key). The service can't read it."
+      "description": "Encrypted name, description, icon, banner colour and traits (server key). The service can't read it."
     },
     "profile_item_id": {
       "type": "string"
@@ -146,6 +146,25 @@
       "type": "string"
     },
     "automod_signature": {
+      "type": "string"
+    },
+    "onboarding_envelope": {
+      "type": "string",
+      "description": "The welcome message and the steps shown to someone who has just joined, encrypted (server key). The service can't read them."
+    },
+    "onboarding_item_id": {
+      "type": "string"
+    },
+    "onboarding_sender_id": {
+      "type": "string"
+    },
+    "onboarding_device_id": {
+      "type": "string"
+    },
+    "onboarding_sent_at": {
+      "type": "string"
+    },
+    "onboarding_signature": {
       "type": "string"
     },
     "rules_required": {

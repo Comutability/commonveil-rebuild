@@ -92,6 +92,7 @@ export const serverOut = (s: any, { sets = true }: { sets?: boolean } = {}) => (
   rules: itemOut(s, "rules"),
   ...(sets ? { emoji: itemOut(s, "emoji"), stickers: itemOut(s, "stickers") } : { sets_omitted: true }),
   automod: itemOut(s, "automod"),
+  onboarding: itemOut(s, "onboarding"),
   settings: {
     rules_required: Boolean(s.rules_required),
     min_account_minutes: Number(s.min_account_minutes) || 0,

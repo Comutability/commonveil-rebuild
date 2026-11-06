@@ -31,6 +31,8 @@ import { cleanAutomod } from "./automod.js";
 export { ChainKeys, historyChain, liveChain, channelChain, parseChainId };
 
 export const MAX_POST_TITLE = 100;
+export const MAX_TRAITS = 5;
+export const MAX_ONBOARDING_STEPS = 5;
 export const MAX_NAME = 100;
 export const MAX_TOPIC = 300;
 const ITEM_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
@@ -160,7 +162,21 @@ export function serverMessageContent(payload, declaredKind) {
 export function itemContent(kind, payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
   const s = (v, max) => (typeof v === "string" ? v.slice(0, max) : "");
-  if (kind === "server") return { name: s(payload.name, MAX_NAME), description: s(payload.description, 500), icon: s(payload.icon, 8), color: s(payload.color, 9), banner: s(payload.banner, 9) };
+  if (kind === "server") {
+    const traits = Array.isArray(payload.traits)
+      ? payload.traits.filter((t) => typeof t === "string" && t.trim()).slice(0, 5).map((t) => t.trim().slice(0, 24))
+      : [];
+    return { name: s(payload.name, MAX_NAME), description: s(payload.description, 500), icon: s(payload.icon, 8), color: s(payload.color, 9), banner: s(payload.banner, 9), traits };
+  }
+  if (kind === "onboarding") {
+    const steps = Array.isArray(payload.steps)
+      ? payload.steps
+          .filter((st) => st && typeof st.label === "string" && st.label.trim() && typeof st.channel_id === "string" && isId(st.channel_id))
+          .slice(0, MAX_ONBOARDING_STEPS)
+          .map((st) => ({ label: st.label.trim().slice(0, 60), channel_id: st.channel_id }))
+      : [];
+    return { welcome: s(payload.welcome, 600), steps };
+  }
   if (kind === "channel") return { name: s(payload.name, MAX_NAME), topic: s(payload.topic, MAX_TOPIC) };
   if (kind === "role") return { name: s(payload.name, 60), color: s(payload.color, 9) };
   if (kind === "nick") return { nick: s(payload.nick, 32) };

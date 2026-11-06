@@ -10,6 +10,7 @@ import {
   Link2,
   ListChecks,
   LogOut,
+  Rocket,
   Shield,
   ShieldAlert,
   Flag,
@@ -44,6 +45,7 @@ import { ALL_TAGS, tagLabel } from "./Discover";
 import { EMOJI_LIMITS, EMOJI_NAME_RE, imageForSet, nameFromFile, newEmojiId } from "@/lib/customEmoji";
 import { MENTION_LIMITS } from "@/lib/secure/automod";
 import { CaseLog, ModerationRules, ReportsQueue } from "@/components/settings/ModerationSettings";
+import OnboardingSettings from "@/components/settings/OnboardingSettings";
 
 function useRun() {
   const [state, setState] = useState({ busy: false, msg: "", error: "" });
@@ -82,7 +84,8 @@ function ToggleRow({ label, help, checked, onChange, disabled }) {
 function Overview({ sid }) {
   const { serverLook, setServerProfile, servers } = useServers();
   const look = serverLook(sid);
-  const [form, setFormState] = useState({ name: look.name, description: look.description, icon: look.icon, color: look.color });
+  const details = { name: look.name, description: look.description, icon: look.icon, color: look.color, banner: look.banner, traits: look.traits || [] };
+  const [form, setFormState] = useState(details);
   // Until someone edits the form, follow the server's details (they may still be decrypting).
   const edited = useRef(false);
   const setForm = useCallback((fn) => {
@@ -90,8 +93,13 @@ function Overview({ sid }) {
     setFormState(fn);
   }, []);
   useEffect(() => {
-    if (!edited.current) setFormState({ name: look.name, description: look.description, icon: look.icon, color: look.color });
-  }, [look.name, look.description, look.icon, look.color]);
+    if (!edited.current) setFormState({ name: look.name, description: look.description, icon: look.icon, color: look.color, banner: look.banner, traits: look.traits || [] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [look.name, look.description, look.icon, look.color, look.banner, (look.traits || []).join("|")]);
+  const setTrait = (i, value) => setForm((f) => {
+    const traits = [0, 1, 2, 3, 4].map((j) => (j === i ? value.slice(0, 24) : f.traits[j] || ""));
+    return { ...f, traits };
+  });
   const [state, run] = useRun();
   const isDefault = servers[sid]?.server?.is_default;
   return (
@@ -117,7 +125,25 @@ function Overview({ sid }) {
         <div className="space-y-1.5">
           <Label>Colour</Label>
           <ColorPicker value={form.color} onChange={(c) => setForm((f) => ({ ...f, color: c }))} />
+          <p className="text-xs text-muted-foreground">Tints the server's icon.</p>
         </div>
+        <div className="space-y-1.5">
+          <Label>Banner</Label>
+          <ColorPicker label="Banner colour" value={form.banner} onChange={(c) => setForm((f) => ({ ...f, banner: c }))} />
+          <div className="flex items-center gap-2">
+            <span className="h-7 w-16 rounded-md border border-border" style={{ backgroundColor: form.banner || "transparent" }} aria-hidden="true" />
+            <Button type="button" variant="ghost" size="sm" onClick={() => setForm((f) => ({ ...f, banner: "" }))}>No banner</Button>
+          </div>
+        </div>
+        <fieldset className="space-y-1.5">
+          <legend className="text-sm font-medium">Traits</legend>
+          <p className="text-xs text-muted-foreground">Up to five short words about this place, shown on the welcome new members see. They're encrypted like the name.</p>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <Input key={i} value={form.traits[i] || ""} maxLength={24} aria-label={`Trait ${i + 1}`} placeholder={["Cozy", "Late nights", "Learning", "Making things", "Quiet"][i]} onChange={(ev) => setTrait(i, ev.target.value)} />
+            ))}
+          </div>
+        </fieldset>
         {isDefault && <p className="text-xs text-muted-foreground">The community server's public card, shown in Discover, is set separately under Discovery.</p>}
         <Button type="submit" disabled={state.busy || !form.name.trim()}>{state.busy ? "Encrypting and saving…" : "Save changes"}</Button>
         <Status state={state} />
@@ -650,6 +676,7 @@ const ACTIONS = {
   channels_reorder: "reordered channels",
   server_profile: "changed the server's name or icon",
   server_rules: "changed the rules",
+  server_onboarding: "changed the welcome new members see",
   server_emoji: "changed the emoji",
   server_stickers: "changed the stickers",
   server_automod: "changed AutoMod",
@@ -821,6 +848,7 @@ export default function ServerSettings() {
     invites: perms.invites && Invites,
     expressions: perms.expressions && Expressions,
     community: perms.server && Community,
+    onboarding: perms.server && OnboardingSettings,
     discovery: perms.server && Discovery,
     safety: perms.server && Safety,
     privacy: Privacy,
@@ -852,6 +880,7 @@ export default function ServerSettings() {
     perms.server && {
       label: "Community",
       items: [
+        { id: "onboarding", label: "Onboarding", icon: Rocket },
         { id: "community", label: "Rules and screening", icon: BookOpen },
         { id: "discovery", label: "Discovery", icon: Compass },
         { id: "safety", label: "Safety", icon: ShieldAlert },
@@ -877,4 +906,3 @@ export default function ServerSettings() {
     </SettingsLayout>
   );
 }
-

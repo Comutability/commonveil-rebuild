@@ -9,6 +9,7 @@ import { usePresenceRoom } from "@/lib/secure/PresenceContext";
 import ForumView from "@/components/servers/ForumView";
 import TicketsView from "@/components/servers/TicketsView";
 import VoiceView from "@/components/servers/VoiceView";
+import ServerOnboarding from "@/components/servers/ServerOnboarding";
 import { arrange } from "@/components/servers/channelBits";
 import { MESSAGE_KINDS, useServers } from "@/lib/secure/ServerContext";
 import { P, has } from "@/lib/secure/permissions";
@@ -76,6 +77,7 @@ export default function ServerView() {
   return (
     <Shell panel={<ChannelSidebar serverId={serverId} activeChannelId={channel?.id} />} mainOpen={Boolean(channelId)}>
       {main}
+      <ServerOnboarding serverId={serverId} />
     </Shell>
   );
 }

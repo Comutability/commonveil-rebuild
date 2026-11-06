@@ -523,7 +523,7 @@ export function ServerProvider({ children }) {
         if (!keysRef.current[sid]) continue;
         if (e.server?.profile) todo.push({ key: `server:${sid}`, kind: "server", item: e.server.profile, sid });
         if (e.server?.rules) todo.push({ key: `rules:${sid}`, kind: "rules", item: e.server.rules, sid });
-        for (const slot of ["emoji", "stickers", "automod"]) if (e.server?.[slot]) todo.push({ key: `${slot}:${sid}`, kind: slot, item: e.server[slot], sid });
+        for (const slot of ["emoji", "stickers", "automod", "onboarding"]) if (e.server?.[slot]) todo.push({ key: `${slot}:${sid}`, kind: slot, item: e.server[slot], sid });
         for (const c of e.channels || []) if (c.name) todo.push({ key: `channel:${c.id}`, kind: "channel", item: c.name, sid });
         for (const r of e.roles || []) if (r.name) todo.push({ key: `role:${r.id}`, kind: "role", item: r.name, sid });
         if (e.member?.nick) todo.push({ key: `nick:${sid}:${userId}`, kind: "nick", item: e.member.nick, sid });
@@ -629,6 +629,7 @@ export function ServerProvider({ children }) {
       icon: enc?.icon || pub?.icon || tpl?.icon || "",
       color: enc?.color || pub?.color || tpl?.color || "",
       banner: enc?.banner || "",
+      traits: enc?.traits || [],
       unverified: items[`server:${sid}`]?.status === "unverified",
     };
   }, [servers, items, itemContent]);
@@ -667,6 +668,12 @@ export function ServerProvider({ children }) {
     const tpl = templateServer(e?.server?.template);
     return { rules: enc?.rules?.length ? enc.rules : tpl?.rules || [], intro: enc ? enc.intro || "" : tpl?.intro || "", custom: Boolean(enc) };
   }, [servers, itemContent]);
+
+  /** What a newcomer is shown: the welcome message and the steps, decrypted, else empty. */
+  const serverOnboarding = useCallback((sid) => {
+    const enc = itemContent(`onboarding:${sid}`);
+    return { welcome: enc?.welcome || "", steps: enc?.steps || [] };
+  }, [itemContent]);
 
   /** The server's own emoji and stickers: { emoji: [...], stickers: [...], byId: Map }. */
   const serverEmoji = useCallback((sid) => {
@@ -1070,6 +1077,14 @@ export function ServerProvider({ children }) {
     return { ...p, muted: mutedNext };
   }), [savePrefs]);
 
+  /** This device has seen (or skipped) the server's welcome. Remembered here only: which member looked at what isn't the service's business. */
+  const markOnboarded = useCallback((sid) => savePrefs((p) => {
+    const onboarded = { ...(p.onboarded || {}) };
+    if (onboarded[sid]) return p;
+    onboarded[sid] = true;
+    return { ...p, onboarded };
+  }), [savePrefs]);
+
   const toggleCollapsed = useCallback((id) => savePrefs((p) => {
     const collapsed = { ...(p.collapsed || {}) };
     if (collapsed[id]) delete collapsed[id];
@@ -1267,6 +1282,7 @@ export function ServerProvider({ children }) {
 
   const setServerProfile = useCallback((sid, profile) => actWithItem(sid, "set_server_profile", "server", {
     name: String(profile.name || "").slice(0, SP.MAX_NAME), description: String(profile.description || "").slice(0, 500), icon: String(profile.icon || "").slice(0, 8), color: profile.color || "", banner: profile.banner || "",
+    traits: (profile.traits || []).map((t) => String(t || "").trim()).filter(Boolean).slice(0, SP.MAX_TRAITS),
   }), [actWithItem]);
 
   /** Replace the server's emoji, stickers or AutoMod rules (slot), or clear them with null. */
@@ -1501,6 +1517,7 @@ export function ServerProvider({ children }) {
     roleName,
     roleColor,
     serverRules,
+    serverOnboarding,
     serverEmoji,
     automodOf,
     memberName,
@@ -1559,6 +1576,7 @@ export function ServerProvider({ children }) {
     toggleMute,
     toggleCollapsed,
     moveServer,
+    markOnboarded,
     // server management
     act,
     setServerProfile,
@@ -1589,10 +1607,10 @@ export function ServerProvider({ children }) {
   }), [
     notifyLevel, setNotifyLevel, effectiveLevel, savedList, isSaved, toggleSaved, noteOf, setNote, folders, moveToFolder, renameFolder,
     loaded, loadError, servers, order, rows, opened, hasMore, readState, prefs, unread, memberLists, keysTick,
-    serverLook, serverName, channelName, channelTopic, roleName, roleColor, serverRules, serverEmoji, automodOf, memberName, nickOf, memberColor, profileOf, rolesOfMember,
+    serverLook, serverName, channelName, channelTopic, roleName, roleColor, serverRules, serverOnboarding, serverEmoji, automodOf, memberName, nickOf, memberColor, profileOf, rolesOfMember,
     permsFor, can, myTop, keyState, loadState, openView, loadOlder, threadOf, postsOf, loadPins, loadMembers, memberCard,
     sendText, discardWaitingRow, sendPost, sendPoll, vote, react, edit, deleteMessage, pinMessage, lockThread, openItemOf, modCall, reportToMods, loadReports, warnMember, addModNote, loadCases, caseItem, loadEvents, createEvent, updateEvent, cancelEvent, rsvp, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
-    toggleCollapsed, moveServer, act, setServerProfile, setServerRules, setServerSet, updateSettings, setNickname, createChannel, updateChannel,
+    toggleCollapsed, moveServer, markOnboarded, act, setServerProfile, setServerRules, setServerSet, updateSettings, setNickname, createChannel, updateChannel,
     createRole, updateRole, banMember, openBanReason, joinServer, leaveServer, deleteServer, createServer, createInvite, listInvites,
     revokeInvite, discover, listTickets, openTicket, setTicketStatus, renewKeys, serviceKeys,
   ]);
