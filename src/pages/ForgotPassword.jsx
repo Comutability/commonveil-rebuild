@@ -76,7 +76,11 @@ function EmailForgotPassword() {
   );
 }
 
-/** Self-hosted sites use Commonveil Identity (usernames and passkeys); Base44 signs in by email. */
+/**
+ * Getting back in: the recovery phrase, private key or a passkey. On Base44, accounts made with an
+ * email that haven't confirmed their phrase yet can still reset their password by email (?email=1).
+ */
 export default function ForgotPassword() {
-  return SELF_HOSTED ? <IdentityRecover /> : <EmailForgotPassword />;
+  const byEmail = !SELF_HOSTED && new URLSearchParams(window.location.search).get("email") === "1";
+  return byEmail ? <EmailForgotPassword /> : <IdentityRecover />;
 }

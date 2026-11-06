@@ -23,9 +23,9 @@ export class Person {
     return signedRequest({ userId: this.id, device: this.device, action, payload });
   }
   async setup() {
-    const r = await http(this.site, "/api/auth/register", { method: "POST", body: { username: this.name, password: "correct horse battery staple" } });
+    const r = await http(this.site, "/api/functions/identity", { method: "POST", body: { action: "register", username: this.name, password: "correct horse battery staple" } });
     assert.equal(r.status, 200, JSON.stringify(r.data));
-    this.token = r.data.access_token;
+    this.token = r.data.session.access_token;
     this.id = r.data.user.id;
     this.device = await createDeviceKeys(`${this.name} laptop`);
     const prepared = await prepareNewAccount({ userId: this.id, device: this.device });

@@ -21,7 +21,7 @@ export class Actor {
 
 const dir = mkdtempSync(join(tmpdir(), "voiceroom-"));
 writeFileSync(join(dir, "runtime.mjs"), RUNTIME);
-const source = readFileSync(new URL("../base44/actors/VoiceRoom/entry.ts", import.meta.url), "utf8").replace('from "base44:runtime/actors"', 'from "./runtime.mjs"');
+const source = readFileSync(new URL("../base44/actors/VoiceRoom/entry.ts", import.meta.url), "utf8").replace('from "base44:runtime/actors"', 'from "./runtime.mjs"').replace('from "../../shared/identity/sessions.ts"', `from "${new URL("../base44/shared/identity/sessions.ts", import.meta.url).href}"`);
 writeFileSync(join(dir, "VoiceRoom.mjs"), source);
 const { default: VoiceRoom } = await import(pathToFileURL(join(dir, "VoiceRoom.mjs")).href);
 
@@ -97,7 +97,13 @@ test("voice room: only signed-in people with a valid, unused pass get in", async
   await room.handleStart();
   const anon = connect(e, "conn-anon-1", null);
   await room.handleConnect(anon);
-  assert.equal(anon.rejected?.code, 4003);
+  assert.deepEqual(anon.got.map((m) => m.type), ["sign-in-needed"], "asked for a Commonveil sign-in, nothing else");
+  await room.handleMessage(anon, { type: "join", ticket: "made-up" });
+  assert.equal(anon.rejected?.code, 4003, "nothing gets in before signing in");
+  const forged = connect(e, "conn-anon-2", null);
+  await room.handleConnect(forged);
+  await room.handleMessage(forged, { type: "__auth", token: "cv1.not.real" });
+  assert.equal(forged.rejected?.code, 4003, "a bad sign-in token is refused");
 
   const a = connect(e, "conn-alice-1", "alice");
   await room.handleConnect(a);

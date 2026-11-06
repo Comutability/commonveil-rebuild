@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import AuthLayout from "@/components/AuthLayout";
+import { SELF_HOSTED } from "@/api/base44Client";
 import { passkeysSupported, recover } from "@/lib/identity/client";
 
 /**
@@ -91,6 +92,12 @@ export default function IdentityRecover() {
       <p className="mt-6 text-xs text-muted-foreground">
         Every other session is signed out. Your devices stay connected; remove any you don't recognise in Settings.
       </p>
+      {!SELF_HOSTED && (
+        <p className="mt-3 text-sm text-muted-foreground">
+          Made your account with an email, and haven't confirmed your recovery phrase yet?{" "}
+          <Link to="/forgot-password?email=1" className="font-medium text-primary hover:underline">Reset your password by email</Link>
+        </p>
+      )}
     </AuthLayout>
   );
 }

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpCircle, Bug, FileText, Flag, Globe, Plus, UserX } from "lucide-react";
-import { SELF_HOSTED, base44 } from "@/api/base44Client";
+import { SELF_HOSTED } from "@/api/base44Client";
 import UpdatesPanel, { UpdateBanner } from "@/components/app/UpdatesPanel";
 import FederationPanel from "@/components/app/FederationPanel";
 import { Button } from "@/components/ui/button";
@@ -283,8 +283,7 @@ function Editor({ type, record, onClose }) {
     setError("");
     try {
       const data = fromForm(type, form);
-      if (record?.id) await base44.entities[type].update(record.id, data);
-      else await base44.entities[type].create(data);
+      await callFn("admin", { action: "content_save", type, id: record?.id || "", data });
       qc.invalidateQueries({ queryKey: ["admin-content", type] });
       qc.invalidateQueries({ queryKey: ["content", type] });
       onClose();
@@ -298,7 +297,7 @@ function Editor({ type, record, onClose }) {
     if (!record?.id || !window.confirm("Delete this permanently?")) return;
     setBusy(true);
     try {
-      await base44.entities[type].delete(record.id);
+      await callFn("admin", { action: "content_delete", type, id: record.id });
       qc.invalidateQueries({ queryKey: ["admin-content", type] });
       qc.invalidateQueries({ queryKey: ["content", type] });
       onClose();
@@ -370,7 +369,7 @@ function Editor({ type, record, onClose }) {
 function Content() {
   const [type, setType] = useState("Resource");
   const [editing, setEditing] = useState(null);
-  const q = useQuery({ queryKey: ["admin-content", type], queryFn: () => base44.entities[type].list("-updated_date", 500), staleTime: 0 });
+  const q = useQuery({ queryKey: ["admin-content", type], queryFn: async () => (await callFn("admin", { action: "content_list", type })).items, staleTime: 0 });
   const titleField = TYPES[type].titleField;
   const rows = useMemo(() => q.data || [], [q.data]);
 

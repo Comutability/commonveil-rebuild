@@ -1,0 +1,47 @@
+// How a person signs in with Commonveil sign-in: password hash, owner public key, and failed-attempt counts. One per person. Backend only.
+{
+  "name": "CvAccount",
+  "type": "object",
+  "description": "How a person signs in with Commonveil sign-in: password hash, owner public key, and failed-attempt counts. One per person. Backend only.",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "description": "person (made with a username) or platform (a Base44 account from before, made with an email)."
+    },
+    "password": {
+      "type": "string",
+      "description": "PBKDF2-SHA256 hash, or empty until one is set."
+    },
+    "owner_pub": {
+      "type": "string",
+      "description": "Ed25519 public key derived from the recovery phrase."
+    },
+    "owner_set_at": {
+      "type": "string"
+    },
+    "failed": {
+      "type": "number",
+      "description": "Wrong passwords in a row."
+    },
+    "failed_at": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string",
+      "description": "For platform accounts: their Base44 sign-in email, until they remove it."
+    }
+  },
+  "required": [
+    "user_id",
+    "kind"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

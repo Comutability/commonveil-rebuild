@@ -3,12 +3,12 @@
 import http from "node:http";
 import fs from "node:fs";
 import { Store, loadSchemas } from "./store.mjs";
-import { Auth, AuthError } from "./auth.mjs";
+import { userRecord, verifyAccess } from "../base44/shared/identity/sessions.ts";
 import { createMail } from "./mail.mjs";
 import { FileStore } from "./files.mjs";
 import { ActorHost } from "./actors.mjs";
 import { functionTable, runAction, runMaintenance } from "./functions.mjs";
-import { bearer, clientIp, json, readBody, send, serveStatic } from "./http.mjs";
+import { bearer, json, readBody, send, serveStatic } from "./http.mjs";
 import { Updates } from "./updates.mjs";
 import { Federation } from "./federation/index.mjs";
 import { selfHostCsp } from "./csp.mjs";
@@ -22,12 +22,11 @@ export async function createApp(config, options = {}) {
   const log = options.log || console;
   const store = new Store({ file: config.dbFile, schemas: loadSchemas(new URL("../base44/entities/", import.meta.url)) });
   const mail = createMail({ smtpUrl: config.smtpUrl, from: config.mailFrom, log });
-  const auth = new Auth({ store, mail, config });
   const files = new FileStore({ dir: config.filesDir, secret: config.secret, siteUrl: config.siteUrl });
 
-  // Deleting an account's User row removes its sign-in too; deleting a file's row removes the file.
+  // Deleting a file's row removes the file. (Deleting an account removes its sign-in in the
+  // shared code, base44/shared/accountDeletion.ts, as on Base44.)
   store.onRemove = (entity, id, row) => {
-    if (entity === "User") auth.removeAccount(id);
     if (entity === "Attachment" && row?.file_uri) files.remove(row.file_uri);
   };
 
@@ -39,18 +38,42 @@ export async function createApp(config, options = {}) {
     },
   };
   const serviceClient = { entities: store.entities, integrations };
-  const clientFor = (user) => ({
+
+  // Who's calling: Commonveil sign-in's access token, sent as the bearer token (docs/IDENTITY.md).
+  const auth = {
+    /** { user, session } for an access token, or null. */
+    async sessionFor(token) {
+      const session = await verifyAccess(serviceClient, token);
+      const record = session ? await userRecord(serviceClient, session.userId) : null;
+      return record ? { user: { ...record, id: record.id, email: record.email || "", role: record.role || "user" }, session } : null;
+    },
+    async userFor(token) {
+      return (await this.sessionFor(token))?.user || null;
+    },
+  };
+  const clientFor = (user, session = null) => ({
     entities: store.asPerson(user),
     auth: {
       me: async () => {
         if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
         return structuredClone(user);
       },
+      session: async () => session,
     },
     asServiceRole: serviceClient,
   });
 
-  const functions = functionTable({ defaultAdmins: config.defaultServerAdmins });
+  const functions = functionTable({
+    defaultAdmins: config.defaultServerAdmins,
+    identity: {
+      realm: config.host,
+      siteName: config.siteName,
+      passkeyHost: (h) => h === config.host,
+      // The first account is the site's admin, and so is anyone listed in ADMIN_USERNAMES.
+      adminFor: (username, first) => first || config.adminUsernames.includes(String(username).toLowerCase()),
+      passwordRounds: config.passwordRounds,
+    },
+  });
   const updates = new Updates({ config, store, log });
   const federation = new Federation({ config, store, serviceClient, clientFor, auth, log, transport: options.transport });
   const actors = new ActorHost({ classes: { VoiceRoom, Presence }, client: { asServiceRole: serviceClient }, store, auth, log, federation });
@@ -69,46 +92,9 @@ export async function createApp(config, options = {}) {
   updates.start();
   federation.start();
 
-  // A new account's username is its profile's, claimed the same way the app claims one.
-  auth.onRegistered = async (user, username) => {
-    const [actions, opts = {}] = functions.profile;
-    const r = await runAction(clientFor(user), JSON.stringify({ action: "claim_username", username }), actions, opts);
-    if (r.status !== 200) {
-      const data = await r.json().catch(() => ({}));
-      throw Object.assign(new Error(data.error || "That username isn't available."), { status: r.status, code: data.code });
-    }
-  };
-
-  // Sign-in (server/auth.mjs). `open` routes work signed out; `mine` need a session.
-  const authRoutes = {
-    open: {
-      register: (b, ip) => auth.register(b, ip),
-      "verify-otp": (b) => auth.verifyOtp(b),
-      "resend-otp": (b) => auth.resendOtp(b.email),
-      login: (b, ip) => auth.login(b, ip),
-      "check-options": (b) => auth.checkPasskeyOptions(b),
-      check: (b, ip) => auth.checkDevice(b, ip),
-      "passkey-login-options": (b, ip) => auth.passkeyLoginOptions(b, ip),
-      "passkey-login": (b) => auth.passkeyLogin(b),
-      "recover-options": (b, ip) => auth.recoverOptions(b, ip),
-      recover: (b, ip) => auth.recover(b, ip),
-      "reset-request": (b) => auth.resetPasswordRequest(b.email),
-      reset: (b) => auth.resetPassword(b),
-    },
-    mine: {
-      identity: (b, s) => (b.action ? auth.identityAction(s, b) : auth.identity(s, b.device_name)),
-      approvals: (b, s) => (b.id ? auth.approve(s, b) : auth.approvals(s)),
-      "passkey-options": (b, s) => auth.passkeyRegisterOptions(s, b),
-      "passkey-add": (b, s) => auth.passkeyRegister(s, b),
-      "owner-challenge": (b, s) => auth.ownerChallenge(s),
-      owner: (b, s) => auth.setOwner(s, b),
-    },
-  };
-
   async function handle(req, res) {
     const url = new URL(req.url, config.siteUrl);
     const p = url.pathname;
-    const ip = clientIp(req, config.trustProxy);
 
     if (await federation.route(req, res, url)) return;
 
@@ -121,31 +107,6 @@ export async function createApp(config, options = {}) {
       });
     }
 
-    if (p.startsWith("/api/auth/")) {
-      const what = p.slice("/api/auth/".length);
-      try {
-        if (what === "me" && req.method === "GET") {
-          const user = await auth.userFor(bearer(req));
-          return user ? json(res, 200, user) : json(res, 401, { error: "Please sign in again.", code: "SIGN_IN_REQUIRED" });
-        }
-        if (what === "logout" && req.method === "POST") {
-          auth.logout(bearer(req));
-          return json(res, 200, { ok: true });
-        }
-        if (req.method !== "POST" || !(Object.hasOwn(authRoutes.open, what) || Object.hasOwn(authRoutes.mine, what))) return json(res, 404, { error: "Not found", code: "NOT_FOUND" });
-        const body = JSON.parse((await readBody(req, 64 * 1024)) || "{}");
-        if (!body || typeof body !== "object" || Array.isArray(body)) return json(res, 400, { error: "Bad request.", code: "BAD_REQUEST" });
-        if (Object.hasOwn(authRoutes.open, what)) return json(res, 200, await authRoutes.open[what](body, ip));
-        const session = await auth.sessionFor(bearer(req));
-        if (!session) return json(res, 401, { error: "Please sign in again.", code: "SIGN_IN_REQUIRED" });
-        return json(res, 200, await authRoutes.mine[what](body, session));
-      } catch (err) {
-        const status = err instanceof AuthError ? err.status : err?.status === 413 ? 413 : err instanceof SyntaxError ? 400 : 500;
-        if (status === 500) log.error?.("[auth]", err);
-        return json(res, status, { error: status === 500 ? "Something went wrong." : err.message, code: err.code || "ERROR" });
-      }
-    }
-
     if (p.startsWith("/api/functions/")) {
       const name = p.slice("/api/functions/".length);
       if (req.method !== "POST" || !Object.hasOwn(functions, name)) return json(res, 404, { error: "Unknown function.", code: "NOT_FOUND" });
@@ -156,10 +117,11 @@ export async function createApp(config, options = {}) {
       } catch {
         return json(res, 413, { error: "That request is too large.", code: "TOO_LARGE" });
       }
-      const user = await auth.userFor(bearer(req));
-      const fedOptions = { ...options, federation: federation.enabled ? federation.handlers : undefined };
+      const who = await auth.sessionFor(bearer(req));
+      const user = who?.user || null;
+      const fedOptions = { ...options, trustPlatformUser: true, federation: federation.enabled ? federation.handlers : undefined };
       const runLocal = async (bodyText) => {
-        const r = await runAction(clientFor(user), bodyText, actions, fedOptions);
+        const r = await runAction(clientFor(user, who?.session), bodyText, actions, fedOptions);
         const text = await r.text();
         let data = null;
         try {
@@ -172,7 +134,7 @@ export async function createApp(config, options = {}) {
       // Something on another site, or "all of mine" across sites: the protocol relays it.
       const relayed = await federation.relayFunction(name, raw, user, runLocal);
       if (relayed) return json(res, relayed.status, relayed.data ?? {});
-      const response = await runAction(clientFor(user), raw, actions, fedOptions);
+      const response = await runAction(clientFor(user, who?.session), raw, actions, fedOptions);
       return send(res, response.status, await response.text(), { "Content-Type": "application/json; charset=utf-8" });
     }
 

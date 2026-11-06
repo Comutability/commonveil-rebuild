@@ -32,6 +32,8 @@ export function loadConfig(env = process.env) {
     siteName: env.SITE_NAME || "Commonveil",
     adminEmails: list(env.ADMIN_EMAILS),
     adminUsernames: list(env.ADMIN_USERNAMES),
+    // PBKDF2 rounds for passwords. Only tests lower it.
+    passwordRounds: Math.max(1000, Number(env.PASSWORD_ROUNDS || 600_000)),
     defaultServerAdmins: list(env.DEFAULT_SERVER_ADMINS),
     openRegistration: bool(env.OPEN_REGISTRATION, true),
     smtpUrl: env.SMTP_URL || "",

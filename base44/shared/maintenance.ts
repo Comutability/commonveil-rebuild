@@ -8,6 +8,7 @@
 // Like every function, this one has a public address, so it takes no instructions beyond which
 // task to run. Each task only acts on what is already due by the server's clock, so a call
 // that comes early, late or twice does nothing extra.
+import { userRecord } from "./identity/sessions.ts";
 import { json } from "./http.ts";
 import { BLANK, OutOfTime, blankAndDeleteAll, eraseConversation, purgeAccount, removePlatformUser } from "./accountDeletion.ts";
 import { AUTO_DELETE_DAYS, dayOf } from "./store.ts";
@@ -78,11 +79,7 @@ export async function deleteInactiveAccounts(sr: any, now: Date, deadline: numbe
       const dueAt = startOfDay(p.last_active_at) + days * DAY;
       const warnedAt = p.inactive_warned_at ? Date.parse(p.inactive_warned_at) : NaN;
       let account: any = null;
-      try {
-        account = await sr.entities.User.get(p.user_id);
-      } catch {
-        account = null;
-      }
+      account = await userRecord(sr, p.user_id);
       // Without the sign-in record there's no one to warn, and no telling staff apart: leave it.
       if (!account || account.role === "admin") {
         out.skipped += 1;

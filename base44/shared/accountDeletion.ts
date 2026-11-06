@@ -12,6 +12,7 @@
 //    username is retired first, on its own: otherwise someone could claim it and pose as this
 //    member to people who knew them.
 
+import { removeSignIn } from "./handlers/identity.ts";
 import { withoutMember } from "./store.ts";
 import { eraseServerTraces } from "./servers/erase.ts";
 
@@ -158,12 +159,16 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
 }
 
 /**
- * Remove the member's Base44 sign-in. Base44 keeps removed users in its own bin for 30 days
- * before erasing them, and never lets an app remove its owner.
+ * Remove the member's sign-in: their Commonveil sign-in records, and their account record (a
+ * Person, or a Base44 user for accounts made with an email). Base44 keeps removed users in its own
+ * bin for 30 days before erasing them, and never lets an app remove its owner.
  */
 export async function removePlatformUser(sr: any, userId: string): Promise<boolean> {
+  await removeSignIn(sr, userId);
+  const person = await sr.entities.Person.get(userId).catch(() => null);
   try {
-    await sr.entities.User.delete(userId);
+    if (person) await sr.entities.Person.delete(userId);
+    else await sr.entities.User.delete(userId);
     return true;
   } catch {
     return false;

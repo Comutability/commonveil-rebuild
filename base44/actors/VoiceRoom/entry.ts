@@ -6,6 +6,7 @@
 // Admission: a signed-in connection must present a single-use pass from the voice function,
 // which checked membership and permissions a moment ago. Until then it gets nothing.
 import { Actor } from "base44:runtime/actors";
+import { verifyAccess } from "../../shared/identity/sessions.ts";
 
 const MAX_PEOPLE = 8;
 // A stage: listeners send nothing, so more people fit.
@@ -62,9 +63,35 @@ export default class VoiceRoom extends Actor {
     if (changed) await this.save();
   }
 
+  // ---------- Commonveil sign-in (docs/IDENTITY.md) ----------
+  // A connection without a platform identity signs in with a message carrying its access token:
+  // { type: "__auth", token }. The room asks for it ("sign-in-needed") whenever one connects.
+
+  withIdentity(conn) {
+    if (conn.identity && conn.identity.type === "authenticated") return conn;
+    const userId = this.signedIn?.get(conn.id);
+    if (!userId) return conn;
+    return new Proxy(conn, {
+      get: (t, k) => (k === "identity" ? { type: "authenticated", userId } : typeof t[k] === "function" ? t[k].bind(t) : t[k]),
+    });
+  }
+
+  async signIn(conn, msg) {
+    if (conn.identity && conn.identity.type === "authenticated") return true;
+    const s = await verifyAccess(this.client.asServiceRole, msg.token).catch(() => null);
+    if (!s) {
+      conn.reject(4003, "Please sign in again.");
+      return false;
+    }
+    this.signedIn ||= new Map();
+    this.signedIn.set(conn.id, s.userId);
+    return true;
+  }
+
   async handleConnect(conn) {
+    conn = this.withIdentity(conn);
     if (!conn.identity || conn.identity.type !== "authenticated") {
-      conn.reject(4003, "Sign in to join calls.");
+      conn.send({ type: "sign-in-needed" });
       return;
     }
     const me = this.people.get(conn.id);
@@ -89,6 +116,11 @@ export default class VoiceRoom extends Actor {
   async handleMessage(conn, msg) {
     if (!msg || typeof msg !== "object" || typeof msg.type !== "string") return;
     if (this.flooding(conn.id)) return;
+    if (msg.type === "__auth") {
+      if (await this.signIn(conn, msg)) await this.handleConnect(conn);
+      return;
+    }
+    conn = this.withIdentity(conn);
     if (msg.type === "join") {
       await this.join(conn, msg);
       return;
@@ -141,6 +173,7 @@ export default class VoiceRoom extends Actor {
 
   async handleClose(conn) {
     this.counts.delete(conn.id);
+    this.signedIn?.delete(conn.id);
     const p = this.people.get(conn.id);
     if (!p || p.left) {
       await this.remove(conn.id);

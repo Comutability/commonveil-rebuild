@@ -8,6 +8,7 @@ import { ErrorNote, formatDate } from "@/components/site/bits";
 import { SettingsGroup, SettingsTitle } from "@/components/settings/SettingsLayout";
 import { useSecure } from "@/lib/secure/SecureContext";
 import { addPasskey, answerApproval, forgetDevice, identityAction, identityStatus, passkeysSupported, pendingApprovals, setOwnerKey } from "@/lib/identity/client";
+import { clearSession } from "@/lib/identity/session";
 import { looksLikePrivateKey, phraseFromPrivateKey, privateKeyFromPhrase } from "@/lib/crypto/owner";
 
 const HOW = { registration: "when you made your account", password: "with your password", passkey: "with a passkey", key: "with your recovery phrase or private key", device: "from another device", email: "with an email code", session: "already signed in" };
@@ -60,12 +61,12 @@ export default function SignInSettings() {
         <div className="mb-6 rounded-xl border border-primary/40 bg-primary/5 p-4 text-sm" role="status">
           <p className="font-medium">Email sign-in is going away soon</p>
           <p className="mt-1 text-muted-foreground">
-            Your account will sign in with your username, <span className="font-medium text-foreground">@{me?.profile?.username}</span>, and your password. To get back in, you'll use your recovery phrase, and optionally a passkey or another signed-in device. Add a passkey and confirm your phrase below, then remove your email.
+            You signed in with <span className="font-medium text-foreground">{state.email}</span>. From now on your account signs in with your username, <span className="font-medium text-foreground">@{me?.profile?.username}</span>, and a password. To get back in, you'll use your recovery phrase, and optionally a passkey or another signed-in device. Set a password and confirm your phrase below, then remove your email.
           </p>
-          <Button className="mt-3" size="sm" variant="outline" disabled={!state.owner || Boolean(busy)} onClick={() => run("email", () => identityAction("remove_email"))}>
+          <Button className="mt-3" size="sm" variant="outline" disabled={!state.owner || !state.has_password || Boolean(busy)} onClick={() => run("email", () => identityAction("remove_email"))}>
             Remove my email now
           </Button>
-          {!state.owner && <p className="mt-2 text-xs text-muted-foreground">Confirm your recovery phrase first.</p>}
+          {(!state.owner || !state.has_password) && <p className="mt-2 text-xs text-muted-foreground">{!state.has_password ? "Set a password first." : "Confirm your recovery phrase first."}</p>}
         </div>
       )}
 
@@ -139,6 +140,7 @@ export default function SignInSettings() {
                     const r = await identityAction("disconnect_device", { id: d.id });
                     if (r.signed_out) {
                       forgetDevice();
+                      clearSession();
                       window.location.href = "/login";
                     }
                   })
@@ -152,7 +154,7 @@ export default function SignInSettings() {
         <p className="mt-2 text-xs text-muted-foreground">These are sign-ins. The devices that hold your encryption keys are under Devices and keys.</p>
       </SettingsGroup>
 
-      <PasswordSection />
+      <PasswordSection hasPassword={state.has_password} username={me?.profile?.username} onSaved={refresh} />
     </>
   );
 }
@@ -222,14 +224,14 @@ function RecoverySection({ owner, ownerSetAt, onSaved }) {
   );
 }
 
-function PasswordSection() {
+function PasswordSection({ hasPassword, username, onSaved }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   return (
-    <SettingsGroup title="Password">
+    <SettingsGroup title="Password" description={hasPassword ? undefined : `Your account doesn't have a password yet. Set one to sign in as @${username || "you"}.`}>
       <form
         className="max-w-sm space-y-3"
         onSubmit={async (e) => {
@@ -238,10 +240,12 @@ function PasswordSection() {
           setError("");
           setMsg("");
           try {
-            await identityAction("change_password", { password: current, new_password: next });
+            if (hasPassword) await identityAction("change_password", { password: current, new_password: next });
+            else await identityAction("set_password", { new_password: next });
             setCurrent("");
             setNext("");
-            setMsg("Password changed.");
+            setMsg(hasPassword ? "Password changed." : "Password set. You can sign in with your username now.");
+            await onSaved?.();
           } catch (err) {
             setError(err.message);
           } finally {
@@ -249,17 +253,19 @@ function PasswordSection() {
           }
         }}
       >
-        <div className="space-y-1.5">
-          <Label htmlFor="pw-current">Current password</Label>
-          <Input id="pw-current" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
-        </div>
+        {hasPassword && (
+          <div className="space-y-1.5">
+            <Label htmlFor="pw-current">Current password</Label>
+            <Input id="pw-current" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
+          </div>
+        )}
         <div className="space-y-1.5">
           <Label htmlFor="pw-new">New password</Label>
           <Input id="pw-new" type="password" autoComplete="new-password" minLength={10} value={next} onChange={(e) => setNext(e.target.value)} required />
         </div>
         <ErrorNote>{error}</ErrorNote>
         {msg && <p className="text-sm text-primary" role="status">{msg}</p>}
-        <Button type="submit" size="sm" disabled={busy}>Change password</Button>
+        <Button type="submit" size="sm" disabled={busy}>{hasPassword ? "Change password" : "Set password"}</Button>
       </form>
     </SettingsGroup>
   );

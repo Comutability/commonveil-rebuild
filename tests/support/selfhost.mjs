@@ -32,7 +32,7 @@ export async function startSites(names, env = {}, { prepare } = {}) {
   for (const name of names) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), `cv-${name}-`));
     await prepare?.(name, dir);
-    const config = loadConfig({ DATA_DIR: dir, SITE_URL: `http://${name}`, TRUST_PROXY: "true", FEDERATION_ALLOW_PRIVATE: "true", UPDATE_CHECK_HOURS: "1000", ...env });
+    const config = loadConfig({ DATA_DIR: dir, SITE_URL: `http://${name}`, TRUST_PROXY: "true", FEDERATION_ALLOW_PRIVATE: "true", UPDATE_CHECK_HOURS: "1000", PASSWORD_ROUNDS: "1000", ...env });
     const app = await createApp(config, { log: quiet, transport });
     await new Promise((r) => app.server.listen(0, "127.0.0.1", r));
     ports[name] = app.server.address().port;

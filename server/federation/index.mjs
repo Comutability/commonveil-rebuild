@@ -16,6 +16,7 @@ import crypto from "node:crypto";
 import { WebSocketServer } from "ws";
 import { HANDLE_RE } from "../../base44/shared/http.ts";
 import { peerDeviceOut, statementOut } from "../../base44/shared/store.ts";
+import { userRecord } from "../../base44/shared/identity/sessions.ts";
 import { json, readBody, bearer } from "../http.mjs";
 import { FederationError, PROTOCOL, Signer, Transport, normHost } from "./net.mjs";
 
@@ -139,7 +140,7 @@ export class Federation {
         later();
         continue;
       }
-      const user = await this.sr.entities.User.get(row.user_id).catch(() => null);
+      const user = await userRecord(this.sr, row.user_id);
       if (!user) {
         drop();
         continue;
@@ -261,7 +262,7 @@ export class Federation {
     if (!card.handle.endsWith(`.${doc.handle_domain}`)) throw new FederationError(403, "WRONG_SITE", "A site can only speak for its own people.");
     const existing = this.q.shadow.get(card.id);
     if (existing && existing.home !== home) throw new FederationError(403, "WRONG_SITE", "That person belongs to another site.");
-    if (!existing && (this.store.tableOf(card.id) === "User")) throw new FederationError(409, "ID_TAKEN", "That id belongs to someone on this site.");
+    if (!existing && ["User", "Person"].includes(this.store.tableOf(card.id))) throw new FederationError(409, "ID_TAKEN", "That id belongs to someone on this site.");
     const digest = crypto.createHash("sha256").update(JSON.stringify([card.handle, card.profile, card.directory])).digest("hex");
     if (existing && existing.digest === digest) return card.id;
     const U = this.sr.entities;
@@ -423,7 +424,8 @@ export class Federation {
    * mine" from every site this person has things on. Answers { status, data } or null (local only).
    */
   async relayFunction(fn, raw, user, runLocal) {
-    if (!this.enabled || !user) return null;
+    // Signing in is always your own site's business.
+    if (!this.enabled || !user || fn === "identity") return null;
     let body;
     try {
       body = JSON.parse(raw || "{}");
@@ -536,7 +538,7 @@ export class Federation {
     if (["keys", "profile", "safety"].includes(fn) && !["peer_keys", "get_many", "find"].includes(parsed.action)) {
       throw new FederationError(403, "HOME_ONLY", "That's done on the person's own site.");
     }
-    const res = await runAction(this.clientFor(user), raw, actions, { ...options, federation: this.handlers });
+    const res = await runAction(this.clientFor(user), raw, actions, { ...options, federation: this.handlers, trustPlatformUser: true });
     let data = null;
     try {
       data = JSON.parse(await res.text());
@@ -575,7 +577,7 @@ export class Federation {
   async #inboundInbox(from, payload) {
     if (payload?.type === "membership") {
       const uid = String(payload.user_id || "");
-      if (!ID24.test(uid) || this.store.tableOf(uid) !== "User" || this.q.shadow.get(uid)) return { ok: false };
+      if (!ID24.test(uid) || !["User", "Person"].includes(this.store.tableOf(uid)) || this.q.shadow.get(uid)) return { ok: false };
       const id = String(payload.room?.id || "");
       if (ID24.test(id)) this.q.putRoute.run(id, from, Date.now());
       if (payload.joined) this.q.putHost.run(uid, from, Date.now());

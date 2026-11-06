@@ -6,6 +6,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { base44 } from "@/api/base44Client";
 import { randomId } from "@/lib/crypto/encoding";
 import { useSecure } from "./SecureContext.jsx";
+import { accessToken } from "@/lib/identity/session";
 
 const PresenceContext = createContext(null);
 const HELLO_MS = 20_000;
@@ -61,6 +62,11 @@ export function PresenceProvider({ children }) {
       r.conn = base44.actors.Presence(key).connect({ id: randomId(16) });
       r.sub = r.conn.subscribe((msg) => {
         if (!msg || typeof msg !== "object") return;
+        // The room asks connections without a platform sign-in for Commonveil's (docs/IDENTITY.md).
+        if (msg.type === "sign-in-needed") {
+          accessToken().then((token) => token && r.conn?.send({ type: "__auth", token }));
+          return;
+        }
         if (msg.type === "here" && Array.isArray(msg.people)) {
           r.people = new Map(msg.people.filter((p) => typeof p?.user_id === "string").map((p) => [p.user_id, p.status === "idle" ? "idle" : "online"]));
           bump();

@@ -346,7 +346,8 @@ export class Store {
     const store = this;
     const userData = (field) => {
       if (!user) return undefined;
-      const row = store.#table("User").rows.get(user.id);
+      // Accounts made with a username are Person records; others (and people from other sites) Users.
+      const row = store.#table("Person").rows.get(user.id) || store.#table("User").rows.get(user.id);
       return row ? clone(row[field]) : undefined;
     };
     return new Proxy({}, {

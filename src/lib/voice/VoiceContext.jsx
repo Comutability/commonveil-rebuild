@@ -22,6 +22,7 @@ import { epochId, frameTransform } from "./frames";
 import { signHello, verifyHello, fingerprintOf } from "./hello";
 // Bundled as its own script (with frames.js inside), served from this site.
 import frameWorkerUrl from "./frameWorker.js?worker&url";
+import { accessToken } from "@/lib/identity/session";
 
 // A STUN server tells each device its public address so devices on different networks can
 // reach each other. It sees that address, never the call. There's no relay (TURN) server, so
@@ -523,7 +524,11 @@ export function VoiceProvider({ children }) {
       setDeafened(false);
       setRoom(serverId ? { serverId, channelId: channel.id, status: "connecting" } : { conversationId, callId, status: "connecting" });
       c.conn = base44.actors.VoiceRoom(c.roomId).connect({ id: randomId(16) });
-      c.sub = c.conn.subscribe((msg) => onMessage(c, msg));
+      c.sub = c.conn.subscribe((msg) => {
+        // The room asks connections without a platform sign-in for Commonveil's (docs/IDENTITY.md).
+        if (msg?.type === "sign-in-needed") accessToken().then((token) => token && c.conn?.send({ type: "__auth", token }));
+        else onMessage(c, msg);
+      });
     } catch (err) {
       const message = err?.name === "NotAllowedError" ? "Commonveil needs your permission to use the microphone." : err?.message || "Couldn't join the call.";
       teardown(c);

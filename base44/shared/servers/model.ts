@@ -5,6 +5,7 @@
 // apps know whom to hand keys to. Members read server rows with their own access: row rules
 // let them read rows whose audience_id is in their User record's cv_access list, which only
 // the backend can change (checked against the live platform).
+import { updateUserRecord } from "../identity/sessions.ts";
 import { ApiError, LIMITS, isoTime, platformTime, randomIdField, str } from "../http.ts";
 import { verifyServerItemSignature } from "../verify.ts";
 import { P, basePermissions, channelIsPrivate, channelPermissions, has, isStaff, topPosition } from "../permissions.ts";
@@ -313,7 +314,7 @@ export async function refreshAccess(sr: any, userId: string) {
     }
   }
   const list = [...access];
-  await sr.entities.User.update(userId, { cv_access: list });
+  await updateUserRecord(sr, userId, { cv_access: list });
   return list;
 }
 

@@ -17,7 +17,7 @@ export class Actor {
 }`;
 const dir = mkdtempSync(join(tmpdir(), "presence-"));
 writeFileSync(join(dir, "runtime.mjs"), RUNTIME);
-writeFileSync(join(dir, "Presence.mjs"), readFileSync(new URL("../base44/actors/Presence/entry.ts", import.meta.url), "utf8").replace('from "base44:runtime/actors"', 'from "./runtime.mjs"'));
+writeFileSync(join(dir, "Presence.mjs"), readFileSync(new URL("../base44/actors/Presence/entry.ts", import.meta.url), "utf8").replace('from "base44:runtime/actors"', 'from "./runtime.mjs"').replace('from "../../shared/identity/sessions.ts"', `from "${new URL("../base44/shared/identity/sessions.ts", import.meta.url).href}"`));
 const { default: Presence } = await import(pathToFileURL(join(dir, "Presence.mjs")).href);
 
 function env(members) {

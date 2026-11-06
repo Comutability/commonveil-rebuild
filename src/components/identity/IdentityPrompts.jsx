@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Fingerprint, ShieldAlert, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { SELF_HOSTED } from "@/api/base44Client";
 import { answerApproval, identityStatus, pendingApprovals } from "@/lib/identity/client";
 
 const DISMISS_KEY = "commonveil_identity_prompt";
@@ -44,7 +43,6 @@ export default function IdentityPrompts() {
   }, []);
 
   useEffect(() => {
-    if (!SELF_HOSTED) return undefined;
     poll();
     const t = setInterval(() => {
       if (document.visibilityState === "visible") poll();
@@ -54,10 +52,8 @@ export default function IdentityPrompts() {
 
   // What's set up changes in settings; check again on the way out.
   useEffect(() => {
-    if (SELF_HOSTED && !onSettings) identityStatus().then(setStatus).catch(() => {});
+    if (!onSettings) identityStatus().then(setStatus).catch(() => {});
   }, [onSettings]);
-
-  if (!SELF_HOSTED) return null;
 
   if (approvals.length) {
     const a = approvals[0];
@@ -76,10 +72,11 @@ export default function IdentityPrompts() {
   }
 
   if (!status || hidden || onSettings) return null;
-  const kind = status.email_retiring ? "email" : !status.owner ? "owner" : !status.passkeys.length ? "passkey" : null;
+  const kind = status.email_retiring ? "email" : !status.has_password ? "password" : !status.owner ? "owner" : !status.passkeys.length ? "passkey" : null;
   if (!kind || dismissed(kind)) return null;
   const text = {
-    email: "Email sign-in is going away soon. You'll sign in with your username and password, and keep your recovery phrase to get back in. Set up a passkey now.",
+    email: "Email sign-in is going away soon. Set a password for your username, confirm your recovery phrase, and add a passkey, then you won't need your email.",
+    password: "Set a password, so you can sign in with your username.",
     owner: "Confirm your recovery phrase, so you can always get back into your account.",
     passkey: "Add a passkey to sign in without typing your password.",
   }[kind];

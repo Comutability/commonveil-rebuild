@@ -1,0 +1,36 @@
+// A one-off challenge for signing in, confirming a device, adding a passkey or recovering. Expires in minutes. Backend only.
+{
+  "name": "CvChallenge",
+  "type": "object",
+  "description": "A one-off challenge for signing in, confirming a device, adding a passkey or recovering. Expires in minutes. Backend only.",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "purpose": {
+      "type": "string"
+    },
+    "token_hash": {
+      "type": "string",
+      "description": "The challenge id is given to the app; only its hash is stored."
+    },
+    "data": {
+      "type": "string",
+      "description": "JSON."
+    },
+    "expires_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "purpose",
+    "token_hash",
+    "expires_at"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

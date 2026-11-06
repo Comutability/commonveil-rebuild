@@ -83,7 +83,7 @@ class Member {
   async call(fn, body, { anonymous = false } = {}) {
     const isPublic = Object.hasOwn(PUBLIC_FUNCTIONS, fn);
     const actions = isPublic ? PUBLIC_FUNCTIONS[fn] : FUNCTIONS[fn];
-    const res = await runAction(this.world.clientFor(anonymous ? null : this.user), JSON.stringify(body), actions, { allowAnonymous: isPublic });
+    const res = await runAction(this.world.clientFor(anonymous ? null : this.user), JSON.stringify(body), actions, { allowAnonymous: isPublic, trustPlatformUser: true });
     return { status: res.status, body: await res.json() };
   }
 
@@ -957,12 +957,18 @@ test("review O: rate limits hold when requests arrive at the same moment", async
 // ---------------------------------------------------------------------------
 // Reporting security problems
 
-test("only the security-report and invite-preview functions let in callers who aren't signed in", () => {
+test("only sign-in, the security-report and invite-preview functions let in callers who aren't signed in", () => {
   const dir = new URL("../base44/functions/", import.meta.url);
   const names = readdirSync(dir).sort();
-  assert.deepEqual(names, [...Object.keys(FUNCTIONS), ...Object.keys(PUBLIC_FUNCTIONS), ...SCHEDULED_FUNCTIONS].sort(), "every deployed function is covered here");
+  assert.deepEqual(names, [...Object.keys(FUNCTIONS), ...Object.keys(PUBLIC_FUNCTIONS), ...SCHEDULED_FUNCTIONS, "identity"].sort(), "every deployed function is covered here");
   for (const name of names) {
     const source = readFileSync(new URL(`${name}/entry.ts`, dir), "utf8");
+    // Base44's own sessions (accounts made with an email) only reach sign-in, to move to Commonveil sign-in.
+    if (name === "identity") {
+      assert.match(source, /return serve\(req, createClientFromRequest, actions, \{ allowAnonymous: true, allowPlatformUser: true \}\);/);
+      continue;
+    }
+    assert.doesNotMatch(source, /allowPlatformUser|trustPlatformUser/, name);
     if (SCHEDULED_FUNCTIONS.includes(name)) {
       // No member actions at all: only the named task, run as the app itself (see the maintenance tests).
       assert.doesNotMatch(source, /serve\(|Actions|allowAnonymous/, name);

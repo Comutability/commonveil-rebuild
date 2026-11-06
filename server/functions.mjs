@@ -13,12 +13,14 @@ import { voiceActions } from "../base44/shared/handlers/voice.ts";
 import { FILES_MAX_BODY, fileActions } from "../base44/shared/handlers/files.ts";
 import { eventActions } from "../base44/shared/handlers/events.ts";
 import { moderationActions } from "../base44/shared/handlers/moderation.ts";
+import { identityActions } from "../base44/shared/handlers/identity.ts";
 
 export { runMaintenance } from "../base44/shared/maintenance.ts";
 
-/** name -> [actions, options] */
-export function functionTable({ defaultAdmins }) {
+/** name -> [actions, options]. identity: the site's sign-in settings (handlers/identity.ts). */
+export function functionTable({ defaultAdmins, identity }) {
   return {
+    ...(identity ? { identity: [identityActions(identity), { allowAnonymous: true }] } : {}),
     profile: [profileActions],
     keys: [keysActions],
     conversations: [conversationActions],

@@ -1,0 +1,30 @@
+// A sign-in session's refresh token (hashed). Short access tokens are made from it. Backend only.
+{
+  "name": "CvRefresh",
+  "type": "object",
+  "description": "A sign-in session's refresh token (hashed). Short access tokens are made from it. Backend only.",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "token_hash": {
+      "type": "string"
+    },
+    "expires_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "token_hash"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

@@ -1,0 +1,34 @@
+// A browser that has signed in to an account, and how it was confirmed. Only a hash of its secret is kept. Backend only.
+{
+  "name": "CvDevice",
+  "type": "object",
+  "description": "A browser that has signed in to an account, and how it was confirmed. Only a hash of its secret is kept. Backend only.",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "secret_hash": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "description": "Like \"Firefox on Linux\"."
+    },
+    "confirmed_by": {
+      "type": "string"
+    },
+    "last_seen": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "secret_hash"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

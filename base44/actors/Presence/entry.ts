@@ -5,6 +5,7 @@
 // memory while people are connected and is gone when they leave. Apps only connect when their
 // person has turned sharing on, and they only see others while they share their own.
 import { Actor } from "base44:runtime/actors";
+import { verifyAccess } from "../../shared/identity/sessions.ts";
 
 const MAX_PEOPLE = 400;
 const ROOM_RE = /^(s|c)\.([A-Za-z0-9_-]{8,64})$/;
@@ -64,7 +65,37 @@ export default class Presence extends Actor {
     return entry;
   }
 
+  // ---------- Commonveil sign-in (docs/IDENTITY.md) ----------
+  // A connection without a platform identity signs in with a message carrying its access token:
+  // { type: "__auth", token }. The room asks for it ("sign-in-needed") whenever one connects.
+
+  withIdentity(conn) {
+    if (conn.identity && conn.identity.type === "authenticated") return conn;
+    const userId = this.signedIn?.get(conn.id);
+    if (!userId) return conn;
+    return new Proxy(conn, {
+      get: (t, k) => (k === "identity" ? { type: "authenticated", userId } : typeof t[k] === "function" ? t[k].bind(t) : t[k]),
+    });
+  }
+
+  async signIn(conn, msg) {
+    if (conn.identity && conn.identity.type === "authenticated") return true;
+    const s = await verifyAccess(this.client.asServiceRole, msg.token).catch(() => null);
+    if (!s) {
+      conn.reject(4003, "Please sign in again.");
+      return false;
+    }
+    this.signedIn ||= new Map();
+    this.signedIn.set(conn.id, s.userId);
+    return true;
+  }
+
   async handleConnect(conn) {
+    conn = this.withIdentity(conn);
+    if (!conn.identity || conn.identity.type !== "authenticated") {
+      conn.send({ type: "sign-in-needed" });
+      return;
+    }
     const me = await this.admit(conn);
     if (!me) return;
     conn.send({ type: "here", people: this.list() });
@@ -74,6 +105,11 @@ export default class Presence extends Actor {
   async handleMessage(conn, msg) {
     if (!msg || typeof msg !== "object" || typeof msg.type !== "string") return;
     if (this.flooding(conn.id)) return;
+    if (msg.type === "__auth") {
+      if (await this.signIn(conn, msg)) await this.handleConnect(conn);
+      return;
+    }
+    conn = this.withIdentity(conn);
     const fresh = !this.people.has(conn.id);
     const me = await this.admit(conn);
     if (!me) return;
@@ -96,6 +132,7 @@ export default class Presence extends Actor {
 
   async handleClose(conn) {
     this.counts.delete(conn.id);
+    this.signedIn?.delete(conn.id);
     if (this.people.delete(conn.id)) this.broadcastPeople();
   }
 

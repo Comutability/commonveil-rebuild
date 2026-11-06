@@ -1,6 +1,10 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
-import { appParams } from '@/lib/app-params';
+import { base44, SELF_HOSTED } from '@/api/base44Client';
+import { hasSession, onSessionChange } from '@/lib/identity/session';
+import { signOut, whoAmI } from '@/lib/identity/client';
+
+// Who's signed in: Commonveil sign-in's session (docs/IDENTITY.md), on Base44 and self-hosted
+// sites alike. Base44's own sign-in is only a way in for accounts made with an email.
 
 const AuthContext = createContext();
 
@@ -15,6 +19,13 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     checkAppState();
+    // Signed out in another tab, or this device was disconnected.
+    return onSessionChange((s) => {
+      if (!s) {
+        setUser(null);
+        setIsAuthenticated(false);
+      }
+    });
   }, []);
 
   const checkAppState = async () => {
@@ -27,7 +38,7 @@ export const AuthProvider = ({ children }) => {
         setAppPublicSettings(publicSettings);
         
         // If we got the app public settings successfully, check if user is authenticated
-        if (appParams.token) {
+        if (hasSession()) {
           await checkUserAuth();
         } else {
           setIsLoadingAuth(false);
@@ -81,7 +92,8 @@ export const AuthProvider = ({ children }) => {
     try {
       // Now check if the user is authenticated
       setIsLoadingAuth(true);
-      const currentUser = await base44.auth.me();
+      if (!hasSession()) throw Object.assign(new Error('Not signed in'), { status: 401 });
+      const { user: currentUser } = await whoAmI();
       setUser(currentUser);
       setIsAuthenticated(true);
       setIsLoadingAuth(false);
@@ -93,7 +105,7 @@ export const AuthProvider = ({ children }) => {
       setAuthChecked(true);
       
       // If user auth fails, it might be an expired token
-      if (error.status === 401 || error.status === 403) {
+      if (error.status === 401 || error.status === 403 || error.code === 'SIGN_IN_REQUIRED' || error.code === 'NEW_SIGN_IN') {
         setAuthError({
           type: 'auth_required',
           message: 'Authentication required'
@@ -102,22 +114,18 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = (shouldRedirect = true) => {
+  const logout = async (shouldRedirect = true) => {
     setUser(null);
     setIsAuthenticated(false);
-    
-    if (shouldRedirect) {
-      // Use the SDK's logout method which handles token cleanup and redirect
-      base44.auth.logout(window.location.href);
-    } else {
-      // Just remove the token without redirect
-      base44.auth.logout();
-    }
+    await signOut();
+    if (!shouldRedirect) return;
+    // On Base44, also end any Base44 sign-in left from before, so it can't sign anyone back in.
+    if (SELF_HOSTED) window.location.href = '/';
+    else base44.auth.logout(`${window.location.origin}/`);
   };
 
   const navigateToLogin = () => {
-    // Use the SDK's redirectToLogin method
-    base44.auth.redirectToLogin(window.location.href);
+    window.location.href = `/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`;
   };
 
   return (

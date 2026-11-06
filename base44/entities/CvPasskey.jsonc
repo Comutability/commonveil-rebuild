@@ -1,0 +1,53 @@
+// A passkey's public key, for one account. Backend only.
+{
+  "name": "CvPasskey",
+  "type": "object",
+  "description": "A passkey's public key, for one account. Backend only.",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "credential_id": {
+      "type": "string"
+    },
+    "public_key": {
+      "type": "string",
+      "description": "COSE key, base64url."
+    },
+    "alg": {
+      "type": "number"
+    },
+    "counter": {
+      "type": "number"
+    },
+    "transports": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "synced": {
+      "type": "boolean"
+    },
+    "rp_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "last_used": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "credential_id",
+    "public_key"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

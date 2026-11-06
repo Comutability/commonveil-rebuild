@@ -55,7 +55,7 @@ export class Member {
     const isPublic = Object.hasOwn(PUBLIC_FUNCTIONS, fn);
     const actions = isPublic ? PUBLIC_FUNCTIONS[fn] : FUNCTIONS[fn];
     if (!actions) throw new Error(`No test function ${fn}`);
-    const res = await runAction(this.world.clientFor(anonymous ? null : this.user), JSON.stringify(body), actions, { allowAnonymous: isPublic, ...(OPTIONS[fn] || {}) });
+    const res = await runAction(this.world.clientFor(anonymous ? null : this.user), JSON.stringify(body), actions, { allowAnonymous: isPublic, trustPlatformUser: true, ...(OPTIONS[fn] || {}) });
     return { status: res.status, body: await res.json() };
   }
 

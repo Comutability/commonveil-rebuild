@@ -1,6 +1,7 @@
 // Servers (communities): membership, keys, roles, channels, settings, moderation, invites,
 // discovery and support tickets. Content is end-to-end encrypted on members' devices; this
 // code stores ciphertext, enforces permissions and keeps track of who still needs which keys.
+import { userRecord } from "../identity/sessions.ts";
 import { ApiError, LIMITS, cleanText, id, idList, int, isoTime, randomIdField, str, type Actions, type Ctx } from "../http.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
 import { isKemSealed, validSealed, verifyGenerationSignature, verifyGrantSignature } from "../verify.ts";
@@ -226,7 +227,7 @@ export async function afterAccessChange(sr: any, serverId: string, userIds: stri
     const m = await memberRow(sr, serverId, uid);
     if (!m) continue;
     members.push(m);
-    const u = await sr.entities.User.get(uid).catch(() => null);
+    const u = await userRecord(sr, uid);
     before.set(uid, (u?.cv_access || []).filter((x: string) => parts.channels.some((c: any) => c.id === x)));
   }
   const lost = new Set<string>();

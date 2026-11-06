@@ -1,0 +1,48 @@
+// An account made with Commonveil sign-in (a username, no email). Accounts made with an email before that are Base44 users instead. Backend only.
+{
+  "name": "Person",
+  "type": "object",
+  "description": "An account made with Commonveil sign-in (a username, no email). Accounts made with an email before that are Base44 users instead. Backend only.",
+  "properties": {
+    "role": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "user"
+      ]
+    },
+    "email": {
+      "type": "string",
+      "description": "Always empty: kept so code treating people alike can read it."
+    },
+    "full_name": {
+      "type": "string"
+    },
+    "cv_access": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Servers and private channels this member can read. Set only by the backend."
+    },
+    "site_owner": {
+      "type": "boolean"
+    },
+    "remote": {
+      "type": "boolean",
+      "description": "A person from another Commonveil site (self-hosted only)."
+    },
+    "home": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "role"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

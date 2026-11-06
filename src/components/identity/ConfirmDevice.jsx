@@ -1,28 +1,24 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Fingerprint, KeyRound, Loader2, Mail, MonitorSmartphone } from "lucide-react";
+import { Fingerprint, KeyRound, Loader2, MonitorSmartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
-import { confirmByEmail, confirmFromDevice, confirmWithKey, confirmWithPasskey, passkeysSupported } from "@/lib/identity/client";
+import { confirmFromDevice, confirmWithKey, confirmWithPasskey, passkeysSupported } from "@/lib/identity/client";
 
 const LABELS = {
   passkey: { icon: Fingerprint, label: "Passkey" },
   device: { icon: MonitorSmartphone, label: "Another device" },
   key: { icon: KeyRound, label: "Recovery phrase or private key" },
-  email: { icon: Mail, label: "Email code" },
 };
 
 /**
  * Confirm a browser the site hasn't seen before, after the password was right. `verify` is what
- * the sign-in answered ({ id, methods, code, challenge, host }). Calls onDone once signed in.
+ * the sign-in answered ({ id, methods, code, challenge, realm }). Calls onDone once signed in.
  */
 export default function ConfirmDevice({ verify, onDone, onCancel }) {
   const methods = verify.methods.filter((m) => m !== "passkey" || passkeysSupported());
   const [method, setMethod] = useState(methods[0]);
   const [secret, setSecret] = useState("");
-  const [code, setCode] = useState("");
-  const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const done = useRef(false);
@@ -124,21 +120,6 @@ export default function ConfirmDevice({ verify, onDone, onCancel }) {
           </div>
           <Button type="submit" className="h-12 w-full" disabled={busy || !secret.trim()}>{busy ? "Checking…" : "Confirm"}</Button>
         </form>
-      )}
-
-      {method === "email" && (
-        <div className="space-y-3">
-          {!sent ? (
-            <Button className="h-12 w-full" disabled={busy} onClick={() => run(async () => { await confirmByEmail(verify); setSent(true); })}>Email me a code</Button>
-          ) : (
-            <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); run(() => confirmByEmail(verify, code)); }}>
-              <Label htmlFor="confirm-code">The 6-digit code from your email</Label>
-              <Input id="confirm-code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" className="h-12 text-center font-mono text-lg tracking-widest" />
-              <Button type="submit" className="h-12 w-full" disabled={busy || code.length < 6}>Confirm</Button>
-            </form>
-          )}
-          <p className="text-xs text-muted-foreground">Email sign-in is going away. Once you're in, set up a passkey and keep your recovery phrase.</p>
-        </div>
       )}
 
       <button type="button" onClick={onCancel} className="text-sm text-muted-foreground hover:underline">Use a different account</button>

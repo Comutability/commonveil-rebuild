@@ -97,7 +97,11 @@ async function signInsAmong(sr: any, staffId: string, ids: string[]): Promise<Se
   const wanted = [...new Set([staffId, ...ids])];
   let rows: any[];
   try {
-    rows = await sr.entities.User.filter({ id: { $in: wanted } }, "created_date", wanted.length);
+    // Accounts made with a username are Person records; those made with an email, Base44 users.
+    rows = [
+      ...(await sr.entities.User.filter({ id: { $in: wanted } }, "created_date", wanted.length)),
+      ...(await sr.entities.Person.filter({ id: { $in: wanted } }, "created_date", wanted.length)),
+    ];
   } catch {
     throw checkFailed();
   }
@@ -108,15 +112,54 @@ async function signInsAmong(sr: any, staffId: string, ids: string[]): Promise<Se
 
 /** A second, separate check for one id. Only a clear "not found" counts as gone. */
 async function signInGone(sr: any, userId: string): Promise<boolean> {
-  try {
-    return !(await sr.entities.User.get(userId));
-  } catch (err: any) {
-    if (err?.status === 404) return true;
-    throw checkFailed();
+  for (const table of ["Person", "User"]) {
+    try {
+      if (await sr.entities[table].get(userId)) return false;
+    } catch (err: any) {
+      if (err?.status !== 404) throw checkFailed();
+    }
   }
+  return true;
+}
+
+// Site content staff edit from Site admin (Resources). Only these tables, only these fields.
+const CONTENT_FIELDS: Record<string, string[]> = {
+  Resource: ["name", "website", "description", "category", "open_source", "self_hostable", "platforms", "pricing_summary", "privacy_notes", "last_reviewed", "status"],
+};
+
+function contentType(body: any) {
+  const type = String(body.type || "");
+  if (!Object.hasOwn(CONTENT_FIELDS, type)) throw new ApiError(400, "BAD_TYPE", "That isn't site content.");
+  return type;
+}
+
+function contentData(type: string, data: unknown) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) throw new ApiError(400, "BAD_DATA", "Nothing to save.");
+  const out: Record<string, unknown> = {};
+  for (const key of CONTENT_FIELDS[type]) if (Object.hasOwn(data, key)) out[key] = (data as any)[key];
+  if (JSON.stringify(out).length > 64_000) throw new ApiError(413, "TOO_LARGE", "That's too long.");
+  return out;
 }
 
 export const adminActions: Actions = {
+  // Read and written as the staff member (`own`), so the tables' own rules apply too.
+  async content_list({ own, user, body }) {
+    requireAdmin(user);
+    return { items: await own.entities[contentType(body)].list("-updated_date", 500) };
+  },
+  async content_save({ own, user, body }) {
+    requireAdmin(user);
+    const type = contentType(body);
+    const data = contentData(type, body.data);
+    const item = typeof body.id === "string" && body.id ? await own.entities[type].update(body.id, data) : await own.entities[type].create(data);
+    return { item };
+  },
+  async content_delete({ own, user, body }) {
+    requireAdmin(user);
+    await own.entities[contentType(body)].delete(String(body.id || ""));
+    return { ok: true };
+  },
+
   async list_reports({ sr, user, body }) {
     requireAdmin(user);
     const query: any = {};

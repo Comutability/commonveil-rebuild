@@ -1,7 +1,9 @@
 // Request handling shared by every backend function.
-// Each function is a small set of named actions. Every action runs only after
-// base44.auth.me() has returned a real signed-in user; nothing here mints,
-// accepts or forwards session tokens.
+// Each function is a small set of named actions. Every action runs only after the caller is known:
+// a Commonveil sign-in session (checked here; see identity/), or, on self-hosted sites, the person
+// the server already checked. Base44's own sessions only reach the sign-in function.
+import { personClient } from "./rls.ts";
+import { userRecord, verifyAccess } from "./identity/sessions.ts";
 
 export const LIMITS = Object.freeze({
   maxBodyBytes: 256 * 1024,
@@ -29,6 +31,7 @@ export const LIMITS = Object.freeze({
   pageSize: 50,
   pollLimit: 200,
 });
+
 
 export class ApiError extends Error {
   status: number;
@@ -66,7 +69,15 @@ export function json(status: number, body: unknown): Response {
 export type Federation = { resolveHandle(handle: string, me: string): Promise<string | null> };
 export type Ctx = { sr: any; own: any; user: any; body: any; now: Date; federation?: Federation };
 export type Actions = Record<string, (ctx: Ctx) => Promise<unknown>>;
-export type RunOptions = { allowAnonymous?: boolean; maxBodyBytes?: number; federation?: Federation };
+export type RunOptions = {
+  allowAnonymous?: boolean;
+  maxBodyBytes?: number;
+  federation?: Federation;
+  /** The sign-in function only: a Base44 session (an account made with an email) may come in. */
+  allowPlatformUser?: boolean;
+  /** Self-hosted sites: the server checked the caller already, so the client's auth.me() is them. */
+  trustPlatformUser?: boolean;
+};
 
 /** A handle for someone on another site: their username, then the site's domain. */
 export const HANDLE_RE = /^[a-z0-9][a-z0-9-]{1,19}(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
@@ -87,12 +98,37 @@ export async function runAction(base44: any, rawBody: string, actions: Actions, 
       }
     }
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new ApiError(400, "BAD_REQUEST", "Invalid request.");
-    const me = await base44.auth.me().catch(() => null);
-    const user = me && typeof me.id === "string" && me.id ? me : null;
+    // Who's asking (docs/IDENTITY.md): a Commonveil sign-in session, sent as _session, and
+    // checked here. A Base44 session alone (an account made with an email) is only good for
+    // moving to Commonveil sign-in, except on self-hosted sites, where the server checks callers.
+    const sr = base44.asServiceRole;
+    let user: any = null;
+    let own: any = base44;
+    let session: { userId: string; deviceId: string } | null = null;
+    let platformUser: any = null;
+    const token = body._session;
+    delete body._session;
+    if (typeof token === "string" && token) {
+      session = await verifyAccess(sr, token);
+      const record = session ? await userRecord(sr, session.userId) : null;
+      if (!session || !record) throw new ApiError(401, "SIGN_IN_REQUIRED", "Please sign in again.");
+      user = { ...record, id: record.id, email: record.email || "", role: record.role || "user" };
+      own = personClient(sr, user, record);
+    } else {
+      const me = await base44.auth.me().catch(() => null);
+      const found = me && typeof me.id === "string" && me.id ? me : null;
+      if (found && options.trustPlatformUser) {
+        user = found;
+        // Self-hosted sites say which sign-in session it was, too (which device).
+        session = (await base44.auth.session?.().catch(() => null)) || null;
+      }
+      else if (found && options.allowPlatformUser) platformUser = found;
+      else if (found) throw new ApiError(401, "NEW_SIGN_IN", "Commonveil has a new way to sign in. Please sign in again.");
+    }
     if (!user && !options.allowAnonymous) throw new ApiError(401, "SIGN_IN_REQUIRED", "Please sign in again.");
     const action = typeof body.action === "string" ? body.action : "";
     if (!Object.prototype.hasOwnProperty.call(actions, action)) throw new ApiError(400, "UNKNOWN_ACTION", "Unknown action.");
-    const result = await actions[action]({ sr: base44.asServiceRole, own: base44, user, body, now: new Date(), federation: options.federation });
+    const result = await actions[action]({ sr, own, user, body, now: new Date(), federation: options.federation, session, platformUser } as any);
     return json(200, result ?? { ok: true });
   } catch (error) {
     if (error instanceof ApiError) return json(error.status, { error: error.message, code: error.code });

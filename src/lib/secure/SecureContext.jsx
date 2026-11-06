@@ -8,7 +8,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { callFn } from "@/lib/api";
-import { SELF_HOSTED } from "@/api/base44Client";
 import { setOwnerKey } from "@/lib/identity/client";
 import * as P from "./protocol.js";
 import * as S from "./store.js";
@@ -19,11 +18,11 @@ import { clearEnvelopeKeyCache } from "../crypto/envelope.js";
 import { IDLE_CHOICES, createLock, isSealedKeyring, openKeyringText, sealKeyringText, unlock as openLock } from "../crypto/lock.js";
 
 /**
- * On a self-hosted site, the recovery phrase is also how you prove the account is yours (signing in
- * on a new device, getting back in): record its owner key whenever the phrase is to hand.
+ * The recovery phrase is also how you prove the account is yours (confirming a new device, getting
+ * back in): record its owner key whenever the phrase is to hand.
  */
 async function recordOwner(phrase) {
-  if (!SELF_HOSTED || !phrase) return;
+  if (!phrase) return;
   await setOwnerKey(phrase).catch(() => {});
 }
 
