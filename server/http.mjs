@@ -1,6 +1,7 @@
 // Small HTTP helpers for the self-hosted server.
 import fs from "node:fs";
 import path from "node:path";
+import { DEFAULT_SITE_URL, headHtml, seoFor } from "../src/lib/site/seo.js";
 
 export const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
@@ -59,11 +60,35 @@ export function clientIp(req, trustProxy) {
 const TYPES = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
-  ".ico": "image/x-icon", ".woff2": "font/woff2", ".woff": "font/woff", ".txt": "text/plain; charset=utf-8", ".webmanifest": "application/manifest+json", ".wasm": "application/wasm",
+  ".ico": "image/x-icon", ".woff2": "font/woff2", ".woff": "font/woff", ".txt": "text/plain; charset=utf-8", ".xml": "application/xml; charset=utf-8", ".webmanifest": "application/manifest+json", ".wasm": "application/wasm",
 };
 
+// Each page's own title, description and link-preview tags, written into the HTML it's sent with,
+// so search engines and link previews needn't run any script (src/lib/site/seo.js).
+const seoCache = new Map();
+function seoAssets(distDir) {
+  if (!seoCache.has(distDir)) {
+    let articles = [];
+    try {
+      articles = JSON.parse(fs.readFileSync(path.join(distDir, "help-index.json"), "utf8"));
+    } catch {
+      articles = [];
+    }
+    seoCache.set(distDir, { html: fs.readFileSync(path.join(distDir, "index.html"), "utf8"), articles });
+  }
+  return seoCache.get(distDir);
+}
+
+/** The page for a path, with its own tags, and whether it exists. */
+export function pageFor(distDir, pathname, siteUrl) {
+  const { html, articles } = seoAssets(distDir);
+  const meta = seoFor(pathname, { articles, siteUrl });
+  const block = /<!-- seo:[^>]*-->[\s\S]*?<!-- \/seo -->/;
+  return { body: block.test(html) ? html.replace(block, headHtml(meta, siteUrl)) : html, notFound: meta.notFound, noindex: meta.noindex, movedTo: meta.movedTo || "" };
+}
+
 /** Serve the built site, falling back to index.html for the app's own routes. */
-export function serveStatic(req, res, distDir, csp) {
+export function serveStatic(req, res, distDir, csp, { siteUrl = "" } = {}) {
   const url = new URL(req.url, "http://local");
   let rel = decodeURIComponent(url.pathname);
   if (rel.includes("\0")) return send(res, 400, "Bad path");
@@ -86,6 +111,24 @@ export function serveStatic(req, res, distDir, csp) {
   if (ext === ".html") {
     headers["Content-Security-Policy"] = csp;
     headers["X-Frame-Options"] = "DENY";
+  }
+  if (isIndex && siteUrl) {
+    const page = pageFor(distDir, rel, siteUrl);
+    if (page.movedTo) {
+      res.writeHead(301, { ...SECURITY_HEADERS, Location: page.movedTo, "Cache-Control": "public, max-age=86400" });
+      return res.end();
+    }
+    if (page.noindex) headers["X-Robots-Tag"] = "noindex, nofollow";
+    // An unknown address is a real "not found", so it isn't indexed as a page of the site.
+    res.writeHead(page.notFound ? 404 : 200, headers);
+    return res.end(req.method === "HEAD" ? undefined : page.body);
+  }
+  // The sitemap and robots file are written for the usual address; this site's own goes in.
+  if (siteUrl && /[\\/](sitemap\.xml|robots\.txt)$/.test(file)) {
+    const text = fs.readFileSync(file, "utf8").split(DEFAULT_SITE_URL).join(siteUrl.replace(/\/+$/, ""));
+    headers["Content-Type"] = file.endsWith(".xml") ? "application/xml; charset=utf-8" : headers["Content-Type"];
+    res.writeHead(200, headers);
+    return res.end(req.method === "HEAD" ? undefined : text);
   }
   if (req.method === "HEAD") {
     res.writeHead(200, headers);

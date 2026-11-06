@@ -1,17 +1,10 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { PageHeader } from "@/components/site/bits";
 import { APP_VERSION, RELEASES } from "@/lib/site/version.js";
 
 const longDate = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
 export default function Releases() {
-  useEffect(() => {
-    const before = document.title;
-    document.title = "Releases · Commonveil";
-    return () => {
-      document.title = before;
-    };
-  }, []);
   return (
     <>
       <PageHeader

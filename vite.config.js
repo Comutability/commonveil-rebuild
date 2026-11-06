@@ -1,10 +1,12 @@
 import base44 from "@base44/vite-plugin"
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { defineConfig } from 'vite'
 
 import { BASE44_CSP, SELF_HOSTED_CSP } from './csp.config.mjs'
+import { parseArticle, sortArticles } from './src/lib/site/help.js'
+import { DEFAULT_SITE_URL, sitemapXml } from './src/lib/site/seo.js'
 
 // "selfhost" builds the site for a self-hosted server (server/), with no Base44 code in it.
 const SELF_HOSTED = process.env.VITE_COMMONVEIL_BACKEND === 'selfhost'
@@ -32,6 +34,28 @@ function contentSecurityPolicy() {
   };
 }
 
+/**
+ * sitemap.xml: every public page and Help Centre article (src/lib/site/seo.js). Written for the
+ * site's usual address; a self-hosted server swaps in its own when it serves the file.
+ */
+function sitemap() {
+  return {
+    name: "commonveil-sitemap",
+    apply: "build",
+    generateBundle() {
+      const dir = new URL("./src/content/help/", import.meta.url);
+      const articles = sortArticles(
+        readdirSync(dir).filter((f) => f.endsWith(".md")).map((f) => parseArticle(f.replace(/\.md$/, ""), readFileSync(new URL(f, dir), "utf8"))),
+      );
+      const { releases } = JSON.parse(readFileSync(new URL("./src/content/releases.json", import.meta.url), "utf8"));
+      this.emitFile({ type: "asset", fileName: "sitemap.xml", source: sitemapXml({ siteUrl: DEFAULT_SITE_URL, articles, lastmod: releases[0]?.date || "" }) });
+      // For a self-hosted server, which writes each page's tags itself (server/http.mjs).
+      const index = articles.map(({ slug, title, summary, section }) => ({ slug, title, summary, section }));
+      this.emitFile({ type: "asset", fileName: "help-index.json", source: JSON.stringify(index) });
+    },
+  };
+}
+
 const { version } = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 
 // https://vite.dev/config/
@@ -51,6 +75,7 @@ export default defineConfig({
     }),
     react(),
     contentSecurityPolicy(),
+    sitemap(),
   ],
   resolve: {
     alias: [

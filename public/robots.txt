@@ -1,10 +1,10 @@
-# Public learning pages may be indexed. Private areas may not.
+# The public site may be indexed. The app may not be crawled at all. Sign-in pages, search
+# results, invites and people's profiles can be crawled only so that their "noindex" is seen:
+# a page blocked here can still be listed by its address alone.
 User-agent: *
 Disallow: /app
-Disallow: /login
-Disallow: /register
-Disallow: /forgot-password
-Disallow: /reset-password
+Disallow: /admin
+Allow: /
 
 # Commonveil's writing is not offered as AI training data.
 User-agent: GPTBot
@@ -27,3 +27,5 @@ Disallow: /
 
 User-agent: meta-externalagent
 Disallow: /
+
+Sitemap: https://commonveil-rebuild-71d823fd.base44.app/sitemap.xml

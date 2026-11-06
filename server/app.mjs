@@ -175,7 +175,7 @@ export async function createApp(config, options = {}) {
 
     if (p.startsWith("/api/")) return json(res, 404, { error: "Not found", code: "NOT_FOUND" });
     if (req.method !== "GET" && req.method !== "HEAD") return send(res, 405, "Method not allowed");
-    return serveStatic(req, res, config.distDir, csp);
+    return serveStatic(req, res, config.distDir, csp, { siteUrl: config.siteUrl });
   }
 
   const server = http.createServer((req, res) => {

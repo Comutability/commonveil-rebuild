@@ -36,7 +36,7 @@ COPY server ./server
 COPY base44/shared ./base44/shared
 COPY base44/actors ./base44/actors
 COPY base44/entities ./base44/entities
-COPY src/lib/site/releases.js ./src/lib/site/releases.js
+COPY src/lib/site/releases.js src/lib/site/seo.js ./src/lib/site/
 COPY csp.config.mjs ./
 COPY --from=site /build/dist-selfhost ./dist
 RUN mkdir -p /data && chown node:node /data \

@@ -16,6 +16,7 @@ _2026-11-06_
 - Install Commonveil as an app on your phone, tablet or computer: its own icon and window, opening straight to your messages, still this website with no app store.
 - Push notifications, off until you turn them on. They say only "New message", never who it's from, which conversation or what was said, so your phone and its push service keep no record. Tapping one opens the right conversation.
 - Better for screen readers and keyboards: a skip link in the app, clearer names for buttons and badges, and higher-contrast avatars.
+- Easier to find: every public page has its own title, description and link preview, with a sitemap for search engines. The app, sign-in pages and people's profiles are never indexed.
 - New Help Centre article: installing the app. The notifications article now covers push.
 
 ## [0.18.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.18.0): Offline mode

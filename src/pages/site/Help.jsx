@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, BookOpen, Download, Printer, Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -9,16 +9,6 @@ import { buildGuide, groupBySection, headingsOf, neighbours, searchHelp } from "
 import { HELP_ARTICLES, helpBySlug } from "@/lib/site/helpContent.js";
 
 const START_HERE = ["create-account", "conversations", "safety-numbers", "privacy-report"];
-
-function useTitle(title) {
-  useEffect(() => {
-    const before = document.title;
-    document.title = `${title} · Commonveil help`;
-    return () => {
-      document.title = before;
-    };
-  }, [title]);
-}
 
 function ArticleLink({ a }) {
   return (
@@ -42,7 +32,6 @@ function downloadGuide() {
 // ---------- /help ----------
 
 export function HelpIndex() {
-  useTitle("Help Centre");
   // Kept in this page only: never in the address bar, so it isn't in your history or sent anywhere.
   const [q, setQ] = useState("");
   const results = useMemo(() => searchHelp(HELP_ARTICLES, q), [q]);
@@ -143,7 +132,6 @@ export function HelpIndex() {
 export function HelpArticle() {
   const { slug } = useParams();
   const article = helpBySlug(slug);
-  useTitle(article ? article.title : "Not found");
   if (!article) {
     return (
       <div className="container-cv py-16">
@@ -224,7 +212,6 @@ export function HelpArticle() {
 // ---------- /help/guide ----------
 
 export function HelpGuide() {
-  useTitle("The complete guide");
   // Links between articles jump within this page.
   const md = useMemo(() => buildGuide(HELP_ARTICLES, { links: "anchors", title: "" }).replace(/^# *\n+/, ""), []);
   return (

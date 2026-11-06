@@ -6,6 +6,7 @@ import { BrowserRouter as Router, Navigate, Route, Routes, useLocation } from "r
 import { AuthProvider, useAuth } from "@/lib/AuthContext";
 import UserNotRegisteredError from "@/components/UserNotRegisteredError";
 import ScrollToTop from "@/components/ScrollToTop";
+import Seo from "@/components/site/Seo";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import SiteLayout from "@/components/site/SiteLayout";
 import { FullScreenLoading } from "@/components/site/bits";
@@ -97,6 +98,7 @@ export default function App() {
       <QueryClientProvider client={queryClientInstance}>
         <Router>
           <ScrollToTop />
+          <Seo />
           <AppRoutes />
         </Router>
         <Toaster />

@@ -112,7 +112,8 @@ What Commonveil protects, against whom, and what it doesn't. Read with `PROTOCOL
 
 Done in October 2026:
 - A Content Security Policy in every production build (`default-src 'none'`, scripts from the site only, Trusted Types
-  required so no string reaches an HTML sink), checked by `npm run check:bundle` and by a browser test against a
+  required so no string reaches an HTML sink; the only policies are the call worker's and the service worker's, each
+  one fixed URL, and `json-ld`, which wraps only structured data the site makes for search engines), checked by `npm run check:bundle` and by a browser test against a
   production build. `frame-ancestors` can't be set from a meta tag; Base44 sends `X-Frame-Options: DENY`. Subresource
   Integrity isn't needed: every script is served from the site itself.
 - A security contact: `/.well-known/security.txt` and a private report form at `/security/report` that needs no account.
