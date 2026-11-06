@@ -260,7 +260,7 @@ export default function ConversationInfoDialog({ conversation, open, onOpenChang
         <ul className="space-y-4">
           {others.map((id) => (
             <li key={id} className="flex gap-3">
-              <Avatar id={id} name={nameOf(id)} size="h-9 w-9" />
+              <Avatar id={id} name={nameOf(id)} emoji={profiles[id]?.avatar_emoji} image={profiles[id]?.avatar_image} accent={profiles[id]?.accent_color} size="h-9 w-9" />
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex items-start justify-between gap-2">
                   <p className="font-medium">

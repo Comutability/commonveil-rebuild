@@ -10,17 +10,23 @@ function hueFor(id = "") {
 /** Profile colours on offer (base44/shared/handlers/profile.ts), as hues. */
 export const ACCENT_HUES = { teal: 172, sky: 199, indigo: 234, violet: 262, rose: 350, amber: 38, lime: 84, slate: 215 };
 
+const PICTURE_RE = /^data:image\/(webp|png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/;
+
 /**
- * Someone's avatar: the emoji they chose, or their initials, on their colour (or one worked out
- * from their id). There are no uploaded pictures, so showing an avatar never fetches anything.
+ * Someone's avatar: their picture, the emoji they chose, or their initials, on their colour (or
+ * one worked out from their id). Pictures are kept inline with the profile (data: URLs), so
+ * showing an avatar never fetches anything.
  */
-export default function Avatar({ id, name, group = false, size = "h-10 w-10", emoji = "", accent = "", className = "" }) {
+export default function Avatar({ id, name, group = false, size = "h-10 w-10", emoji = "", image = "", accent = "", className = "" }) {
   if (group) {
     return (
       <span className={`flex shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground ${size} ${className}`} aria-hidden="true">
         <Users className="h-5 w-5" />
       </span>
     );
+  }
+  if (image && PICTURE_RE.test(image)) {
+    return <img src={image} alt="" className={`shrink-0 rounded-full object-cover ${size} ${className}`} aria-hidden="true" draggable={false} />;
   }
   const hue = ACCENT_HUES[accent] ?? hueFor(id);
   const initials = String(name || "?").replace(/^@/, "").slice(0, 2).toUpperCase();

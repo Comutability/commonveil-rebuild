@@ -28,7 +28,7 @@ export default function UserPanel() {
         <VoiceStatus />
         <div className="flex items-center gap-2 px-2 py-2">
           <Link to="/app/settings/profile" className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-1 hover-panel" aria-label="Your profile">
-            <Avatar id={userId} name={p?.display_name || p?.username} emoji={p?.avatar_emoji} accent={p?.accent_color} size="h-8 w-8" />
+            <Avatar id={userId} name={p?.display_name || p?.username} emoji={p?.avatar_emoji} image={p?.avatar_image} accent={p?.accent_color} size="h-8 w-8" />
             <span className="min-w-0 leading-tight">
               <span className="block truncate text-sm font-semibold">{p?.display_name || p?.username}</span>
               <span className="block truncate text-xs text-muted-foreground">@{p?.username}</span>

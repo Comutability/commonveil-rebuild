@@ -79,7 +79,7 @@ export default function MemberList({ serverId, className = "" }) {
                 <li key={m.user_id}>
                   <button type="button" onClick={() => setCard(m.user_id)} className="panel-item">
                     <span className="relative shrink-0">
-                      <Avatar id={m.user_id} name={memberName(serverId, m.user_id)} emoji={p?.avatar_emoji} accent={p?.accent_color} size="h-8 w-8" />
+                      <Avatar id={m.user_id} name={memberName(serverId, m.user_id)} emoji={p?.avatar_emoji} image={p?.avatar_image} accent={p?.accent_color} size="h-8 w-8" />
                       {presence.statusIn("s", serverId, m.user_id) && (
                         <span
                           className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[hsl(var(--panel))] ${presence.statusIn("s", serverId, m.user_id) === "online" ? "bg-emerald-500" : "bg-amber-400"}`}

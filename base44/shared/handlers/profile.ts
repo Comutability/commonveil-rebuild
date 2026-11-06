@@ -1,7 +1,7 @@
 // Usernames and profiles. There is no member directory: you can look someone up
 // only by their exact username, and see profiles of people you share a
 // conversation or a server with, as far as each person chose to show them.
-import { ApiError, cleanText, idList, type Actions } from "../http.ts";
+import { ApiError, HANDLE_RE, cleanText, idList, type Actions } from "../http.ts";
 import { AUTO_DELETE_DAYS, accountKeysOf, blockedEitherWay, contactsOf, dayOf, profileFor, profileOf, publicProfile, serverPeersOf, withRow } from "../store.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
 import { isRetiredUsername, purgeAccount, removePlatformUser } from "../accountDeletion.ts";
@@ -49,6 +49,30 @@ async function countUpTo(db: any, entity: string, query: any, cap = 1000) {
   return { count: Math.min(rows.length, cap), more: rows.length > cap, oldest: rows.length ? rows[Math.min(rows.length, cap) - 1].created_date : null };
 }
 
+// A profile picture: a small WebP, PNG or JPEG made on the person's device (at most 160 by 160),
+// kept inline with the profile, so showing it never makes anyone's device fetch an image from
+// anywhere. "" removes it.
+const AVATAR_MAX_CHARS = 48_000;
+const AVATAR_MAGIC: Record<string, (b: Uint8Array) => boolean> = {
+  webp: (b) => b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50,
+  png: (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
+  jpeg: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+};
+
+function avatarImage(value: unknown): string {
+  if (value === "" || value === null) return "";
+  const m = typeof value === "string" && value.length <= AVATAR_MAX_CHARS ? /^data:image\/(webp|png|jpeg);base64,([A-Za-z0-9+/]+={0,2})$/.exec(value) : null;
+  if (!m) throw new ApiError(400, "BAD_FIELD", "That picture is too large or isn't an image. Try a smaller one.");
+  let bytes: Uint8Array;
+  try {
+    bytes = Uint8Array.from(atob(m[2].slice(0, 32)), (c) => c.charCodeAt(0));
+  } catch {
+    throw new ApiError(400, "BAD_FIELD", "That picture couldn't be read.");
+  }
+  if (!AVATAR_MAGIC[m[1]](bytes)) throw new ApiError(400, "BAD_FIELD", "That picture couldn't be read.");
+  return value;
+}
+
 export const profileActions: Actions = {
   /**
    * Your privacy report: everything the service holds about you, as it holds it. Nothing here
@@ -74,7 +98,7 @@ export const profileActions: Actions = {
         created: user.created_date || null,
         email_hint: at > 1 ? `${email[0]}${"•".repeat(Math.min(6, at - 1))}${email.slice(at)}` : "",
         username: profile?.username || "",
-        shared_profile: { display_name: Boolean(profile?.display_name), bio: Boolean(profile?.bio), pronouns: Boolean(profile?.pronouns), avatar: Boolean(profile?.avatar_emoji) },
+        shared_profile: { display_name: Boolean(profile?.display_name), bio: Boolean(profile?.bio), pronouns: Boolean(profile?.pronouns), avatar: Boolean(profile?.avatar_emoji), picture: Boolean(profile?.avatar_image) },
         profile_visibility: profile?.profile_visibility || "shared",
         dm_policy: profile?.dm_policy || "anyone",
         auto_delete_days: Number(profile?.delete_after_days) || 0,
@@ -174,6 +198,7 @@ export const profileActions: Actions = {
       if (emoji && (emoji.length > 16 || !EMOJI_RE.test(emoji))) throw new ApiError(400, "BAD_FIELD", "Choose a single emoji.");
       changes.avatar_emoji = emoji;
     }
+    if (body.avatar_image !== undefined) changes.avatar_image = avatarImage(body.avatar_image);
     if (body.profile_visibility !== undefined) {
       if (!["shared", "conversations", "nobody"].includes(body.profile_visibility)) throw new ApiError(400, "BAD_FIELD", "Invalid choice.");
       changes.profile_visibility = body.profile_visibility;
@@ -192,8 +217,16 @@ export const profileActions: Actions = {
   },
 
   /** Exact-match lookup. Blocked pairs can't find each other. */
-  async find({ sr, user, body }) {
-    const { key } = normaliseUsername(body.username);
+  async find({ sr, user, body, federation }) {
+    const raw = typeof body.username === "string" ? body.username.trim().replace(/^@/, "").toLowerCase() : "";
+    let key: string;
+    if (federation && HANDLE_RE.test(raw)) {
+      // Someone on another site, found through their site (which checks they accept contact).
+      if (!(await federation.resolveHandle(raw, user.id))) throw new ApiError(404, "NOT_FOUND", "Nobody can be reached at that address.");
+      key = raw;
+    } else {
+      key = normaliseUsername(body.username).key;
+    }
     const rows = await sr.entities.Profile.filter({ username_key: key }, "created_date", 1);
     const target = rows[0];
     if (!target || (target.user_id !== user.id && (await blockedEitherWay(sr, user.id, target.user_id)))) {

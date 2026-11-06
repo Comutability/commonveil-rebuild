@@ -1,0 +1,23 @@
+# HTTPS for Commonveil. Caddy gets certificates from Let's Encrypt by itself.
+{
+	email {$ACME_EMAIL}
+	# Certificates for people's handles (alice.your.domain) are fetched the first time someone
+	# visits one, and only for accounts that exist: the app answers that question.
+	on_demand_tls {
+		ask http://app:8080/api/tls-check
+	}
+}
+
+{$SITE_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8080
+}
+
+# Handles: any other name pointed at this server, checked by the app as above.
+https:// {
+	tls {
+		on_demand
+	}
+	encode zstd gzip
+	reverse_proxy app:8080
+}

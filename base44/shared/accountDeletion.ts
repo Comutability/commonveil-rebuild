@@ -72,7 +72,7 @@ export const BLANK = {
   },
   Profile: {
     user_id: "", username: "", username_key: "", display_name: "", bio: "", delete_after_days: 0, last_active_at: "", inactive_warned_at: "",
-    pronouns: "", accent_color: "", avatar_emoji: "",
+    pronouns: "", accent_color: "", avatar_emoji: "", avatar_image: "",
   },
 };
 

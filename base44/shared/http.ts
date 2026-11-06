@@ -55,9 +55,19 @@ export function json(status: number, body: unknown): Response {
  * and counted against that person's allowance, so frequent reads (polling) use it where the
  * rules allow.
  */
-export type Ctx = { sr: any; own: any; user: any; body: any; now: Date };
+/**
+ * federation: present only on a self-hosted site that talks to other sites (server/federation).
+ * resolveHandle(handle, me) finds a person on another site by their handle (alice.example.com),
+ * checks they accept a conversation from me, and returns their user id here. On Base44 it's
+ * absent, and handles are refused like any other unknown username.
+ */
+export type Federation = { resolveHandle(handle: string, me: string): Promise<string | null> };
+export type Ctx = { sr: any; own: any; user: any; body: any; now: Date; federation?: Federation };
 export type Actions = Record<string, (ctx: Ctx) => Promise<unknown>>;
-export type RunOptions = { allowAnonymous?: boolean; maxBodyBytes?: number };
+export type RunOptions = { allowAnonymous?: boolean; maxBodyBytes?: number; federation?: Federation };
+
+/** A handle for someone on another site: their username, then the site's domain. */
+export const HANDLE_RE = /^[a-z0-9][a-z0-9-]{1,19}(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
 
 /**
  * Run one named action. By default the caller must be a signed-in user; only the security
@@ -80,7 +90,7 @@ export async function runAction(base44: any, rawBody: string, actions: Actions, 
     if (!user && !options.allowAnonymous) throw new ApiError(401, "SIGN_IN_REQUIRED", "Please sign in again.");
     const action = typeof body.action === "string" ? body.action : "";
     if (!Object.prototype.hasOwnProperty.call(actions, action)) throw new ApiError(400, "UNKNOWN_ACTION", "Unknown action.");
-    const result = await actions[action]({ sr: base44.asServiceRole, own: base44, user, body, now: new Date() });
+    const result = await actions[action]({ sr: base44.asServiceRole, own: base44, user, body, now: new Date(), federation: options.federation });
     return json(200, result ?? { ok: true });
   } catch (error) {
     if (error instanceof ApiError) return json(error.status, { error: error.message, code: error.code });

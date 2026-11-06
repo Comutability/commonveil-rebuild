@@ -98,3 +98,13 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ steps.name.outputs.version }}
             org.opencontainers.image.licenses=AGPL-3.0-only
+      - name: The updater image
+        if: steps.has.outputs.dockerfile == 'yes' && hashFiles('updater/Dockerfile') != ''
+        uses: docker/build-push-action@v6
+        with:
+          context: updater
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.name.outputs.image }}-updater:${{ steps.name.outputs.version }}
+            ${{ steps.name.outputs.latest == 'true' && format('{0}-updater:latest', steps.name.outputs.image) || '' }}

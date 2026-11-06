@@ -177,6 +177,7 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
       name: memberName(serverId, uid),
       color: m ? memberColor(serverId, m) : "",
       emoji: p?.avatar_emoji,
+      image: p?.avatar_image,
       accent: p?.accent_color,
       tag: tagFor(uid),
       onClick: () => onAuthor(uid),

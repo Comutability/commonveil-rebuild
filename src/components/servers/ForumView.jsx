@@ -111,7 +111,7 @@ function PostList({ serverId, channel }) {
                     {row.text && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{row.text}</p>}
                     <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1.5">
-                        <Avatar id={row.m.sender_id} name={memberName(serverId, row.m.sender_id)} emoji={p?.avatar_emoji} accent={p?.accent_color} size="h-5 w-5" className="text-[0.6rem]" />
+                        <Avatar id={row.m.sender_id} name={memberName(serverId, row.m.sender_id)} emoji={p?.avatar_emoji} image={p?.avatar_image} accent={p?.accent_color} size="h-5 w-5" className="text-[0.6rem]" />
                         {memberName(serverId, row.m.sender_id)}
                       </span>
                       <span className="inline-flex items-center gap-1"><MessageSquare className="h-3.5 w-3.5" aria-hidden="true" /> {row.m.reply_count} {row.m.reply_count === 1 ? "reply" : "replies"}</span>

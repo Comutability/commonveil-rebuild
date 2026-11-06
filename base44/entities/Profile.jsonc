@@ -41,7 +41,11 @@
     },
     "avatar_emoji": {
       "type": "string",
-      "description": "An emoji shown instead of initials. No photos are uploaded."
+      "description": "An emoji shown instead of initials."
+    },
+    "avatar_image": {
+      "type": "string",
+      "description": "A small profile picture (data: URL, WebP/PNG/JPEG, at most 160x160), made on the person's device and kept inline: showing it fetches nothing."
     },
     "profile_visibility": {
       "type": "string",

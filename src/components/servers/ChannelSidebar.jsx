@@ -76,7 +76,7 @@ function ChannelLink({ sid, channel, active, onSettings, onInvite }) {
             return (
               <li key={p.userId} className="flex items-center gap-2 py-0.5 text-sm text-muted-foreground">
                 <span className={`rounded-full ${p.speaking ? "ring-2 ring-primary" : ""}`}>
-                  <Avatar id={p.userId} name={memberName(sid, p.userId)} emoji={prof?.avatar_emoji} accent={prof?.accent_color} size="h-6 w-6" />
+                  <Avatar id={p.userId} name={memberName(sid, p.userId)} emoji={prof?.avatar_emoji} image={prof?.avatar_image} accent={prof?.accent_color} size="h-6 w-6" />
                 </span>
                 <span className="truncate">{memberName(sid, p.userId)}</span>
               </li>

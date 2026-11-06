@@ -1,6 +1,6 @@
 // Direct messages and small groups. Membership is server-side metadata; names
 // and messages are end-to-end encrypted.
-import { ApiError, LIMITS, id, isoTime, randomIdField, str, type Actions } from "../http.ts";
+import { ApiError, HANDLE_RE, LIMITS, id, isoTime, randomIdField, str, type Actions, type Federation } from "../http.ts";
 import { parseEnvelopeShape, verifyItemSignature } from "../verify.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
 import { OutOfTime, eraseConversation } from "../accountDeletion.ts";
@@ -50,6 +50,8 @@ async function requireAccepts(sr: any, own: any, me: string, userIds: string[]) 
   if (!userIds.length) return;
   const profiles = await sr.entities.Profile.filter({ user_id: { $in: userIds } }, "created_date", userIds.length + 5);
   for (const p of profiles) {
+    // Someone on another site: their own site already checked they accept this (resolveHandle).
+    if (p.remote) continue;
     if (!(await acceptsFrom(sr, own, me, p))) throw new ApiError(403, "NOT_ACCEPTING", `${p.username} isn't accepting new conversations.`);
   }
 }
@@ -60,14 +62,19 @@ async function requireSelfReady(sr: any, userId: string) {
 }
 
 /** Resolve exact usernames to user ids. Missing and blocked look the same. */
-async function resolveUsernames(sr: any, me: string, usernames: unknown, max: number) {
+async function resolveUsernames(sr: any, me: string, usernames: unknown, max: number, federation?: Federation) {
   if (!Array.isArray(usernames) || usernames.length === 0 || usernames.length > max) {
     throw new ApiError(400, "BAD_FIELD", "Add between 1 and " + max + " people.");
   }
   const keys = [...new Set(usernames.map((u) => {
-    if (typeof u !== "string" || !USERNAME_RE.test(u.trim())) throw new ApiError(400, "BAD_USERNAME", "One of those usernames isn't valid.");
-    return u.trim().toLowerCase();
+    const v = typeof u === "string" ? u.trim().replace(/^@/, "").toLowerCase() : "";
+    if (USERNAME_RE.test(v) || (federation && HANDLE_RE.test(v))) return v;
+    throw new ApiError(400, "BAD_USERNAME", "One of those usernames isn't valid.");
   }))];
+  // People on other sites: found through their own site, which checks they accept a conversation.
+  for (const key of keys.filter((k) => k.includes("."))) {
+    if (!(await federation!.resolveHandle(key, me))) throw new ApiError(404, "NOT_FOUND", `Nobody can be reached at "${key}".`);
+  }
   const rows = await sr.entities.Profile.filter({ username_key: { $in: keys } }, "created_date", 200);
   const ids: string[] = [];
   for (const key of keys) {
@@ -100,7 +107,7 @@ export const conversationActions: Actions = {
     const { sr, user, now } = ctx;
     const { data } = await signedByActiveDevice(ctx, "create_dm");
     await requireSelfReady(sr, user.id);
-    const [other] = await resolveUsernames(sr, user.id, [data.username], 1);
+    const [other] = await resolveUsernames(sr, user.id, [data.username], 1, ctx.federation);
     if (!other) throw new ApiError(400, "BAD_FIELD", "That's your own username.");
     const dmKey = [user.id, other].sort().join(":");
     const existing = (await sr.entities.Conversation.filter({ dm_key: dmKey }, "created_date", 5)).sort(byAge);
@@ -125,7 +132,7 @@ export const conversationActions: Actions = {
     const { sr, user, now } = ctx;
     const { data } = await signedByActiveDevice(ctx, "create_group");
     await requireSelfReady(sr, user.id);
-    const others = await resolveUsernames(sr, user.id, data.usernames, LIMITS.maxGroupMembers - 1);
+    const others = await resolveUsernames(sr, user.id, data.usernames, LIMITS.maxGroupMembers - 1, ctx.federation);
     if (!others.length) throw new ApiError(400, "BAD_FIELD", "Add at least one other person.");
     await requireAccepts(sr, ctx.own, user.id, others);
     await enforceRate(sr, "Conversation", { creator_id: user.id }, 3600_000, LIMITS.conversationsPerHour, now, "starting conversations");
@@ -145,7 +152,7 @@ export const conversationActions: Actions = {
     const conv = await conversationForMember(sr, user.id, id(data.conversation_id, "conversation"));
     if (conv.kind !== "group") throw new ApiError(400, "NOT_GROUP", "You can only add people to a group.");
     requireGroupAdmin(conv, user.id, "add people");
-    const ids = await resolveUsernames(sr, user.id, data.usernames, LIMITS.maxGroupMembers);
+    const ids = await resolveUsernames(sr, user.id, data.usernames, LIMITS.maxGroupMembers, ctx.federation);
     await requireAccepts(sr, ctx.own, user.id, ids.filter((i) => !conv.member_ids.includes(i)));
     const next = [...new Set([...conv.member_ids, ...ids])];
     if (next.length > LIMITS.maxGroupMembers) throw new ApiError(409, "GROUP_FULL", `Groups can have up to ${LIMITS.maxGroupMembers} people.`);

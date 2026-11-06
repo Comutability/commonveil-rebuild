@@ -31,7 +31,7 @@ function Tile({ p, nameOf, profileOf, small = false, voice }) {
         <VideoTile stream={p.stream} mirrored={p.self && p.video === "camera"} label={`${name}'s ${p.video === "screen" ? "screen" : "camera"}`} />
       ) : (
         <span className="relative">
-          <Avatar id={p.userId} name={name} emoji={prof?.avatar_emoji} accent={prof?.accent_color} size={small ? "h-10 w-10" : "h-16 w-16"} className={small ? "" : "text-xl"} />
+          <Avatar id={p.userId} name={name} emoji={prof?.avatar_emoji} image={prof?.avatar_image} accent={prof?.accent_color} size={small ? "h-10 w-10" : "h-16 w-16"} className={small ? "" : "text-xl"} />
           {p.hand && <Hand className="absolute -right-1 -top-1 h-5 w-5 rounded-full bg-card p-0.5 text-[hsl(var(--warning))]" aria-label="Asking to speak" />}
         </span>
       )}

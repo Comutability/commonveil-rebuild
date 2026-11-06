@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, FileText, Flag, Plus, UserX } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { ArrowUpCircle, Bug, FileText, Flag, Globe, Plus, UserX } from "lucide-react";
+import { SELF_HOSTED, base44 } from "@/api/base44Client";
+import UpdatesPanel, { UpdateBanner } from "@/components/app/UpdatesPanel";
+import FederationPanel from "@/components/app/FederationPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -408,6 +410,7 @@ function Content() {
  */
 export default function Admin() {
   const { user } = useAuth();
+  const [tab, setTab] = useState("reports");
   if (user?.role !== "admin") return <Navigate to="/" replace />;
   return (
     <div className="min-h-[100dvh]">
@@ -423,19 +426,24 @@ export default function Admin() {
           </nav>
         </div>
       </header>
+      {SELF_HOSTED && <UpdateBanner onOpen={() => setTab("updates")} />}
       <main className="mx-auto w-full max-w-5xl px-4 py-8">
         <h1 className="text-3xl font-semibold">Admin</h1>
-        <Tabs defaultValue="reports" className="mt-6">
+        <Tabs value={tab} onValueChange={setTab} className="mt-6">
           <TabsList className="h-auto flex-wrap justify-start">
             <TabsTrigger value="reports"><Flag className="mr-1.5 h-4 w-4" aria-hidden="true" /> Reports</TabsTrigger>
             <TabsTrigger value="security"><Bug className="mr-1.5 h-4 w-4" aria-hidden="true" /> Security</TabsTrigger>
             <TabsTrigger value="accounts"><UserX className="mr-1.5 h-4 w-4" aria-hidden="true" /> Accounts</TabsTrigger>
             <TabsTrigger value="content"><FileText className="mr-1.5 h-4 w-4" aria-hidden="true" /> Content</TabsTrigger>
+            {SELF_HOSTED && <TabsTrigger value="federation"><Globe className="mr-1.5 h-4 w-4" aria-hidden="true" /> Other sites</TabsTrigger>}
+            {SELF_HOSTED && <TabsTrigger value="updates"><ArrowUpCircle className="mr-1.5 h-4 w-4" aria-hidden="true" /> Updates</TabsTrigger>}
           </TabsList>
           <TabsContent value="reports" className="pt-4"><Reports /></TabsContent>
           <TabsContent value="security" className="pt-4"><SecurityReports /></TabsContent>
           <TabsContent value="accounts" className="pt-4"><RemovedAccounts /></TabsContent>
           <TabsContent value="content" className="pt-4"><Content /></TabsContent>
+          {SELF_HOSTED && <TabsContent value="federation" className="pt-4"><FederationPanel /></TabsContent>}
+          {SELF_HOSTED && <TabsContent value="updates" className="pt-4"><UpdatesPanel /></TabsContent>}
         </Tabs>
       </main>
     </div>

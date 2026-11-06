@@ -12,6 +12,7 @@ import { usePresence } from "@/lib/secure/PresenceContext";
 import { useSecure } from "@/lib/secure/SecureContext";
 import { setAppearance, TEXT_SIZES, useAppearance } from "@/lib/appearance";
 import Avatar, { ACCENT_HUES } from "@/components/chat/Avatar";
+import PictureInput from "@/components/app/PictureInput";
 import SettingsLayout, { ChoiceList, SettingsGroup, SettingsTitle, useCloseSettings } from "@/components/settings/SettingsLayout";
 import {
   AlertsSection,
@@ -50,7 +51,7 @@ function ProfileCard({ userId, p }) {
       <div className="h-16" style={{ background: hue !== undefined ? `hsl(${hue} 45% 45% / 0.45)` : "hsl(var(--primary) / 0.25)" }} aria-hidden="true" />
       <div className="-mt-8 px-4 pb-4">
         <span className="inline-block rounded-full ring-4 ring-[hsl(var(--card))]">
-          <Avatar id={userId} name={p.display_name || p.username} emoji={p.avatar_emoji} accent={p.accent_color} size="h-16 w-16" className="text-xl" />
+          <Avatar id={userId} name={p.display_name || p.username} emoji={p.avatar_emoji} image={p.avatar_image} accent={p.accent_color} size="h-16 w-16" className="text-xl" />
         </span>
         <p className="mt-2 text-lg font-semibold">{p.display_name || p.username}</p>
         <p className="text-sm text-muted-foreground">@{p.username}{p.pronouns ? `, ${p.pronouns}` : ""}</p>
@@ -63,7 +64,7 @@ function ProfileCard({ userId, p }) {
 function ProfileSettings() {
   const { me, userId, updateProfile } = useSecure();
   const p = me?.profile || {};
-  const [form, setForm] = useState({ display_name: p.display_name || "", pronouns: p.pronouns || "", bio: p.bio || "", avatar_emoji: p.avatar_emoji || "", accent_color: p.accent_color || "" });
+  const [form, setForm] = useState({ display_name: p.display_name || "", pronouns: p.pronouns || "", bio: p.bio || "", avatar_emoji: p.avatar_emoji || "", avatar_image: p.avatar_image || "", accent_color: p.accent_color || "" });
   const [state, run] = useSaver();
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target ? e.target.value : e }));
   const emojiOk = !form.avatar_emoji || EMOJI_RE.test(form.avatar_emoji.trim());
@@ -96,10 +97,15 @@ function ProfileSettings() {
             <Textarea id="pf-bio" value={form.bio} onChange={set("bio")} maxLength={280} rows={3} placeholder="Optional" />
           </div>
           <div className="space-y-1.5">
+            <Label>Profile picture</Label>
+            <PictureInput value={form.avatar_image} onChange={(v) => setForm((f) => ({ ...f, avatar_image: v }))} disabled={state.busy} />
+            <p className="text-xs text-muted-foreground">Made small on this device and kept with your profile, so showing it never makes anyone's device fetch an image. Like the rest of your profile, it isn't end-to-end encrypted: choose who sees it in Privacy and safety.</p>
+          </div>
+          <div className="space-y-1.5">
             <Label htmlFor="pf-emoji">Avatar emoji</Label>
             <Input id="pf-emoji" value={form.avatar_emoji} onChange={set("avatar_emoji")} maxLength={16} placeholder="One emoji, or leave empty for your initials" className="max-w-xs" />
             {!emojiOk && <p className="text-xs text-destructive">Use a single emoji.</p>}
-            <p className="text-xs text-muted-foreground">There are no uploaded pictures, so showing your avatar never makes anyone's device fetch an image.</p>
+            <p className="text-xs text-muted-foreground">Shown when you have no picture.</p>
           </div>
           <div className="space-y-1.5">
             <Label>Profile colour</Label>

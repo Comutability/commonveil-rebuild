@@ -1445,7 +1445,7 @@ test("auto-delete is off unless chosen, needs a device, and keeps only the day t
   const bob = await new Member(w, "bob").setup();
   await alice.dm(bob);
   const seen = await bob.ok("profile", { action: "get_many", user_ids: [alice.id] });
-  assert.deepEqual(Object.keys(seen.profiles[0]).sort(), ["accent_color", "avatar_emoji", "bio", "display_name", "pronouns", "user_id", "username"]);
+  assert.deepEqual(Object.keys(seen.profiles[0]).sort(), ["accent_color", "avatar_emoji", "avatar_image", "bio", "display_name", "pronouns", "user_id", "username"]);
 
   const staff = new Member(w, "staffer", "admin");
   assert.equal((await staff.call("profile", { action: "set_auto_delete", days: 183 })).body.code, "STAFF_ACCOUNT");
@@ -1666,4 +1666,18 @@ test("privacy report: counts only, about you only, with the sign-in address mask
   assert.ok(!JSON.stringify(r).includes("zebracakes"), "nothing anyone wrote");
   const b = await bob.ok("profile", { action: "privacy_report" });
   assert.equal(b.stored.messages_sent.count, 0);
+});
+
+test("profile pictures: small inline images only, checked by their first bytes, and hidden like the rest of a profile", async () => {
+  const { members: [alice, bob] } = await world("alice", "bob");
+  const png = "data:image/png;base64," + Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]).toString("base64");
+  assert.equal((await alice.ok("profile", { action: "update", avatar_image: png })).profile.avatar_image, png);
+  for (const bad of ["https://example.com/me.png", "data:image/svg+xml;base64,PHN2Zz4=", "data:image/png;base64," + Buffer.from("<svg>").toString("base64"), "data:image/png;base64," + "A".repeat(60_000)]) {
+    assert.equal((await alice.call("profile", { action: "update", avatar_image: bad })).body.code, "BAD_FIELD", bad.slice(0, 30));
+  }
+  await alice.dm(bob);
+  assert.equal((await bob.ok("profile", { action: "get_many", user_ids: [alice.id] })).profiles[0].avatar_image, png);
+  await alice.ok("profile", { action: "update", profile_visibility: "nobody" });
+  assert.equal((await bob.ok("profile", { action: "get_many", user_ids: [alice.id] })).profiles[0].avatar_image, "", "hidden with the rest");
+  assert.equal((await alice.ok("profile", { action: "update", avatar_image: "" })).profile.avatar_image, "");
 });

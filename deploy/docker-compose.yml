@@ -1,0 +1,59 @@
+# Commonveil on your own server. Quick start: ./install.sh   (or see docs/SELF_HOSTING.md)
+#
+#   app      the site and its server            ghcr.io/comutability/commonveil
+#   caddy    HTTPS, with certificates for your domain and for people's handles (alice.your.domain)
+#   updater  installs new releases when you (or automatic updates) say so. Optional: remove it,
+#            and update by hand with `docker compose pull && docker compose up -d`.
+name: commonveil
+
+services:
+  app:
+    image: ghcr.io/comutability/commonveil:${COMMONVEIL_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      SITE_URL: https://${SITE_DOMAIN:?Set SITE_DOMAIN in .env}
+      HANDLE_DOMAIN: ${HANDLE_DOMAIN:-}
+      SITE_NAME: ${SITE_NAME:-Commonveil}
+      TRUST_PROXY: "true"
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      DEFAULT_SERVER_ADMINS: ${DEFAULT_SERVER_ADMINS:-}
+      OPEN_REGISTRATION: ${OPEN_REGISTRATION:-true}
+      SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      FEDERATION: ${FEDERATION:-true}
+      UPDATER_URL: http://updater:8090
+      UPDATER_TOKEN: ${UPDATER_TOKEN:-}
+    volumes:
+      - data:/data
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+  updater:
+    image: ghcr.io/comutability/commonveil-updater:${UPDATER_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      UPDATER_TOKEN: ${UPDATER_TOKEN:?Set UPDATER_TOKEN in .env (install.sh makes one)}
+      PROJECT_DIR: ${COMMONVEIL_DIR:?Set COMMONVEIL_DIR in .env to this folder's full path}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The same path inside as outside, so Docker Compose finds this folder's files either way.
+      - ${COMMONVEIL_DIR}:${COMMONVEIL_DIR}
+
+volumes:
+  data:
+  caddy-data:
+  caddy-config:

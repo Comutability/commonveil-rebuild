@@ -33,6 +33,7 @@ export const publicProfile = (p: any) => ({
   pronouns: p.pronouns || "",
   accent_color: p.accent_color || "",
   avatar_emoji: p.avatar_emoji || "",
+  avatar_image: p.avatar_image || "",
 });
 
 /** A profile with only what the person chose to show this viewer: the username always, the rest if they allow it. */
@@ -40,7 +41,7 @@ export function profileFor(p: any, { contact }: { contact: boolean }) {
   const visibility = p.profile_visibility || "shared";
   const full = visibility === "shared" || (visibility === "conversations" && contact);
   if (full) return publicProfile(p);
-  return { user_id: p.user_id, username: p.username, display_name: "", bio: "", pronouns: "", accent_color: p.accent_color || "", avatar_emoji: "" };
+  return { user_id: p.user_id, username: p.username, display_name: "", bio: "", pronouns: "", accent_color: p.accent_color || "", avatar_emoji: "", avatar_image: "" };
 }
 
 /**

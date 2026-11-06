@@ -191,7 +191,7 @@ export default function MemberCard({ serverId, userId: targetId, open, onOpenCha
         <div className="-mt-9 px-5 pb-5">
           <div className="flex items-end justify-between">
             <span className="rounded-full ring-[5px] ring-[hsl(var(--popover))]">
-              <Avatar id={targetId} name={profile?.display_name || profile?.username} emoji={profile?.avatar_emoji} accent={accent} size="h-16 w-16" className="text-xl" />
+              <Avatar id={targetId} name={profile?.display_name || profile?.username} emoji={profile?.avatar_emoji} image={profile?.avatar_image} accent={accent} size="h-16 w-16" className="text-xl" />
             </span>
             {!self && profile && (
               <Button size="sm" variant="outline" disabled={busy === "dm"} onClick={message}>

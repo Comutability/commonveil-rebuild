@@ -196,7 +196,7 @@ export default function MessageRow({
         <span className="w-12 shrink-0 pt-0.5 text-right">{time}</span>
       ) : head ? (
         <button type="button" onClick={author.onClick} className="mt-0.5 h-10 w-10 shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`${author.name}'s profile`}>
-          <Avatar id={m.sender_id} name={author.name} emoji={author.emoji} accent={author.accent} />
+          <Avatar id={m.sender_id} name={author.name} emoji={author.emoji} image={author.image} accent={author.accent} />
         </button>
       ) : (
         <span className="w-10 shrink-0 pt-0.5 text-right text-[0.65rem] leading-5 text-muted-foreground opacity-0 group-hover:opacity-100" aria-hidden="true">

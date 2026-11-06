@@ -62,7 +62,7 @@ export function useServerText(serverId, channelId) {
         label: p.name,
         sub: `@${p.username}`,
         insert: `@${p.username}`,
-        icon: <Avatar id={p.id} name={p.name} emoji={p.profile.avatar_emoji} accent={p.profile.accent_color} size="h-6 w-6" />,
+        icon: <Avatar id={p.id} name={p.name} emoji={p.profile.avatar_emoji} image={p.profile.avatar_image} accent={p.profile.accent_color} size="h-6 w-6" />,
       }));
     const extra = [];
     if (canEveryone && "everyone".startsWith(q)) extra.push({ id: "@everyone", label: "@everyone", sub: "Everyone who can see this channel", insert: "@everyone" });

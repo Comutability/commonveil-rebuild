@@ -293,7 +293,7 @@ function TimerNote({ conversation, nameOf }) {
 export default function ConversationView({ conversation, onBack, onInfo }) {
   const {
     threads, messages, opened, hasMore, openConversation, closeConversation, loadOlder, markRead, send, react, sendPoll, vote, editMessage, deleteMessage,
-    nameOf, handleOf, conversationName, newMembersOf, acknowledgeMembers,
+    profiles, nameOf, handleOf, conversationName, newMembersOf, acknowledgeMembers,
   } = useChat();
   const { userId, peers, loadPeers } = useSecure();
   usePresenceRoom("c", conversation.id);
@@ -490,7 +490,7 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
         <Button variant="ghost" size="icon" className="md:hidden" onClick={onBack} aria-label="Back to conversations">
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <Avatar id={other} name={nameOf(other)} group={conversation.kind === "group"} size="h-9 w-9" />
+        <Avatar id={other} name={nameOf(other)} group={conversation.kind === "group"} emoji={profiles?.[other]?.avatar_emoji} image={profiles?.[other]?.avatar_image} accent={profiles?.[other]?.accent_color} size="h-9 w-9" />
         <div className="min-w-0 flex-1">
           <h2 className="truncate font-semibold">{conversationName(conversation)}</h2>
           <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">

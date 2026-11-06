@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowRight, BookOpen, CalendarClock, KeyRound, Lock, MessagesSquare, Phone, ShieldCheck, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import Comparison from "@/components/home/Comparison";
 
 const PROTECTIONS = [
   [Lock, "Content stays between you", "Messages and group names are encrypted on your device. Our servers store ciphertext they can't read."],
@@ -103,6 +104,7 @@ export default function Home() {
           </Link>
         </div>
       </section>
+      <Comparison />
     </>
   );
 }

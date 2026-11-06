@@ -1,5 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { CornerUpLeft, Lock, Pencil, SendHorizontal, Smile, X } from "lucide-react";
+import { CornerUpLeft, Lock, Maximize2, Minimize2, Pencil, SendHorizontal, Smile, X } from "lucide-react";
 import { progressText } from "./useStagedFiles";
 import StagedStrip from "./StagedStrip";
 import { MAX_MESSAGE_CHARS } from "@/lib/secure/protocol.js";
@@ -36,13 +36,17 @@ const Composer = forwardRef(function Composer(
 
   useImperativeHandle(ref, () => ({ focus: () => input.current?.focus() }), []);
 
-  // Grow with the text, up to a point.
+  // Grow with the text: up to about half the window, or most of it when expanded for a long message.
+  const [tall, setTall] = useState(false);
   useEffect(() => {
     const el = input.current;
     if (!el) return;
+    const cap = Math.max(160, Math.round(window.innerHeight * (tall ? 0.7 : 0.45)));
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
-  }, [value]);
+    el.style.height = `${tall ? cap : Math.min(el.scrollHeight, cap)}px`;
+    el.style.overflowY = el.scrollHeight > cap ? "auto" : "hidden";
+  }, [value, tall]);
+  const long = value.length > 280 || value.split("\n").length > 5;
 
   const token = useMemo(() => {
     const before = value.slice(0, caret);
@@ -84,6 +88,7 @@ const Composer = forwardRef(function Composer(
     setError("");
     try {
       await onSubmit(value);
+      setTall(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -196,8 +201,19 @@ const Composer = forwardRef(function Composer(
             placeholder={disabledReason || placeholder}
             disabled={Boolean(disabledReason)}
             aria-label={placeholder}
-            className="max-h-56 min-h-[1.75rem] flex-1 resize-none bg-transparent py-1 text-[0.95rem] leading-relaxed outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+            className="min-h-[1.75rem] flex-1 resize-none bg-transparent py-1 text-[0.95rem] leading-relaxed outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
           />
+          {(long || tall) && !disabledReason && (
+            <button
+              type="button"
+              onClick={() => { setTall((v) => !v); input.current?.focus(); }}
+              className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label={tall ? "Make the message box smaller" : "Make the message box bigger"}
+              aria-pressed={tall}
+            >
+              {tall ? <Minimize2 className="h-4 w-4" aria-hidden="true" /> : <Maximize2 className="h-4 w-4" aria-hidden="true" />}
+            </button>
+          )}
           {!editing && !disabledReason && (
             <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
               <PopoverTrigger asChild>

@@ -112,6 +112,7 @@ function cardOf(profile: any) {
     bio: hidden ? "" : profile.bio || "",
     accent_color: profile.accent_color || "",
     avatar_emoji: profile.avatar_emoji || "",
+    avatar_image: hidden ? "" : profile.avatar_image || "",
   };
 }
 

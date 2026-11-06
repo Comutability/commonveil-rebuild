@@ -526,7 +526,7 @@ function Members({ sid }) {
           return (
             <li key={m.user_id}>
               <button type="button" onClick={() => setCard(m.user_id)} className="flex w-full items-center gap-3 py-2.5 text-left hover:bg-[hsl(var(--chat-hover))]">
-                <Avatar id={m.user_id} name={memberName(sid, m.user_id)} emoji={p?.avatar_emoji} accent={p?.accent_color} size="h-9 w-9" />
+                <Avatar id={m.user_id} name={memberName(sid, m.user_id)} emoji={p?.avatar_emoji} image={p?.avatar_image} accent={p?.accent_color} size="h-9 w-9" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{memberName(sid, m.user_id)}</span>
                   <span className="block truncate text-xs text-muted-foreground">@{p?.username}{servers[sid].server.owner_id === m.user_id ? ", owner" : ""}</span>

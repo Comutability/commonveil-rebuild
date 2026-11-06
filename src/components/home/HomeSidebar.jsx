@@ -133,7 +133,7 @@ export default function HomeSidebar({ activeId, onNew }) {
               return (
                 <li key={c.id}>
                   <Link to={`/app/c/${c.id}`} aria-current={activeId === c.id ? "page" : undefined} className={`panel-item !py-1.5 ${unread ? "!text-foreground" : ""}`}>
-                    <Avatar id={other} name={nameOf(other)} group={c.kind === "group"} emoji={c.kind === "dm" ? p?.avatar_emoji : ""} accent={c.kind === "dm" ? p?.accent_color : ""} size="h-8 w-8" />
+                    <Avatar id={other} name={nameOf(other)} group={c.kind === "group"} emoji={c.kind === "dm" ? p?.avatar_emoji : ""} image={c.kind === "dm" ? p?.avatar_image : ""} accent={c.kind === "dm" ? p?.accent_color : ""} size="h-8 w-8" />
                     <span className="min-w-0 flex-1">
                       <span className={`flex items-center gap-1 ${unread ? "font-semibold" : "font-medium"}`}>
                         <span className="truncate">{conversationName(c)}</span>
