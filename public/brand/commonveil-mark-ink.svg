@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Commonveil">
+  <path d="M14 40c6-14 12-21 18-21s12 7 18 21" fill="none" stroke="#171c26" stroke-width="4" stroke-linecap="round"/>
+  <path d="M20 44c4-8 8-12 12-12s8 4 12 12" fill="none" stroke="#0f5a4e" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="32" cy="47" r="3" fill="#171c26"/>
+</svg>

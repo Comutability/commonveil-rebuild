@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Commonveil">
+  <rect width="512" height="512" rx="112" fill="#0f5a4e"/>
+  <path d="M112 320c48-112 96-168 144-168s96 56 144 168" fill="none" stroke="#f6f3ea" stroke-width="32" stroke-linecap="round"/>
+  <path d="M160 352c32-64 64-96 96-96s64 32 96 96" fill="none" stroke="#7fd8c3" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="256" cy="376" r="24" fill="#f6f3ea"/>
+</svg>

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 96" width="340" height="96" role="img" aria-label="Commonveil">
+  <rect x="0" y="8" width="80" height="80" rx="17.5" fill="#0f5a4e"/>
+  <path d="M17.5 58c7.5-17.5 15-26.25 22.5-26.25s15 8.75 22.5 26.25" fill="none" stroke="#f6f3ea" stroke-width="5" stroke-linecap="round"/>
+  <path d="M25 63c5-10 10-15 15-15s10 5 15 15" fill="none" stroke="#7fd8c3" stroke-width="4.375" stroke-linecap="round"/>
+  <circle cx="40" cy="66.75" r="3.75" fill="#f6f3ea"/>
+  <text x="100" y="62" font-family="'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif" font-size="40" font-weight="600" letter-spacing="-0.5" fill="#171c26">Commonveil</text>
+</svg>
