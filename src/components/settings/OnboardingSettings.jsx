@@ -29,9 +29,12 @@ export default function OnboardingSettings({ sid }) {
     setFormState(fn);
   }, []);
   // Until someone edits, follow what arrives from the server (it may still be decrypting).
+  const currentKey = current.steps.map((s) => `${s.channel_id}:${s.label}`).join("|");
   useEffect(() => {
-    if (!edited.current) setFormState({ welcome: current.welcome, steps: current.steps });
-  }, [current.welcome, current.steps]);
+    if (edited.current) return;
+    setFormState({ welcome: current.welcome, steps: current.steps });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current.welcome, currentKey]);
 
   const save = async () => {
     const steps = form.steps.filter((s) => s.label.trim() && s.channel_id);

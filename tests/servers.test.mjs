@@ -707,6 +707,44 @@ test("emoji, stickers and AutoMod rules are encrypted server items; only the rig
   assert.notEqual(swapped.status, "ok");
 });
 
+test("the welcome a new member sees, and the server's traits, are encrypted server items only staff can set", async () => {
+  const { w, members: [alice, bob] } = await world("alice", "bobby");
+  const sid = await serverWith(alice, bob);
+  const general = await alice.channelNamed(sid, "general");
+  const state = await alice.server(sid);
+  const { keys } = await alice.keysOf(state);
+  const { chains, devices } = await alice.keysFor([alice.id]);
+
+  // Traits ride inside the encrypted profile, beside the name.
+  const profile = await buildServerItem({
+    kind: "server", serverId: sid, generations: state.generations, keys, userId: alice.id, device: alice.device,
+    payload: { name: "The Madhouse", description: "", icon: "M", color: "", banner: "#8b5cf6", traits: ["Cozy", "Late nights"] },
+  });
+  await alice.ok("servers", await signed(alice, "set_server_profile", { server_id: sid, item: profile }));
+  const withProfile = await alice.server(sid);
+  const openedProfile = await openServerItem({ kind: "server", item: withProfile.server.profile, serverId: sid, keys, senderChain: chains.get(alice.id), senderDevices: devices.get(alice.id) });
+  assert.deepEqual(openedProfile.content.traits, ["Cozy", "Late nights"]);
+  assert.equal(openedProfile.content.banner, "#8b5cf6");
+
+  const welcome = await buildServerItem({
+    kind: "onboarding", serverId: sid, generations: state.generations, keys, userId: alice.id, device: alice.device,
+    payload: { welcome: "Hi! Say hello in general.", steps: [{ label: "Introduce yourself", channel_id: general.id }] },
+  });
+  await alice.ok("servers", await signed(alice, "set_server_set", { server_id: sid, slot: "onboarding", item: welcome }));
+  // Only staff with Manage server may write it.
+  await bob.fails("servers", await signed(bob, "set_server_set", { server_id: sid, slot: "onboarding", item: welcome }), "MISSING_PERMISSION");
+
+  const row = w.rows("Server").find((s) => s.id === sid);
+  assert.equal(JSON.stringify(row).includes("Say hello"), false);
+  assert.equal(JSON.stringify(row).includes("Cozy"), false);
+
+  const after = await alice.server(sid);
+  const opened = await openServerItem({ kind: "onboarding", item: after.server.onboarding, serverId: sid, keys, senderChain: chains.get(alice.id), senderDevices: devices.get(alice.id) });
+  assert.equal(opened.status, "ok");
+  assert.equal(opened.content.welcome, "Hi! Say hello in general.");
+  assert.deepEqual(opened.content.steps, [{ label: "Introduce yourself", channel_id: general.id }]);
+});
+
 test("threads: replies hang off a text-channel message, stay out of the channel's list, and can be locked", async () => {
   const { w, members: [alice, bob] } = await world("alice", "bobby");
   const sid = await serverWith(alice, bob);

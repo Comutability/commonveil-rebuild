@@ -36,7 +36,7 @@ export async function eraseServer(sr: any, server: any, deadline: number) {
   for (const c of await sr.entities.Conversation.filter({ server_id: sid }, "created_date", 1000)) {
     await sr.entities.Conversation.update(c.id, { server_id: "", ticket_channel_id: "" });
   }
-  await sr.entities.Server.update(sid, { profile_envelope: "", rules_envelope: "", emoji_envelope: "", stickers_envelope: "", automod_envelope: "", public_name: "", public_description: "", public_tags: [] });
+  await sr.entities.Server.update(sid, { profile_envelope: "", rules_envelope: "", emoji_envelope: "", stickers_envelope: "", automod_envelope: "", onboarding_envelope: "", public_name: "", public_description: "", public_tags: [] });
   await sr.entities.Server.delete(sid);
   return true;
 }

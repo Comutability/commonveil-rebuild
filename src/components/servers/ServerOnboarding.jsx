@@ -4,6 +4,9 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { useServers } from "@/lib/secure/ServerContext";
 import OnboardingCard from "@/components/servers/OnboardingCard";
 
+/** How long after joining the welcome still counts as "just arrived". */
+const NEW_MEMBER_MS = 14 * 24 * 60 * 60 * 1000;
+
 /**
  * The welcome a server shows someone who has just joined. Shown once on each device: which
  * member opened which channel is not something the service needs to know, so it's remembered here.
@@ -23,8 +26,14 @@ export default function ServerOnboarding({ serverId }) {
   );
   const rulesChannel = channels.find((c) => c.kind === "rules") || channels.find((c) => c.template_key === "rules");
 
+  // Only for people who have just arrived: someone who has been here for months doesn't need
+  // introducing to the place when the welcome is written or rewritten.
+  const joined = e?.member?.joined_at ? Date.parse(e.member.joined_at) : 0;
+  const newHere = joined > 0 && Date.now() - joined < NEW_MEMBER_MS;
+
   const open = Boolean(
     e?.status === "ready" &&
+    newHere &&
     !prefs.onboarded?.[serverId] &&
     !isStaffIn(serverId, e.member) &&
     (onboarding.welcome || steps.length),

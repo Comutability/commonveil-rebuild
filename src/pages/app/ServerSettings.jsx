@@ -104,7 +104,7 @@ function Overview({ sid }) {
   const isDefault = servers[sid]?.server?.is_default;
   return (
     <>
-      <SettingsTitle intro="The name, description and icon members see. They're encrypted with the server's keys: Commonveil can't read them." help="create-a-server">Overview</SettingsTitle>
+      <SettingsTitle intro="The name, description, icon, banner and traits members see. They're encrypted with the server's keys: Commonveil can't read them." help="create-a-server">Overview</SettingsTitle>
       <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); run(() => setServerProfile(sid, form)); }}>
         <div className="flex items-center gap-5">
           <ServerIcon look={form} size="h-20 w-20" rounded className="!text-2xl" />
