@@ -181,3 +181,12 @@ export async function signOut() {
   if (refresh) await callFn("identity", { action: "logout", refresh_token: refresh }).catch(() => {});
   clearSession();
 }
+
+/**
+ * This browser's sign-in has ended, or never became a Commonveil one: forget it, end any Base44
+ * sign-in left from before (so it can't sign anyone back in), and go to sign in again.
+ */
+export function needSignIn(returnTo = "/app") {
+  clearSession();
+  leavePlatformSession(`/login?returnTo=${encodeURIComponent(returnTo)}`);
+}

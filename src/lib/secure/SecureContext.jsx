@@ -8,7 +8,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { callFn } from "@/lib/api";
-import { setOwnerKey } from "@/lib/identity/client";
+import { needSignIn, setOwnerKey } from "@/lib/identity/client";
 import * as P from "./protocol.js";
 import * as S from "./store.js";
 import { createDeviceKeys, defaultDeviceLabel, withDeviceKem } from "../crypto/device.js";
@@ -349,6 +349,12 @@ export function SecureProvider({ children }) {
         if (changed) refreshRef.current?.({ silent: true });
       });
     } catch (err) {
+      // This browser's sign-in has ended, or was never a Commonveil one: sign in again rather than
+      // sitting on an error no retry can clear.
+      if (err?.code === "SIGN_IN_REQUIRED" || err?.code === "NEW_SIGN_IN") {
+        needSignIn("/app");
+        return;
+      }
       if (silent && err?.name !== "IdentityError") return;
       setError(err?.message || "Something went wrong.");
       setPhase("error");
