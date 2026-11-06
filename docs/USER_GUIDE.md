@@ -23,6 +23,8 @@ The same guide is on the website, one topic per page, at [https://commonveil-reb
 - [Voice and video calls](#voice-and-video-calls): Calls in conversations, voice channels and stages, with camera and screen sharing.
 - [Disappearing messages and self-destructing conversations](#disappearing-messages-and-self-destructing-conversations): Have messages delete themselves after a while, or set a whole conversation to erase itself.
 - [Send later and safety check-ins](#send-later-and-safety-check-ins): Write a message now and have it delivered later, or have it sent only if you don't check in.
+- [Offline mode](#offline-mode): Keep writing with no connection. Messages are sealed now and sent when you're back.
+- [People on other sites](#people-on-other-sites): Your address, talking to people on other Commonveil sites, and joining their servers.
 
 **Servers**
 
@@ -48,6 +50,11 @@ The same guide is on the website, one topic per page, at [https://commonveil-reb
 - [Notifications, quiet hours and focus](#notifications-quiet-hours-and-focus): Get alerts without giving anything away, silence them overnight or for a while, and mute what's noisy.
 - [Your profile and how Commonveil looks](#your-profile-and-how-commonveil-looks): Display name, pronouns, bio, avatar and colour; theme, text size, message layout and motion.
 - [Download your data or delete your account](#download-your-data-or-delete-your-account): Get a copy of everything, have your account delete itself if unused, or delete it now.
+- [Sign-in, passkeys and recovery](#sign-in-passkeys-and-recovery): Your username and password, passkeys, confirming a new device, and getting back in.
+
+**Running your own site**
+
+- [Run your own Commonveil site](#run-your-own-commonveil-site): Host Commonveil on your own hardware with Docker, keep it up to date, and run it with no internet.
 
 **Help**
 
@@ -89,7 +96,10 @@ Setting up takes about two minutes. You'll need somewhere safe to write down 24 
 
 #### 1. Sign in
 
-Choose **Sign in** at the top of any page. You can register with an email address and password, or with one of the sign-in providers offered. Your sign-in address is only used to sign you in and to send you security emails. Nobody else sees it.
+Choose **Sign in** at the top of any page.
+
+- **On commonveil.online**, register with an email address and password, or with one of the sign-in providers offered. Your sign-in address is only used to sign you in and to send you security emails. Nobody else sees it.
+- **On a self-hosted Commonveil site**, there's no email: you choose your username and a password, and the username step below is already done. Your recovery phrase is how you get back in ([Sign-in, passkeys and recovery](#sign-in-passkeys-and-recovery)).
 
 #### 2. Choose your username
 
@@ -366,6 +376,77 @@ Only your own device can check in or end a check-in, so someone who has your pas
 - If you block someone or they block you, a waiting direct message to them isn't delivered.
 - The conversation's disappearing-message timer starts when it's delivered, not when you wrote it.
 - Commonveil can see when each waiting message is due and who it's for, but never what it says. You can have up to 50 waiting at a time.
+
+### Offline mode
+
+_Keep writing with no connection. Messages are sealed now and sent when you're back._
+
+Commonveil keeps working when your connection drops. Write as usual.
+
+#### While you're offline
+
+- A bar at the top says **You're offline**.
+- Each message you send is **encrypted and signed on your device straight away**, and shows as **Waiting to send**.
+- When your connection comes back, waiting messages go out in order. The people you sent them to see the time you wrote them, marked **written offline**.
+
+Nothing waits in plain text: your device keeps the encrypted message, and opens its own copy to show it to you. Messages wait for up to a week.
+
+#### Offline mode, on purpose
+
+**Settings → Offline mode** makes the app stop reaching the server until you turn it off: useful on a connection you don't trust, or to save data. Everything you send waits, already encrypted. Choose **Go back online** in the bar to send it all.
+
+#### If a message couldn't go out
+
+If something changed while you were away (someone joined the conversation, or a channel's keys moved on), the old message can't be delivered as it was sealed. It's marked **Not sent**, with:
+
+- **Send again**, which seals it afresh for the people there now.
+- **Delete**, to let it go.
+
+You can also cancel a waiting message with **Don't send**.
+
+#### When the other site is down
+
+If you're talking to someone on another Commonveil site that can't be reached, your own site holds your message and passes it on when it can. It shows **Your site is holding it**.
+
+#### With no internet at all
+
+A Commonveil site can run on a small computer with its own Wi-Fi, so people nearby can chat with no internet. Ask whoever runs your site, or see [Run your own Commonveil site](#run-your-own-commonveil-site).
+
+#### Good to know
+
+- Keep the tab open: the app needs the server to start.
+- Only messages wait. Attachments, calls and settings need a connection.
+
+### People on other sites
+
+_Your address, talking to people on other Commonveil sites, and joining their servers._
+
+Anyone can run their own Commonveil site, and sites talk to each other. You can message people on other sites and join their servers, and everything stays end-to-end encrypted the whole way. This works between **self-hosted** sites.
+
+#### Your address
+
+Your address is your username followed by your site's name: **ann** on **chat.example.com** is **@ann.chat.example.com** (underscores become hyphens). It's in **Settings → My profile**.
+
+- Share it so people on other sites can reach you.
+- Opened in a browser, it shows your profile page: only what you chose to share, and a **Send a message** button.
+
+#### Messaging someone on another site
+
+Choose **New conversation** and enter their full address, like `alex.other.example`. Mention them in a message with **@** and their full address too.
+
+They have to accept new conversations from **anyone** (in **Settings → Privacy and safety**). If they only take them from people they share a server with, they can't be reached from other sites.
+
+#### Servers on other sites
+
+In **Discover**, type another site's address in **Showing servers on** and choose **Browse**. Join any open server listed there. An invite link from another site works too: open it and choose to join from your own site.
+
+#### What other sites see
+
+The site a conversation or server lives on sees what any site would: your address, profile (as you share it), public keys, and when you send things there. It never sees what you say, or anything else about you. Your own site sees which other sites you use. More detail is in `docs/FEDERATION.md` on GitHub.
+
+#### Blocking
+
+Blocking someone on another site works as usual, on your site and theirs. Site admins can also stop talking to a whole site.
 
 ## Servers
 
@@ -923,6 +1004,93 @@ Type **DELETE** to confirm. It can't be undone.
 #### Sign out
 
 **Sign out** keeps this browser's keys so you can sign back in quickly. On a shared or borrowed computer, choose **Sign out and remove this device** instead.
+
+### Sign-in, passkeys and recovery
+
+_Your username and password, passkeys, confirming a new device, and getting back in._
+
+This is how accounts work on **self-hosted Commonveil sites**. On commonveil.online, you still sign in with your email for now.
+
+Open **Settings → Sign-in and recovery** to see and change all of it.
+
+#### Signing in
+
+Your account is a **username and password**. There's no email. You can sign in either way:
+
+- **Sign in with a passkey**: your fingerprint, face or device PIN, and that's it.
+- **Your username and password.**
+
+#### Passkeys
+
+A passkey is a key your device keeps for this site. Nobody can phish it, and there's nothing to type. Add one in settings:
+
+- **Add a passkey on this device** keeps it on this computer or phone only.
+- **Add one to a password manager** syncs it to your other devices (iCloud Keychain, Google Password Manager, 1Password, Bitwarden and others).
+
+You can have several, and remove any of them.
+
+#### A new device
+
+The first time a browser signs in to your account, you'll be asked to **confirm it's you**, with one of:
+
+- **A passkey.**
+- **Your recovery phrase or private key.** It stays on the device: only a signature made with it is sent.
+- **Another device.** On a device where you're already signed in, a bar asks whether you're signing in somewhere new, and shows a code. Approve it only if the code matches.
+
+After that, it isn't asked again. **Signed-in devices** in settings lists every browser that's signed in, how it was confirmed, and when it was last used. **Disconnect** signs one out straight away.
+
+#### Recovery phrase and private key
+
+Your **24-word recovery phrase** is made when you set up encryption, and you'll need it: it's how you get back in if you forget your password, and how you unlock your messages on a new device.
+
+Your **private key** is the same secret written as one string, starting `cvkey1`. Keep whichever is easier to store safely: on paper, or in a password manager. In settings you can turn one into the other. Anyone who has either can take over your account, so never share them.
+
+#### Getting back in
+
+Forgot your password? Choose **Can't sign in?** on the sign-in page. Enter your username, then your **recovery phrase or private key**, or use a **passkey**, and choose a new password. Every other session is signed out.
+
+Nobody else can do this for you, not even the site's admin. If you lose your password, your phrase and every passkey and device, the account can't be recovered.
+
+#### Accounts made with an email
+
+If you made your account with an email before usernames arrived, it still works: sign in with your email or your username. You'll be asked to **add a passkey** and **confirm your recovery phrase**, because email sign-in is going away. Once your phrase is confirmed, **Remove my email** deletes it from the site.
+
+## Running your own site
+
+### Run your own Commonveil site
+
+_Host Commonveil on your own hardware with Docker, keep it up to date, and run it with no internet._
+
+Commonveil is free and open source (AGPL-3.0). Anyone can run their own site, on a small server, a home computer or a Raspberry Pi, with Docker. It's the same app, with the same end-to-end encryption, and it doesn't depend on us.
+
+#### Setting it up
+
+You need a computer that stays on, Docker, and a domain name. In an empty folder, run:
+
+```
+curl -fsSLO https://raw.githubusercontent.com/Comutability/commonveil-rebuild/main/deploy/install.sh
+sh install.sh
+```
+
+It asks for your domain and the username you'll use, then starts everything, including HTTPS. Open your site and create your account: it's the site's admin. The full guide, with every setting, is `docs/SELF_HOSTING.md` on GitHub.
+
+#### Updates
+
+Every Commonveil release is published for self-hosted sites.
+
+- When there's a new one, admins see a notice in **Site admin**, and **Updates** shows what's new with a button to install it.
+- Turn on **Install updates automatically** to have it done in the background.
+- Before each update the database is backed up, and if the new version doesn't start, the site goes back to the old one.
+
+Release notes for every version are at [Releases](https://commonveil-rebuild-71d823fd.base44.app/releases).
+
+#### Other sites
+
+Your site talks to other Commonveil sites, so its people can message people elsewhere ([People on other sites](#people-on-other-sites)). Under **Site admin → Other sites** you can see each site yours has talked to, and block any of them. Turn it off with `FEDERATION=false`.
+
+#### With no internet
+
+A Commonveil site needs a network, not the internet. On a Raspberry Pi with its own Wi-Fi hotspot, everyone in range can make an account and chat, with nothing leaving the room. When it gets an internet connection again, anything that was waiting for other sites goes out. The set-up, including the certificate browsers need, is in `docs/SELF_HOSTING.md`.
 
 ## Help
 

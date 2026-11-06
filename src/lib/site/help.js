@@ -10,6 +10,7 @@ export const HELP_SECTIONS = Object.freeze([
   "Running a server",
   "Privacy and safety",
   "Your account",
+  "Running your own site",
   "Help",
 ]);
 

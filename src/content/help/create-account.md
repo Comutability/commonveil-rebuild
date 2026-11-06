@@ -9,7 +9,10 @@ Setting up takes about two minutes. You'll need somewhere safe to write down 24 
 
 ## 1. Sign in
 
-Choose **Sign in** at the top of any page. You can register with an email address and password, or with one of the sign-in providers offered. Your sign-in address is only used to sign you in and to send you security emails. Nobody else sees it.
+Choose **Sign in** at the top of any page.
+
+- **On commonveil.online**, register with an email address and password, or with one of the sign-in providers offered. Your sign-in address is only used to sign you in and to send you security emails. Nobody else sees it.
+- **On a self-hosted Commonveil site**, there's no email: you choose your username and a password, and the username step below is already done. Your recovery phrase is how you get back in ([Sign-in, passkeys and recovery](/help/sign-in-and-recovery)).
 
 ## 2. Choose your username
 

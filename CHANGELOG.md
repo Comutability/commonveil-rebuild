@@ -5,6 +5,39 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.18.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.18.0): Offline mode
+
+_2026-11-06_
+
+- Keep writing with no connection: each message is encrypted and signed on your device straight away, waits there, and goes out when you're back, showing the time you wrote it.
+- Offline mode in settings stops the app reaching the server until you turn it off. Everything you send in the meantime waits, already encrypted.
+- If something changed while you were away, a waiting message is marked "Not sent", with Send again or Delete.
+- Self-hosted sites hold messages for other sites they can't reach, and pass them on when they can, for up to a week.
+- A self-hosted site can run on a small computer with its own Wi-Fi, so people nearby can chat with no internet. The guide is in docs/OFFLINE.md and docs/SELF_HOSTING.md.
+- New Help Centre articles: offline mode, people on other sites, sign-in and recovery, and running your own site.
+
+## [0.17.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.17.0): Commonveil Identity
+
+_2026-11-06_
+
+- On self-hosted sites, accounts are a username and password, with no email.
+- Sign in with a passkey, kept on one device or synced by a password manager.
+- A browser signing in for the first time is confirmed with a passkey, your recovery phrase or private key, or from a device you're already signed in on. Signed-in devices are listed in settings, where you can disconnect any of them.
+- Your private key is your recovery phrase written as one string: either proves the account is yours. Getting back in takes one of them, or a passkey.
+- Accounts made with an email still work, and are asked to add a passkey and confirm their phrase before email sign-in goes away.
+
+## [0.16.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.16.0): Run it yourself, and talk across sites
+
+_2026-11-06_
+
+- Commonveil can run on your own hardware with Docker, without Base44: one install script, HTTPS included.
+- Self-hosted sites show admins when a new release is out, with an update button, and can update themselves automatically. Each update is backed up first and undone if it doesn't start.
+- Self-hosted sites talk to each other with the Commonveil Protocol: everyone has an address like @ann.chat.example.com that also opens their profile, and conversations and servers work across sites, still end-to-end encrypted.
+- Browse and join servers listed on other sites from Discover.
+- Profile pictures.
+- The message box grows with longer messages, and can be expanded.
+- The home page compares Commonveil with other privacy-focused chat apps.
+
 ## [0.15.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.15.0): A tighter site, with release notes
 
 _2026-11-05_
@@ -12,6 +45,7 @@ _2026-11-05_
 - Guides, learning paths, the wiki and the blog have been removed, so the site is about Commonveil itself. Their old addresses now lead to the Help Centre.
 - Release notes for every version, from 0.1.0 onwards, on the site and as tags on GitHub.
 - The site's version is shown at the bottom of every page.
+- Commonveil is now free software, under the AGPL-3.0.
 
 ## [0.14.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.14.0): Help Centre
 

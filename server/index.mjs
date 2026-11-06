@@ -17,7 +17,7 @@ if (process.argv[2]) {
   const app = await createApp(config);
   app.server.listen(config.port, config.bind, () => {
     console.log(`Commonveil ${config.version} is running at ${config.siteUrl} (listening on ${config.bind}:${config.port})`);
-    if (!config.smtpUrl) console.log("Email isn't set up (SMTP_URL): new accounts sign straight in, and security emails aren't sent.");
+    if (!config.smtpUrl) console.log("Email isn't set up (SMTP_URL). That's fine: accounts don't use email. Only older accounts made with one would get codes there.");
   });
   const stop = async (signal) => {
     console.log(`${signal}: stopping`);
