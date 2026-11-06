@@ -21,6 +21,17 @@
           }
         }
       }
+    },
+    "site_owner": {
+      "type": "boolean",
+      "description": "Marks the owner of the whole site. Only the app's own account can set it, so it can't be claimed.",
+      "rls": {
+        "update": {
+          "user_condition": {
+            "collaborator_role": "editor"
+          }
+        }
+      }
     }
   },
   "required": [
