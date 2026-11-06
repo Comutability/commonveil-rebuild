@@ -62,7 +62,7 @@ export default function SiteLayout() {
         {open && (
           <nav id="mobile-nav" className="border-t border-border md:hidden" aria-label="Main">
             <div className="container-cv flex flex-col py-2">
-              {[...NAV, ["/search", "Search"], ["/saved", "Saved"], ["/privacy", "Privacy"], ["/security", "Security"]].map(([to, label]) => (
+              {[...NAV, ["/search", "Search"], ["/privacy", "Privacy"], ["/terms", "Terms"], ["/security", "Security"]].map(([to, label]) => (
                 <NavLink key={to} to={to} className={linkClass}>
                   {label}
                 </NavLink>
@@ -103,6 +103,7 @@ export default function SiteLayout() {
               <li><Link className="hover:text-foreground" to="/help/guide">The complete guide</Link></li>
               <li><Link className="hover:text-foreground" to="/releases">Releases</Link></li>
               <li><Link className="hover:text-foreground" to="/privacy">Privacy: what we hold</Link></li>
+              <li><Link className="hover:text-foreground" to="/terms">Terms of Use</Link></li>
               <li><Link className="hover:text-foreground" to="/security">Security and status</Link></li>
               <li><Link className="hover:text-foreground" to="/security/report">Report a security problem</Link></li>
             </ul>

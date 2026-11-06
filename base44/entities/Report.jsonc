@@ -18,6 +18,7 @@
         "harassment",
         "impersonation",
         "illegal",
+        "under_16",
         "other"
       ]
     },

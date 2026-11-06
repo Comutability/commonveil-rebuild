@@ -17,10 +17,11 @@ export const REASON_LABELS = {
   self_harm: "Someone may be at risk of harming themselves",
   scam: "Fraud or phishing",
   illegal: "Something illegal",
+  under_16: "They seem to be under 16",
   other: "Something else",
 };
 // The Commonveil team's own report reasons.
-const TEAM_REASON = { spam: "spam", scam: "spam", harassment: "harassment", hate: "harassment", violence: "harassment", illegal: "illegal" };
+const TEAM_REASON = { spam: "spam", scam: "spam", harassment: "harassment", hate: "harassment", violence: "harassment", illegal: "illegal", under_16: "under_16" };
 
 /**
  * Report someone (and optionally one of their messages) to this server's moderators. The report

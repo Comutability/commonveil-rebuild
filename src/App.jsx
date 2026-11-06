@@ -24,6 +24,7 @@ import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
 import InviteLanding from "@/pages/site/InviteLanding";
 import PublicProfile from "@/pages/site/PublicProfile";
+import Terms from "@/pages/site/Terms";
 import AppRoot from "@/pages/app/AppRoot";
 import AppHome from "@/pages/app/Home";
 import ServerView from "@/pages/app/ServerView";
@@ -62,6 +63,7 @@ function AppRoutes() {
         <Route path="search" element={<Search />} />
         <Route path="invite/:code" element={<InviteLanding />} />
         <Route path="u/:username" element={<PublicProfile />} />
+        <Route path="terms" element={<Terms />} />
         <Route path="*" element={<NotFound />} />
       </Route>
       <Route path="login" element={<Login />} />

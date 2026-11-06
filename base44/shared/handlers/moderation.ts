@@ -19,7 +19,7 @@ import { parseEnvelopeShape, verifyItemSignature } from "../verify.ts";
 
 export const MOD_LIMITS = Object.freeze({ moderatorsPerReport: 31, reportsPerDay: 10, reportEnvelopeChars: 64 * 1024, escalationsPerDay: 20 });
 const STATUSES = ["open", "resolved", "dismissed", "escalated"];
-const REASONS = ["spam", "harassment", "hate", "sexual", "violence", "self_harm", "scam", "illegal", "other"];
+const REASONS = ["spam", "harassment", "hate", "sexual", "violence", "self_harm", "scam", "illegal", "under_16", "other"];
 
 async function signedMember(ctx: Ctx, action: string) {
   const { data, device } = await signedByActiveDevice(ctx, action);
@@ -175,7 +175,7 @@ export const moderationActions: Actions = {
     if (!details.trim()) throw new ApiError(400, "BAD_FIELD", "Say what happened, so the Commonveil team can act.");
     if ((await countSince(sr, "Report", { escalated_by: user.id }, new Date(now.getTime() - 86_400_000), MOD_LIMITS.escalationsPerDay)) >= MOD_LIMITS.escalationsPerDay) throw rateLimited("escalating reports");
     await sr.entities.Report.create({
-      reporter_id: user.id, reported_user_id: targetId, conversation_id: "", reason: ["spam", "harassment", "illegal"].includes(reason) ? reason : "other",
+      reporter_id: user.id, reported_user_id: targetId, conversation_id: "", reason: ["spam", "harassment", "illegal", "under_16"].includes(reason) ? reason : "other",
       details, status: "open", source: "server", server_id: serverId, server_report_id: row?.report_id || "", escalated_by: user.id, category: reason,
       server_name: typeof data.server_name === "string" ? data.server_name.slice(0, 100) : "",
     });

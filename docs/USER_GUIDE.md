@@ -96,6 +96,8 @@ Setting up takes about two minutes. You'll need somewhere safe to write down 24 
 
 #### 1. Sign in
 
+Commonveil is for people **16 and over**. When you sign up you confirm you're 16 or older; nothing about your age is stored beyond that. If we find out an account belongs to someone under 16, it's closed ([Terms of Use](https://commonveil-rebuild-71d823fd.base44.app/terms)).
+
 Choose **Sign in** at the top of any page.
 
 - **On commonveil.online**, register with an email address and password, or with one of the sign-in providers offered. Your sign-in address is only used to sign you in and to send you security emails. Nobody else sees it.

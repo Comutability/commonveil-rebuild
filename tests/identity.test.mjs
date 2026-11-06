@@ -28,7 +28,7 @@ after(async () => {
 const ORIGIN = "https://id.test";
 const id = async (action, body = {}, token) => http(site, "/api/functions/identity", { method: "POST", body: { action, ...body }, token });
 const ok = async (action, body, token) => {
-  const r = await id(action, body, token);
+  const r = await id(action, action === "register" ? { age_confirmed: true, ...body } : body, token);
   assert.equal(r.status, 200, `${action}: ${JSON.stringify(r.data)}`);
   return r.data;
 };
@@ -46,9 +46,13 @@ test("accounts are a username and a password; the first is the site's admin", as
   assert.equal((await site.app.store.entities.Person.get(r.user.id)).email, "", "no email");
   const raw = JSON.stringify(await site.app.store.entities.CvAccount.filter({ user_id: r.user.id }));
   assert.ok(!raw.includes(PW) && raw.includes("pbkdf2-sha256$"), "only a hash of the password is kept");
-  assert.equal((await id("register", { username: "IVY_K", password: PW })).status, 409);
+  assert.equal((await id("register", { username: "IVY_K", password: PW, age_confirmed: true })).status, 409);
   assert.equal((await id("register", { username: "no", password: PW })).status, 400);
   assert.equal((await id("register", { username: "short_pw", password: "short" })).status, 400);
+  const young = await id("register", { username: "no_box", password: PW });
+  assert.deepEqual([young.status, young.data.code], [400, "AGE_REQUIRED"], "the 16+ box has to be ticked");
+  const acctRow = (await site.app.store.entities.CvAccount.filter({ user_id: r.user.id }))[0];
+  assert.ok(acctRow.age_confirmed_at && acctRow.terms_version, "only that it was confirmed, and when, is kept");
   assert.equal((await ok("register", { username: "ivy_two", password: PW })).user.role, "user");
 
   assert.equal((await call("profile", { action: "me" }, r.session.access_token)).status, 200, "the session works with every function");
@@ -231,7 +235,10 @@ test("on Base44, an account made with an email comes in once by email, then uses
     assert.equal(viaSession.status, 200, "with a Commonveil session, everything works");
 
     const status = (await run(null, { action: "status", _session: t })).data;
-    assert.deepEqual([status.kind, status.email_retiring, status.has_password], ["platform", true, false]);
+    assert.deepEqual([status.kind, status.email_retiring, status.has_password, status.age_confirmed], ["platform", true, false, false]);
+    assert.equal((await run(null, { action: "account", change: "confirm_age", _session: t })).data.code, "AGE_REQUIRED");
+    await run(null, { action: "account", change: "confirm_age", age_confirmed: true, _session: t });
+    assert.equal((await run(null, { action: "status", _session: t })).data.age_confirmed, true, "accounts from before the rule confirm it once");
     assert.equal((await run(null, { action: "login", username: "nia", password: PW })).status, 401, "no username password yet");
     assert.equal((await run(null, { action: "account", change: "remove_email", _session: t })).data.code, "NEEDS_PASSWORD");
     assert.equal((await run(null, { action: "account", change: "set_password", new_password: PW, _session: t })).status, 200);
@@ -250,7 +257,7 @@ test("on Base44, an account made with an email comes in once by email, then uses
     assert.ok((await run(omar, { action: "link_platform" })).data.session);
     assert.deepEqual((await run(omar, { action: "link_platform", device_name: "Someone else's" })).data.verify.methods, ["device"], "a second browser has to be confirmed");
 
-    const signup = await run(null, { action: "register", username: "new_one", password: PW });
+    const signup = await run(null, { action: "register", username: "new_one", password: PW, age_confirmed: true });
     assert.equal(signup.status, 200, JSON.stringify(signup.data));
     assert.equal(signup.data.user.role, "user", "on Base44 nobody becomes an admin by signing up");
   } finally {

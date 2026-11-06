@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Fingerprint, ShieldAlert, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { answerApproval, identityStatus, pendingApprovals } from "@/lib/identity/client";
+import { answerApproval, identityAction, identityStatus, pendingApprovals } from "@/lib/identity/client";
 
 const DISMISS_KEY = "commonveil_identity_prompt";
 
@@ -71,6 +71,9 @@ export default function IdentityPrompts() {
     );
   }
 
+  // Accounts from before the 16+ rule confirm it once. Not dismissible.
+  if (status && !status.age_confirmed) return <AgeCheck onConfirmed={() => setStatus({ ...status, age_confirmed: true })} />;
+
   if (!status || hidden || onSettings) return null;
   const kind = status.email_retiring ? "email" : !status.has_password ? "password" : !status.owner ? "owner" : !status.passkeys.length ? "passkey" : null;
   if (!kind || dismissed(kind)) return null;
@@ -99,6 +102,50 @@ export default function IdentityPrompts() {
         >
           <X className="h-4 w-4" />
         </button>
+      </div>
+    </div>
+  );
+}
+
+function AgeCheck({ onConfirmed }) {
+  const [busy, setBusy] = useState(false);
+  const [under, setUnder] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <div role="alertdialog" aria-labelledby="age-title" className="border-b border-amber-500/40 bg-amber-500/10">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-4 py-2 text-sm">
+        <ShieldAlert className="h-4 w-4 text-amber-600" aria-hidden="true" />
+        {under ? (
+          <p className="min-w-0 flex-1">
+            Commonveil is for people 16 and over, so this account needs to be closed. You can delete it in{" "}
+            <Link to="/app/settings/data" className="font-medium underline">Settings → Data and account</Link>, and you're welcome back when you're 16.
+          </p>
+        ) : (
+          <>
+            <p id="age-title" className="min-w-0 flex-1">
+              Commonveil is for people 16 and over. Please confirm you're 16 or older to keep using it. <Link to="/terms" className="underline">Terms of Use</Link>
+            </p>
+            {error && <span className="text-destructive">{error}</span>}
+            <Button
+              size="sm"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await identityAction("confirm_age", { age_confirmed: true });
+                  onConfirmed();
+                } catch (err) {
+                  setError(err.message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              I'm 16 or older
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setUnder(true)}>I'm not</Button>
+          </>
+        )}
       </div>
     </div>
   );

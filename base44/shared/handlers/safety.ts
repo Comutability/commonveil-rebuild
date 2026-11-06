@@ -3,7 +3,7 @@ import { ApiError, LIMITS, cleanText, id, type Actions } from "../http.ts";
 import { conversationForMember, enforceRate, profileOf, publicProfile, rateLimited, withinRate } from "../store.ts";
 import { purgeAccount } from "../accountDeletion.ts";
 
-const REASONS = new Set(["spam", "harassment", "impersonation", "illegal", "other"]);
+const REASONS = new Set(["spam", "harassment", "impersonation", "illegal", "under_16", "other"]);
 const STATUSES = new Set(["open", "reviewing", "resolved", "dismissed"]);
 const SECURITY_STATUSES = new Set(["new", "triaged", "fixed", "closed"]);
 

@@ -26,6 +26,8 @@ const MAX_DEVICES = 50;
 const LOCK_AFTER = 10;
 const LOCK_MINUTES = 15;
 const REGISTRATIONS_PER_HOUR = 60;
+/** Commonveil is for people 16 and over (src/pages/site/Terms.jsx). The version of the terms agreed to. */
+export const TERMS_VERSION = "2026-11-06";
 
 /** What a site says about itself to sign-in. Self-hosted sites pass theirs; Base44 uses these. */
 export type IdentityConfig = {
@@ -184,6 +186,7 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
       const username = String(body.username || "").trim().replace(/^@/, "");
       if (!USERNAME_RE.test(username)) throw deny(400, "BAD_USERNAME", "Usernames are 3 to 20 letters, numbers or underscores.");
       checkNewPassword(body.password);
+      if (body.age_confirmed !== true) throw deny(400, "AGE_REQUIRED", "Commonveil is for people 16 and over. Confirm you're 16 or older to create an account.");
       if (await userIdForName(sr, username)) throw deny(409, "USERNAME_TAKEN", "That username is taken.");
       const hourAgo = new Date(Date.now() - 3600_000).toISOString().replace("Z", "");
       const recent = await sr.entities.Person.filter({ created_date: { $gte: hourAgo } }, "-created_date", REGISTRATIONS_PER_HOUR);
@@ -198,7 +201,7 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
         await sr.entities.Person.delete(person.id).catch(() => null);
         throw err;
       }
-      await sr.entities.CvAccount.create({ user_id: person.id, kind: "person", password: await hashPassword(body.password, rounds), owner_pub: "", failed: 0 });
+      await sr.entities.CvAccount.create({ user_id: person.id, kind: "person", password: await hashPassword(body.password, rounds), owner_pub: "", failed: 0, age_confirmed_at: nowIso(), terms_version: TERMS_VERSION });
       const device = await newDevice(sr, person.id, body.device_name, "registration");
       return signedIn(sr, person.id, device.id, { device, user: { id: person.id, role } });
     },
@@ -377,6 +380,7 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
       return {
         kind: acct?.kind || "person",
         has_password: Boolean(acct?.password),
+        age_confirmed: Boolean(acct?.age_confirmed_at),
         email: acct?.kind === "platform" ? acct.email || "" : "",
         email_retiring: Boolean(acct?.kind === "platform" && acct.email),
         owner: Boolean(acct?.owner_pub),
@@ -402,6 +406,12 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
           if (!d || d.user_id !== user.id) throw deny(404, "NOT_FOUND", "That device isn't connected.");
           await forgetDevice(sr, d.id);
           return { ok: true, signed_out: d.id === session.deviceId };
+        }
+        // Accounts from before the 16+ rule confirm it once.
+        case "confirm_age": {
+          if (body.age_confirmed !== true) throw deny(400, "AGE_REQUIRED", "Commonveil is for people 16 and over.");
+          await sr.entities.CvAccount.update(acct.id, { age_confirmed_at: nowIso(), terms_version: TERMS_VERSION });
+          return { ok: true };
         }
         case "set_password": {
           if (acct.password) throw deny(409, "HAS_PASSWORD", "You already have a password. Change it instead.");

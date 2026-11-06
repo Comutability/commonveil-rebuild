@@ -78,7 +78,7 @@ async function prompt(fn) {
 
 // ---------- signing in ----------
 
-export const register = ({ username, password }) => act("register", withDevice({ username, password }));
+export const register = ({ username, password, ageConfirmed }) => act("register", withDevice({ username, password, age_confirmed: ageConfirmed === true }));
 
 /** Answers { session } when signed in, or { verify } when this browser must be confirmed first. */
 export const login = ({ username, password }) => act("login", withDevice({ username, password }));

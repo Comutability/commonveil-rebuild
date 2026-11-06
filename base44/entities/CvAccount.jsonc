@@ -32,6 +32,14 @@
     "email": {
       "type": "string",
       "description": "For platform accounts: their Base44 sign-in email, until they remove it."
+    },
+    "age_confirmed_at": {
+      "type": "string",
+      "description": "When the person confirmed they're 16 or older (yes or not yet; no age or birth date is ever kept)."
+    },
+    "terms_version": {
+      "type": "string",
+      "description": "Which version of the Terms of Use they agreed to."
     }
   },
   "required": [

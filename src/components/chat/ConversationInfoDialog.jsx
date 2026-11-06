@@ -203,6 +203,7 @@ function ReportForm({ userId, conversationId, onDone }) {
         <option value="harassment">Harassment</option>
         <option value="impersonation">Impersonation</option>
         <option value="illegal">Illegal content</option>
+        <option value="under_16">They seem to be under 16</option>
         <option value="other">Something else</option>
       </NativeSelect>
       <Textarea value={details} onChange={(e) => setDetails(e.target.value)} maxLength={2000} rows={4} placeholder="What happened? (optional)" aria-label="Details" />
