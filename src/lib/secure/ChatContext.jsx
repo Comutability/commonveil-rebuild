@@ -24,6 +24,18 @@ export function useChat() {
 
 const byCreated = (a, b) => String(a.created_date).localeCompare(String(b.created_date));
 const RETRYABLE = new Set(["STALE_KEYS", "RECIPIENTS_CHANGED"]);
+/**
+ * Times come back in two shapes: a message's "2026-11-05T22:17:49.614000", and a conversation's
+ * "2026-11-05T22:17:49.614847Z" (written from the server's clock, a hair after the message it came
+ * from). They're compared as times, never as text, or a chat you've read stays unread for ever.
+ */
+const atMs = (value) => {
+  const text = String(value || "");
+  if (!text) return 0;
+  const ms = Date.parse(/Z$|[+-]\d{2}:\d{2}$/.test(text) ? text : `${text}Z`);
+  return Number.isFinite(ms) ? ms : 0;
+};
+const SAME_MOMENT_MS = 1_000;
 
 // Base44 caps how many queries an app makes each minute, shared by everyone using it, so
 // polling is frugal: quick while a conversation is active, slower when it's quiet, slow in the
@@ -560,19 +572,24 @@ export function ChatProvider({ children }) {
   const markRead = useCallback(async (conversationId) => {
     const list = messages[conversationId] || [];
     const last = list[list.length - 1];
-    if (!last || readState[conversationId] === last.created_date) return;
-    const next = { ...readState, [conversationId]: last.created_date };
+    const conv = conversationsRef.current.find((c) => c.id === conversationId);
+    // Read as far as the conversation's own time, which can be a shade newer than the message it
+    // was taken from: anything less and the conversation never counts as read.
+    const at = [last?.created_date, conv?.last_message_at].filter(Boolean).sort((a, b) => atMs(a) - atMs(b)).pop();
+    if (!at || readState[conversationId] === at) return;
+    const next = { ...readState, [conversationId]: at };
     setReadState(next);
     await S.saveReadState(userId, next);
   }, [messages, readState, userId]);
 
   const isUnread = useCallback((c) => {
-    if (!c.last_message_at) return false;
-    const seen = readState[c.id];
+    const at = atMs(c.last_message_at);
+    if (!at) return false;
+    const seen = atMs(readState[c.id]);
     const list = messages[c.id] || [];
     const last = list[list.length - 1];
-    if (last && last.sender_id === userId && String(last.created_date) >= String(c.last_message_at)) return false;
-    return !seen || String(c.last_message_at) > String(seen);
+    if (last && last.sender_id === userId && atMs(last.created_date) >= at - SAME_MOMENT_MS) return false;
+    return !seen || at > seen + SAME_MOMENT_MS;
   }, [readState, messages, userId]);
 
   // The unread count in the tab title, if it's switched on. It never says from whom.

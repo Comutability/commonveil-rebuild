@@ -832,7 +832,10 @@ export function ServerProvider({ children }) {
   const markChannelRead = useCallback((channelId, at = null) => {
     const list = rowsRef.current[channelId] || [];
     const last = list.length ? list[list.length - 1].created_date : null;
-    const target = [at, last, readRef.current[channelId]].filter(Boolean).sort((a, b) => ts(b) - ts(a))[0];
+    // The channel's own time is written a hair after the message it came from, so it decides how
+    // far "read" reaches; a marker that stops at the message never clears the dot.
+    const channel = Object.values(serversRef.current).map((e) => (e.channels || []).find((c) => c.id === channelId)).find(Boolean);
+    const target = [at, last, channel?.last_message_at, readRef.current[channelId]].filter(Boolean).sort((a, b) => ts(b) - ts(a))[0];
     if (!target || readRef.current[channelId] === target) return;
     readRef.current = { ...readRef.current, [channelId]: target };
     setReadState(readRef.current);
@@ -937,7 +940,8 @@ export function ServerProvider({ children }) {
           if (m.kind === "message" || m.kind === "post") last = Math.max(last, t);
           if (t > read && mentionsMe(opened[m.id], userId, roleIds)) count += 1;
         }
-        const isUnread = last > read;
+        // A marker saved a moment before the channel's own time still counts as read.
+        const isUnread = last > read + 1_000;
         channels[c.id] = { unread: isUnread, mentions: count };
         if (isUnread && !prefs.muted?.[c.id] && !prefs.muted?.[sid]) any = true;
         mentions += count;
