@@ -51,8 +51,9 @@ async function countUpTo(db: any, entity: string, query: any, cap = 1000) {
 
 // A profile picture: a small WebP, PNG or JPEG made on the person's device (at most 160 by 160),
 // kept inline with the profile, so showing it never makes anyone's device fetch an image from
-// anywhere. "" removes it.
-const AVATAR_MAX_CHARS = 48_000;
+// anywhere. "" removes it. A stored field holds at most 20,000 characters, so the picture has to
+// stay well under that: one larger fails the whole save.
+const AVATAR_MAX_CHARS = 18_000;
 const AVATAR_MAGIC: Record<string, (b: Uint8Array) => boolean> = {
   webp: (b) => b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50,
   png: (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,

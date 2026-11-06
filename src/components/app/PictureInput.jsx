@@ -2,12 +2,23 @@ import React, { useRef, useState } from "react";
 import { ImagePlus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const SIZE = 160;
-const MAX_CHARS = 46_000;
+// The picture is kept inline with the profile, and a stored field holds at most 20,000
+// characters: stay under that or the whole profile can't be saved.
+const MAX_CHARS = 18_000;
+// Biggest first: the best-looking version that still fits.
+const ATTEMPTS = [
+  [160, "image/webp", 0.8],
+  [160, "image/webp", 0.6],
+  [128, "image/webp", 0.6],
+  [128, "image/webp", 0.45],
+  [96, "image/webp", 0.5],
+  [96, "image/jpeg", 0.6],
+];
 
 /**
- * Make a small square profile picture on this device: cropped to the middle, 160 by 160, WebP
- * (JPEG where the browser can't make WebP). Nothing leaves the device until you save.
+ * Make a small square profile picture on this device: cropped to the middle, WebP
+ * (JPEG where the browser can't make WebP), shrunk until it fits. Nothing leaves the device
+ * until you save.
  */
 async function toPicture(file) {
   if (!/^image\//.test(file.type)) throw new Error("Choose an image file.");
@@ -15,17 +26,21 @@ async function toPicture(file) {
   const bitmap = await createImageBitmap(file);
   const side = Math.min(bitmap.width, bitmap.height);
   const canvas = document.createElement("canvas");
-  canvas.width = SIZE;
-  canvas.height = SIZE;
   const ctx = canvas.getContext("2d");
-  ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, SIZE, SIZE);
-  bitmap.close?.();
-  for (const [type, q] of [["image/webp", 0.85], ["image/webp", 0.7], ["image/jpeg", 0.8], ["image/jpeg", 0.6]]) {
+  for (const [size, type, q] of ATTEMPTS) {
+    canvas.width = size;
+    canvas.height = size;
+    ctx.imageSmoothingQuality = "high";
+    ctx.clearRect(0, 0, size, size);
+    ctx.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
     const url = canvas.toDataURL(type, q);
-    if (url.startsWith(`data:${type}`) && url.length <= MAX_CHARS) return url;
+    if (url.startsWith(`data:${type}`) && url.length <= MAX_CHARS) {
+      bitmap.close?.();
+      return url;
+    }
   }
-  throw new Error("That image couldn't be made small enough.");
+  bitmap.close?.();
+  throw new Error("That image couldn't be made small enough. Try another one.");
 }
 
 /** Choose, change or remove a profile picture. value: a data: URL or "". */

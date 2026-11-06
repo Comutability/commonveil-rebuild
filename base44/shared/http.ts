@@ -140,6 +140,10 @@ export async function runAction(base44: any, rawBody: string, actions: Actions, 
       console.warn("commonveil upstream busy");
       return json(429, { error: "The service is busy. Please try again in a moment.", code: "UPSTREAM_BUSY" });
     }
+    // A field holds a limited amount (a profile picture is the one that can reach it).
+    if (/exceeds the maximum allowed size/i.test(message)) {
+      return json(400, { error: "That's too much to save at once. Try a smaller picture or shorter text.", code: "TOO_LARGE" });
+    }
     // Log a category only: no request bodies, keys or user data.
     console.error("commonveil function failure", { name: (error as any)?.name || "Error" });
     return json(500, { error: "Something went wrong. Nothing was changed.", code: "INTERNAL" });
