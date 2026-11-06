@@ -32,7 +32,7 @@ export default function Home() {
       <section className="relative overflow-hidden border-b border-border">
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,hsl(var(--primary)/0.14),transparent_55%),radial-gradient(ellipse_at_bottom_right,hsl(var(--warning)/0.10),transparent_50%)]" />
         <div className="container-cv relative py-20 sm:py-28">
-          <p className="eyebrow">Be it me, not you</p>
+          <p className="eyebrow">Commonveil</p>
           <h1 className="mt-4 max-w-3xl text-5xl font-semibold leading-[1.05] sm:text-6xl">
             Own your digital life. Talk without being overheard.
           </h1>
