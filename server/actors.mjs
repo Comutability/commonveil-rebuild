@@ -9,7 +9,8 @@ const CONN_RE = /^[A-Za-z0-9_-]{8,64}$/;
 
 export class ActorHost {
   /** classes: { Name: ActorClass }. client: the service client the rooms read with. */
-  constructor({ classes, client, store, auth, log = console }) {
+  constructor({ classes, client, store, auth, log = console, federation = null }) {
+    this.federation = federation;
     this.classes = classes;
     this.client = client;
     this.store = store;
@@ -75,16 +76,24 @@ export class ActorHost {
       socket.destroy();
       return;
     }
-    this.wss.handleUpgrade(req, socket, head, (ws) => this.#connected(ws, name, decodeURIComponent(instanceId), connId, url.searchParams.get("token") || ""));
+    this.wss.handleUpgrade(req, socket, head, async (ws) => {
+      let user = null;
+      try {
+        user = await this.auth.userFor(url.searchParams.get("token") || "");
+      } catch {
+        user = null;
+      }
+      const room = decodeURIComponent(instanceId);
+      // A room on another site: this site carries the connection there.
+      const remote = user && this.federation?.roomHost(room);
+      if (remote) return this.federation.proxyActor(ws, { host: remote, name, room, connId, user });
+      return this.attach(ws, name, room, connId, user);
+    });
   }
 
-  async #connected(ws, name, instanceId, connId, token) {
-    let user = null;
-    try {
-      user = await this.auth.userFor(token);
-    } catch {
-      user = null;
-    }
+  /** Join a WebSocket to a room here, as this person (null: not signed in). */
+  async attach(ws, name, instanceId, connId, user) {
+    if (!this.classes[name]) return ws.close(1008, "Unknown room");
     const inst = await this.#instance(name, instanceId);
     const key = `${name}:${instanceId}`;
     const conn = {

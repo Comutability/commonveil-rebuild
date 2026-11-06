@@ -42,19 +42,21 @@ export default function JoinInvite() {
   const { me } = useSecure();
   const { joinServer, servers } = useServers();
   const [secret] = useState(() => (location.hash ? location.hash.slice(1) : recallInvite(code)));
+  // An invite to a server on another Commonveil site: ?site=chat.example.org
+  const site = new URLSearchParams(location.search).get("site") || "";
   const [info, setInfo] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    inviteInfo(code, secret)
+    inviteInfo(code, secret, site)
       .then((i) => alive && setInfo(i))
       .catch((err) => alive && setError(err.message));
     return () => {
       alive = false;
     };
-  }, [code, secret]);
+  }, [code, secret, site]);
 
   const already = info && servers[info.server_id];
   const listed = me?.privacy?.default_listed;
@@ -63,7 +65,7 @@ export default function JoinInvite() {
     setBusy(true);
     setError("");
     try {
-      const sid = await joinServer({ code });
+      const sid = await joinServer({ code, site });
       navigate(`/app/s/${sid}`, { replace: true });
     } catch (err) {
       setError(err.message);

@@ -225,6 +225,11 @@ export class Store {
     t.rows.set(id, row);
     for (const [field, idx] of t.indexes) this.#indexAdd(idx, field, id, row);
     this.q.put.run(name, id, t.seqs.get(id), JSON.stringify(row));
+    try {
+      this.onWrite?.(name, row, old);
+    } catch {
+      // A watcher failing never undoes the write.
+    }
   }
 
   #remove(name, t, id) {
@@ -279,10 +284,11 @@ export class Store {
         if (!row) throw denied(404, "Not found");
         return clone(row);
       },
-      async create(data) {
+      async create(data, fixedId) {
         const t = store.#table(name);
         const at = store.tick();
-        const row = { ...clone(data || {}), id: store.newId(), created_date: at, updated_date: at };
+        if (fixedId !== undefined && (!/^[A-Za-z0-9_-]{8,64}$/.test(fixedId) || t.rows.has(fixedId))) throw denied(409, "That id is taken");
+        const row = { ...clone(data || {}), id: fixedId ?? store.newId(), created_date: at, updated_date: at };
         store.#write(name, t, row.id, row);
         return clone(row);
       },
@@ -321,6 +327,18 @@ export class Store {
         return { deletedCount: n };
       },
     };
+  }
+
+  /** Whether any table has a row with this id (to tell this site's things from other sites'). */
+  has(id) {
+    for (const name of Object.keys(this.schemas)) if (this.#table(name).rows.has(id)) return true;
+    return false;
+  }
+
+  /** The table a row with this id is in, if any. */
+  tableOf(id) {
+    for (const name of Object.keys(this.schemas)) if (this.#table(name).rows.has(id)) return name;
+    return null;
   }
 
   /** Tables as the signed-in person (or an anonymous visitor) sees them. */

@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { SELF_HOSTED } from "@/api/base44Client";
 import { X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -12,7 +13,7 @@ import { useSecure } from "@/lib/secure/SecureContext";
 
 const clean = (u) => u.trim().replace(/^@/, "");
 
-export default function NewConversationDialog({ open, onOpenChange, onCreated }) {
+export default function NewConversationDialog({ open, onOpenChange, onCreated, initialUsername = "" }) {
   const { startDm, startGroup, setTitle } = useChat();
   const { me, loadPeers } = useSecure();
   const [username, setUsername] = useState("");
@@ -21,6 +22,9 @@ export default function NewConversationDialog({ open, onOpenChange, onCreated })
   const [members, setMembers] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  useEffect(() => {
+    if (open && initialUsername) setUsername(initialUsername);
+  }, [open, initialUsername]);
 
   const reset = () => {
     setUsername("");
@@ -96,7 +100,10 @@ export default function NewConversationDialog({ open, onOpenChange, onCreated })
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>New conversation</DialogTitle>
-          <DialogDescription>Enter someone's exact username. There's no directory to search.</DialogDescription>
+          <DialogDescription>
+            Enter someone's exact username. There's no directory to search.
+            {SELF_HOSTED && " Someone on another Commonveil site? Use their full address, like name.example.org."}
+          </DialogDescription>
         </DialogHeader>
         <Tabs defaultValue="dm">
           <TabsList className="grid w-full grid-cols-2">

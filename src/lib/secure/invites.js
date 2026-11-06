@@ -29,8 +29,9 @@ export function recallInvite(code) {
  * What an invite shows before joining: { server_id, look: { name, description, icon, color } | null,
  * member_count, expires_at, sealed (the preview was encrypted and opened with the link's secret) }.
  */
-export async function inviteInfo(code, secret) {
-  const info = await callFn("invite", { action: "invite_info", code });
+/** site: the invite's own site, when it's another Commonveil site (self-hosted sites only). */
+export async function inviteInfo(code, secret, site = "") {
+  const info = await callFn("invite", { action: "invite_info", code, ...(site ? { _site: site } : {}) });
   let look = null;
   let sealed = false;
   if (info.preview && secret) {

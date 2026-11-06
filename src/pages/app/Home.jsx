@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Compass, Eye, EyeOff, Link2, MessageSquarePlus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,7 +41,7 @@ function HomeWelcome({ onNew }) {
       setInviteError("That doesn't look like an invite link.");
       return;
     }
-    navigate(`/app/join/${parsed.code}${parsed.secret ? `#${parsed.secret}` : ""}`);
+    navigate(`/app/join/${parsed.code}${parsed.site ? `?site=${encodeURIComponent(parsed.site)}` : ""}${parsed.secret ? `#${parsed.secret}` : ""}`);
   };
 
   const actions = [
@@ -114,6 +114,16 @@ export default function Home() {
   const { conversations, loaded } = useChat();
   const [newOpen, setNewOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  // /app?to=name.example.org (from someone's profile page) opens a conversation with them.
+  const [params, setParams] = useSearchParams();
+  const [prefill, setPrefill] = useState("");
+  useEffect(() => {
+    const to = params.get("to");
+    if (!to) return;
+    setPrefill(to.slice(0, 280));
+    setNewOpen(true);
+    setParams({}, { replace: true });
+  }, [params, setParams]);
   const active = conversations.find((c) => c.id === conversationId) || null;
 
   // A support ticket lives in its server.
@@ -136,7 +146,7 @@ export default function Home() {
       ) : (
         <HomeWelcome onNew={() => setNewOpen(true)} />
       )}
-      <NewConversationDialog open={newOpen} onOpenChange={setNewOpen} onCreated={(c) => navigate(`/app/c/${c.id}`)} />
+      <NewConversationDialog open={newOpen} onOpenChange={(v) => { setNewOpen(v); if (!v) setPrefill(""); }} initialUsername={prefill} onCreated={(c) => navigate(`/app/c/${c.id}`)} />
       <ConversationInfoDialog conversation={active} open={infoOpen && Boolean(active)} onOpenChange={setInfoOpen} onLeft={() => navigate("/app")} />
     </Shell>
   );

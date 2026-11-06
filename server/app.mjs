@@ -18,7 +18,8 @@ import Presence from "../base44/actors/Presence/entry.ts";
 const MAX_JSON = 256 * 1024;
 const ENTITY_OPS = new Set(["filter", "list", "get", "create", "update", "delete"]);
 
-export async function createApp(config, { log = console } = {}) {
+export async function createApp(config, options = {}) {
+  const log = options.log || console;
   const store = new Store({ file: config.dbFile, schemas: loadSchemas(new URL("../base44/entities/", import.meta.url)) });
   const mail = createMail({ smtpUrl: config.smtpUrl, from: config.mailFrom, log });
   const auth = new Auth({ store, mail, config });
@@ -50,9 +51,9 @@ export async function createApp(config, { log = console } = {}) {
   });
 
   const functions = functionTable({ defaultAdmins: config.defaultServerAdmins });
-  const actors = new ActorHost({ classes: { VoiceRoom, Presence }, client: { asServiceRole: serviceClient }, store, auth, log });
   const updates = new Updates({ config, store, log });
-  const federation = new Federation({ config, store, serviceClient, clientFor, auth, log });
+  const federation = new Federation({ config, store, serviceClient, clientFor, auth, log, transport: options.transport });
+  const actors = new ActorHost({ classes: { VoiceRoom, Presence }, client: { asServiceRole: serviceClient }, store, auth, log, federation });
   const csp = selfHostCsp();
 
   // ---------- scheduled tasks (on Base44 these are workflows) ----------
@@ -125,7 +126,22 @@ export async function createApp(config, { log = console } = {}) {
         return json(res, 413, { error: "That request is too large.", code: "TOO_LARGE" });
       }
       const user = await auth.userFor(bearer(req));
-      const response = await runAction(clientFor(user), raw, actions, options);
+      const fedOptions = { ...options, federation: federation.enabled ? federation.handlers : undefined };
+      const runLocal = async (bodyText) => {
+        const r = await runAction(clientFor(user), bodyText, actions, fedOptions);
+        const text = await r.text();
+        let data = null;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = null;
+        }
+        return { status: r.status, data };
+      };
+      // Something on another site, or "all of mine" across sites: the protocol relays it.
+      const relayed = await federation.relayFunction(name, raw, user, runLocal);
+      if (relayed) return json(res, relayed.status, relayed.data ?? {});
+      const response = await runAction(clientFor(user), raw, actions, fedOptions);
       return send(res, response.status, await response.text(), { "Content-Type": "application/json; charset=utf-8" });
     }
 
@@ -175,7 +191,9 @@ export async function createApp(config, { log = console } = {}) {
     });
   });
   server.on("upgrade", (req, socket, head) => {
-    if (String(req.url || "").startsWith("/api/actors/")) actors.handleUpgrade(req, socket, head);
+    const u = String(req.url || "");
+    if (u.startsWith("/api/actors/")) actors.handleUpgrade(req, socket, head);
+    else if (u.startsWith("/cvp/v1/actors/")) federation.acceptActor(req, socket, head, actors);
     else socket.destroy();
   });
   server.requestTimeout = 120_000;

@@ -13,6 +13,7 @@ import { useSecure } from "@/lib/secure/SecureContext";
 import { setAppearance, TEXT_SIZES, useAppearance } from "@/lib/appearance";
 import Avatar, { ACCENT_HUES } from "@/components/chat/Avatar";
 import PictureInput from "@/components/app/PictureInput";
+import { handleOf, useSiteInfo } from "@/lib/site/siteInfo";
 import SettingsLayout, { ChoiceList, SettingsGroup, SettingsTitle, useCloseSettings } from "@/components/settings/SettingsLayout";
 import {
   AlertsSection,
@@ -64,6 +65,7 @@ function ProfileCard({ userId, p }) {
 function ProfileSettings() {
   const { me, userId, updateProfile } = useSecure();
   const p = me?.profile || {};
+  const handle = handleOf(p.username, useSiteInfo());
   const [form, setForm] = useState({ display_name: p.display_name || "", pronouns: p.pronouns || "", bio: p.bio || "", avatar_emoji: p.avatar_emoji || "", avatar_image: p.avatar_image || "", accent_color: p.accent_color || "" });
   const [state, run] = useSaver();
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target ? e.target.value : e }));
@@ -84,6 +86,13 @@ function ProfileSettings() {
             <p className="font-medium">@{p.username}</p>
             <p className="text-xs text-muted-foreground">Usernames can't be changed. People find you only by typing it exactly.</p>
           </div>
+          {handle && (
+            <div>
+              <p className="text-sm text-muted-foreground">Your address</p>
+              <p className="break-all font-mono text-sm font-medium">@{handle}</p>
+              <p className="text-xs text-muted-foreground">People on other Commonveil sites can message you at this address. Opened in a browser, it shows your profile.</p>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="pf-name">Display name</Label>
             <Input id="pf-name" value={form.display_name} onChange={set("display_name")} maxLength={50} />

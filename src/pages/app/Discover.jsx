@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useSiteInfo } from "@/lib/site/siteInfo";
 import { useNavigate } from "react-router-dom";
 import { Compass, Loader2, Lock, Search, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -61,18 +62,22 @@ export default function Discover() {
   const [q, setQ] = useState("");
   const [error, setError] = useState("");
   const [joining, setJoining] = useState("");
+  // Self-hosted sites can browse servers listed on another Commonveil site.
+  const siteInfo = useSiteInfo();
+  const [site, setSite] = useState("");
+  const [siteInput, setSiteInput] = useState("");
 
   useEffect(() => {
     let alive = true;
     setList(null);
     setError("");
-    discover(tag)
+    discover(tag, site)
       .then((r) => alive && setList(r.servers))
       .catch((err) => alive && setError(err.message));
     return () => {
       alive = false;
     };
-  }, [tag, discover]);
+  }, [tag, site, discover]);
 
   const shown = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -87,7 +92,7 @@ export default function Discover() {
     setJoining(s.id);
     setError("");
     try {
-      const sid = await joinServer({ serverId: s.id });
+      const sid = await joinServer({ serverId: s.id, site });
       navigate(`/app/s/${sid}`);
     } catch (err) {
       setError(err.message);
@@ -119,6 +124,27 @@ export default function Discover() {
                 className="h-10 w-full rounded-lg border border-border bg-card pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring/40"
               />
             </div>
+            {siteInfo?.federation && (
+              <form
+                className="mt-4 flex max-w-md flex-wrap items-center gap-2 text-sm"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setSite(siteInput.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, ""));
+                }}
+              >
+                <label htmlFor="discover-site" className="text-muted-foreground">Showing servers on</label>
+                <input
+                  id="discover-site"
+                  value={siteInput}
+                  onChange={(e) => setSiteInput(e.target.value)}
+                  placeholder="this site, or another like example.org"
+                  maxLength={253}
+                  className="h-9 min-w-[12rem] flex-1 rounded-lg border border-border bg-card px-3 outline-none focus:ring-2 focus:ring-ring/40"
+                />
+                <Button type="submit" size="sm" variant="outline">Browse</Button>
+                {site && <Button type="button" size="sm" variant="ghost" onClick={() => { setSite(""); setSiteInput(""); }}>Back to this site</Button>}
+              </form>
+            )}
             <ErrorNote>{error}</ErrorNote>
             {!list && !error && <p className="mt-10 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Loading…</p>}
             {list && shown.length === 0 && <p className="mt-10 text-sm text-muted-foreground">No listed servers match{tag ? ` in ${tagLabel(tag)}` : ""}.</p>}

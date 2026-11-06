@@ -11,16 +11,23 @@ import { useSecure } from "@/lib/secure/SecureContext";
 import { COLORS, STARTERS } from "@/lib/secure/serverTemplates";
 import ServerIcon from "@/components/shell/ServerIcon";
 
-/** An invite link, or the code from one, as { code, secret }. */
+/** An invite link, or the code from one, as { code, secret, site } (site: another Commonveil site's address). */
 export function parseInvite(text) {
   const raw = String(text || "").trim();
   if (!raw) return null;
   let code = "";
   let secret = "";
+  let site = "";
   const m = raw.match(/\/invite\/([A-Za-z0-9]{8,16})(?:#([A-Za-z0-9_-]+))?/);
   if (m) {
     code = m[1];
     secret = m[2] || "";
+    try {
+      const u = new URL(raw);
+      if (u.host && u.host !== window.location.host) site = u.host;
+    } catch {
+      // just a path: this site
+    }
   } else {
     const [c, s] = raw.split("#");
     if (/^[A-Za-z0-9]{8,16}$/.test(c)) {
@@ -28,7 +35,7 @@ export function parseInvite(text) {
       secret = s && /^[A-Za-z0-9_-]+$/.test(s) ? s : "";
     }
   }
-  return code ? { code, secret } : null;
+  return code ? { code, secret, site } : null;
 }
 
 export function ColorPicker({ value, onChange, label = "Colour" }) {
@@ -94,7 +101,7 @@ export default function CreateServerDialog({ open, onOpenChange }) {
       return;
     }
     onOpenChange(false);
-    navigate(`/app/join/${parsed.code}${parsed.secret ? `#${parsed.secret}` : ""}`);
+    navigate(`/app/join/${parsed.code}${parsed.site ? `?site=${encodeURIComponent(parsed.site)}` : ""}${parsed.secret ? `#${parsed.secret}` : ""}`);
   };
 
   return (

@@ -13,7 +13,7 @@ const INLINE = new RegExp(
     "(\\|\\|[^|\\n]+\\|\\|)", // 3 spoiler
     "(~~[^~\\n]+~~)", // 4 strike
     "(https?:\\/\\/[^\\s<>\"]+[^\\s<>\".,:;'!?)\\]])", // 5 link
-    "(@[A-Za-z0-9_]{3,20}\\b)", // 6 mention
+    "(@[A-Za-z0-9_]{3,20}(?:\\.[A-Za-z0-9-]+)*\\b)", // 6 mention (a handle on another site has dots)
     "(#[\\p{L}\\p{N}][\\p{L}\\p{N}-]{0,99})", // 7 channel
     "(__[^_\\n]+__)", // 8 underline
     "(\\*[^*\\s][^*\\n]*\\*)", // 9 italic

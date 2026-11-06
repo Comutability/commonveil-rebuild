@@ -1295,13 +1295,17 @@ export function ServerProvider({ children }) {
 
   // ---------- joining, leaving, creating ----------
 
-  const joinServer = useCallback(async ({ code = null, serverId = null }) => {
-    const res = await signed("servers", "join_server", code ? { invite_code: code } : { server_id: serverId });
+  const joinServer = useCallback(async ({ code = null, serverId = null, site = "" }) => {
+    const payload = code ? { invite_code: code } : { server_id: serverId };
+    // A server on another site: our site relays the signed request there (docs/FEDERATION.md).
+    const res = site
+      ? await callFn("servers", { ...(await SP.serverRequest({ userId, device, action: "join_server", payload })), _site: site })
+      : await signed("servers", "join_server", payload);
     const list = await callFn("servers", { action: "list" });
     applyList(list);
     await loadState(res.server_id).catch(() => {});
     return res.server_id;
-  }, [signed, applyList, loadState]);
+  }, [signed, applyList, loadState, userId, device]);
 
   const leaveServer = useCallback(async (sid) => {
     await signed("servers", "leave_server", { server_id: sid });
@@ -1359,7 +1363,7 @@ export function ServerProvider({ children }) {
 
   // ---------- discovery ----------
 
-  const discover = useCallback((tag = null) => callFn("servers", { action: "discover", ...(tag ? { tag } : {}) }), []);
+  const discover = useCallback((tag = null, site = "") => callFn("servers", { action: "discover", ...(tag ? { tag } : {}), ...(site ? { _site: site } : {}) }), []);
 
   // ---------- tickets ----------
 
