@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ErrorNote } from "@/components/site/bits";
+import { useAuth } from "@/lib/AuthContext";
 import { usePresence } from "@/lib/secure/PresenceContext";
 import { useSecure } from "@/lib/secure/SecureContext";
 import { setAppearance, TEXT_SIZES, useAppearance } from "@/lib/appearance";
@@ -333,6 +334,7 @@ const SECTIONS = {
 export default function UserSettings() {
   const { section } = useParams();
   const { isAdmin, signOut } = useSecure();
+  const { user } = useAuth();
   const close = useCloseSettings("/app");
   const [wide, setWide] = useState(() => typeof window !== "undefined" && window.innerWidth >= 768);
   useEffect(() => {
@@ -363,7 +365,7 @@ export default function UserSettings() {
       ],
     },
   ];
-  if (isAdmin) groups.push({ label: "Staff", items: [{ id: "admin", label: "Site admin", icon: Shield, to: "/admin" }] });
+  if (isAdmin) groups.push({ label: "Staff", items: [{ id: "admin", label: user?.site_owner ? "Site owner" : "Site admin", icon: Shield, to: "/admin" }] });
   return (
     <SettingsLayout
       groups={groups}
