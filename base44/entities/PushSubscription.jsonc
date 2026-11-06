@@ -1,0 +1,45 @@
+// A browser's push address, for notifications that say only that there's something new (docs/NOTIFICATIONS.md). Backend only.
+{
+  "name": "PushSubscription",
+  "type": "object",
+  "description": "A browser's push address, for notifications that say only that there's something new (docs/NOTIFICATIONS.md). Backend only.",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "device_id": {
+      "type": "string",
+      "description": "The sign-in device it belongs to."
+    },
+    "endpoint": {
+      "type": "string",
+      "description": "The browser push service's address for this browser."
+    },
+    "p256dh": {
+      "type": "string",
+      "description": "The browser's public key: pushes are encrypted to it."
+    },
+    "auth": {
+      "type": "string"
+    },
+    "mute_secret": {
+      "type": "string",
+      "description": "Made by the browser: lets it recognise muted places without being told them."
+    },
+    "last_push_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "endpoint",
+    "p256dh",
+    "auth"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

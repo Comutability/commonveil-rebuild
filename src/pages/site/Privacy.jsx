@@ -23,6 +23,7 @@ const HOLD = [
   ["Events", "That a server has an event, and which members answered it. What it's called, when and where it is, and the answers are encrypted."],
   ["Online status, only if you turn it on", "While you share it, the live room for the server or conversation you have open knows you're there and when you're typing. It's kept in memory and written nowhere, and gone when you close it."],
   ["Support tickets", "A ticket is an encrypted group with the server's support team. We know who's in it, its number and whether it's open, not what's said."],
+  ["Push notifications, only if you turn them on", "For each device that turns them on: its push address at its browser's push service, the keys to encrypt pushes to it, and when it was last sent one. Each push holds only a one-time code: tapping it asks us, signed in, where to go. The address is deleted when you turn them off or sign out, and codes once used or after a week."],
   ["Blocks and reports", "If you report someone, staff see the reason and anything you choose to paste in. They can't read your messages. A report about someone stays with staff even if that person later deletes their account."],
 ];
 
@@ -31,7 +32,7 @@ const NEVER = [
   "Your private keys, your 24-word recovery phrase or your passcode",
   "What you've read: read markers stay on your device",
   "What you search for: message search runs on your device, site search in your browser",
-  "Your notification settings: they stay in your browser, and there are no push notifications",
+  "Who or what a notification is about: a push says only “New message”, to your device and to its push service",
   "Analytics, advertising IDs or third-party trackers: this site's code has none",
 ];
 

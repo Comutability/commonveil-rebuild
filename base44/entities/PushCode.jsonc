@@ -1,0 +1,33 @@
+// A one-time code in a notification: tapping it asks the app where to go. Lasts a week, used once. Backend only.
+{
+  "name": "PushCode",
+  "type": "object",
+  "description": "A one-time code in a notification: tapping it asks the app where to go. Lasts a week, used once. Backend only.",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "code_hash": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string",
+      "description": "Where in the app."
+    },
+    "expires_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "code_hash",
+    "path",
+    "expires_at"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

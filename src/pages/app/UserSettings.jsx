@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { Bell, ClipboardCheck, CloudOff, Database, Eye, Fingerprint, KeyRound, LogOut, Palette, Shield, ShieldCheck, UserRound } from "lucide-react";
+import { Bell, ClipboardCheck, CloudOff, Database, Download, Eye, Fingerprint, KeyRound, LogOut, Palette, Shield, ShieldCheck, UserRound } from "lucide-react";
 import SignInSettings from "./SignInSettings";
 import OfflineSettings from "./OfflineSettings";
 import PrivacyReport from "./PrivacyReport";
@@ -18,6 +18,7 @@ import Avatar, { ACCENT_HUES } from "@/components/chat/Avatar";
 import PictureInput from "@/components/app/PictureInput";
 import { handleOf, useSiteInfo } from "@/lib/site/siteInfo";
 import SettingsLayout, { ChoiceList, SettingsGroup, SettingsTitle, useCloseSettings } from "@/components/settings/SettingsLayout";
+import { InstallSection, PushSection } from "@/components/app/PushAndInstall";
 import {
   AlertsSection,
   QuietSection,
@@ -316,10 +317,20 @@ function AppearanceSettings() {
 function NotificationSettings() {
   return (
     <>
-      <SettingsTitle intro="Commonveil has no push notifications: nothing about your messages is ever sent to a phone or browser maker." help="notifications">Notifications</SettingsTitle>
-      <AlertsSection />
+      <SettingsTitle intro="Notifications never say who a message is from or what it says, unless you choose to see the sender while Commonveil is open." help="notifications">Notifications</SettingsTitle>
+      <PushSection />
+      <div className="mt-5"><AlertsSection /></div>
       <div className="mt-5"><QuietSection /></div>
       <p className="mt-4 text-sm text-muted-foreground">To quiet a server or a channel, right-click it (or use its menu) and choose Mute. Muting is remembered on this device only.</p>
+    </>
+  );
+}
+
+function AppSettings() {
+  return (
+    <>
+      <SettingsTitle intro="Commonveil is a web app you can install, with its own window and icon." help="install-the-app">The app</SettingsTitle>
+      <InstallSection />
     </>
   );
 }
@@ -345,6 +356,7 @@ const SECTIONS = {
   keys: KeySettings,
   appearance: AppearanceSettings,
   notifications: NotificationSettings,
+  app: AppSettings,
   data: DataSettings,
   offline: OfflineSettings,
   "sign-in": SignInSettings,
@@ -383,6 +395,7 @@ export default function UserSettings() {
         { id: "appearance", label: "Appearance", icon: Palette },
         { id: "notifications", label: "Notifications", icon: Bell },
         { id: "offline", label: "Offline mode", icon: CloudOff },
+        { id: "app", label: "Install the app", icon: Download },
       ],
     },
   ];

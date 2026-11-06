@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useEffect } from 'react';
 import { base44, SELF_HOSTED } from '@/api/base44Client';
 import { hasSession, onSessionChange } from '@/lib/identity/session';
 import { signOut, whoAmI } from '@/lib/identity/client';
+import { turnOffPush } from '@/lib/pwa/push';
 
 // Who's signed in: Commonveil sign-in's session (docs/IDENTITY.md), on Base44 and self-hosted
 // sites alike. Base44's own sign-in is only a way in for accounts made with an email.
@@ -117,6 +118,8 @@ export const AuthProvider = ({ children }) => {
   const logout = async (shouldRedirect = true) => {
     setUser(null);
     setIsAuthenticated(false);
+    // This browser stops getting notifications for the account it's leaving.
+    await turnOffPush().catch(() => {});
     await signOut();
     if (!shouldRedirect) return;
     // On Base44, also end any Base44 sign-in left from before, so it can't sign anyone back in.

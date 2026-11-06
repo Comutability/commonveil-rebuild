@@ -12,6 +12,7 @@
 //    username is retired first, on its own: otherwise someone could claim it and pose as this
 //    member to people who knew them.
 
+import { removePush } from "./handlers/notifications.ts";
 import { removeSignIn } from "./handlers/identity.ts";
 import { withoutMember } from "./store.ts";
 import { eraseServerTraces } from "./servers/erase.ts";
@@ -165,6 +166,7 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
  */
 export async function removePlatformUser(sr: any, userId: string): Promise<boolean> {
   await removeSignIn(sr, userId);
+  await removePush(sr, userId);
   const person = await sr.entities.Person.get(userId).catch(() => null);
   try {
     if (person) await sr.entities.Person.delete(userId);

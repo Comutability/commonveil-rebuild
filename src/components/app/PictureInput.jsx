@@ -42,6 +42,7 @@ export default function PictureInput({ value, onChange, disabled }) {
           accept="image/png,image/jpeg,image/webp,image/gif,image/heic"
           className="sr-only"
           tabIndex={-1}
+          aria-label="Choose a picture"
           onChange={async (e) => {
             const file = e.target.files?.[0];
             e.target.value = "";

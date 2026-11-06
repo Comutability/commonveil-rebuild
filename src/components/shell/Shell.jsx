@@ -58,7 +58,7 @@ export default function Shell({ panel, children, mainOpen = true, banner = null 
               <UserPanel />
             </div>
           </div>
-          <main className={`${mainOpen ? "flex" : "hidden md:flex"} min-h-0 min-w-0 flex-1 flex-col bg-chat`}>{children}</main>
+          <main id="main" tabIndex={-1} className={`outline-none ${mainOpen ? "flex" : "hidden md:flex"} min-h-0 min-w-0 flex-1 flex-col bg-chat`}>{children}</main>
         </div>
       </div>
     </ShellContext.Provider>

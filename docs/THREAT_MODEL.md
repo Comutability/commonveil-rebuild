@@ -69,8 +69,11 @@ What Commonveil protects, against whom, and what it doesn't. Read with `PROTOCOL
   example to remove the device). Someone who copies the browser's files can try passcodes offline at the speed of their
   hardware (600,000 PBKDF2 rounds each), so passcodes must be at least 8 characters and longer is better.
 - **Notifications** are shown by the browser and operating system, which may keep a history. They never contain message
-  text, and name the sender only if the member chooses. There are no push notifications: nothing is sent to a browser
-  maker's push service.
+  text, and name the sender only if the member chooses (in an open tab only).
+- **Push notifications** (off until turned on, per device) go through the browser's push service, encrypted to the
+  browser. They say only "New message" or "New activity" and carry a one-time code; the app swaps it, signed in, for
+  where to go. The push service learns that this device got something from this site at that moment, at most once
+  every 20 seconds. Federated members aren't pushed to. See [NOTIFICATIONS.md](NOTIFICATIONS.md).
 - **Edits and reactions are ordered by their sender's own signed time.** A member can make their own edit or reaction look
   older or newer than it is, but can't affect anyone else's, and an edit dated more than a day after the original is ignored.
 - **The scheduled clean-up has a public address**, like every function. It takes no instructions beyond a task name and

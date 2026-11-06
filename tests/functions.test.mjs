@@ -1,6 +1,7 @@
 // End-to-end tests of the backend handlers, driven by the real client protocol
 // code with real keys. Only the database is in-memory (tests/support/fakeBase44.mjs).
 // Tests named "review:" replay an attack from the security review and check it now fails.
+import { notificationActions } from "../base44/shared/handlers/notifications.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
@@ -63,6 +64,7 @@ import {
 const FUNCTIONS = {
   profile: profileActions, keys: keysActions, conversations: conversationActions, messages: messageActions, safety: safetyActions, admin: adminActions,
   servers: serverActions({ defaultAdmins: () => [] }), channels: serverMessageActions, voice: voiceActions, files: fileActions, events: eventActions, moderation: moderationActions,
+  notifications: notificationActions,
 };
 /** Functions that also accept anonymous callers, exactly as their entry files set it up. */
 const PUBLIC_FUNCTIONS = { disclose: disclosureActions, invite: inviteActions };
@@ -597,7 +599,8 @@ test("everyday reads come out of the member's own allowance; lookups across memb
   const body = await buildMessage({ userId: alice.id, device: alice.device, conversation: conversations[0], chains, text: "one more", keyring: alice.keyring });
   w.serviceReads = 0;
   await alice.ok("messages", body);
-  assert.equal(w.serviceReads, 2);
+  // Plus one, to see whether anyone in the conversation should get a push notification.
+  assert.equal(w.serviceReads, 3);
 });
 
 test("peer keys are only shared with people you have a conversation with", async () => {

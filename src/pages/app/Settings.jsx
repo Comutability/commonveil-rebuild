@@ -328,7 +328,7 @@ export function AlertsSection() {
           disabled={!supported}
           onChange={(v) => change({ notify: v })}
           hint={supported
-            ? "Shown while Commonveil is open in a tab, when you're not already looking at that conversation. A notification says \"New message\" and never what it says. There are no push notifications: nothing is sent to your browser's maker or anyone else."
+            ? "Shown while Commonveil is open in a tab, when you're not already looking at that conversation. A notification says \"New message\" and never what it says. For when Commonveil is closed, turn on push notifications below."
             : "This browser doesn't support notifications from web pages."}
         >
           Notify me of new messages

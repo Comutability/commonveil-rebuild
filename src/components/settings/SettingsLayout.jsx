@@ -67,7 +67,7 @@ export default function SettingsLayout({ groups, active, base, title, onClose, c
           {nav}
         </div>
       </aside>
-      <main className={`${active ? "flex" : "hidden md:flex"} scroll-thin min-w-0 flex-1 overflow-y-auto`}>
+      <main id="main" tabIndex={-1} className={`outline-none ${active ? "flex" : "hidden md:flex"} scroll-thin min-w-0 flex-1 overflow-y-auto`}>
         <div className="w-full max-w-3xl px-4 py-6 sm:px-8 md:py-10">
           <div className="mb-4 flex items-center gap-2 md:hidden">
             <Link to={base} replace className="flex items-center gap-1 rounded-md px-1.5 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
@@ -77,7 +77,8 @@ export default function SettingsLayout({ groups, active, base, title, onClose, c
           {children}
         </div>
         <div className="sticky top-0 hidden shrink-0 pr-6 pt-10 md:block">
-          <button type="button" onClick={onClose} className="flex flex-col items-center gap-1 text-xs text-muted-foreground hover:text-foreground" aria-label="Close settings">
+          <button type="button" onClick={onClose} className="flex flex-col items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+            <span className="sr-only">Close settings, </span>
             <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-current"><X className="h-4 w-4" aria-hidden="true" /></span>
             Esc
           </button>

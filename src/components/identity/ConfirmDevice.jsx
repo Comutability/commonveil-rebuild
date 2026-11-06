@@ -24,7 +24,7 @@ export default function ConfirmDevice({ verify, onDone, onCancel }) {
   const done = useRef(false);
 
   const finish = (r) => {
-    if (r?.access_token && !done.current) {
+    if (r?.session?.access_token && !done.current) {
       done.current = true;
       onDone();
     }

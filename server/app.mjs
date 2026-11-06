@@ -4,6 +4,7 @@ import http from "node:http";
 import fs from "node:fs";
 import { Store, loadSchemas } from "./store.mjs";
 import { userRecord, verifyAccess } from "../base44/shared/identity/sessions.ts";
+import { configurePush } from "../base44/shared/handlers/notifications.ts";
 import { createMail } from "./mail.mjs";
 import { FileStore } from "./files.mjs";
 import { ActorHost } from "./actors.mjs";
@@ -63,6 +64,7 @@ export async function createApp(config, options = {}) {
     asServiceRole: serviceClient,
   });
 
+  configurePush(config.siteUrl);
   const functions = functionTable({
     defaultAdmins: config.defaultServerAdmins,
     identity: {

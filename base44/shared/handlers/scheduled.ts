@@ -2,6 +2,7 @@
 // unless you check in first). Either way it's an ordinary end-to-end encrypted message, sealed
 // and signed when it's written, which the service holds without reading and delivers when it's
 // due. Recipients can't see it, or that it exists, until then: it's kept apart from messages.
+import { conversationPath, notifyPeople } from "./notifications.ts";
 import { ApiError, LIMITS, id, isoTime, platformTime, randomIdField, type Actions, type Ctx } from "../http.ts";
 import { parseEnvelopeShape, verifyItemSignature } from "../verify.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
@@ -49,6 +50,7 @@ export async function deliverDue(sr: any, now: Date, deadline: number, only: any
           ...(lifetime > 0 ? { expires_at: new Date(now.getTime() + lifetime * 1000).toISOString() } : {}),
         });
         await sr.entities.Conversation.update(conv.id, { last_message_at: m.created_date || platformTime(now) });
+        await notifyPeople(sr, undefined, recipients.filter((u: string) => u !== row.sender_id), { kind: "message", path: conversationPath(conv.id), placeId: conv.id });
         delivered += 1;
       }
     }

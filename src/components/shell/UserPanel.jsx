@@ -24,10 +24,11 @@ export default function UserPanel() {
   const p = me?.profile;
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="border-t border-border/60 bg-[hsl(var(--rail)/0.55)]">
+      <section aria-label="Your account" className="border-t border-border/60 bg-[hsl(var(--rail)/0.55)]">
         <VoiceStatus />
         <div className="flex items-center gap-2 px-2 py-2">
-          <Link to="/app/settings/profile" className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-1 hover-panel" aria-label="Your profile">
+          <Link to="/app/settings/profile" className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-1 hover-panel">
+            <span className="sr-only">Your profile: </span>
             <Avatar id={userId} name={p?.display_name || p?.username} emoji={p?.avatar_emoji} image={p?.avatar_image} accent={p?.accent_color} size="h-8 w-8" />
             <span className="min-w-0 leading-tight">
               <span className="block truncate text-sm font-semibold">{p?.display_name || p?.username}</span>
@@ -43,7 +44,7 @@ export default function UserPanel() {
             <Settings className="h-4 w-4" aria-hidden="true" />
           </IconButton>
         </div>
-      </div>
+      </section>
     </TooltipProvider>
   );
 }

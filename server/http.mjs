@@ -80,7 +80,8 @@ export function serveStatic(req, res, distDir, csp) {
   const headers = {
     ...SECURITY_HEADERS,
     "Content-Type": TYPES[ext] || "application/octet-stream",
-    "Cache-Control": isIndex || ext === ".html" ? "no-cache" : /\/assets\//.test(file) ? "public, max-age=31536000, immutable" : "public, max-age=3600",
+    // The service worker and manifest must be checked every time, or new versions wouldn't arrive.
+    "Cache-Control": isIndex || ext === ".html" || /[\\/](sw\.js|manifest\.webmanifest)$/.test(file) ? "no-cache" : /\/assets\//.test(file) ? "public, max-age=31536000, immutable" : "public, max-age=3600",
   };
   if (ext === ".html") {
     headers["Content-Security-Policy"] = csp;

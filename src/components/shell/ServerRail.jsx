@@ -15,7 +15,7 @@ import ConfirmDialog from "@/components/app/ConfirmDialog";
 function Badge({ count }) {
   if (!count) return null;
   return (
-    <span className="absolute -bottom-0.5 -right-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[0.7rem] font-bold text-destructive-foreground ring-[3px] ring-[hsl(var(--rail))]">
+    <span aria-hidden="true" className="absolute -bottom-0.5 -right-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[0.7rem] font-bold text-destructive-foreground ring-[3px] ring-[hsl(var(--rail))]">
       {count > 99 ? "99+" : count}
     </span>
   );
@@ -28,8 +28,10 @@ function Pill({ active, unread }) {
 }
 
 function RailButton({ label, children, to, onClick, active, unread = false, mentions = 0 }) {
+  const name = mentions ? `${label}, ${mentions} ${mentions === 1 ? "mention" : "mentions"}` : label;
   const inner = (
     <>
+      <span className="sr-only">{name}</span>
       <Pill active={active} unread={unread} />
       {children}
       <Badge count={mentions} />
@@ -40,9 +42,9 @@ function RailButton({ label, children, to, onClick, active, unread = false, ment
     <Tooltip>
       <TooltipTrigger asChild>
         {to ? (
-          <Link to={to} className={cls} aria-label={label} aria-current={active ? "page" : undefined}>{inner}</Link>
+          <Link to={to} className={cls} aria-current={active ? "page" : undefined}>{inner}</Link>
         ) : (
-          <button type="button" onClick={onClick} className={cls} aria-label={label}>{inner}</button>
+          <button type="button" onClick={onClick} className={cls}>{inner}</button>
         )}
       </TooltipTrigger>
       <TooltipContent side="right" className="bg-foreground text-sm font-medium text-background">{label}</TooltipContent>

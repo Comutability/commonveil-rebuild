@@ -5,6 +5,19 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.19.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.19.0): Sign in your way, install the app, and private push notifications
+
+_2026-11-06_
+
+- New accounts are a username and password, on every Commonveil site. No email needed.
+- Accounts made with an email before today still sign in with it, and can add a username and password, or a passkey, and then remove the email.
+- Joining asks you to confirm you're 16 or older. Accounts found to belong to someone younger are closed.
+- Terms of Use, in plain language, linked from sign-up and every page.
+- Install Commonveil as an app on your phone, tablet or computer: its own icon and window, opening straight to your messages, still this website with no app store.
+- Push notifications, off until you turn them on. They say only "New message", never who it's from, which conversation or what was said, so your phone and its push service keep no record. Tapping one opens the right conversation.
+- Better for screen readers and keyboards: a skip link in the app, clearer names for buttons and badges, and higher-contrast avatars.
+- New Help Centre article: installing the app. The notifications article now covers push.
+
 ## [0.18.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.18.0): Offline mode
 
 _2026-11-06_

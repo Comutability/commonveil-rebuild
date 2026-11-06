@@ -21,8 +21,8 @@ const COMMON = [
   "media-src 'self' blob:",
   // DOM XSS protection (Chromium): no string may reach innerHTML or similar sinks.
   "require-trusted-types-for 'script'",
-  // One policy, which only ever returns the call worker's own URL.
-  "trusted-types voice-worker",
+  // Two policies, each only ever returning one URL: the call worker and the service worker.
+  "trusted-types voice-worker service-worker",
 ];
 
 export const BASE44_CSP = [

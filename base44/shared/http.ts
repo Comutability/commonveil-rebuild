@@ -77,6 +77,8 @@ export type RunOptions = {
   allowPlatformUser?: boolean;
   /** Self-hosted sites: the server checked the caller already, so the client's auth.me() is them. */
   trustPlatformUser?: boolean;
+  /** Push notifications: who the site's pushes say they're from (handlers/notifications.ts). */
+  push?: { subject: string };
 };
 
 /** A handle for someone on another site: their username, then the site's domain. */
@@ -128,7 +130,7 @@ export async function runAction(base44: any, rawBody: string, actions: Actions, 
     if (!user && !options.allowAnonymous) throw new ApiError(401, "SIGN_IN_REQUIRED", "Please sign in again.");
     const action = typeof body.action === "string" ? body.action : "";
     if (!Object.prototype.hasOwnProperty.call(actions, action)) throw new ApiError(400, "UNKNOWN_ACTION", "Unknown action.");
-    const result = await actions[action]({ sr, own, user, body, now: new Date(), federation: options.federation, session, platformUser } as any);
+    const result = await actions[action]({ sr, own, user, body, now: new Date(), federation: options.federation, push: options.push, session, platformUser } as any);
     return json(200, result ?? { ok: true });
   } catch (error) {
     if (error instanceof ApiError) return json(error.status, { error: error.message, code: error.code });

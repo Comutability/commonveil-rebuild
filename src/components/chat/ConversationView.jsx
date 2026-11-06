@@ -504,7 +504,7 @@ export default function ConversationView({ conversation, onBack, onInfo }) {
         </Button>
         <Avatar id={other} name={nameOf(other)} group={conversation.kind === "group"} emoji={profiles?.[other]?.avatar_emoji} image={profiles?.[other]?.avatar_image} accent={profiles?.[other]?.accent_color} size="h-9 w-9" />
         <div className="min-w-0 flex-1">
-          <h2 className="truncate font-semibold">{conversationName(conversation)}</h2>
+          <h1 className="truncate text-base font-semibold">{conversationName(conversation)}</h1>
           <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
             {allVerified ? (
               <span className="inline-flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5 text-primary" aria-hidden="true" /> Verified and end-to-end encrypted</span>

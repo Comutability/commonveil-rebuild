@@ -19,7 +19,7 @@ RUN npx vite build --outDir /build/dist-selfhost && node scripts/check-bundle.mj
 FROM ${NODE_IMAGE} AS deps
 WORKDIR /deps
 COPY package.json ./
-RUN node -e 'const p=require("./package.json");const d=p.dependencies;require("fs").writeFileSync("server-package.json",JSON.stringify({name:"commonveil-server",private:true,type:"module",dependencies:{ws:d.ws,nodemailer:d.nodemailer,"@simplewebauthn/server":d["@simplewebauthn/server"]}}))' \
+RUN node -e 'const p=require("./package.json");const d=p.dependencies;require("fs").writeFileSync("server-package.json",JSON.stringify({name:"commonveil-server",private:true,type:"module",dependencies:{ws:d.ws,nodemailer:d.nodemailer}}))' \
  && mv server-package.json package.json && npm install --omit=dev --no-audit --no-fund
 
 FROM ${NODE_IMAGE}

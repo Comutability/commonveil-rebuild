@@ -1,6 +1,7 @@
 // Shared test harness: members who call the real backend handlers with requests built by the
 // real client code. Only the database is in memory (fakeBase44.mjs). tests/functions.test.mjs
 // has its own copy of this from before it was shared.
+import { notificationActions } from "../../base44/shared/handlers/notifications.ts";
 import assert from "node:assert/strict";
 
 import { FakeWorld } from "./fakeBase44.mjs";
@@ -29,7 +30,7 @@ import {
 } from "../../src/lib/secure/protocol.js";
 
 /** Functions only signed-in members can call. Test files add theirs with addFunctions. */
-export const FUNCTIONS = { profile: profileActions, keys: keysActions, conversations: conversationActions, messages: messageActions, safety: safetyActions, admin: adminActions };
+export const FUNCTIONS = { profile: profileActions, keys: keysActions, conversations: conversationActions, messages: messageActions, safety: safetyActions, admin: adminActions, notifications: notificationActions };
 export const PUBLIC_FUNCTIONS = { disclose: disclosureActions };
 
 /** Per-function serve options, as the function's entry passes them (e.g. a larger body for files). */

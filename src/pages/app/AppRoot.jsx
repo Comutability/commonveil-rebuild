@@ -14,6 +14,7 @@ import LockScreen from "@/components/app/LockScreen";
 import { AddDevice, AwaitingKeys, BrowserRemoved, ResetWaiting, SetupKeys, Welcome, formatWhen } from "./Onboarding";
 import IdentityPrompts from "@/components/identity/IdentityPrompts";
 import OfflineBanner from "@/components/offline/OfflineBanner";
+import { PushLanding, UpdateBar } from "@/components/app/AppShellBits";
 
 /** Shown on every screen while someone's asked to reset this account: any of its devices can stop it. */
 function ResetRequested() {
@@ -61,7 +62,7 @@ function ResetRequested() {
 function Frame({ children }) {
   const { me } = useSecure();
   return (
-    <div className="flex min-h-[100dvh] flex-col">
+    <div className="app-frame flex min-h-[100dvh] flex-col">
       <header className="border-b border-border bg-background">
         <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-3 px-3 sm:px-4">
           <Link to="/" className="flex items-center gap-2">
@@ -106,9 +107,14 @@ function Gate() {
       <ServerProvider>
         <VoiceProvider>
          <PresenceProvider>
-          <div className="flex h-[100dvh] flex-col overflow-hidden">
+          <div className="app-frame flex h-[100dvh] flex-col overflow-hidden">
+            <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-card focus:px-3 focus:py-2 focus:shadow-lg">
+              Skip to content
+            </a>
             <ResetRequested />
+            <UpdateBar />
             <IdentityPrompts />
+            <PushLanding />
             <OfflineBanner />
             <QuickSwitcher />
             <div className="relative min-h-0 flex-1">

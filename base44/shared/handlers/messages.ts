@@ -1,6 +1,7 @@
 // Encrypted messages. The server checks membership, the sending device, the
 // signature and that every current member got a copy of the key, then stores
 // ciphertext it cannot read.
+import { conversationPath, notifyPeople } from "./notifications.ts";
 import { ApiError, LIMITS, id, int, isoTime, platformTime, randomIdField, str, type Actions } from "../http.ts";
 import { checkSentAt, parseEnvelopeShape, verifyItemSignature } from "../verify.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
@@ -34,7 +35,7 @@ export const messageActions: Actions = {
    * Reads that only touch the sender's own rows use their own access; the block check and
    * the other members' key versions need the service role (see Ctx).
    */
-  async send({ sr, own, user, body, now }) {
+  async send({ sr, own, user, body, now, push }: any) {
     const conv = await conversationForMember(own, user.id, id(body.conversation_id, "conversation"));
     if (conv.kind === "dm") {
       const other = conv.member_ids.find((m: string) => m !== user.id);
@@ -83,6 +84,8 @@ export const messageActions: Actions = {
       throw rateLimited("sending messages");
     }
     await sr.entities.Conversation.update(conv.id, { last_message_at: message.created_date || platformTime(now) });
+    // Tell the others' devices there's something new, and nothing more (handlers/notifications.ts).
+    await notifyPeople(sr, push, conv.member_ids.filter((m: string) => m !== user.id), { kind: "message", path: conversationPath(conv.id), placeId: conv.id });
     return { message: messageOut(message) };
   },
 

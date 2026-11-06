@@ -14,6 +14,7 @@ import { FILES_MAX_BODY, fileActions } from "../base44/shared/handlers/files.ts"
 import { eventActions } from "../base44/shared/handlers/events.ts";
 import { moderationActions } from "../base44/shared/handlers/moderation.ts";
 import { identityActions } from "../base44/shared/handlers/identity.ts";
+import { notificationActions } from "../base44/shared/handlers/notifications.ts";
 
 export { runMaintenance } from "../base44/shared/maintenance.ts";
 
@@ -21,6 +22,7 @@ export { runMaintenance } from "../base44/shared/maintenance.ts";
 export function functionTable({ defaultAdmins, identity }) {
   return {
     ...(identity ? { identity: [identityActions(identity), { allowAnonymous: true }] } : {}),
+    notifications: [notificationActions],
     profile: [profileActions],
     keys: [keysActions],
     conversations: [conversationActions],

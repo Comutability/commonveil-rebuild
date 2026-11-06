@@ -15,6 +15,7 @@ import { randomId, toB64 } from "../crypto/encoding.js";
 import { DEFAULT_ALERTS, alertText, cleanAlerts, isQuiet, showAlert } from "./alerts.js";
 import * as O from "../offline/outbox.js";
 import { isOffline, offlineChosen, onOfflineChange, reportReachable } from "../offline/mode.js";
+import { mirrorPushPrefs } from "../pwa/push.js";
 
 const ChatContext = createContext(null);
 
@@ -141,6 +142,7 @@ export function ChatProvider({ children }) {
         const clean = cleanAlerts(saved || DEFAULT_ALERTS);
         alertsRef.current = clean;
         setAlerts(clean);
+        mirrorPushPrefs(clean);
       })
       .catch(() => {});
     return () => {
@@ -152,6 +154,7 @@ export function ChatProvider({ children }) {
     const next = cleanAlerts({ ...alertsRef.current, ...changes });
     alertsRef.current = next;
     setAlerts(next);
+    mirrorPushPrefs(next);
     await S.saveAlerts(userId, next);
     return next;
   }, [userId]);

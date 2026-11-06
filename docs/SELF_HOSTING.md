@@ -86,13 +86,26 @@ Commands for the command line (run them in your Commonveil folder):
 
 ```bash
 docker compose exec app node server/index.mjs make-admin <username>
-docker compose exec app node server/index.mjs reset-password <username>   # prints a one-time link
+docker compose exec app node server/index.mjs reset-password <username>   # prints a temporary password
 docker compose exec app node server/index.mjs backup
 docker compose exec app node server/index.mjs version
 ```
 
 Only use `reset-password` once you're sure who you're talking to: a new password signs someone in,
 but they still need the person's recovery phrase or another of their devices to read messages.
+Restart the app afterwards (`docker compose restart app`) for it to take effect.
+
+## The app and push notifications
+
+People can install the site as an app on their phone or computer, and turn on push notifications.
+There's nothing to set up: the manifest, icons and service worker ship with the image, and the site
+makes its own push signing key the first time it's needed (kept in `/data`). Both need HTTPS, which
+the installer sets up.
+
+Pushes go from your server to the browsers' own push services (Google, Mozilla, Apple, Microsoft), so
+the server must be able to reach them over HTTPS. A push says only "New message" and carries a one-time
+code; nothing about who, where or what. `docs/NOTIFICATIONS.md` and `docs/INSTALLING.md` explain both.
+On a site with no internet, push simply doesn't arrive; everything else works.
 
 ## Updates
 

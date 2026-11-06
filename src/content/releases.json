@@ -2,10 +2,26 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.19.0",
+      "date": "2026-11-06",
+      "title": "Sign in your way, install the app, and private push notifications",
+      "commit": null,
+      "notes": [
+        "New accounts are a username and password, on every Commonveil site. No email needed.",
+        "Accounts made with an email before today still sign in with it, and can add a username and password, or a passkey, and then remove the email.",
+        "Joining asks you to confirm you're 16 or older. Accounts found to belong to someone younger are closed.",
+        "Terms of Use, in plain language, linked from sign-up and every page.",
+        "Install Commonveil as an app on your phone, tablet or computer: its own icon and window, opening straight to your messages, still this website with no app store.",
+        "Push notifications, off until you turn them on. They say only \"New message\", never who it's from, which conversation or what was said, so your phone and its push service keep no record. Tapping one opens the right conversation.",
+        "Better for screen readers and keyboards: a skip link in the app, clearer names for buttons and badges, and higher-contrast avatars.",
+        "New Help Centre article: installing the app. The notifications article now covers push."
+      ]
+    },
+    {
       "version": "0.18.0",
       "date": "2026-11-06",
       "title": "Offline mode",
-      "commit": null,
+      "commit": "4dbfcc0c13d35bffc49b2e36de968d54443c4828",
       "notes": [
         "Keep writing with no connection: each message is encrypted and signed on your device straight away, waits there, and goes out when you're back, showing the time you wrote it.",
         "Offline mode in settings stops the app reaching the server until you turn it off. Everything you send in the meantime waits, already encrypted.",

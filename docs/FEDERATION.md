@@ -46,7 +46,7 @@ forge one that apps accept (`docs/PROTOCOL.md`, `docs/THREAT_MODEL.md`).
   "protocol": "commonveil/1",
   "host": "chat.example.com",
   "name": "Example chat",
-  "software": { "name": "commonveil", "version": "0.18.0" },
+  "software": { "name": "commonveil", "version": "0.19.0" },
   "handle_domain": "chat.example.com",
   "key": { "alg": "Ed25519", "public": "<32 bytes, base64url>" },
   "endpoints": {
