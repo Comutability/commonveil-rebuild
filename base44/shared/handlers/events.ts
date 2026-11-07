@@ -35,6 +35,17 @@ export const eventActions: Actions = {
     return { events: events.map(eventOut), rsvps: rsvps.map(rsvpOut) };
   },
 
+  /**
+   * One event, by its own id, for a link someone shared. Read with the caller's own access, so
+   * only a member of that server is told which server the event is in; anyone else gets a 404.
+   */
+  async shared_event({ own, body }) {
+    const eventId = randomIdField(body.event_id, "event");
+    const [row] = await own.entities.ServerEvent.filter({ event_id: eventId }, "created_date", 1);
+    if (!row) throw new ApiError(404, "NOT_FOUND", "That event isn't here any more, or it's in a server you're not in.");
+    return { server_id: row.server_id, event: eventOut(row) };
+  },
+
   async create_event(ctx) {
     const { sr, user, now } = ctx;
     const { data, serverId, parts, perms } = await signedMember(ctx, "create_event");

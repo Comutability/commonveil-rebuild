@@ -808,6 +808,9 @@ test("events: staff schedule them, members answer, and the service can't read ei
   const answer = await buildServerItem({ kind: "rsvp", serverId: sid, generations: bobState.generations, keys: bobKeys, userId: bob.id, device: bob.device, payload: { status: "going" } });
   await bob.ok("events", await signed(bob, "rsvp", { server_id: sid, event_id: event.event_id, item: answer }));
   await carol.fails("events", { action: "list", server_id: sid });
+  // A shared link names only the event: members are told its server, everyone else nothing.
+  assert.equal((await bob.ok("events", { action: "shared_event", event_id: event.event_id })).server_id, sid);
+  await carol.fails("events", { action: "shared_event", event_id: event.event_id }, "NOT_FOUND");
   const list = await bob.ok("events", { action: "list", server_id: sid });
   assert.equal(list.events.length, 1);
   assert.deepEqual(list.rsvps.map((r) => r.user_id), [bob.id]);

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, CalendarPlus, Download, Loader2, MapPin, Volume2 } from "lucide-react";
+import { CalendarDays, CalendarPlus, Download, Link2, Loader2, MapPin, Volume2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -156,6 +156,18 @@ function EventCard({ serverId, ev, onChanged, onEdit }) {
   const { rsvp, cancelEvent, can, channelName, servers, serverLook, memberName } = useServers();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  // A link anyone can be sent: members who open it answer there, everyone else is asked to sign in.
+  const share = async () => {
+    const url = `${window.location.origin}/e/${ev.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError(`Couldn't copy it. This is the link: ${url}`);
+    }
+  };
   const voice = ev.voice_channel_id ? (servers[serverId]?.channels || []).find((c) => c.id === ev.voice_channel_id) : null;
   const where = voice ? channelName(voice) : ev.place;
   const now = Date.now();
@@ -192,6 +204,9 @@ function EventCard({ serverId, ev, onChanged, onEdit }) {
         <Button size="sm" variant={ev.mine === "maybe" ? "default" : "outline"} disabled={busy} onClick={() => answer("maybe")} aria-pressed={ev.mine === "maybe"}>Maybe</Button>
         <Button size="sm" variant="ghost" onClick={() => download(`${ev.title.replace(/[^\w -]+/g, "").slice(0, 40) || "event"}.ics`, icsFor({ ...ev, where }, serverLook(serverId).name))}>
           <Download className="mr-1.5 h-4 w-4" aria-hidden="true" /> Add to calendar
+        </Button>
+        <Button size="sm" variant="ghost" onClick={share}>
+          <Link2 className="mr-1.5 h-4 w-4" aria-hidden="true" /> {copied ? "Link copied" : "Copy link"}
         </Button>
         {manage && (
           <>

@@ -24,11 +24,13 @@ import Register from "@/pages/Register";
 import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
 import InviteLanding from "@/pages/site/InviteLanding";
+import EventInvite from "@/pages/site/EventInvite";
 import PublicProfile from "@/pages/site/PublicProfile";
 import Terms from "@/pages/site/Terms";
 import AppRoot from "@/pages/app/AppRoot";
 import AppHome from "@/pages/app/Home";
 import ServerView from "@/pages/app/ServerView";
+import EventAnswer from "@/pages/app/EventAnswer";
 import ServerSettings from "@/pages/app/ServerSettings";
 import Discover from "@/pages/app/Discover";
 import JoinInvite from "@/pages/app/JoinInvite";
@@ -63,6 +65,7 @@ function AppRoutes() {
         <Route path="security/report" element={<ReportSecurityIssue />} />
         <Route path="search" element={<Search />} />
         <Route path="invite/:code" element={<InviteLanding />} />
+        <Route path="e/:eventId" element={<EventInvite />} />
         <Route path="u/:username" element={<PublicProfile />} />
         <Route path="terms" element={<Terms />} />
         <Route path="*" element={<NotFound />} />
@@ -81,6 +84,7 @@ function AppRoutes() {
           <Route path="s/:serverId/settings/:section" element={<ServerSettings />} />
           <Route path="s/:serverId/:channelId" element={<ServerView />} />
           <Route path="s/:serverId/:channelId/:threadId" element={<ServerView />} />
+          <Route path="e/:eventId" element={<EventAnswer />} />
           <Route path="discover" element={<Discover />} />
           <Route path="join/:code" element={<JoinInvite />} />
           <Route path="settings" element={<UserSettings />} />
