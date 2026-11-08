@@ -1,6 +1,6 @@
 # The Commonveil updater (updater/updater.mjs): Docker's command-line tools plus Node.js.
 # Release images: ghcr.io/comutability/commonveil-updater
-ARG DOCKER_IMAGE=docker:27-cli
+ARG DOCKER_IMAGE=docker:28.2.2-cli-alpine3.21
 FROM ${DOCKER_IMAGE}
 RUN apk add --no-cache nodejs
 WORKDIR /updater
