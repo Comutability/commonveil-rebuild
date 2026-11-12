@@ -1,10 +1,13 @@
 {
   "name": "@comutability/secure-net",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Secure Net: the Commonveil Protocol. Private, end-to-end encrypted, federated communication that any app or site can use.",
   "type": "module",
   "license": "AGPL-3.0-only",
-  "repository": { "type": "git", "url": "https://github.com/Comutability/secure-net" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Comutability/secure-net"
+  },
   "main": "./src/index.js",
   "exports": {
     ".": "./src/index.js",
@@ -19,8 +22,15 @@
     "./extensions/*": "./src/extensions/*.js",
     "./package.json": "./package.json"
   },
-  "files": ["src", "spec", "README.md", "LICENSE"],
-  "engines": { "node": ">=20" },
+  "files": [
+    "src",
+    "spec",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "manifest": "node scripts/manifest.mjs"

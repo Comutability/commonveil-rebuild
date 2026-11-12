@@ -1,10 +1,10 @@
 // Feature negotiation (CVP-008): each site publishes what it speaks, and two sites use what both
 // support. Unknown features are ignored, never errors, so sites can upgrade one at a time.
-export const SECURE_NET_VERSION = "0.1.0";
+export const SECURE_NET_VERSION = "0.2.0";
 
 /** Everything this version of Secure Net implements, with the version of each. */
 export const FEATURES = {
-  "cvp.federation": 1, // signed site-to-site requests (wire/federation.js)
+  "cvp.federation": 2, // signed site-to-site requests; 2: endpoints read from the site document (wire/federation.js)
   "cvp.identity": 2, // account key chains with post-quantum keys (crypto/identity.js)
   "cvp.envelope": 1, // end-to-end message envelopes (crypto/envelope.js)
   "cvp.commons-ledger": 1, // replicated community ledger and failover (commons/ledger.js)

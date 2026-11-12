@@ -19,6 +19,7 @@ import { peerDeviceOut, statementOut } from "../../base44/shared/store.ts";
 import { userRecord } from "../../base44/shared/identity/sessions.ts";
 import { json, readBody, bearer } from "../http.mjs";
 import { FederationError, PROTOCOL, Signer, Transport, normHost } from "./net.mjs";
+import { DEFAULT_ENDPOINTS } from "../../packages/secure-net/src/wire/federation.js";
 
 const ID24 = /^[0-9a-f]{24}$/;
 const ID_KEYS = new Set(["conversation_id", "server_id", "channel_id", "event_id", "report_id", "case_id", "message_id", "thread_id", "ticket_id", "invite_id", "role_id", "id", "parent_id"]);
@@ -229,7 +230,7 @@ export class Federation {
     const ident = known ? { user_id: known.user_id, home: known.home } : await this.#lookupHandle(handle);
     if (!ident) return null;
     const meCard = await this.#card(me);
-    const { status, data } = await this.signer.post(ident.home, "/cvp/v1/directory", { user_id: ident.user_id, handle, requester: meCard ? { id: me, handle: meCard.handle } : null, purpose: "conversation" });
+    const { status, data } = await this.signer.send(ident.home, "directory", { user_id: ident.user_id, handle, requester: meCard ? { id: me, handle: meCard.handle } : null, purpose: "conversation" });
     if (status !== 200 || !data?.user) return null;
     await this.#mirror(ident.home, data.user);
     return data.user.id;
@@ -237,8 +238,15 @@ export class Federation {
 
   async #lookupHandle(handle) {
     // The handle's own name answers first (like the AT Protocol's handles); its parent domain second.
-    for (const [host, path] of [[handle, "/.well-known/commonveil/identity"], [handle.slice(handle.indexOf(".") + 1), `/.well-known/commonveil/identity?handle=${encodeURIComponent(handle)}`]]) {
+    const parent = handle.slice(handle.indexOf(".") + 1);
+    const ways = [
+      async () => [handle, DEFAULT_ENDPOINTS.identity],
+      // A site that can't answer at the usual address says where it does in its site document.
+      async () => [parent, `${await this.signer.endpoint(parent, "identity").catch(() => DEFAULT_ENDPOINTS.identity)}?handle=${encodeURIComponent(handle)}`],
+    ];
+    for (const way of ways) {
       try {
+        const [host, path] = await way();
         const { status, data } = await this.transport.request(host, path);
         if (status !== 200 || data?.handle !== handle || !ID24.test(data.user_id || "")) continue;
         const home = normHost(data.home);
@@ -320,7 +328,7 @@ export class Federation {
         if (joined && this.q.notified.get(uid, room)) continue;
         if (joined) this.q.putNotified.run(uid, room);
         else this.q.dropNotified.run(uid, room);
-        this.signer.post(s.home, "/cvp/v1/inbox", { type: "membership", user_id: uid, room: { kind: room[0] === "c" ? "conversation" : "server", id: room.slice(2) }, joined })
+        this.signer.send(s.home, "inbox", { type: "membership", user_id: uid, room: { kind: room[0] === "c" ? "conversation" : "server", id: room.slice(2) }, joined })
           .catch((e) => this.log.warn?.(`[federation] couldn't tell ${s.home} about a membership: ${e.message}`));
       }
     }
@@ -331,7 +339,7 @@ export class Federation {
     const card = await this.#card(userId);
     if (!card) return;
     for (const { host } of this.q.hostsOf.all(userId)) {
-      this.signer.post(host, "/cvp/v1/inbox", { type: "keys", user: card }).catch(() => {});
+      this.signer.send(host, "inbox", { type: "keys", user: card }).catch(() => {});
     }
   }
 
@@ -400,7 +408,7 @@ export class Federation {
   async act(host, user, fn, body) {
     const card = await this.#card(user.id);
     if (!card) throw new FederationError(409, "SETUP_REQUIRED", "Finish setting up your account first.");
-    const { status, data } = await this.signer.post(host, "/cvp/v1/act", { user: card, function: fn, request: JSON.stringify(body) }, { user: user.id });
+    const { status, data } = await this.signer.send(host, "act", { user: card, function: fn, request: JSON.stringify(body) }, { user: user.id });
     if (status === 200) this.#learnRoutes(host, data, user);
     if (fn === "files" && data) this.#rewriteFileLinks(host, data);
     return { status, data: data ?? { error: `${host} didn't answer properly.`, code: "SITE_ERROR" } };
@@ -604,7 +612,7 @@ export class Federation {
     const sites = new Set(this.q.hostsOf.all(userId).map((r) => r.host));
     const s = this.q.shadow.get(blockedId);
     if (s) sites.add(s.home);
-    for (const host of sites) this.signer.post(host, "/cvp/v1/inbox", { type: "block", user_id: userId, blocked_id: blockedId, blocked }).catch(() => {});
+    for (const host of sites) this.signer.send(host, "inbox", { type: "block", user_id: userId, blocked_id: blockedId, blocked }).catch(() => {});
   }
 
   // ---------- HTTP ----------
@@ -617,7 +625,8 @@ export class Federation {
       software: { name: "commonveil", version: this.config.version },
       handle_domain: this.config.handleDomain,
       key: { alg: "Ed25519", public: this.signer.key.public },
-      endpoints: { act: "/cvp/v1/act", directory: "/cvp/v1/directory", inbox: "/cvp/v1/inbox", actors: "/cvp/v1/actors/{name}/{room}", discover: "/cvp/v1/discover" },
+      // The site document itself and file links stay where they are; the rest can move under a prefix.
+      endpoints: Object.fromEntries(Object.entries(DEFAULT_ENDPOINTS).map(([k, v]) => [k, k === "files" ? v : `${this.config.federationPrefix || ""}${v}`])),
     };
   }
 
@@ -628,7 +637,9 @@ export class Federation {
 
   /** Handle anything the protocol owns. Answers true if it did. */
   async route(req, res, url) {
-    const p = url.pathname;
+    const prefix = this.config.federationPrefix || "";
+    const moved = prefix && url.pathname.startsWith(`${prefix}/`) ? url.pathname.slice(prefix.length) : "";
+    const p = moved.startsWith("/cvp/v1/") || moved === DEFAULT_ENDPOINTS.identity ? moved : url.pathname;
     const reqHost = this.#requestHost(req);
 
     // TLS for handles: Caddy asks before getting a certificate for a name.
@@ -714,7 +725,7 @@ export class Federation {
       const [, , , , hostEnc, name] = p.split("/");
       const host = (() => { try { return normHost(decodeURIComponent(hostEnc || "")); } catch { return null; } })();
       if (!host || !/^[a-f0-9]{48}$/.test(name || "") || !this.store.db.prepare("SELECT 1 FROM fed_user_hosts WHERE host = ? LIMIT 1").get(host)) return json(res, 404, { error: "Not found" }), true;
-      const bytes = await this.transport.bytes(host, `/api/files/${name}?${url.searchParams.toString()}`).catch(() => null);
+      const bytes = await this.signer.endpoint(host, "files").then((base) => this.transport.bytes(host, `${base}/${name}?${url.searchParams.toString()}`)).catch(() => null);
       if (!bytes) return json(res, 404, { error: "That link has expired." }), true;
       res.writeHead(200, { "Content-Type": "application/octet-stream", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Content-Length": bytes.length });
       res.end(bytes);
@@ -784,7 +795,14 @@ export class Federation {
 
   /** A person here connects to a room on another site: this site carries their connection there. */
   async proxyActor(clientWs, { host, name, room, connId, user }) {
-    const path = `/cvp/v1/actors/${encodeURIComponent(name)}/${encodeURIComponent(room)}?id=${encodeURIComponent(connId)}`;
+    let template;
+    try {
+      template = await this.signer.endpoint(host, "actors");
+    } catch {
+      clientWs.close(1011, "Can't reach that site");
+      return;
+    }
+    const path = `${template.replace("{name}", encodeURIComponent(name)).replace("{room}", encodeURIComponent(room))}?id=${encodeURIComponent(connId)}`;
     const card = await this.#card(user.id);
     const headers = { ...this.signer.headers({ method: "GET", to: host, path, body: "", user: user.id }), "CV-Person": b64(JSON.stringify(card)) };
     let upstream;
@@ -806,7 +824,7 @@ export class Federation {
   /** Another site carries one of its people into a room here. */
   async acceptActor(req, socket, head, actorHost) {
     const url = new URL(req.url, "http://local");
-    const [, , , , name, roomEnc] = url.pathname.split("/");
+    const [name, roomEnc] = url.pathname.slice(url.pathname.indexOf("/cvp/v1/actors/") + "/cvp/v1/actors/".length).split("/");
     try {
       if (!this.enabled || !ACTOR_NAMES.has(name)) throw new FederationError(404, "NOT_FOUND", "Not found");
       const { from, user } = await this.signer.verify(req, "", url.pathname + url.search);

@@ -192,7 +192,7 @@ export async function createApp(config, options = {}) {
   server.on("upgrade", (req, socket, head) => {
     const u = String(req.url || "");
     if (u.startsWith("/api/actors/")) actors.handleUpgrade(req, socket, head);
-    else if (u.startsWith("/cvp/v1/actors/")) federation.acceptActor(req, socket, head, actors);
+    else if (u.startsWith("/cvp/v1/actors/") || (config.federationPrefix && u.startsWith(`${config.federationPrefix}/cvp/v1/actors/`))) federation.acceptActor(req, socket, head, actors);
     else socket.destroy();
   });
   server.requestTimeout = 120_000;

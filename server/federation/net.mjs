@@ -9,9 +9,9 @@ import { lookup as dnsLookup } from "node:dns";
 import { Readable } from "node:stream";
 import { WebSocket } from "ws";
 // The wire format itself (what's signed, digests, which addresses are off limits) is Secure Net's.
-import { PROTOCOL, HOST_RE, signatureBase, digestOf, isPrivate } from "../../packages/secure-net/src/wire/federation.js";
+import { PROTOCOL, HOST_RE, SITE_DOCUMENT, signatureBase, digestOf, isPrivate, endpointsOf } from "../../packages/secure-net/src/wire/federation.js";
 
-export { PROTOCOL, HOST_RE, signatureBase, digestOf, isPrivate };
+export { PROTOCOL, HOST_RE, signatureBase, digestOf, isPrivate, endpointsOf };
 
 const SKEW_MS = 5 * 60_000;
 const MAX_RESPONSE = 4 * 1024 * 1024;
@@ -257,6 +257,16 @@ export class Signer {
     return this.transport.request(to, path, { method: "POST", body, headers: { "Content-Type": "application/json", ...this.headers({ method: "POST", to, path, body, user }) } });
   }
 
+  /** Where one of a site's endpoints is, from its site document (act, directory, inbox, ...). */
+  async endpoint(host, name) {
+    return endpointsOf(await this.siteDoc(host))[name];
+  }
+
+  /** POST to one of a site's endpoints by name, wherever that site keeps it. */
+  async send(to, name, payload, options) {
+    return this.post(to, await this.endpoint(to, name), payload, options);
+  }
+
   #refuseBlocked(host) {
     if (this.q.get.get(host)?.blocked) throw new FederationError(403, "SITE_BLOCKED", `This site doesn't talk to ${host}.`);
   }
@@ -266,7 +276,7 @@ export class Signer {
     host = normHost(host);
     const cached = this.docs.get(host);
     if (cached && Date.now() - cached.at < DOC_TTL_MS) return cached.doc;
-    const { status, data } = await this.transport.request(host, "/.well-known/commonveil");
+    const { status, data } = await this.transport.request(host, SITE_DOCUMENT);
     if (status !== 200 || data?.protocol !== PROTOCOL || data.host !== host || typeof data.key?.public !== "string") {
       throw new FederationError(502, "NOT_A_SITE", `${host} isn't a Commonveil site, or doesn't talk to other sites.`);
     }

@@ -8,6 +8,41 @@ import { b64u, fromB64u, utf8 } from "../core/bytes.js";
 /** The federation protocol this version of Secure Net speaks. */
 export const PROTOCOL = "commonveil/1";
 
+/** Where every site publishes its site document. This one path is fixed; the rest are in the document. */
+export const SITE_DOCUMENT = "/.well-known/commonveil";
+
+/**
+ * Where a site's endpoints are unless its site document says otherwise. A site that can't serve
+ * these paths (one on a hosting platform that only offers functions under its own prefix, say)
+ * lists its own, and other sites use those.
+ */
+export const DEFAULT_ENDPOINTS = Object.freeze({
+  act: "/cvp/v1/act",
+  directory: "/cvp/v1/directory",
+  inbox: "/cvp/v1/inbox",
+  discover: "/cvp/v1/discover",
+  actors: "/cvp/v1/actors/{name}/{room}",
+  identity: "/.well-known/commonveil/identity",
+  files: "/api/files",
+});
+
+const ENDPOINT_RE = /^\/[A-Za-z0-9._~{}\/-]{0,199}$/;
+
+/**
+ * A site's endpoints, from its site document. Each must be a plain path on that same site: no
+ * scheme, host, query, "//" or "..", so a site document can never send requests anywhere else.
+ * Anything missing or unsafe falls back to the default.
+ */
+export function endpointsOf(doc) {
+  const out = { ...DEFAULT_ENDPOINTS };
+  const given = doc && typeof doc.endpoints === "object" && doc.endpoints ? doc.endpoints : {};
+  for (const name of Object.keys(DEFAULT_ENDPOINTS)) {
+    const v = given[name];
+    if (typeof v === "string" && ENDPOINT_RE.test(v) && !v.includes("//") && !v.split("/").includes("..")) out[name] = v;
+  }
+  return out;
+}
+
 /** How far apart two sites' clocks may be before a request is refused. */
 export const SKEW_MS = 5 * 60_000;
 
