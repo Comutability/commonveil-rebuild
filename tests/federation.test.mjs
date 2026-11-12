@@ -3,6 +3,7 @@
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import { http, startSites } from "./support/selfhost.mjs";
+import { relay, relayContext, relayKeysOf } from "../server/federation/net.mjs";
 import { Person } from "./support/person.mjs";
 import { buildChannelMessage, openGrants, openServerItem, prepareGeneration, prepareGrants, textPayload } from "../src/lib/secure/serverProtocol.js";
 
@@ -144,14 +145,31 @@ test("the protocol refuses unsigned, replayed, mistimed and foreign-handle reque
   assert.equal(unsigned.status, 400);
 
   const signer = b.app.federation.signer;
-  const body = JSON.stringify({ type: "membership", user_id: "f".repeat(24), room: { kind: "conversation", id: "e".repeat(24) }, joined: true });
-  const headers = signer.headers({ method: "POST", to: "alpha.test", path: "/cvp/v1/inbox", body });
-  const send = () => fetch(`${a.url}/cvp/v1/inbox`, { method: "POST", headers: { ...headers, "Content-Type": "application/json", "X-Forwarded-Host": "alpha.test" }, body });
-  assert.equal((await send()).status, 200);
-  assert.equal((await send()).status, 401, "a request can't be replayed");
+  const plain = JSON.stringify({ type: "membership", user_id: "f".repeat(24), room: { kind: "conversation", id: "e".repeat(24) }, joined: true });
+  const post = (body, headers) => fetch(`${a.url}/cvp/v1/inbox`, { method: "POST", headers: { ...headers, "Content-Type": "application/json", "X-Forwarded-Host": "alpha.test" }, body });
+  const sign = (body) => signer.headers({ method: "POST", to: "alpha.test", path: "/cvp/v1/inbox", body });
+  // What travels between sites is sealed for the receiving site: nothing readable on the way.
+  const alphaKeys = relayKeysOf((await http(a, "/.well-known/commonveil")).data);
+  assert.ok(alphaKeys, "sites publish their relay keys");
+  const seal = async () => JSON.stringify({ sealed: (await relay.seal(alphaKeys.kem, plain, relayContext({ from: "beta.test", to: "alpha.test", path: "/cvp/v1/inbox" }))).sealed });
+  const body = await seal();
+  assert.ok(!body.includes("membership") && !body.includes("f".repeat(24)), "who and what are hidden in transit");
+  const headers = { ...(await sign(body)), "CV-Sealed": "1" };
+  const first = await post(body, headers);
+  assert.equal(first.status, 200);
+  assert.ok(typeof (await first.json()).sealed === "string", "and the answer comes back sealed");
+  assert.equal((await post(body, headers)).status, 401, "a request can't be replayed");
 
-  const tampered = await fetch(`${a.url}/cvp/v1/inbox`, { method: "POST", headers: { ...signer.headers({ method: "POST", to: "alpha.test", path: "/cvp/v1/inbox", body }), "Content-Type": "application/json", "X-Forwarded-Host": "alpha.test" }, body: body.replace("true", "false") });
-  assert.equal(tampered.status, 401, "the body is covered by the signature");
+  const other = await seal();
+  assert.equal((await post(other, { ...(await sign(body)), "CV-Sealed": "1" })).status, 401, "the body is covered by the signature");
+  // Quantum resistance can't be talked down: no plain bodies, no single signatures, from a site that seals.
+  const unsealed = await post(plain, await sign(plain));
+  assert.deepEqual([unsealed.status, (await unsealed.json()).code], [401, "UNSEALED"]);
+  const { "CV-PQ-Signature": _dropped, ...classicalOnly } = await sign(other);
+  assert.equal((await post(other, { ...classicalOnly, "CV-Sealed": "1" })).status, 401, "both signatures are needed");
+  // Sealed for one request, it doesn't open as another.
+  const moved = JSON.stringify({ sealed: (await relay.seal(alphaKeys.kem, plain, relayContext({ from: "beta.test", to: "alpha.test", path: "/cvp/v1/act" }))).sealed });
+  assert.equal((await post(moved, { ...(await sign(moved)), "CV-Sealed": "1" })).status, 400);
 
   // Beta can't speak for a person with an alpha handle.
   const card = { id: "a".repeat(24), handle: "mallory.alpha.test", profile: {}, directory: { statements: [], devices: [] } };

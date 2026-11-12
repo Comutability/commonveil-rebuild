@@ -5,6 +5,18 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.22.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.22.0): A sealed, quantum-resistant relay between sites
+
+_2026-11-12_
+
+- What one site sends another is now sealed for that site alone, so nothing in between can see who is writing to whom, which conversation, or what was asked: not the network, not a CDN or hosting platform, and not someone recording traffic to decrypt later.
+- The sealing is quantum-resistant: ML-KEM-768 together with a classical exchange, so it holds unless both are broken. Answers come back sealed too.
+- Sites sign what they send twice, with Ed25519 and the post-quantum ML-DSA-65. Both must check out.
+- A site that has started sealing can't be talked back down: other sites refuse it if its relay keys change or vanish, and refuse plain or singly-signed requests from it.
+- Communities' signed records (history, votes, results) can use quantum-resistant keys.
+- Your messages themselves were already quantum-resistant end to end. Still classical for now: the signatures your devices put on messages, and private voting tokens.
+- Built on Secure Net 0.3.1. Self-hosted sites pick this up by updating; nothing to configure.
+
 ## [0.21.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.21.0): The hosted site can talk to self-hosted sites
 
 _2026-11-12_

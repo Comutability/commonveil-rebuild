@@ -98,10 +98,12 @@ test("only message sends are held; anything else says the site can't be reached"
   const uma = await new Person(home, "uma").setup();
   const vic = await new Person(away, "vic").setup();
   const dm = (await vic.ok("conversations", await vic.signed("create_dm", { username: "uma.home.test" }))).conversation;
+  // Uma's site hears where the conversation lives a moment after it's made.
+  for (let i = 0; i < 100 && !(await uma.ok("conversations", { action: "list" })).conversations.some((c) => c.id === dm.id); i += 1) await new Promise((r) => setTimeout(r, 30));
   net.setDown("away.test", true);
   try {
     const r = await uma.call("messages", { action: "list", conversation_id: dm.id });
-    assert.equal(r.status, 502);
+    assert.equal(r.status, 502, JSON.stringify(r.data));
     assert.equal(r.data.code, "SITE_UNREACHABLE");
   } finally {
     net.setDown("away.test", false);

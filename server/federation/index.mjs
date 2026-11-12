@@ -655,7 +655,7 @@ export class Federation {
 
     if (p === "/.well-known/commonveil") {
       if (!this.enabled) return json(res, 404, { error: "This site doesn't talk to other sites." }), true;
-      return json(res, 200, this.siteDocument(), { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=300" }), true;
+      return json(res, 200, { ...this.siteDocument(), pq: await this.signer.relayDoc() }, { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=300" }), true;
     }
     if (p === "/.well-known/commonveil/identity") {
       const handle = String(url.searchParams.get("handle") || "").toLowerCase();
@@ -743,14 +743,17 @@ export class Federation {
       if (req.method !== "POST") return json(res, 405, { error: "Use POST." }), true;
       try {
         const body = await readBody(req, MAX_ACT_BODY);
-        const { from, user } = await this.signer.verify(req, body, url.pathname + url.search);
-        const payload = JSON.parse(body || "{}");
+        const checked = await this.signer.verify(req, body, url.pathname + url.search);
+        const { from, user } = checked;
+        const payload = JSON.parse(checked.body || "{}");
+        // A sealed request gets a sealed answer.
+        const answer = async (status, data) => json(res, status, checked.reply ? await checked.reply(data) : data);
         if (p === "/cvp/v1/act") {
           const r = await this.#inboundAct(from, payload, user);
-          return json(res, r.status, r.data ?? {}), true;
+          return await answer(r.status, r.data ?? {}), true;
         }
-        if (p === "/cvp/v1/directory") return json(res, 200, await this.#inboundDirectory(from, payload)), true;
-        if (p === "/cvp/v1/inbox") return json(res, 200, await this.#inboundInbox(from, payload)), true;
+        if (p === "/cvp/v1/directory") return await answer(200, await this.#inboundDirectory(from, payload)), true;
+        if (p === "/cvp/v1/inbox") return await answer(200, await this.#inboundInbox(from, payload)), true;
         return json(res, 404, { error: "Not found" }), true;
       } catch (err) {
         if (!(err instanceof FederationError)) this.log.error?.("[federation]", err);
@@ -794,7 +797,7 @@ export class Federation {
     }
     const path = `${template.replace("{name}", encodeURIComponent(name)).replace("{room}", encodeURIComponent(room))}?id=${encodeURIComponent(connId)}`;
     const card = await this.#card(user.id);
-    const headers = { ...this.signer.headers({ method: "GET", to: host, path, body: "", user: user.id }), "CV-Person": b64(JSON.stringify(card)) };
+    const headers = { ...(await this.signer.headers({ method: "GET", to: host, path, body: "", user: user.id })), "CV-Person": b64(JSON.stringify(card)) };
     let upstream;
     try {
       upstream = await this.transport.websocket(host, path, headers);

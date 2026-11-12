@@ -2,10 +2,25 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.22.0",
+      "date": "2026-11-12",
+      "title": "A sealed, quantum-resistant relay between sites",
+      "commit": null,
+      "notes": [
+        "What one site sends another is now sealed for that site alone, so nothing in between can see who is writing to whom, which conversation, or what was asked: not the network, not a CDN or hosting platform, and not someone recording traffic to decrypt later.",
+        "The sealing is quantum-resistant: ML-KEM-768 together with a classical exchange, so it holds unless both are broken. Answers come back sealed too.",
+        "Sites sign what they send twice, with Ed25519 and the post-quantum ML-DSA-65. Both must check out.",
+        "A site that has started sealing can't be talked back down: other sites refuse it if its relay keys change or vanish, and refuse plain or singly-signed requests from it.",
+        "Communities' signed records (history, votes, results) can use quantum-resistant keys.",
+        "Your messages themselves were already quantum-resistant end to end. Still classical for now: the signatures your devices put on messages, and private voting tokens.",
+        "Built on Secure Net 0.3.1. Self-hosted sites pick this up by updating; nothing to configure."
+      ]
+    },
+    {
       "version": "0.21.0",
       "date": "2026-11-12",
       "title": "The hosted site can talk to self-hosted sites",
-      "commit": null,
+      "commit": "5d7a7f5c2ba6bed3cf20c86d02317ba356e9fb08",
       "notes": [
         "The hosted site now speaks the same protocol as self-hosted sites: people on either can find each other by address, start conversations, and read and reply, end-to-end encrypted, with each person's keys checked against their own key history.",
         "Sites now tell each other where their protocol endpoints are in their site document, so a site that can only be reached under a path can take part. Self-hosted sites need this release to talk to the hosted site.",

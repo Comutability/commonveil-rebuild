@@ -4,6 +4,10 @@
   "type": "object",
   "description": "The hosted site's own key for talking to other sites. The oldest row is the key. Backend only.",
   "properties": {
+    "purpose": {
+      "type": "string",
+      "description": "Empty for the site's signing key; relay for its sealing and post-quantum signing keys, held as JSON in public and secret."
+    },
     "public": {
       "type": "string"
     },
