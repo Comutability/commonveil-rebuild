@@ -41,5 +41,22 @@ nothing needed it and it was one more secret to hold.
 - A newcomer on the Base44-hosted site can, for up to an hour, read the current live key of a
   channel through Base44's own entity reads. Message history limits still apply. Self-hosted
   sites don't have this.
-- Federation resolves a site's address once per request; it doesn't pin the address between the
-  safety check and the connection.
+
+## Our own follow-up review
+
+After the fixes we went through the code again: dependencies (`npm audit`, 0 known
+vulnerabilities in the app and in the Docker runtime), committed secrets (none), unsafe HTML and
+code evaluation (none), how the self-hosted server serves files, its WebSocket limits, and the
+tags it writes into pages (escaped). Fixed:
+
+- **DNS rebinding in federation.** A site's address was checked, then looked up again when
+  connecting, so a name could answer "public" for the check and "private" for the connection.
+  Every outbound connection now checks the address it actually connects to.
+- **Malformed addresses.** A request for a path with a broken `%` escape caused a server error;
+  it's now a plain "Bad path". Paths are resolved against the site folder and must stay inside it.
+- **Forwarded addresses.** When behind a proxy, the client's address is the one the proxy added
+  (the last), not the first, which the client can set.
+
+Known and accepted: ten wrong passwords lock password sign-in to an account for 15 minutes, so
+someone who knows a username can lock its password out for a while. Passkeys and the recovery
+phrase still work, and the alternative (no lockout) is worse.

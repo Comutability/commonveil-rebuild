@@ -4,6 +4,9 @@
 import crypto from "node:crypto";
 import dns from "node:dns/promises";
 import net from "node:net";
+import https from "node:https";
+import { lookup as dnsLookup } from "node:dns";
+import { Readable } from "node:stream";
 import { WebSocket } from "ws";
 
 export const PROTOCOL = "commonveil/1";
@@ -68,10 +71,13 @@ export const digestOf = (body) => `sha-256=${b64u(sha256(body || ""))}`;
  */
 export class Transport {
   /** hostHeader: also say which site is meant in X-Forwarded-Host (tests, where every site is on 127.0.0.1). */
-  constructor({ allowPrivate = false, fetchImpl = globalThis.fetch, wsImpl = WebSocket, urlFor = null, hostHeader = false } = {}) {
+  constructor({ allowPrivate = false, fetchImpl = null, wsImpl = WebSocket, urlFor = null, hostHeader = false } = {}) {
     this.hostHeader = hostHeader;
     this.allowPrivate = allowPrivate;
-    this.fetch = fetchImpl;
+    // Connections check the address they actually connect to, not just an earlier lookup, so a
+    // name that changes its answer in between (DNS rebinding) can't reach a private address.
+    this.fetch = fetchImpl || (allowPrivate ? globalThis.fetch : pinnedFetch);
+    this.lookup = allowPrivate ? undefined : publicLookup;
     this.Ws = wsImpl;
     this.urlFor = urlFor;
   }
@@ -135,8 +141,40 @@ export class Transport {
 
   async websocket(host, path, headers) {
     await this.#check(host);
-    return new this.Ws(this.url(host, path, true), { headers: { ...(this.hostHeader ? { "X-Forwarded-Host": host } : {}), ...headers }, handshakeTimeout: 10_000, maxPayload: 64 * 1024 });
+    return new this.Ws(this.url(host, path, true), { headers: { ...(this.hostHeader ? { "X-Forwarded-Host": host } : {}), ...headers }, handshakeTimeout: 10_000, maxPayload: 64 * 1024, ...(this.lookup ? { lookup: this.lookup } : {}) });
   }
+}
+
+/** dns.lookup for outbound connections, refusing any private, loopback or link-local answer. */
+export function publicLookup(hostname, options, callback) {
+  const cb = typeof options === "function" ? options : callback;
+  const opts = typeof options === "function" ? {} : options || {};
+  dnsLookup(hostname, { ...opts, all: true, verbatim: true }, (err, addrs) => {
+    if (err) return cb(err);
+    const list = Array.isArray(addrs) ? addrs : [{ address: addrs, family: opts.family || 4 }];
+    if (!list.length || list.some((a) => isPrivate(a.address))) {
+      return cb(Object.assign(new Error(`${hostname} points at a private address`), { code: "PRIVATE_ADDRESS" }));
+    }
+    return opts.all ? cb(null, list) : cb(null, list[0].address, list[0].family);
+  });
+}
+
+/** fetch() over https, connecting only to public addresses (checked at connect time). No redirects. */
+export function pinnedFetch(url, { method = "GET", headers = {}, body, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    if (u.protocol !== "https:") return reject(new Error("Only https is allowed"));
+    if (net.isIP(u.hostname.replace(/^\[|\]$/g, "")) && isPrivate(u.hostname.replace(/^\[|\]$/g, ""))) return reject(new Error("Private address"));
+    const req = https.request(u, { method, headers, lookup: publicLookup, signal }, (res) => {
+      const out = new Headers();
+      for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) out.set(k, Array.isArray(v) ? v.join(", ") : String(v));
+      const noBody = method === "HEAD" || res.statusCode === 204 || res.statusCode === 304;
+      if (noBody) res.resume();
+      resolve(new Response(noBody ? null : Readable.toWeb(res), { status: res.statusCode, headers: out }));
+    });
+    req.on("error", reject);
+    req.end(body ?? undefined);
+  });
 }
 
 const MAX_FILE_PART = 2 * 1024 * 1024;

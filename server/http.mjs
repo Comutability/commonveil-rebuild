@@ -51,7 +51,8 @@ export function bearer(req) {
 
 export function clientIp(req, trustProxy) {
   if (trustProxy) {
-    const f = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+    // The last address is the one our own proxy added; earlier ones are whatever the client sent.
+    const f = String(req.headers["x-forwarded-for"] || "").split(",").map((x) => x.trim()).filter(Boolean).pop();
     if (f) return f;
   }
   return req.socket.remoteAddress || "";
@@ -90,10 +91,16 @@ export function pageFor(distDir, pathname, siteUrl) {
 /** Serve the built site, falling back to index.html for the app's own routes. */
 export function serveStatic(req, res, distDir, csp, { siteUrl = "" } = {}) {
   const url = new URL(req.url, "http://local");
-  let rel = decodeURIComponent(url.pathname);
+  let rel;
+  try {
+    rel = decodeURIComponent(url.pathname);
+  } catch {
+    return send(res, 400, "Bad path");
+  }
   if (rel.includes("\0")) return send(res, 400, "Bad path");
-  let file = path.join(distDir, path.normalize(rel).replace(/^(\.\.[/\\])+/, ""));
-  if (!file.startsWith(distDir)) return send(res, 404, "Not found");
+  const root = path.resolve(distDir);
+  let file = path.resolve(root, `.${path.posix.normalize(`/${rel}`)}`);
+  if (file !== root && !file.startsWith(root + path.sep)) return send(res, 404, "Not found");
   let isIndex = false;
   if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) {
     // A missing asset is a 404; anything else is a page of the app.

@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createVouchCache } from "../src/lib/secure/vouch.js";
-import { readCapped } from "../server/federation/net.mjs";
+import { pinnedFetch, publicLookup, readCapped } from "../server/federation/net.mjs";
 import { Updates } from "../server/updates.mjs";
 
 test("CV-01: a remembered check is for exactly that record, signer and devices, never for its signature alone", async () => {
@@ -103,4 +103,12 @@ test("CV-21: pruning keeps the newest backups by when they were made, including 
   assert.ok(fs.existsSync(made), "the new backup is kept");
   assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith(".db")).length, 5, "five in all");
   assert.ok(!fs.existsSync(path.join(dir, "commonveil-0.9.0-to-0.9.1.db")), "the oldest went");
+});
+
+test("Federation checks the address it connects to, so a name can't switch to a private one in between", async () => {
+  const refused = await new Promise((resolve) => publicLookup("localhost", {}, (err) => resolve(err?.code)));
+  assert.equal(refused, "PRIVATE_ADDRESS");
+  await assert.rejects(() => pinnedFetch("https://localhost:9/x"), /private address/);
+  await assert.rejects(() => pinnedFetch("https://127.0.0.1:9/x"), /Private address/);
+  await assert.rejects(() => pinnedFetch("http://example.com/"), /Only https/);
 });
