@@ -118,7 +118,7 @@ export async function userRecord(sr: any, id: string): Promise<any | null> {
   // The hosted site: someone from another site has no account row here, only what their own
   // site shares about them (federation/hosted.ts). They exist, but can never sign in here.
   if (!SITE.enabled) return null;
-  const [shadow] = await sr.entities.FedShadow.filter({ user_id: id }, "created_date", 1).catch(() => []);
+  const [shadow] = await Promise.resolve().then(() => sr.entities.FedShadow.filter({ user_id: id }, "created_date", 1)).catch(() => []);
   return shadow ? { id, email: "", role: "user", remote: true, home: shadow.home } : null;
 }
 

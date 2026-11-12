@@ -6,10 +6,10 @@
 //   file the build writes from this). The private half never leaves the FedKey table. To set up:
 //   deploy, call the fedidentity function with ?site=1, and copy the key it reports here.
 export const SITE = {
-  enabled: false,
+  enabled: true,
   host: "commonveil-rebuild-71d823fd.base44.app",
   name: "Commonveil",
-  public_key: "",
+  public_key: "s-gk8goe9oIRNtXkJfPANc1lgYyFF-3fKeCRWDM9MH8",
 };
 
 /** Where the hosted site's endpoints are: one function each (the platform has no sub-paths). */
