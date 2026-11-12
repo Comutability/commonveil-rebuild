@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import http from "node:http";
-import { DEFAULT_SITE_URL, PAGES, headHtml, seoFor, sitemapXml } from "../src/lib/site/seo.js";
+import { DEFAULT_SITE_URL, PAGES, SITE_PLACEHOLDER, headHtml, seoFor, sitemapXml } from "../src/lib/site/seo.js";
 import { parseArticle } from "../src/lib/site/help.js";
 import { serveStatic } from "../server/http.mjs";
 
@@ -64,8 +64,8 @@ test("a self-hosted server sends each page with its own tags, real 404s and its 
   const dist = mkdtempSync(join(tmpdir(), "cv-seo-"));
   writeFileSync(join(dist, "index.html"), readFileSync(new URL("../index.html", import.meta.url), "utf8"));
   writeFileSync(join(dist, "help-index.json"), JSON.stringify(articles.map(({ slug, title, summary, section }) => ({ slug, title, summary, section }))));
-  writeFileSync(join(dist, "sitemap.xml"), sitemapXml({ articles }));
-  writeFileSync(join(dist, "robots.txt"), readFileSync(new URL("../public/robots.txt", import.meta.url), "utf8"));
+  writeFileSync(join(dist, "sitemap.xml"), sitemapXml({ articles, siteUrl: SITE_PLACEHOLDER }));
+  writeFileSync(join(dist, "robots.txt"), readFileSync(new URL("../robots.template.txt", import.meta.url), "utf8").split("{{SITE_URL}}").join(SITE_PLACEHOLDER));
   const server = http.createServer((req, res) => serveStatic(req, res, dist, "default-src 'none'", { siteUrl: "https://chat.example.org" }));
   await new Promise((r) => server.listen(0, r));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -99,7 +99,7 @@ test("a self-hosted server sends each page with its own tags, real 404s and its 
     assert.equal(r.headers.get("location"), "/help");
 
     const sitemap = await (await get("/sitemap.xml")).text();
-    assert.ok(sitemap.includes("<loc>https://chat.example.org/help</loc>") && !sitemap.includes(DEFAULT_SITE_URL), "this site's own address");
+    assert.ok(sitemap.includes("<loc>https://chat.example.org/help</loc>") && !sitemap.includes(SITE_PLACEHOLDER) && !sitemap.includes(DEFAULT_SITE_URL), "this site's own address");
     const robots = await (await get("/robots.txt")).text();
     assert.ok(robots.includes("Sitemap: https://chat.example.org/sitemap.xml"));
   } finally {

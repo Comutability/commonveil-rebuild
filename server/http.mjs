@@ -1,7 +1,7 @@
 // Small HTTP helpers for the self-hosted server.
 import fs from "node:fs";
 import path from "node:path";
-import { DEFAULT_SITE_URL, headHtml, seoFor } from "../src/lib/site/seo.js";
+import { SITE_PLACEHOLDER, headHtml, seoFor } from "../src/lib/site/seo.js";
 
 export const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
@@ -132,7 +132,7 @@ export function serveStatic(req, res, distDir, csp, { siteUrl = "" } = {}) {
   }
   // The sitemap and robots file are written for the usual address; this site's own goes in.
   if (siteUrl && /[\\/](sitemap\.xml|robots\.txt)$/.test(file)) {
-    const text = fs.readFileSync(file, "utf8").split(DEFAULT_SITE_URL).join(siteUrl.replace(/\/+$/, ""));
+    const text = fs.readFileSync(file, "utf8").split(SITE_PLACEHOLDER).join(siteUrl.replace(/\/+$/, ""));
     headers["Content-Type"] = file.endsWith(".xml") ? "application/xml; charset=utf-8" : headers["Content-Type"];
     res.writeHead(200, headers);
     return res.end(req.method === "HEAD" ? undefined : text);

@@ -9,8 +9,17 @@
 // people's profiles (there's deliberately no directory of people, and a search engine would be one).
 
 export const SITE_NAME = "Commonveil";
-/** Where the site lives when nothing else says (the Base44 build). Self-hosted sites use their own. */
-export const DEFAULT_SITE_URL = "https://commonveil-rebuild-71d823fd.base44.app";
+/**
+ * Stands in for the site's address in files written at build time for a self-hosted site; its
+ * server puts its own address in when it serves them (server/http.mjs).
+ */
+export const SITE_PLACEHOLDER = "https://commonveil.invalid";
+/**
+ * Where the site lives when nothing else says: the hosted site, or the placeholder in a
+ * self-hosted build, which mentions no other site at all.
+ */
+export const DEFAULT_SITE_URL =
+  import.meta.env?.VITE_COMMONVEIL_BACKEND === "selfhost" ? SITE_PLACEHOLDER : "https://commonveil-rebuild-71d823fd.base44.app";
 export const DEFAULT_DESCRIPTION =
   "End-to-end encrypted messages, groups, communities and calls. Open source, free, and you can run it yourself.";
 /** The picture shown when a link to the site is shared (1200 × 630). */

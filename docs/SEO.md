@@ -36,7 +36,8 @@ search engine would make one). Unknown addresses say "noindex" too.
 
 ## sitemap.xml and robots.txt
 
-The build writes `sitemap.xml` (every public page and article). `public/robots.txt` points to it,
+The build writes `sitemap.xml` (every public page and article) and `robots.txt` (from
+`robots.template.txt`), which points to it,
 keeps crawlers out of `/app` and `/admin`, and lets them read invites, reset links and profiles
 only so they see their "noindex" (a blocked page can still be listed by its address alone).
 AI-training crawlers (GPTBot, ClaudeBot, Google-Extended, CCBot and others) are refused, as before;
@@ -44,8 +45,8 @@ that doesn't affect search results.
 
 ## When the address changes
 
-The site's address is `DEFAULT_SITE_URL` in `src/lib/site/seo.js`, and appears in `public/robots.txt`
-and the Base44 `canonical_url` setting. Moving to a new domain means changing all three, then telling
+The site's address is `DEFAULT_SITE_URL` in `src/lib/site/seo.js` and the Base44 `canonical_url`
+setting. Moving to a new domain means changing both, then telling
 Google Search Console and Bing Webmaster Tools about the new address and its sitemap.
 
 ## Still to do by hand
@@ -55,3 +56,6 @@ Google Search Console and Bing Webmaster Tools about the new address and its sit
 - No one can promise a ranking. These pages are complete, fast and accessible (Lighthouse scores 100
   for SEO, accessibility and best practices on every public page); where they rank depends on what
   people search for and who links to them.
+
+A self-hosted build names no site at all: its sitemap and robots file say
+`https://commonveil.invalid`, and the server puts its own address in when it serves them.

@@ -28,4 +28,4 @@ Disallow: /
 User-agent: meta-externalagent
 Disallow: /
 
-Sitemap: https://commonveil-rebuild-71d823fd.base44.app/sitemap.xml
+Sitemap: {{SITE_URL}}/sitemap.xml

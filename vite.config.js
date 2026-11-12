@@ -1,4 +1,3 @@
-import base44 from "@base44/vite-plugin"
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { readFileSync, readdirSync } from 'node:fs'
@@ -6,10 +5,12 @@ import { defineConfig } from 'vite'
 
 import { BASE44_CSP, SELF_HOSTED_CSP } from './csp.config.mjs'
 import { parseArticle, sortArticles } from './src/lib/site/help.js'
-import { DEFAULT_SITE_URL, sitemapXml } from './src/lib/site/seo.js'
+import { DEFAULT_SITE_URL, SITE_PLACEHOLDER, sitemapXml } from './src/lib/site/seo.js'
 
 // "selfhost" builds the site for a self-hosted server (server/), with no Base44 code in it.
 const SELF_HOSTED = process.env.VITE_COMMONVEIL_BACKEND === 'selfhost'
+// Base44's plugin is loaded only for the Base44 build, so a self-hosted build works without it.
+const base44 = SELF_HOSTED ? null : (await import('@base44/vite-plugin')).default
 
 /**
  * Content Security Policy, in a <meta> tag (see csp.config.mjs). It's added to production
@@ -35,8 +36,8 @@ function contentSecurityPolicy() {
 }
 
 /**
- * sitemap.xml: every public page and Help Centre article (src/lib/site/seo.js). Written for the
- * site's usual address; a self-hosted server swaps in its own when it serves the file.
+ * sitemap.xml and robots.txt: every public page and Help Centre article (src/lib/site/seo.js).
+ * Written for the hosted site's address, or for a self-hosted server to fill in its own.
  */
 function sitemap() {
   return {
@@ -48,7 +49,11 @@ function sitemap() {
         readdirSync(dir).filter((f) => f.endsWith(".md")).map((f) => parseArticle(f.replace(/\.md$/, ""), readFileSync(new URL(f, dir), "utf8"))),
       );
       const { releases } = JSON.parse(readFileSync(new URL("./src/content/releases.json", import.meta.url), "utf8"));
-      this.emitFile({ type: "asset", fileName: "sitemap.xml", source: sitemapXml({ siteUrl: DEFAULT_SITE_URL, articles, lastmod: releases[0]?.date || "" }) });
+      // A self-hosted build names no site: its server fills in its own address.
+      const siteUrl = SELF_HOSTED ? SITE_PLACEHOLDER : DEFAULT_SITE_URL;
+      this.emitFile({ type: "asset", fileName: "sitemap.xml", source: sitemapXml({ siteUrl, articles, lastmod: releases[0]?.date || "" }) });
+      const robots = readFileSync(new URL("./robots.template.txt", import.meta.url), "utf8").split("{{SITE_URL}}").join(siteUrl);
+      this.emitFile({ type: "asset", fileName: "robots.txt", source: robots });
       // For a self-hosted server, which writes each page's tags itself (server/http.mjs).
       const index = articles.map(({ slug, title, summary, section }) => ({ slug, title, summary, section }));
       this.emitFile({ type: "asset", fileName: "help-index.json", source: JSON.stringify(index) });

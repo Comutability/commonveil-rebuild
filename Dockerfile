@@ -10,11 +10,13 @@ FROM ${NODE_IMAGE} AS site
 WORKDIR /build
 # The install policy (.npmrc) comes first, so it applies to the install.
 COPY .npmrc package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+# Base44's packages are only for the Base44-hosted build: a self-hosted build removes them, and
+# check-independent.mjs (below) fails the build if anything of theirs is still needed.
+RUN npm ci --no-audit --no-fund && rm -rf node_modules/@base44
 COPY . .
 ARG COMMONVEIL_VERSION=""
 ENV VITE_COMMONVEIL_BACKEND=selfhost COMMONVEIL_VERSION=${COMMONVEIL_VERSION}
-RUN npx vite build --outDir /build/dist-selfhost && node scripts/check-bundle.mjs /build/dist-selfhost
+RUN npx vite build --outDir /build/dist-selfhost && node scripts/check-bundle.mjs /build/dist-selfhost && node scripts/check-independent.mjs /build/dist-selfhost
 
 # ---- Only what the server needs at run time, exactly as locked (deploy/runtime) ----
 FROM ${NODE_IMAGE} AS deps
