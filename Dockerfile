@@ -35,6 +35,8 @@ ENV NODE_ENV=production DATA_DIR=/data DIST_DIR=/app/dist PORT=8080 NODE_NO_WARN
 COPY --from=deps /deps/node_modules ./node_modules
 COPY package.json ./
 COPY server ./server
+COPY packages/secure-net/src ./packages/secure-net/src
+COPY packages/secure-net/package.json ./packages/secure-net/
 COPY base44/shared ./base44/shared
 COPY base44/actors ./base44/actors
 COPY base44/entities ./base44/entities

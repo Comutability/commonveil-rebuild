@@ -2,7 +2,7 @@
 
 How Commonveil sites talk to each other: how people are found by their address, how a
 conversation or a server on one site is used by people from others, and what each site learns.
-This is the specification; `server/federation/` is the implementation, and
+This is the specification. The wire format (what's signed, digests, address rules) and all the end-to-end crypto live in **Secure Net** (`packages/secure-net`, a copy of [Comutability/secure-net](https://github.com/Comutability/secure-net), which other apps can use too); `server/federation/` is the implementation, and
 `tests/federation.test.mjs` runs two real sites against each other.
 
 It's our own protocol, written for end-to-end encrypted chat. It borrows from three others:

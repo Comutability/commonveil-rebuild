@@ -1,0 +1,34 @@
+{
+  "name": "@comutability/secure-net",
+  "version": "0.1.0",
+  "description": "Secure Net: the Commonveil Protocol. Private, end-to-end encrypted, federated communication that any app or site can use.",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "repository": { "type": "git", "url": "https://github.com/Comutability/secure-net" },
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./core/*": "./src/core/*.js",
+    "./crypto/*": "./src/crypto/*.js",
+    "./wire/*": "./src/wire/*.js",
+    "./commons/*": "./src/commons/*.js",
+    "./governance/*": "./src/governance/*.js",
+    "./tokens/*": "./src/tokens/*.js",
+    "./identity/*": "./src/identity/*.js",
+    "./consent/*": "./src/consent/*.js",
+    "./extensions/*": "./src/extensions/*.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["src", "spec", "README.md", "LICENSE"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "manifest": "node scripts/manifest.mjs"
+  },
+  "dependencies": {
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "@noble/post-quantum": "0.7.1",
+    "@scure/bip39": "^2.4.0"
+  }
+}

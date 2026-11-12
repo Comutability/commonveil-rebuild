@@ -1,0 +1,46 @@
+# Keeps Commonveil's copy of Secure Net (packages/secure-net) in step with
+# https://github.com/Comutability/secure-net: daily, or when run by hand, it copies the latest
+# Secure Net in, runs the full checks, and opens a pull request if anything changed.
+name: Secure Net
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [secure-net-updated]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Comutability/secure-net
+          path: .secure-net
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      - run: node scripts/secure-net-sync.mjs .secure-net && rm -rf .secure-net
+      - name: Anything new?
+        id: diff
+        run: |
+          if git diff --quiet -- packages/secure-net; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.diff.outputs.changed == 'true'
+        run: npm run verify
+      - if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(node -p "require('./packages/secure-net/package.json').version")
+          branch="secure-net-$version-$(git rev-parse --short HEAD)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add packages/secure-net
+          git commit -m "Update Secure Net to $version"
+          git push origin "$branch"
+          gh pr create --title "Update Secure Net to $version" --body "Copied from Comutability/secure-net by the Secure Net workflow. All checks passed (npm run verify)."

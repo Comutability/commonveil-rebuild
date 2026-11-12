@@ -8,12 +8,14 @@ import https from "node:https";
 import { lookup as dnsLookup } from "node:dns";
 import { Readable } from "node:stream";
 import { WebSocket } from "ws";
+// The wire format itself (what's signed, digests, which addresses are off limits) is Secure Net's.
+import { PROTOCOL, HOST_RE, signatureBase, digestOf, isPrivate } from "../../packages/secure-net/src/wire/federation.js";
 
-export const PROTOCOL = "commonveil/1";
+export { PROTOCOL, HOST_RE, signatureBase, digestOf, isPrivate };
+
 const SKEW_MS = 5 * 60_000;
 const MAX_RESPONSE = 4 * 1024 * 1024;
 const DOC_TTL_MS = 60 * 60_000;
-export const HOST_RE = /^(?=.{1,253}(:\d{1,5})?$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*(:\d{1,5})?$/;
 
 export class FederationError extends Error {
   constructor(status, code, message) {
@@ -58,11 +60,7 @@ export function verifyEd25519(publicRaw, data, signature) {
   }
 }
 
-/** What a request's signature covers: method, both sites, path, time, a one-off nonce, the body and the person it's for. */
-export const signatureBase = ({ method, to, path, from, date, nonce, digest, user }) =>
-  ["commonveil-request/v1", method.toUpperCase(), to, path, from, date, nonce, digest, user || "-"].join("\n");
 
-export const digestOf = (body) => `sha-256=${b64u(sha256(body || ""))}`;
 
 /**
  * Outbound connections to other sites. By default only https, and never to private, loopback or
@@ -222,15 +220,6 @@ export async function readCapped(res, max) {
   return out;
 }
 
-export function isPrivate(ip) {
-  if (net.isIPv4(ip)) {
-    const [a, b] = ip.split(".").map(Number);
-    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
-  }
-  const v = ip.toLowerCase();
-  if (v.startsWith("::ffff:")) return isPrivate(v.slice(7));
-  return v === "::1" || v === "::" || v.startsWith("fc") || v.startsWith("fd") || v.startsWith("fe80") || v.startsWith("ff");
-}
 
 /** Signing outbound requests, and checking inbound ones. */
 export class Signer {

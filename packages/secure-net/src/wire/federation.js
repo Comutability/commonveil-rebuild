@@ -1,0 +1,65 @@
+// Site-to-site wire format (CVP-005): how one site signs a request to another, and the address
+// rules every site applies before connecting anywhere. Transport (HTTP, WebSockets, DNS) is the
+// host application's; this is the part two implementations must agree on byte for byte.
+import { ed25519 } from "@noble/curves/ed25519.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { b64u, fromB64u, utf8 } from "../core/bytes.js";
+
+/** The federation protocol this version of Secure Net speaks. */
+export const PROTOCOL = "commonveil/1";
+
+/** How far apart two sites' clocks may be before a request is refused. */
+export const SKEW_MS = 5 * 60_000;
+
+/** A site address: a DNS name with an optional port, lower case. */
+export const HOST_RE = /^(?=.{1,253}(:\d{1,5})?$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*(:\d{1,5})?$/;
+
+/** A site address in its one accepted form, or null. */
+export function normHost(h) {
+  const v = String(h || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  return HOST_RE.test(v) ? v : null;
+}
+
+/** The body digest a signed request carries. */
+export const digestOf = (body) => `sha-256=${b64u(sha256(typeof body === "string" ? utf8(body || "") : body || new Uint8Array()))}`;
+
+/**
+ * What a request's signature covers: method, both sites, path, time, a one-off nonce, the body
+ * and the person it's for.
+ */
+export const signatureBase = ({ method, to, path, from, date, nonce, digest, user }) =>
+  ["commonveil-request/v1", method.toUpperCase(), to, path, from, date, nonce, digest, user || "-"].join("\n");
+
+/** Sign a request with a site's Ed25519 secret key (base64url). */
+export const signRequest = (fields, secretKey) => b64u(ed25519.sign(utf8(signatureBase(fields)), fromB64u(secretKey)));
+
+/** Check a request's signature against the sending site's published key (base64url). */
+export function verifyRequest(fields, signature, publicKey) {
+  try {
+    return ed25519.verify(fromB64u(signature), utf8(signatureBase(fields)), fromB64u(publicKey));
+  } catch {
+    return false;
+  }
+}
+
+/** Whether a request's date is close enough to now. */
+export const freshEnough = (date, now = Date.now()) => {
+  const t = Date.parse(date);
+  return Number.isFinite(t) && Math.abs(now - t) <= SKEW_MS;
+};
+
+const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+
+/**
+ * Whether an address is one no site should be made to connect to on another's say-so: private,
+ * loopback, link-local, carrier-grade NAT, multicast or reserved.
+ */
+export function isPrivate(ip) {
+  const v = String(ip).toLowerCase().replace(/^\[|\]$/g, "");
+  if (IPV4.test(v)) {
+    const [a, b] = v.split(".").map(Number);
+    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+  }
+  if (v.startsWith("::ffff:")) return isPrivate(v.slice(7));
+  return v === "::1" || v === "::" || v.startsWith("fc") || v.startsWith("fd") || v.startsWith("fe80") || v.startsWith("ff");
+}

@@ -4,6 +4,8 @@
   "description": "What the self-hosted server needs at run time, and nothing else. Installed in the Docker image with npm ci, from the lockfile beside it. Keep in step with package.json (tests/runtimeDeps.test.mjs).",
   "type": "module",
   "dependencies": {
-    "ws": "8.22.1"
+    "ws": "8.22.1",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0"
   }
 }
