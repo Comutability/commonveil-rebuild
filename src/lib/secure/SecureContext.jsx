@@ -8,7 +8,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { callFn } from "@/lib/api";
-import { needSignIn, setOwnerKey } from "@/lib/identity/client";
+import { needSignIn, setIdentityProver, setOwnerKey } from "@/lib/identity/client";
 import * as P from "./protocol.js";
 import * as S from "./store.js";
 import { createDeviceKeys, defaultDeviceLabel, withDeviceKem } from "../crypto/device.js";
@@ -64,6 +64,18 @@ export function SecureProvider({ children }) {
 
   const deviceRef = useRef(null);
   const keyringRef = useRef(null);
+
+  // Sign-in changes that protect the account (passkeys, approving a browser, the owner key) are
+  // proven with this browser's encryption device, read when the change is made (docs/IDENTITY.md).
+  useEffect(() => {
+    if (!userId) return undefined;
+    setIdentityProver(async (action, payloadJson) => {
+      const device = deviceRef.current;
+      if (!device?.sign_priv) return null;
+      return P.deviceProofFor({ userId, device, action, payloadJson });
+    });
+    return () => setIdentityProver(null);
+  }, [userId]);
   // While unlocked: the key the keyring is stored under. Dropped on lock.
   const lockKeyRef = useRef(null);
   const pinsRef = useRef({});

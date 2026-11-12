@@ -5,7 +5,7 @@ import { startAuthentication, startRegistration } from "@simplewebauthn/browser"
 import { base44, SELF_HOSTED } from "@/api/base44Client";
 import { ApiError, callFn } from "@/lib/api";
 import { ownerKey, signOwner, wipeOwnerKey } from "@/lib/crypto/owner";
-import { clearSession, setSession } from "./session";
+import { clearSession, renewAccess, setSession } from "./session";
 
 const DEVICE_KEY = "commonveil_device";
 
@@ -49,6 +49,55 @@ export function deviceName() {
 
 const origin = () => window.location.origin;
 
+// ---------- proving it's really you ----------
+//
+// Changes to how the account is protected (passkeys, letting another browser in, the owner key,
+// the email) need more than a signed-in session (docs/IDENTITY.md): a proof from this browser's
+// encryption device, whose key never leaves it, or the account's password. The encryption layer
+// (SecureContext) registers a prover once this browser's device is ready.
+
+let prover = null;
+
+/** fn(action, payloadJson) -> proof, or null when this browser has no ready encryption device. */
+export function setIdentityProver(fn) {
+  prover = typeof fn === "function" ? fn : null;
+}
+
+/** The app asks for the password, then calls again with { password }. */
+export const PROOF_REQUIRED = "PROOF_REQUIRED";
+const DEVICE_CANT_PROVE = new Set(["DEVICE_UNKNOWN", "DEVICE_NOT_ACTIVE", "PROOF_INVALID", "PROOF_EXPIRED"]);
+
+/** Send a protected change: signed by this browser's device when it can be, else with the password. */
+async function proven(action, proofAction, fields, { password } = {}) {
+  if (typeof password === "string") return act(action, { ...fields, password });
+  const userId = currentUserId();
+  if (prover && userId) {
+    const payload = JSON.stringify({ ...fields, action: proofAction, user_id: userId });
+    let proof = null;
+    try {
+      proof = await prover(`identity.${proofAction}`, payload);
+    } catch {
+      proof = null;
+    }
+    if (proof) {
+      try {
+        return await act(action, { payload, proof });
+      } catch (err) {
+        if (!DEVICE_CANT_PROVE.has(err.code)) throw err;
+      }
+    }
+  }
+  throw new IdentityError("Enter your password to confirm it's you.", PROOF_REQUIRED);
+}
+
+function currentUserId() {
+  try {
+    return JSON.parse(window.localStorage.getItem("commonveil_session") || "null")?.user_id || "";
+  } catch {
+    return "";
+  }
+}
+
 /** One sign-in action. An answer that signs in is applied: the session and this device are kept. */
 async function act(action, body = {}) {
   let data;
@@ -59,6 +108,8 @@ async function act(action, body = {}) {
   }
   if (data?.device) keepDevice(data.device);
   if (data?.session) setSession(data.session);
+  // A change that moved the account's security epoch on gives this browser a token for the new one.
+  if (data?.renewed_access) renewAccess(data.renewed_access.access_token, data.renewed_access.access_expires_at);
   return data;
 }
 
@@ -78,7 +129,9 @@ async function prompt(fn) {
 
 // ---------- signing in ----------
 
-export const register = ({ username, password, ageConfirmed }) => act("register", withDevice({ username, password, age_confirmed: ageConfirmed === true }));
+/** setupCode: only for a new self-hosted site's first (admin) account (docs/SELF_HOSTING.md). */
+export const register = ({ username, password, ageConfirmed, setupCode }) =>
+  act("register", withDevice({ username, password, age_confirmed: ageConfirmed === true, ...(setupCode ? { setup_code: setupCode } : {}) }));
 
 /** Answers { session } when signed in, or { verify } when this browser must be confirmed first. */
 export const login = ({ username, password }) => act("login", withDevice({ username, password }));
@@ -146,29 +199,55 @@ export async function recover({ username, method, phraseOrKey, newPassword }) {
 
 export const whoAmI = () => act("me");
 export const identityStatus = () => act("status");
-/** change: remove_passkey, disconnect_device, set_password, change_password, remove_email. */
-export const identityAction = (change, extra = {}) => act("account", { change, ...extra });
+const PROTECTED_CHANGES = new Set(["remove_passkey", "remove_email", "set_password"]);
+
+/**
+ * change: remove_passkey, disconnect_device, set_password, change_password, remove_email, confirm_age.
+ * opts.password: when asked (PROOF_REQUIRED), the account's password.
+ */
+export const identityAction = (change, extra = {}, opts = {}) =>
+  PROTECTED_CHANGES.has(change) && !(change === "set_password" && opts.unproven) ? proven("account", `account.${change}`, { change, ...extra }, opts).catch((err) => {
+    // An account with no encryption device yet sets its first password with its session alone.
+    if (change === "set_password" && err.code === PROOF_REQUIRED) return act("account", { change, ...extra });
+    throw err;
+  }) : act("account", { change, ...extra });
 
 /** kind: "device" (only this device) or "synced" (a password manager or phone). */
-export async function addPasskey(kind, name = "") {
+export async function addPasskey(kind, name = "", opts = {}) {
   const { id, options } = await act("passkey_options", { kind, origin: origin() });
   const response = await prompt(() => startRegistration({ optionsJSON: options }));
-  return act("passkey_add", { id, response, name });
+  return proven("passkey_add", "passkey_add", { id, response, name }, opts);
 }
 
-/** Record the account's owner key from its phrase or private key (proving you hold it). */
-export async function setOwnerKey(phraseOrKey) {
+/**
+ * Record the account's owner key from its phrase or private key. Holding the key proves it's
+ * yours; replacing an earlier one also needs this browser's encryption device (or the old key).
+ */
+export async function setOwnerKey(phraseOrKey, opts = {}) {
   const key = await ownerKey(phraseOrKey);
   try {
     const { id, challenge, realm } = await act("owner_challenge");
-    return await act("owner", { id, owner_pub: key.publicKey, signature: signOwner(key, { host: realm, purpose: "set-owner", challenge }) });
+    const fields = {
+      id,
+      owner_pub: key.publicKey,
+      signature: signOwner(key, { host: realm, purpose: "set-owner", challenge }),
+      // If this phrase is already the account's, it vouches for itself.
+      old_signature: signOwner(key, { host: realm, purpose: `replace-owner:${key.publicKey}`, challenge }),
+    };
+    try {
+      return await proven("owner", "owner", fields, opts);
+    } catch (err) {
+      if (err.code !== PROOF_REQUIRED) throw err;
+      return act("owner", fields);
+    }
   } finally {
     wipeOwnerKey(key);
   }
 }
 
 export const pendingApprovals = () => act("approvals");
-export const answerApproval = (id, approve) => act("approve", { id, approve });
+/** Turning a sign-in down needs nothing more; letting it in is a protected change. */
+export const answerApproval = (id, approve, opts = {}) => (approve === true ? proven("approve", "approve", { id, approve: true }, opts) : act("approve", { id, approve: false }));
 
 /** Sign out here: this session ends; the device stays known, so signing back in needs no check. */
 export async function signOut() {

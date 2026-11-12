@@ -30,14 +30,10 @@ export function loadConfig(env = process.env) {
     distDir: path.resolve(env.DIST_DIR || new URL("../dist", import.meta.url).pathname),
     secret,
     siteName: env.SITE_NAME || "Commonveil",
-    adminEmails: list(env.ADMIN_EMAILS),
-    adminUsernames: list(env.ADMIN_USERNAMES),
     // PBKDF2 rounds for passwords. Only tests lower it.
     passwordRounds: Math.max(1000, Number(env.PASSWORD_ROUNDS || 600_000)),
     defaultServerAdmins: list(env.DEFAULT_SERVER_ADMINS),
     openRegistration: bool(env.OPEN_REGISTRATION, true),
-    smtpUrl: env.SMTP_URL || "",
-    mailFrom: env.MAIL_FROM || "",
     trustProxy: bool(env.TRUST_PROXY, false),
     // Updates: where releases are announced, and the updater container that applies them.
     updateFeed: env.UPDATE_FEED || "https://api.github.com/repos/Comutability/commonveil-rebuild/releases?per_page=20",

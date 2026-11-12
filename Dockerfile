@@ -8,19 +8,19 @@ ARG NODE_IMAGE=node:24-alpine
 # ---- Build the site (the browser app), for a self-hosted server ----
 FROM ${NODE_IMAGE} AS site
 WORKDIR /build
-COPY package.json package-lock.json ./
+# The install policy (.npmrc) comes first, so it applies to the install.
+COPY .npmrc package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
 ARG COMMONVEIL_VERSION=""
 ENV VITE_COMMONVEIL_BACKEND=selfhost COMMONVEIL_VERSION=${COMMONVEIL_VERSION}
 RUN npx vite build --outDir /build/dist-selfhost && node scripts/check-bundle.mjs /build/dist-selfhost
 
-# ---- Only what the server needs at run time ----
+# ---- Only what the server needs at run time, exactly as locked (deploy/runtime) ----
 FROM ${NODE_IMAGE} AS deps
 WORKDIR /deps
-COPY package.json ./
-RUN node -e 'const p=require("./package.json");const d=p.dependencies;require("fs").writeFileSync("server-package.json",JSON.stringify({name:"commonveil-server",private:true,type:"module",dependencies:{ws:d.ws,nodemailer:d.nodemailer}}))' \
- && mv server-package.json package.json && npm install --omit=dev --no-audit --no-fund
+COPY .npmrc deploy/runtime/package.json deploy/runtime/package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
 
 FROM ${NODE_IMAGE}
 ARG COMMONVEIL_VERSION=""

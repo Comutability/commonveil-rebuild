@@ -145,11 +145,15 @@ export async function addMember(sr: any, server: any, user: any, { listed = fals
   const roleIds: string[] = [];
   let makeOwner = false;
   if (server.is_default && adminEmails.length) {
-    // Listed by email, or (on self-hosted sites, where accounts have no email) by username.
+    // Listed by email (a verified sign-in address), or on self-hosted sites by username. A
+    // username proves nothing by itself (anyone can register one that's still free), so it only
+    // counts for an account the site's operator has already made an admin.
     const names = new Set<string>();
     if (user.email) names.add(String(user.email).toLowerCase());
-    const [profile] = await sr.entities.Profile.filter({ user_id: user.id }, "created_date", 1);
-    if (profile?.username_key) names.add(String(profile.username_key).toLowerCase());
+    if (user.role === "admin") {
+      const [profile] = await sr.entities.Profile.filter({ user_id: user.id }, "created_date", 1);
+      if (profile?.username_key) names.add(String(profile.username_key).toLowerCase());
+    }
     const match = adminEmails.find((e: string) => names.has(e));
     if (match) {
       const [admin] = await sr.entities.Role.filter({ server_id: server.id, template_key: "admin" }, "created_date", 1);
@@ -205,8 +209,9 @@ export async function removeMember(sr: any, serverId: string, userId: string, { 
 }
 
 /**
- * Members who can see a private channel: those with a role whose overwrite lets them in, or an
- * administrator role, and the owner. (@everyone can't, or it wouldn't be private.)
+ * Members who can see a private channel, worked out from their effective permissions there. Anyone
+ * holding a role is a candidate (a role's own permissions can let someone in without any
+ * overwrite naming it, CV-05), plus the owner; then each is checked with the real calculation.
  */
 export async function membersWhoCanSee(sr: any, parts: any, channel: any) {
   // If @everyone can see it (it's private because some role is denied), everyone is a candidate.
@@ -217,10 +222,8 @@ export async function membersWhoCanSee(sr: any, parts: any, channel: any) {
   if (everyoneSees) {
     found.push(...(await sr.entities.ServerMember.filter({ server_id: parts.server.id }, "joined_at", 10_000)));
   } else {
-    const overwriteRoles = (channel.overwrites || []).filter((o: any) => (Number(o.allow) & P.VIEW_CHANNEL) !== 0).map((o: any) => o.role_id);
-    const adminRoles = parts.roles.filter((r: any) => !r.is_everyone && (Number(r.permissions) & P.ADMINISTRATOR) !== 0).map((r: any) => r.id);
-    const roleIds = [...new Set([...overwriteRoles, ...adminRoles])];
-    if (roleIds.length) found.push(...(await sr.entities.ServerMember.filter({ server_id: parts.server.id, role_ids: { $in: roleIds } }, "joined_at", 5000)));
+    const roleIds = parts.roles.filter((r: any) => !r.is_everyone).map((r: any) => r.id);
+    if (roleIds.length) found.push(...(await sr.entities.ServerMember.filter({ server_id: parts.server.id, role_ids: { $in: roleIds } }, "joined_at", 10_000)));
   }
   if (parts.server.owner_id && !found.some((m) => m.user_id === parts.server.owner_id)) {
     const owner = await memberRow(sr, parts.server.id, parts.server.owner_id);

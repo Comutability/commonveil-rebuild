@@ -54,7 +54,21 @@ export async function expireMessages(sr: any, now: Date, deadline: number) {
       await sr.entities.ServerBan.delete(b.id).catch(() => null);
       bansLifted += 1;
     }
-    return { removed, server_removed: serverRemoved, audit_removed: audit, passes_removed: passes, files_removed: files, bans_lifted: bansLifted, done: true };
+    // Sign-in leftovers past their time: challenges (including used ones and password attempts),
+    // refresh tokens and notification codes. Their expiry checks refuse them; this removes them.
+    let signInRemoved = 0;
+    for (const entity of ["CvChallenge", "CvRefresh", "PushCode"]) {
+      for (;;) {
+        if (Date.now() > deadline) throw new OutOfTime();
+        const rows = await sr.entities[entity].filter({ expires_at: { $gt: "", $lte: now.toISOString() } }, "created_date", 200).catch(() => []);
+        for (const r of rows) {
+          await sr.entities[entity].delete(r.id).catch(() => null);
+          signInRemoved += 1;
+        }
+        if (rows.length < 200) break;
+      }
+    }
+    return { removed, server_removed: serverRemoved, audit_removed: audit, passes_removed: passes, files_removed: files, bans_lifted: bansLifted, sign_in_removed: signInRemoved, done: true };
   } catch (error) {
     if (error instanceof OutOfTime) return { removed: null, done: false };
     throw error;

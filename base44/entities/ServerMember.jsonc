@@ -29,6 +29,11 @@
       "type": "string",
       "description": "Timed out until then: can't post, react or join calls."
     },
+    "refused_grantors": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Members whose key handouts to this member turned out wrong (the member reported them); further grants from them are refused. Set only by the backend."
+    },
     "key_status": {
       "type": "string",
       "enum": [

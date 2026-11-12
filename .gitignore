@@ -1,6 +1,8 @@
 #env
 .env
 .env.*
+# The template has no secrets and is part of the release (deploy/install.sh needs it).
+!deploy/.env.example
 
 # Logs
 /logs

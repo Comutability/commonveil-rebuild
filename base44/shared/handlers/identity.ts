@@ -13,8 +13,10 @@
 //   - Getting back in without the password takes a passkey, the phrase or the private key.
 import { ApiError, cleanText, type Actions } from "../http.ts";
 import { personClient } from "../rls.ts";
-import { checkPassword, hashPassword, randomToken, sameString, sha256Hex, verifyEd25519 } from "../identity/crypto.ts";
-import { issueAccess, refreshRow, signedIn, userRecord } from "../identity/sessions.ts";
+import { b64url, checkPassword, fromB64url, hashPassword, hmac, randomToken, sameString, sha256Hex, utf8, verifyEd25519 } from "../identity/crypto.ts";
+import { bumpEpoch, issueAccess, liveSession, refreshRow, signedIn, tokenSecret, userRecord } from "../identity/sessions.ts";
+import { verifyProof } from "../verify.ts";
+import { requireActiveDevice } from "../store.ts";
 import { authenticationOptions, PasskeyError, registrationOptions, rpIdFor, verifyAssertion, verifyRegistration } from "../identity/webauthn.ts";
 import { profileActions } from "./profile.ts";
 
@@ -26,6 +28,8 @@ const MAX_DEVICES = 50;
 const LOCK_AFTER = 10;
 const LOCK_MINUTES = 15;
 const REGISTRATIONS_PER_HOUR = 60;
+/** Signed-out challenges are signed tokens, not rows: nothing piles up however many are asked for. */
+const OPEN_CHALLENGE_MINUTES = 5;
 /** Commonveil is for people 16 and over (src/pages/site/Terms.jsx). The version of the terms agreed to. */
 export const TERMS_VERSION = "2026-11-06";
 
@@ -34,7 +38,14 @@ export type IdentityConfig = {
   realm: string; // the name owner-key signatures are bound to
   siteName: string;
   passkeyHost: (host: string) => boolean; // which page addresses passkeys may be made on
-  adminFor?: (username: string, firstAccount: boolean) => boolean;
+  /**
+   * Self-hosted sites only. Until the site has an admin, creating an account needs the one-time
+   * setup code the server printed for its operator (server/bootstrap.mjs); that account becomes the
+   * admin. Being first, or picking a particular username, proves nothing about who runs the site.
+   */
+  bootstrap?: { needed(sr: any): Promise<boolean>; consume(code: unknown): boolean };
+  /** Whether anyone may create an account (OPEN_REGISTRATION). Defaults to yes. */
+  registrationOpen?: () => boolean;
   platformCutover?: string; // Base44 accounts made after this can't come in by email
   passwordRounds?: number; // tests only
 };
@@ -52,7 +63,6 @@ export const BASE44_IDENTITY: IdentityConfig = {
   realm: envOf("CV_REALM") || "commonveil.online",
   siteName: "Commonveil",
   passkeyHost: (h) => h === "commonveil.online" || h === "www.commonveil.online" || /(^|\.)commonveil-rebuild-71d823fd\.base44\.app$/.test(h) || h === "localhost",
-  adminFor: () => false,
   // Email sign-up closed when Commonveil sign-in arrived: only accounts from before can use it.
   platformCutover: "2026-11-06T04:00:00Z",
 };
@@ -176,6 +186,115 @@ function requireSession(ctx: any) {
   if (!ctx.user || !ctx.session?.deviceId) throw deny(401, "SIGN_IN_REQUIRED", "Please sign in again.");
 }
 
+/**
+ * After this session itself moved the epoch on, a new access token for it, so its own next change
+ * still works (every other session's earlier tokens can no longer change anything).
+ */
+async function renewed(ctx: any) {
+  if (!(await ctx.sr.entities.CvDevice.get(ctx.session.deviceId).catch(() => null))) return undefined;
+  const a = await issueAccess(ctx.sr, ctx.user.id, ctx.session.deviceId);
+  return { access_token: a.token, access_expires_at: a.expires_at };
+}
+
+/** For anything that changes how the account is protected: the session must still be live. */
+async function requireLiveSession(ctx: any) {
+  requireSession(ctx);
+  if (!(await liveSession(ctx.sr, ctx.user.id, ctx.session))) throw deny(401, "SIGN_IN_REQUIRED", "Please sign in again.");
+}
+
+// ----- signed-out challenges, as signed tokens -----
+
+/** A challenge that needs no row: "<b64 claims>.<HMAC>". Used once: see spendChallenge. */
+async function openChallenge(sr: any, purpose: string, data: Record<string, unknown>) {
+  const claims = b64url(utf8(JSON.stringify({ ...data, p: purpose, x: Date.now() + OPEN_CHALLENGE_MINUTES * 60_000, n: randomToken(12) })));
+  return `${claims}.${await hmac(await tokenSecret(sr), `cv-open.${claims}`)}`;
+}
+
+async function readOpenChallenge(sr: any, id: unknown, purpose: string): Promise<Record<string, any>> {
+  const expired = deny(400, "EXPIRED", "That took too long. Start again.");
+  if (typeof id !== "string" || id.length > 800) throw expired;
+  const [claims, sig] = id.split(".");
+  if (!claims || !sig || !sameString(await hmac(await tokenSecret(sr), `cv-open.${claims}`), sig)) throw expired;
+  let data: any;
+  try {
+    data = JSON.parse(new TextDecoder().decode(fromB64url(claims)));
+  } catch {
+    throw expired;
+  }
+  if (data.p !== purpose || !(data.x > Date.now())) throw expired;
+  return data;
+}
+
+/** Mark a signed-out challenge used. Only called once it has worked, so only real sign-ins write a row. */
+async function spendChallenge(sr: any, id: string) {
+  const hash = await sha256Hex(id);
+  if ((await sr.entities.CvChallenge.filter({ token_hash: hash }, "created_date", 1)).length) throw deny(400, "EXPIRED", "That was already used. Start again.");
+  await sr.entities.CvChallenge.create({ user_id: "", purpose: "spent", token_hash: hash, data: "{}", expires_at: new Date(Date.now() + OPEN_CHALLENGE_MINUTES * 60_000).toISOString() });
+}
+
+// ----- password attempts -----
+
+/**
+ * Each attempt is written down before the (slow) password check, and the count is read after, so
+ * guesses made at the same moment can't all slip past the limit together.
+ */
+async function startPasswordAttempt(sr: any, userId: string) {
+  const since = Date.now() - LOCK_MINUTES * 60_000;
+  const row = await sr.entities.CvChallenge.create({ user_id: userId, purpose: "pw-attempt", token_hash: randomToken(16), data: "{}", expires_at: new Date(Date.now() + LOCK_MINUTES * 60_000).toISOString() });
+  const recent = await sr.entities.CvChallenge.filter({ user_id: userId, purpose: "pw-attempt" }, "-created_date", LOCK_AFTER + 5);
+  const counted = recent.filter((r: any) => Date.parse(r.expires_at) - LOCK_MINUTES * 60_000 >= since - 1000);
+  return { row, tooMany: counted.length > LOCK_AFTER };
+}
+
+async function clearPasswordAttempts(sr: any, userId: string) {
+  for (const r of await sr.entities.CvChallenge.filter({ user_id: userId, purpose: "pw-attempt" }, "created_date", 100)) await sr.entities.CvChallenge.delete(r.id).catch(() => null);
+}
+
+// ----- proving it's really you, for changes to how the account is protected -----
+
+async function hasEncryptionDevice(sr: any, userId: string) {
+  const rows = await sr.entities.Device.filter({ user_id: userId, status: "active" }, "created_date", 1).catch(() => []);
+  return rows.length > 0;
+}
+
+/**
+ * A change that adds or removes a way into the account. A signed-in session alone isn't enough
+ * (a stolen or left-behind access token would otherwise make itself permanent): the session must
+ * be live, and the request must also carry one of
+ *   - a proof from one of the account's encryption devices, whose key never leaves that browser
+ *     (body.payload: the request as exact JSON; body.proof: the device's signature over it), or
+ *   - the account's current password (body.password).
+ * Returns the request's fields: from the signed payload when there is one, so what was signed is
+ * exactly what's done.
+ */
+async function provenChange(ctx: any, action: string): Promise<Record<string, any>> {
+  await requireLiveSession(ctx);
+  const { sr, user, body } = ctx;
+  if (body.proof && typeof body.payload === "string") {
+    let fields: any;
+    try {
+      fields = JSON.parse(body.payload);
+    } catch {
+      throw deny(400, "BAD_PAYLOAD", "Invalid request.");
+    }
+    if (!fields || typeof fields !== "object" || fields.action !== action || fields.user_id !== user.id) throw deny(400, "BAD_PAYLOAD", "Invalid request.");
+    const device = await requireActiveDevice(sr, user.id, String(body.proof?.device_id || ""));
+    await verifyProof({ userId: user.id, action: `identity.${action}`, payloadJson: body.payload, proof: body.proof, signPub: device.sign_pub, now: new Date() });
+    return { ...fields, proven_by: "device" };
+  }
+  const acct = await accountOf(sr, user.id);
+  if (typeof body.password === "string" && acct?.password) {
+    const attempt = await startPasswordAttempt(sr, user.id);
+    if (attempt.tooMany) throw deny(429, "RATE_LIMITED", "Too many wrong passwords. Try again in a few minutes.");
+    if (await checkPassword(body.password, acct.password)) {
+      await clearPasswordAttempts(sr, user.id);
+      return { ...body, proven_by: "password" };
+    }
+    throw deny(401, "BAD_LOGIN", "That isn't your current password.");
+  }
+  throw deny(403, "PROOF_REQUIRED", "Confirm it's you: unlock this device's encryption, or enter your password.");
+}
+
 /** The handlers. cfg: the site's identity settings. */
 export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions {
   const rounds = cfg.passwordRounds;
@@ -187,12 +306,20 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
       if (!USERNAME_RE.test(username)) throw deny(400, "BAD_USERNAME", "Usernames are 3 to 20 letters, numbers or underscores.");
       checkNewPassword(body.password);
       if (body.age_confirmed !== true) throw deny(400, "AGE_REQUIRED", "Commonveil is for people 16 and over. Confirm you're 16 or older to create an account.");
+      // A new self-hosted site: only its operator, with the setup code, can make the first account.
+      let role = "user";
+      if (cfg.bootstrap && (await cfg.bootstrap.needed(sr))) {
+        if (body.setup_code === undefined || body.setup_code === "") throw deny(403, "SETUP_CODE_REQUIRED", "This site isn't set up yet. Its operator creates the first account with the setup code shown when the server started.");
+        if (await userIdForName(sr, username)) throw deny(409, "USERNAME_TAKEN", "That username is taken.");
+        if (!cfg.bootstrap.consume(body.setup_code)) throw deny(403, "BAD_SETUP_CODE", "That setup code isn't right, or has already been used.");
+        role = "admin";
+      } else if (cfg.registrationOpen && !cfg.registrationOpen()) {
+        throw deny(403, "REGISTRATION_CLOSED", "This site isn't taking new accounts. Ask its operator.");
+      }
       if (await userIdForName(sr, username)) throw deny(409, "USERNAME_TAKEN", "That username is taken.");
       const hourAgo = new Date(Date.now() - 3600_000).toISOString().replace("Z", "");
       const recent = await sr.entities.Person.filter({ created_date: { $gte: hourAgo } }, "-created_date", REGISTRATIONS_PER_HOUR);
       if (recent.length >= REGISTRATIONS_PER_HOUR) throw deny(429, "RATE_LIMITED", "A lot of accounts are being made right now. Try again in a while.");
-      const first = !(await sr.entities.CvAccount.filter({}, "created_date", 1)).length && !(await sr.entities.User.filter({}, "created_date", 1).catch(() => [])).length;
-      const role = cfg.adminFor?.(username, first) ? "admin" : "user";
       const person = await sr.entities.Person.create({ role, email: "", full_name: "" });
       const user = { ...person, email: "" };
       try {
@@ -201,7 +328,7 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
         await sr.entities.Person.delete(person.id).catch(() => null);
         throw err;
       }
-      await sr.entities.CvAccount.create({ user_id: person.id, kind: "person", password: await hashPassword(body.password, rounds), owner_pub: "", failed: 0, age_confirmed_at: nowIso(), terms_version: TERMS_VERSION });
+      await sr.entities.CvAccount.create({ user_id: person.id, kind: "person", password: await hashPassword(body.password, rounds), owner_pub: "", failed: 0, security_epoch: 0, age_confirmed_at: nowIso(), terms_version: TERMS_VERSION });
       const device = await newDevice(sr, person.id, body.device_name, "registration");
       return signedIn(sr, person.id, device.id, { device, user: { id: person.id, role } });
     },
@@ -225,15 +352,13 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
     async login({ sr, body }) {
       const userId = await userIdForName(sr, body.username);
       const acct = userId ? await accountOf(sr, userId) : null;
-      if (acct && acct.failed >= LOCK_AFTER && Date.now() - Date.parse(acct.failed_at || "") < LOCK_MINUTES * 60_000) {
-        throw deny(429, "RATE_LIMITED", "Too many wrong passwords. Try again in a few minutes, or get back in with your recovery phrase.");
+      if (acct) {
+        const attempt = await startPasswordAttempt(sr, acct.user_id);
+        if (attempt.tooMany) throw deny(429, "RATE_LIMITED", "Too many wrong passwords. Try again in a few minutes, or get back in with your recovery phrase.");
       }
       const ok = await checkPassword(String(body.password || ""), acct?.password || "");
-      if (!ok) {
-        if (acct) await sr.entities.CvAccount.update(acct.id, { failed: (Number(acct.failed) || 0) + 1, failed_at: nowIso() });
-        throw deny(401, "BAD_LOGIN", acct && !acct.password ? "This account doesn't have a password for its username yet. Sign in with your email, then set one." : "That username and password don't match.");
-      }
-      if (acct.failed) await sr.entities.CvAccount.update(acct.id, { failed: 0 });
+      if (!ok) throw deny(401, "BAD_LOGIN", acct && !acct.password ? "This account doesn't have a password for its username yet. Sign in with your email, then set one." : "That username and password don't match.");
+      await clearPasswordAttempts(sr, acct.user_id);
       return arrive(sr, acct, body.device, body.device_name, "password", cfg.realm);
     },
 
@@ -286,14 +411,14 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
     async passkey_login_options({ sr, body }) {
       const rpId = originHost(cfg, body.origin);
       const challenge = randomToken(32);
-      const id = await putChallenge(sr, null, "passkey-login", { challenge, rp_id: rpId }, 5);
+      const id = await openChallenge(sr, "passkey-login", { c: challenge, r: rpId });
       return { id, options: authenticationOptions({ rpId, challenge, allow: [] }) };
     },
 
     async passkey_login({ sr, body }) {
-      const { row, data } = await getChallenge(sr, body.id, "passkey-login");
-      await dropChallenge(sr, row);
-      const pk = await passkeyCheck(sr, body.response, data.challenge, data.rp_id, null);
+      const data = await readOpenChallenge(sr, body.id, "passkey-login");
+      const pk = await passkeyCheck(sr, body.response, data.c, data.r, null);
+      await spendChallenge(sr, String(body.id));
       const acct = await accountOf(sr, pk.user_id);
       if (!acct) throw deny(401, "BAD_PASSKEY", "That passkey isn't one this site knows.");
       const known = await knownDevice(sr, pk.user_id, body.device);
@@ -304,9 +429,12 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
 
     // ----- getting back in -----
 
-    /** Says nothing about whether the account exists. */
+    /**
+     * Says nothing about the account: the same answer whether or not it exists or has passkeys
+     * (passkeys are discoverable, so the browser finds its own), and nothing is stored.
+     */
     async recover_options({ sr, body }) {
-      const userId = await userIdForName(sr, body.username);
+      const username = String(body.username || "").trim().replace(/^@/, "").toLowerCase();
       let rpId = "";
       try {
         rpId = rpIdFor(String(body.origin || ""), cfg.passkeyHost);
@@ -315,31 +443,34 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
       }
       const challenge = randomToken(32);
       const webauthn = randomToken(32);
-      const allow = userId && rpId ? (await passkeysOf(sr, userId)).filter((p: any) => p.rp_id === rpId).map((p: any) => ({ id: p.credential_id, transports: p.transports })) : [];
-      const id = await putChallenge(sr, userId, "recover", { challenge, webauthn, rp_id: rpId });
-      return { id, challenge, realm: cfg.realm, options: rpId ? authenticationOptions({ rpId, challenge: webauthn, allow }) : null };
+      const id = await openChallenge(sr, "recover", { u: username, c: challenge, w: webauthn, r: rpId });
+      return { id, challenge, realm: cfg.realm, options: rpId ? authenticationOptions({ rpId, challenge: webauthn, allow: [] }) : null };
     },
 
     /** Prove it with the phrase or private key ("key"), or a passkey, and choose a new password. */
     async recover({ sr, body }) {
       checkNewPassword(body.new_password);
-      const { row, data } = await getChallenge(sr, body.id, "recover");
-      await dropChallenge(sr, row);
-      const acct = row.user_id ? await accountOf(sr, row.user_id) : null;
+      const data = await readOpenChallenge(sr, body.id, "recover");
+      const userId = data.u ? await userIdForName(sr, data.u) : null;
+      const acct = userId ? await accountOf(sr, userId) : null;
       const nope = deny(401, "RECOVER_FAILED", "That didn't match this account. Check the username and try again.");
       if (!acct) throw nope;
       if (body.method === "key") {
-        if (!acct.owner_pub || typeof body.signature !== "string" || !(await verifyEd25519(acct.owner_pub, ownerText(cfg.realm, "recover", data.challenge), body.signature))) throw nope;
+        if (!acct.owner_pub || typeof body.signature !== "string" || !(await verifyEd25519(acct.owner_pub, ownerText(cfg.realm, "recover", data.c), body.signature))) throw nope;
       } else if (body.method === "passkey") {
         try {
-          await passkeyCheck(sr, body.response, data.webauthn, data.rp_id, acct.user_id);
+          await passkeyCheck(sr, body.response, data.w, data.r, acct.user_id);
         } catch {
           throw nope;
         }
       } else {
         throw nope;
       }
+      await spendChallenge(sr, String(body.id));
       await sr.entities.CvAccount.update(acct.id, { password: await hashPassword(body.new_password, rounds), failed: 0 });
+      await clearPasswordAttempts(sr, acct.user_id);
+      // Every session made before this can no longer change how the account is protected.
+      await bumpEpoch(sr, acct.user_id);
       // Every session is signed out; devices stay connected.
       for (const r of await sr.entities.CvRefresh.filter({ user_id: acct.user_id }, "created_date", 500)) await sr.entities.CvRefresh.delete(r.id).catch(() => null);
       const known = await knownDevice(sr, acct.user_id, body.device);
@@ -392,20 +523,41 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
 
     async account(ctx: any) {
       requireSession(ctx);
-      const { sr, user, body, session } = ctx;
+      const { sr, user, session } = ctx;
+      let body = ctx.body;
       const acct = await accountOf(sr, user.id);
       if (!acct) throw deny(404, "NOT_FOUND", "No sign-in for this account.");
-      switch (body.change) {
+      // Which changes need more than a session (see provenChange).
+      const change = typeof body.payload === "string" ? (() => {
+        try {
+          return JSON.parse(body.payload).change;
+        } catch {
+          return "";
+        }
+      })() : body.change;
+      if (change === "remove_passkey" || change === "remove_email") body = await provenChange(ctx, `account.${change}`);
+      else if (change === "set_password") {
+        // An account with encryption devices proves it with one; one without (just come in by
+        // email) needs only a live session, as it has nothing else yet.
+        body = (await hasEncryptionDevice(sr, user.id)) ? await provenChange(ctx, "account.set_password") : (await requireLiveSession(ctx), body);
+      } else if (change === "disconnect_device" || change === "change_password") await requireLiveSession(ctx);
+      switch (change) {
         case "remove_passkey": {
           const pk = await sr.entities.CvPasskey.get(String(body.id || "")).catch(() => null);
-          if (pk && pk.user_id === user.id) await sr.entities.CvPasskey.delete(pk.id);
+          if (pk && pk.user_id === user.id) {
+            await sr.entities.CvPasskey.delete(pk.id);
+            await bumpEpoch(sr, user.id);
+            return { ok: true, renewed_access: await renewed(ctx) };
+          }
           return { ok: true };
         }
         case "disconnect_device": {
           const d = await sr.entities.CvDevice.get(String(body.id || "")).catch(() => null);
           if (!d || d.user_id !== user.id) throw deny(404, "NOT_FOUND", "That device isn't connected.");
           await forgetDevice(sr, d.id);
-          return { ok: true, signed_out: d.id === session.deviceId };
+          // Its last access token can't be used to change anything about the account either.
+          await bumpEpoch(sr, user.id);
+          return { ok: true, signed_out: d.id === session.deviceId, renewed_access: d.id === session.deviceId ? undefined : await renewed(ctx) };
         }
         // Accounts from before the 16+ rule confirm it once.
         case "confirm_age": {
@@ -423,7 +575,8 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
           if (!(await checkPassword(String(body.password || ""), acct.password || ""))) throw deny(401, "BAD_LOGIN", "That isn't your current password.");
           checkNewPassword(body.new_password);
           await sr.entities.CvAccount.update(acct.id, { password: await hashPassword(body.new_password, rounds) });
-          return { ok: true };
+          await bumpEpoch(sr, user.id);
+          return { ok: true, renewed_access: await renewed(ctx) };
         }
         case "remove_email": {
           if (acct.kind !== "platform") return { ok: true };
@@ -452,7 +605,10 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
 
     async approve(ctx: any) {
       requireSession(ctx);
-      const { sr, user, body } = ctx;
+      const { sr, user } = ctx;
+      // Saying no is always allowed; letting another browser in must be proven (see provenChange).
+      const asked = typeof ctx.body.payload === "string" ? ctx.body : { ...ctx.body };
+      const body = asked.approve === true || typeof asked.payload === "string" ? await provenChange(ctx, "approve") : (await requireLiveSession(ctx), asked);
       const r = await sr.entities.CvChallenge.get(String(body.id || "")).catch(() => null);
       if (!r || r.user_id !== user.id || r.purpose !== "login" || Date.parse(r.expires_at) < Date.now()) throw deny(404, "NOT_FOUND", "That sign-in has gone.");
       const d = JSON.parse(r.data || "{}");
@@ -463,7 +619,7 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
     // ----- passkeys, signed in -----
 
     async passkey_options(ctx: any) {
-      requireSession(ctx);
+      await requireLiveSession(ctx);
       const { sr, user, body } = ctx;
       const rpId = originHost(cfg, body.origin);
       const existing = await passkeysOf(sr, user.id);
@@ -477,8 +633,8 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
     },
 
     async passkey_add(ctx: any) {
-      requireSession(ctx);
-      const { sr, user, body } = ctx;
+      const { sr, user } = ctx;
+      const body = await provenChange(ctx, "passkey_add");
       const { row, data } = await getChallenge(sr, body.id, "passkey-reg");
       if (row.user_id !== user.id) throw deny(400, "EXPIRED", "Start again.");
       let info;
@@ -497,23 +653,49 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
     // ----- the owner key -----
 
     async owner_challenge(ctx: any) {
-      requireSession(ctx);
+      await requireLiveSession(ctx);
       const challenge = randomToken(32);
       const id = await putChallenge(ctx.sr, ctx.user.id, "owner-set", { challenge }, 5);
       return { id, challenge, realm: cfg.realm };
     },
 
+    /**
+     * Record the account's owner key (the recovery phrase's). Proving the new key (its signature)
+     * isn't permission to install it. That takes one of:
+     *   - the current owner key, signing over the new one (purpose "replace-owner:<new key>"), or
+     *   - a proof from one of the account's encryption devices (a new phrase made on a trusted
+     *     device, setup, or a finished reset, which waited and could be cancelled), or
+     *   - for an account with no owner key and no encryption devices yet, the current password.
+     */
     async owner(ctx: any) {
-      requireSession(ctx);
-      const { sr, user, body } = ctx;
+      await requireLiveSession(ctx);
+      const { sr, user } = ctx;
+      const acct = await accountOf(sr, user.id);
+      if (!acct) throw deny(404, "NOT_FOUND", "No sign-in for this account.");
+      let body = ctx.body;
+      let authorised = false;
+      if (body.proof && typeof body.payload === "string") {
+        body = await provenChange(ctx, "owner");
+        authorised = body.proven_by === "device";
+      }
       const { row, data } = await getChallenge(sr, body.id, "owner-set");
       if (row.user_id !== user.id) throw deny(400, "EXPIRED", "Start again.");
       if (typeof body.owner_pub !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.owner_pub)) throw deny(400, "BAD_KEY", "That key isn't valid.");
       if (typeof body.signature !== "string" || !(await verifyEd25519(body.owner_pub, ownerText(cfg.realm, "set-owner", data.challenge), body.signature))) throw deny(400, "BAD_KEY", "That key couldn't be confirmed.");
+      if (!authorised && acct.owner_pub && typeof body.old_signature === "string") {
+        authorised = await verifyEd25519(acct.owner_pub, ownerText(cfg.realm, `replace-owner:${body.owner_pub}`, data.challenge), body.old_signature);
+      }
+      if (!authorised && !acct.owner_pub && !(await hasEncryptionDevice(sr, user.id)) && typeof ctx.body.password === "string") {
+        authorised = (await provenChange(ctx, "owner")).proven_by === "password";
+      }
+      if (!authorised) throw deny(403, "PROOF_REQUIRED", "Confirm it's you: do this from a device with your encryption unlocked.");
       await dropChallenge(sr, row);
-      const acct = await accountOf(sr, user.id);
-      if (!acct) throw deny(404, "NOT_FOUND", "No sign-in for this account.");
+      if (acct.owner_pub === body.owner_pub) return { ok: true };
       await sr.entities.CvAccount.update(acct.id, { owner_pub: body.owner_pub, owner_set_at: nowIso() });
+      if (acct.owner_pub) {
+        await bumpEpoch(sr, user.id);
+        return { ok: true, renewed_access: await renewed(ctx) };
+      }
       return { ok: true };
     },
   };

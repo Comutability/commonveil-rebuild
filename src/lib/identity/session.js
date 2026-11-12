@@ -38,6 +38,11 @@ export function setSession(session) {
   write(session ? { ...session } : null);
 }
 
+/** A fresh access token for the same session (after the account's security epoch moved on). */
+export function renewAccess(accessToken, expiresAt) {
+  if (current && typeof accessToken === "string") write({ ...current, access_token: accessToken, access_expires_at: expiresAt });
+}
+
 export function clearSession() {
   write(null);
 }

@@ -106,7 +106,7 @@ export async function runAction(base44: any, rawBody: string, actions: Actions, 
     const sr = base44.asServiceRole;
     let user: any = null;
     let own: any = base44;
-    let session: { userId: string; deviceId: string } | null = null;
+    let session: { userId: string; deviceId: string; epoch: number } | null = null;
     let platformUser: any = null;
     const token = body._session;
     delete body._session;

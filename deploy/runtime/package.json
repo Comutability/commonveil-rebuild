@@ -1,0 +1,9 @@
+{
+  "name": "commonveil-server-runtime",
+  "private": true,
+  "description": "What the self-hosted server needs at run time, and nothing else. Installed in the Docker image with npm ci, from the lockfile beside it. Keep in step with package.json (tests/runtimeDeps.test.mjs).",
+  "type": "module",
+  "dependencies": {
+    "ws": "8.22.1"
+  }
+}

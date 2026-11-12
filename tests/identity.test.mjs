@@ -5,7 +5,7 @@
 // stand-in for Base44.
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
-import { http, startSites } from "./support/selfhost.mjs";
+import { http, setupCodeOf, startSites } from "./support/selfhost.mjs";
 import { SoftPasskey } from "./support/authenticator.mjs";
 import { FakeWorld } from "./support/fakeBase44.mjs";
 import { runAction } from "../base44/shared/http.ts";
@@ -18,7 +18,7 @@ import { ownerKey, privateKeyFromPhrase, signOwner } from "../src/lib/crypto/own
 let net;
 let site;
 before(async () => {
-  net = await startSites(["id.test"]);
+  net = await startSites(["id.test"], {}, { setUp: false });
   site = net.sites["id.test"];
 });
 after(async () => {
@@ -37,10 +37,20 @@ const me = async (token) => (await id("me", {}, token)).status;
 const PW = "a long enough password";
 const sign = (key, start, purpose) => signOwner(key, { host: start.realm, purpose, challenge: start.challenge });
 
-test("accounts are a username and a password; the first is the site's admin", async () => {
-  const r = await ok("register", { username: "ivy_k", password: PW, device_name: "Firefox on Linux" });
+test("accounts are a username and a password; the operator's setup code makes the first, the admin", async () => {
+  // A new site: nobody can sign up, whatever name they pick, until its operator does (CV-07).
+  const early = await id("register", { username: "ivy_k", password: PW, age_confirmed: true });
+  assert.deepEqual([early.status, early.data.code], [403, "SETUP_CODE_REQUIRED"]);
+  const guess = await id("register", { username: "ivy_k", password: PW, age_confirmed: true, setup_code: "AAAAA-AAAAA-AAAAA-AAAAA" });
+  assert.deepEqual([guess.status, guess.data.code], [403, "BAD_SETUP_CODE"]);
+  const code = setupCodeOf(site.config);
+  assert.match(code, /^[A-Z2-9]{5}(-[A-Z2-9]{5}){3}$/, "the operator's code, kept where only the server can read it");
+  const r = await ok("register", { username: "ivy_k", password: PW, device_name: "Firefox on Linux", setup_code: code });
   assert.ok(r.session.access_token && r.session.refresh_token && r.device?.id && r.device?.secret);
-  assert.equal(r.user.role, "admin", "the first account on a self-hosted site is its admin");
+  assert.equal(r.user.role, "admin", "the account made with the setup code runs the site");
+  assert.equal(setupCodeOf(site.config), "", "the code is used up");
+  const again2 = await id("register", { username: "ivy_three", password: PW, age_confirmed: true, setup_code: code });
+  assert.equal(again2.data.user?.role || "user", "user", "and never makes another admin");
   const [profile] = await site.app.store.entities.Profile.filter({ user_id: r.user.id });
   assert.equal(profile.username, "ivy_k", "the username is the profile's");
   assert.equal((await site.app.store.entities.Person.get(r.user.id)).email, "", "no email");
@@ -86,7 +96,8 @@ test("a new device is confirmed from a device that's signed in, and can be disco
 
   const { approvals } = await ok("approvals", {}, t);
   assert.deepEqual(approvals.map((a) => [a.device_name, a.code]), [["Library computer", start.verify.code]]);
-  await ok("approve", { id: approvals[0].id, approve: true }, t);
+  assert.equal((await id("approve", { id: approvals[0].id, approve: true }, t)).data.code, "PROOF_REQUIRED", "a session alone can't let another browser in");
+  await ok("approve", { id: approvals[0].id, approve: true, password: PW }, t);
   const done = await ok("check", { id: start.verify.id, method: "device" });
   assert.ok(done.session && done.device);
 
@@ -110,7 +121,8 @@ test("the recovery phrase and private key prove the account is yours, and get yo
   const key = await ownerKey(phrase);
   const ch = await ok("owner_challenge", {}, t);
   assert.equal((await id("owner", { id: ch.id, owner_pub: key.publicKey, signature: sign(key, { ...ch, challenge: "x" }, "set-owner") }, t)).status, 400, "the key has to be proven");
-  await ok("owner", { id: ch.id, owner_pub: key.publicKey, signature: sign(key, ch, "set-owner") }, t);
+  assert.equal((await id("owner", { id: ch.id, owner_pub: key.publicKey, signature: sign(key, ch, "set-owner") }, t)).data.code, "PROOF_REQUIRED", "holding a key isn't permission to install it");
+  await ok("owner", { id: ch.id, owner_pub: key.publicKey, signature: sign(key, ch, "set-owner"), password: PW }, t);
 
   const start = await ok("login", { username: "kai", password: PW });
   assert.ok(start.verify.methods.includes("key"));
@@ -147,7 +159,7 @@ test("passkeys: on one device or synced, to sign in, confirm a device or get bac
     const { id: cid, options } = await ok("passkey_options", { kind, origin: ORIGIN }, t);
     if (kind === "device") assert.equal(options.authenticatorSelection.authenticatorAttachment, "platform");
     assert.equal(options.attestation, "none");
-    await ok("passkey_add", { id: cid, response: pk.create(options) }, t);
+    await ok("passkey_add", { id: cid, response: pk.create(options), password: PW }, t);
   }
   assert.deepEqual((await ok("status", {}, t)).passkeys.map((p) => p.synced), [false, true], "synced passkeys are told apart");
   assert.equal((await id("passkey_options", { kind: "synced", origin: "https://evil.test" }, t)).status, 400, "passkeys only on this site's own address");
@@ -166,7 +178,7 @@ test("passkeys: on one device or synced, to sign in, confirm a device or get bac
   const other = await ok("register", { username: "moe", password: PW });
   const moKey = new SoftPasskey({ origin: ORIGIN, rpID: "id.test" });
   const mo = await ok("passkey_options", { kind: "synced", origin: ORIGIN }, other.session.access_token);
-  await ok("passkey_add", { id: mo.id, response: moKey.create(mo.options) }, other.session.access_token);
+  await ok("passkey_add", { id: mo.id, response: moKey.create(mo.options), password: PW }, other.session.access_token);
   const s2 = await ok("login", { username: "lea", password: PW });
   const o2 = await ok("check_options", { id: s2.verify.id, origin: ORIGIN });
   assert.equal((await id("check", { id: s2.verify.id, method: "passkey", response: moKey.get({ ...o2.options, allowCredentials: [] }) })).status, 401, "someone else's passkey doesn't confirm this account");
@@ -181,7 +193,7 @@ test("passkeys: on one device or synced, to sign in, confirm a device or get bac
 
   const foreign = new SoftPasskey({ origin: "https://evil.test", rpID: "evil.test" });
   const pk = await ok("passkey_options", { kind: "synced", origin: ORIGIN }, back.session.access_token);
-  assert.equal((await id("passkey_add", { id: pk.id, response: foreign.create(pk.options) }, back.session.access_token)).status, 400, "a passkey made for another site doesn't count");
+  assert.equal((await id("passkey_add", { id: pk.id, response: foreign.create(pk.options), password: "brand new password" }, back.session.access_token)).status, 400, "a passkey made for another site doesn't count");
 });
 
 test("nobody can make themselves an admin, or read the sign-in tables", async () => {
@@ -204,6 +216,94 @@ test("deleting an account removes everything it signs in with", async () => {
   await removePlatformUser({ entities: site.app.store.entities }, acct.user.id);
   for (const table of ["CvAccount", "CvDevice", "CvRefresh"]) assert.equal((await site.app.store.entities[table].filter({ user_id: acct.user.id })).length, 0, table);
   assert.equal(await me(acct.session.access_token), 401);
+});
+
+// ---------- the security review's findings (docs/SECURITY_REVIEW.md) ----------
+
+test("CV-02: a session can't replace the owner key; only the old key (or a device) can", async () => {
+  const acct = await ok("register", { username: "own_a", password: PW });
+  const t = acct.session.access_token;
+  const mine = await ownerKey(generateRecoveryPhrase());
+  let ch = await ok("owner_challenge", {}, t);
+  await ok("owner", { id: ch.id, owner_pub: mine.publicKey, signature: sign(mine, ch, "set-owner"), password: PW }, t);
+  // Someone with the session (and even the password) tries to put their own key in.
+  const theirs = await ownerKey(generateRecoveryPhrase());
+  ch = await ok("owner_challenge", {}, t);
+  const takeover = await id("owner", { id: ch.id, owner_pub: theirs.publicKey, signature: sign(theirs, ch, "set-owner"), password: PW }, t);
+  assert.deepEqual([takeover.status, takeover.data.code], [403, "PROOF_REQUIRED"]);
+  const rc = await ok("recover_options", { username: "own_a", origin: ORIGIN });
+  assert.ok((await ok("recover", { id: rc.id, method: "key", signature: sign(mine, rc, "recover"), new_password: "a different long password" })).session, "the real key still gets back in");
+  // The owner moving to a new phrase, with the old one to hand.
+  const t2 = (await ok("login", { username: "own_a", password: "a different long password", device: acct.device })).session.access_token;
+  const next = await ownerKey(generateRecoveryPhrase());
+  ch = await ok("owner_challenge", {}, t2);
+  await ok("owner", { id: ch.id, owner_pub: next.publicKey, signature: sign(next, ch, "set-owner"), old_signature: signOwner(mine, { host: ch.realm, purpose: `replace-owner:${next.publicKey}`, challenge: ch.challenge }) }, t2);
+  const rc2 = await ok("recover_options", { username: "own_a", origin: ORIGIN });
+  assert.equal((await id("recover", { id: rc2.id, method: "key", signature: sign(mine, rc2, "recover"), new_password: "yet another long password" })).status, 401, "the old key no longer works");
+});
+
+test("CV-03: a disconnected or reset session can't add a way in", async () => {
+  const acct = await ok("register", { username: "gone_dev", password: PW, device_name: "Lost phone" });
+  const lost = acct.session.access_token;
+  const start = await ok("login", { username: "gone_dev", password: PW, device_name: "Laptop" });
+  const { approvals } = await ok("approvals", {}, lost);
+  await ok("approve", { id: approvals[0].id, approve: true, password: PW }, lost);
+  const laptop = await ok("check", { id: start.verify.id, method: "device" });
+  const status = await ok("status", {}, laptop.session.access_token);
+  const phone = status.devices.find((d) => d.name === "Lost phone");
+  const gone = await ok("account", { change: "disconnect_device", id: phone.id }, laptop.session.access_token);
+  assert.ok(gone.renewed_access?.access_token, "the browser that did it gets a token for the new epoch");
+  laptop.session.access_token = gone.renewed_access.access_token;
+  // The lost phone's access token hasn't run out yet, but it can't make itself permanent.
+  for (const [action, body] of [["passkey_options", { kind: "synced", origin: ORIGIN }], ["owner_challenge", {}], ["approve", { id: "x", approve: true, password: PW }], ["account", { change: "remove_passkey", id: "x", password: PW }]]) {
+    assert.equal((await id(action, body, lost)).status, 401, action);
+  }
+  // A recovery moves the security epoch on: the laptop's earlier token can't change anything either.
+  const owner = await ownerKey(generateRecoveryPhrase());
+  const ch = await ok("owner_challenge", {}, laptop.session.access_token);
+  await ok("owner", { id: ch.id, owner_pub: owner.publicKey, signature: sign(owner, ch, "set-owner"), password: PW }, laptop.session.access_token);
+  const rc = await ok("recover_options", { username: "gone_dev", origin: ORIGIN });
+  await ok("recover", { id: rc.id, method: "key", signature: sign(owner, rc, "recover"), new_password: "after the reset password", device: laptop.device });
+  assert.equal((await id("passkey_options", { kind: "synced", origin: ORIGIN }, laptop.session.access_token)).status, 401);
+});
+
+test("CV-15: guesses made at the same moment still hit the limit", async () => {
+  await ok("register", { username: "burst_me", password: PW });
+  const tries = await Promise.all(Array.from({ length: 24 }, (_, i) => id("login", { username: "burst_me", password: `wrong guess ${i}` })));
+  assert.ok(tries.every((r) => r.status === 401 || r.status === 429));
+  assert.equal((await id("login", { username: "burst_me", password: PW })).status, 429, "locked, even though they all arrived together");
+});
+
+test("CV-16 and CV-24: signed-out challenges store nothing and say nothing about the account", async () => {
+  const withKey = await ok("register", { username: "has_pk", password: PW });
+  const pk = new SoftPasskey({ origin: ORIGIN, rpID: "id.test" });
+  const o = await ok("passkey_options", { kind: "synced", origin: ORIGIN }, withKey.session.access_token);
+  await ok("passkey_add", { id: o.id, response: pk.create(o.options), password: PW }, withKey.session.access_token);
+  const before = (await site.app.store.entities.CvChallenge.filter({})).length;
+  for (let i = 0; i < 30; i += 1) {
+    await ok("recover_options", { username: `nobody_${i}`, origin: ORIGIN });
+    await ok("passkey_login_options", { origin: ORIGIN });
+  }
+  assert.equal((await site.app.store.entities.CvChallenge.filter({})).length, before, "nothing piles up");
+  const a = await ok("recover_options", { username: "has_pk", origin: ORIGIN });
+  const b = await ok("recover_options", { username: "no_such_one", origin: ORIGIN });
+  assert.deepEqual([a.options.allowCredentials, Object.keys(a).sort()], [b.options.allowCredentials, Object.keys(b).sort()], "the same answer either way");
+  assert.deepEqual(a.options.allowCredentials, [], "no passkey ids handed out");
+  // Discoverable passkeys still get back in.
+  assert.ok((await ok("recover", { id: a.id, method: "passkey", response: pk.get(a.options), new_password: "recovered long password" })).session);
+  assert.equal((await id("recover", { id: a.id, method: "passkey", response: pk.get(a.options), new_password: "recovered long password" })).status, 400, "used once");
+});
+
+test("CV-08: OPEN_REGISTRATION=false means nobody can sign up", async () => {
+  const closed = await startSites(["closed.test"], { OPEN_REGISTRATION: "false" });
+  try {
+    const s = closed.sites["closed.test"];
+    const r = await http(s, "/api/functions/identity", { method: "POST", body: { action: "register", username: "walk_in", password: PW, age_confirmed: true } });
+    assert.deepEqual([r.status, r.data.code], [403, "REGISTRATION_CLOSED"]);
+    assert.equal((await s.app.store.entities.Person.filter({})).length, 0, "no account made");
+  } finally {
+    await closed.close();
+  }
 });
 
 // ---------- on Base44: accounts made with an email ----------
@@ -240,14 +340,14 @@ test("on Base44, an account made with an email comes in once by email, then uses
     await run(null, { action: "account", change: "confirm_age", age_confirmed: true, _session: t });
     assert.equal((await run(null, { action: "status", _session: t })).data.age_confirmed, true, "accounts from before the rule confirm it once");
     assert.equal((await run(null, { action: "login", username: "nia", password: PW })).status, 401, "no username password yet");
-    assert.equal((await run(null, { action: "account", change: "remove_email", _session: t })).data.code, "NEEDS_PASSWORD");
+    assert.equal((await run(null, { action: "account", change: "remove_email", _session: t })).data.code, "PROOF_REQUIRED", "removing a way in needs more than a session");
     assert.equal((await run(null, { action: "account", change: "set_password", new_password: PW, _session: t })).status, 200);
     assert.ok((await run(null, { action: "login", username: "nia", password: PW, device: linked.data.device })).data.session, "now her username and password work");
-    assert.equal((await run(null, { action: "account", change: "remove_email", _session: t })).data.code, "NEEDS_OWNER");
+    assert.equal((await run(null, { action: "account", change: "remove_email", password: PW, _session: t })).data.code, "NEEDS_OWNER");
     const key = await ownerKey(generateRecoveryPhrase());
     const ch = (await run(null, { action: "owner_challenge", _session: t })).data;
-    assert.equal((await run(null, { action: "owner", id: ch.id, owner_pub: key.publicKey, signature: signOwner(key, { host: ch.realm, purpose: "set-owner", challenge: ch.challenge }), _session: t })).status, 200);
-    assert.equal((await run(null, { action: "account", change: "remove_email", _session: t })).status, 200);
+    assert.equal((await run(null, { action: "owner", id: ch.id, owner_pub: key.publicKey, signature: signOwner(key, { host: ch.realm, purpose: "set-owner", challenge: ch.challenge }), password: PW, _session: t })).status, 200);
+    assert.equal((await run(null, { action: "account", change: "remove_email", password: PW, _session: t })).status, 200);
     assert.equal((await run(old, { action: "link_platform" })).data.code, "EMAIL_REMOVED", "after that, the email doesn't get in");
 
     const fresh = person("b", "new@example.com", "2026-11-07T10:00:00.000");

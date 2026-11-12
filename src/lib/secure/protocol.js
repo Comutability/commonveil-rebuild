@@ -65,6 +65,9 @@ export const EXPIRY_CHOICES = Object.freeze([0, 86_400, 604_800, 2_419_200]);
 /** Allowance for device clocks when deciding whether an item was sent after its device was removed. */
 export const REMOVAL_GRACE_MS = 10 * 60 * 1000;
 
+/** A device proof for a request whose body is built elsewhere (the identity client). */
+export const deviceProofFor = ({ userId, device, action, payloadJson }) => makeDeviceProof({ userId, device, action, payloadJson });
+
 /** Body for an action that must be signed by a device. */
 export async function signedRequest({ userId, device, action, payload }) {
   const payloadJson = JSON.stringify(payload);

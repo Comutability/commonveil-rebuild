@@ -5,7 +5,6 @@ import fs from "node:fs";
 import { Store, loadSchemas } from "./store.mjs";
 import { userRecord, verifyAccess } from "../base44/shared/identity/sessions.ts";
 import { configurePush } from "../base44/shared/handlers/notifications.ts";
-import { createMail } from "./mail.mjs";
 import { FileStore } from "./files.mjs";
 import { ActorHost } from "./actors.mjs";
 import { functionTable, runAction, runMaintenance } from "./functions.mjs";
@@ -13,16 +12,19 @@ import { bearer, json, readBody, send, serveStatic } from "./http.mjs";
 import { Updates } from "./updates.mjs";
 import { Federation } from "./federation/index.mjs";
 import { selfHostCsp } from "./csp.mjs";
+import { createBootstrap } from "./bootstrap.mjs";
 import VoiceRoom from "../base44/actors/VoiceRoom/entry.ts";
 import Presence from "../base44/actors/Presence/entry.ts";
 
 const MAX_JSON = 256 * 1024;
 const ENTITY_OPS = new Set(["filter", "list", "get", "create", "update", "delete"]);
+// Tables the app only ever reads through the backend functions, which also apply rules a row rule
+// can't express (a channel's newcomer-history setting, CV-06). Direct reads of them are refused.
+const FUNCTIONS_ONLY = new Set(["ServerMessage"]);
 
 export async function createApp(config, options = {}) {
   const log = options.log || console;
   const store = new Store({ file: config.dbFile, schemas: loadSchemas(new URL("../base44/entities/", import.meta.url)) });
-  const mail = createMail({ smtpUrl: config.smtpUrl, from: config.mailFrom, log });
   const files = new FileStore({ dir: config.filesDir, secret: config.secret, siteUrl: config.siteUrl });
 
   // Deleting a file's row removes the file. (Deleting an account removes its sign-in in the
@@ -33,7 +35,6 @@ export async function createApp(config, options = {}) {
 
   const integrations = {
     Core: {
-      SendEmail: (args) => mail.send(args),
       UploadPrivateFile: ({ file }) => files.upload(file),
       CreateFileSignedUrl: ({ file_uri, expires_in }) => files.signedUrl(file_uri, expires_in),
     },
@@ -65,14 +66,17 @@ export async function createApp(config, options = {}) {
   });
 
   configurePush(config.siteUrl);
+  const bootstrap = createBootstrap({ dataDir: config.dataDir, log });
+  await bootstrap.prepare(serviceClient);
   const functions = functionTable({
     defaultAdmins: config.defaultServerAdmins,
     identity: {
       realm: config.host,
       siteName: config.siteName,
       passkeyHost: (h) => h === config.host,
-      // The first account is the site's admin, and so is anyone listed in ADMIN_USERNAMES.
-      adminFor: (username, first) => first || config.adminUsernames.includes(String(username).toLowerCase()),
+      // The first account needs the operator's one-time setup code (server/bootstrap.mjs).
+      bootstrap,
+      registrationOpen: () => config.openRegistration,
       passwordRounds: config.passwordRounds,
     },
   });
@@ -105,7 +109,7 @@ export async function createApp(config, options = {}) {
       return json(res, 200, {
         id: "self-hosted",
         public_settings: { auth_config: { enable_username_password: true, mfa_policy: "off" } },
-        site: { name: config.siteName, version: config.version, federation: config.federation, handle_domain: config.handleDomain, email: mail.enabled },
+        site: { name: config.siteName, version: config.version, federation: config.federation, handle_domain: config.handleDomain, email: false },
       });
     }
 
@@ -142,7 +146,7 @@ export async function createApp(config, options = {}) {
 
     if (p.startsWith("/api/entities/")) {
       const [name, op] = p.slice("/api/entities/".length).split("/");
-      if (req.method !== "POST" || !ENTITY_OPS.has(op) || !store.schemas[name]) return json(res, 404, { error: "Not found", code: "NOT_FOUND" });
+      if (req.method !== "POST" || !ENTITY_OPS.has(op) || !store.schemas[name] || FUNCTIONS_ONLY.has(name)) return json(res, 404, { error: "Not found", code: "NOT_FOUND" });
       try {
         const b = JSON.parse((await readBody(req, MAX_JSON)) || "{}");
         const user = await auth.userFor(bearer(req));
@@ -203,6 +207,7 @@ export async function createApp(config, options = {}) {
     federation,
     clientFor,
     serviceClient,
+    bootstrap,
     async close() {
       for (const t of timers) clearInterval(t);
       updates.stop();

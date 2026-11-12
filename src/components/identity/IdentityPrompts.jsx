@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { Fingerprint, ShieldAlert, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { answerApproval, identityAction, identityStatus, pendingApprovals } from "@/lib/identity/client";
+import { useConfirmItsYou } from "./ConfirmItsYou";
 
 const DISMISS_KEY = "commonveil_identity_prompt";
 
@@ -30,6 +31,8 @@ function dismiss(kind, forever) {
 export default function IdentityPrompts() {
   const [status, setStatus] = useState(null);
   const [approvals, setApprovals] = useState([]);
+  const [approveError, setApproveError] = useState("");
+  const { confirm, dialog } = useConfirmItsYou();
   const [hidden, setHidden] = useState(false);
   const { pathname } = useLocation();
   const onSettings = pathname.startsWith("/app/settings/sign-in");
@@ -64,9 +67,11 @@ export default function IdentityPrompts() {
           <p id="approve-title" className="min-w-0 flex-1">
             <span className="font-medium">{a.device_name}</span> is signing in to your account and shows the code <span className="font-mono font-semibold tracking-wider">{a.code.slice(0, 3)} {a.code.slice(3)}</span>. Is that you?
           </p>
-          <Button size="sm" onClick={() => answerApproval(a.id, true).finally(poll)}>Yes, approve</Button>
+          <Button size="sm" onClick={() => { setApproveError(""); confirm((o) => answerApproval(a.id, true, o)).catch((e) => setApproveError(e.message)).finally(poll); }}>Yes, approve</Button>
           <Button size="sm" variant="outline" onClick={() => answerApproval(a.id, false).finally(poll)}>No</Button>
+          {approveError && <p className="w-full text-xs text-destructive" role="alert">{approveError}</p>}
         </div>
+        {dialog}
       </div>
     );
   }

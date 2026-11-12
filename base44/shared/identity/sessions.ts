@@ -3,9 +3,13 @@
 // Signing in gives the app two tokens:
 //   - a refresh token (30 days, stored hashed, tied to one device), and
 //   - an access token (15 minutes): "cv1.<claims>.<HMAC>", checked with no database lookup, so it
-//     costs nothing per request. Claims: who (u), which device (d), when it expires (x).
+//     costs nothing per request. Claims: who (u), which device (d), when it expires (x), and the
+//     account's security epoch when it was made (e).
 // The app swaps the refresh token for a new access token before the old one runs out. A
-// disconnected device's refresh token stops working at once; its last access token within 15 minutes.
+// disconnected device's refresh token stops working at once; its last access token within 15 minutes
+// for ordinary reading and writing. Anything that changes how the account is protected (passkeys,
+// devices, the owner key, the password) also checks liveSession: the device must still be connected
+// and the epoch unchanged, so a disconnected or reset session can't make itself permanent.
 import { b64url, fromB64url, hmac, randomToken, sameString, sha256Hex, utf8 } from "./crypto.ts";
 
 export const ACCESS_SECONDS = 15 * 60;
@@ -29,14 +33,27 @@ export function forgetSecret() {
   cachedSecret = null;
 }
 
+/** The account's security epoch: goes up whenever a way into it is removed or reset. */
+export async function securityEpoch(sr: any, userId: string): Promise<number> {
+  const [a] = await sr.entities.CvAccount.filter({ user_id: userId }, "created_date", 1);
+  return Number(a?.security_epoch) || 0;
+}
+
+/** Move the epoch on: every access token made before now stops working for security changes. */
+export async function bumpEpoch(sr: any, userId: string) {
+  const [a] = await sr.entities.CvAccount.filter({ user_id: userId }, "created_date", 1);
+  if (a) await sr.entities.CvAccount.update(a.id, { security_epoch: (Number(a.security_epoch) || 0) + 1 });
+}
+
 export async function issueAccess(sr: any, userId: string, deviceId: string, now = Date.now()) {
-  const claims = b64url(utf8(JSON.stringify({ u: userId, d: deviceId, x: Math.floor(now / 1000) + ACCESS_SECONDS })));
+  const e = await securityEpoch(sr, userId);
+  const claims = b64url(utf8(JSON.stringify({ u: userId, d: deviceId, x: Math.floor(now / 1000) + ACCESS_SECONDS, e })));
   const sig = await hmac(await tokenSecret(sr), `cv1.${claims}`);
   return { token: `cv1.${claims}.${sig}`, expires_at: new Date(now + ACCESS_SECONDS * 1000).toISOString() };
 }
 
 /** { userId, deviceId } for a valid access token, or null. */
-export async function verifyAccess(sr: any, token: unknown, now = Date.now()): Promise<{ userId: string; deviceId: string } | null> {
+export async function verifyAccess(sr: any, token: unknown, now = Date.now()): Promise<{ userId: string; deviceId: string; epoch: number } | null> {
   if (typeof token !== "string" || token.length > 600) return null;
   const [v, claims, sig] = token.split(".");
   if (v !== "cv1" || !claims || !sig) return null;
@@ -45,7 +62,7 @@ export async function verifyAccess(sr: any, token: unknown, now = Date.now()): P
   try {
     const c = JSON.parse(new TextDecoder().decode(fromB64url(claims)));
     if (typeof c.u !== "string" || typeof c.d !== "string" || !(c.x * 1000 > now)) return null;
-    return { userId: c.u, deviceId: c.d };
+    return { userId: c.u, deviceId: c.d, epoch: Number(c.e) || 0 };
   } catch {
     return null;
   }
@@ -62,6 +79,17 @@ export async function issueRefresh(sr: any, userId: string, deviceId: string, no
 export async function signedIn(sr: any, userId: string, deviceId: string, extra: Record<string, unknown> = {}) {
   const access = await issueAccess(sr, userId, deviceId);
   return { session: { access_token: access.token, access_expires_at: access.expires_at, refresh_token: await issueRefresh(sr, userId, deviceId), user_id: userId, device_id: deviceId }, ...extra };
+}
+
+/**
+ * Whether a session may still change how the account is protected: its sign-in device is still
+ * connected to this account, and nothing has been reset since its access token was made.
+ */
+export async function liveSession(sr: any, userId: string, session: { deviceId?: string; epoch?: number } | null | undefined): Promise<boolean> {
+  if (!session?.deviceId) return false;
+  const device = await sr.entities.CvDevice.get(session.deviceId).catch(() => null);
+  if (!device || device.user_id !== userId) return false;
+  return (Number(session.epoch) || 0) === (await securityEpoch(sr, userId));
 }
 
 /** The refresh token's row, if it's valid and its device is still connected. */

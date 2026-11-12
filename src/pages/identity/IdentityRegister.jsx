@@ -16,6 +16,9 @@ export default function IdentityRegister() {
   const [confirm, setConfirm] = useState("");
   const [over16, setOver16] = useState(false);
   const [error, setError] = useState("");
+  // A new self-hosted site: its first account needs the operator's one-time setup code.
+  const [needsCode, setNeedsCode] = useState(false);
+  const [setupCode, setSetupCode] = useState("");
   const [loading, setLoading] = useState(false);
   const returnTo = safeReturnTo() === "/" ? "/app" : safeReturnTo();
 
@@ -29,9 +32,10 @@ export default function IdentityRegister() {
     if (!over16) return setError("Commonveil is for people 16 and over. Confirm you're 16 or older to create an account.");
     setLoading(true);
     try {
-      await register({ username: name, password, ageConfirmed: over16 });
+      await register({ username: name, password, ageConfirmed: over16, setupCode: needsCode ? setupCode : "" });
       window.location.href = returnTo;
     } catch (err) {
+      if (err.code === "SETUP_CODE_REQUIRED" || err.code === "BAD_SETUP_CODE") setNeedsCode(true);
       setError(err.message);
       setLoading(false);
     }
@@ -74,6 +78,15 @@ export default function IdentityRegister() {
             <Input id="confirm" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} className="h-12 pl-10" required />
           </div>
         </div>
+        {needsCode && (
+          <div className="space-y-2">
+            <Label htmlFor="setup-code">Setup code</Label>
+            <Input id="setup-code" autoComplete="off" autoCapitalize="characters" spellCheck={false} value={setupCode} onChange={(e) => setSetupCode(e.target.value)} className="h-12 font-mono" required aria-describedby="setup-code-help" />
+            <p id="setup-code-help" className="text-xs text-muted-foreground">
+              Shown when the site's server first started (or run <span className="font-mono">node server/index.mjs setup-code</span> on it). The account you make with it runs the site.
+            </p>
+          </div>
+        )}
         <div className="flex items-start gap-3 rounded-lg border border-border p-3">
           <Checkbox id="over16" checked={over16} onCheckedChange={(v) => setOver16(v === true)} aria-describedby="over16-help" className="mt-0.5" />
           <div className="space-y-1">

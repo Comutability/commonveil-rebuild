@@ -151,7 +151,8 @@ async function checkGrants(ctx: Ctx, { parts, device, raw, gens, allowChain, cre
     const held = mine.find((x: any) => grantKey(x) === grantKey(g)) || (creating && creating === grantKey(g) ? { step: 0 } : null);
     if (!held || Number(held.step) > step) throw new ApiError(403, "NOT_HELD", "You can only pass on keys you have.");
     const target = members.find((m: any) => m.user_id === recipientId);
-    if (!target) {
+    // A member who reported a grant from this person as wrong (CV-14) takes no more from them.
+    if (!target || (Array.isArray(target.refused_grantors) && target.refused_grantors.includes(user.id))) {
       skipped += 1;
       continue;
     }
@@ -519,8 +520,17 @@ export function serverActions(config: ServerConfig): Actions {
       const { sr, user, now } = ctx;
       const { data, serverId, member, parts } = await signedMember(ctx, "request_keys");
       const ids = idList(data.grant_ids, "keys", 2000);
+      // Keys that opened but weren't what their generation committed to (CV-14): wrong on purpose
+      // or by mistake. They're dropped like unreadable ones, and their sender is refused from now
+      // on, so one member can't keep filling the slot with keys that don't work.
+      const badIds = data.bad_grant_ids === undefined ? [] : idList(data.bad_grant_ids, "keys", 2000);
+      const refused = new Set<string>(Array.isArray(member.refused_grantors) ? member.refused_grantors : []);
       for (const g of await sr.entities.KeyGrant.filter({ server_id: serverId, user_id: user.id }, "created_date", 2000)) {
-        if (ids.includes(g.id)) await sr.entities.KeyGrant.delete(g.id);
+        if (ids.includes(g.id) || badIds.includes(g.id)) await sr.entities.KeyGrant.delete(g.id);
+        if (badIds.includes(g.id) && g.grantor_id && g.grantor_id !== user.id) refused.add(g.grantor_id);
+      }
+      if (refused.size !== (member.refused_grantors?.length || 0)) {
+        await sr.entities.ServerMember.update(member.id, { refused_grantors: [...refused].slice(-50) });
       }
       await refreshKeyStatus(sr, parts, [member], now);
       return { ok: true };
@@ -803,7 +813,8 @@ export function serverActions(config: ServerConfig): Actions {
       }
       await sr.entities.Role.update(role.id, changes);
       if (changes.permissions !== undefined && changes.permissions !== Number(role.permissions)) {
-        const affected = role.is_everyone ? [] : (await sr.entities.ServerMember.filter({ server_id: serverId, role_ids: role.id }, "joined_at", 5000)).map((m: any) => m.user_id);
+        // @everyone's permissions are everyone's (CV-05): all members' access is worked out again.
+        const affected = (await sr.entities.ServerMember.filter(role.is_everyone ? { server_id: serverId } : { server_id: serverId, role_ids: role.id }, "joined_at", 10_000)).map((m: any) => m.user_id);
         if (affected.length && parts.channels.some((c: any) => c.private)) await afterAccessChange(sr, serverId, affected, now);
       }
       await touchServer(sr, serverId, now);

@@ -59,7 +59,6 @@ All settings are in `.env`. After changing one, run `docker compose up -d`.
 | `ADMIN_EMAILS` | Only for sites with accounts from before usernames: admins by their old sign-in email. |
 | `DEFAULT_SERVER_ADMINS` | Admins of the Commonveil Community server every new account joins: usernames (or older accounts' emails). |
 | `OPEN_REGISTRATION` | `false` lets only the first account sign up. |
-| `SMTP_URL`, `MAIL_FROM` | Not needed. Only accounts made with an email before usernames use it, until they remove it. |
 | `FEDERATION` | `false` keeps your site to itself: no other site can reach it, and its people can't reach others. |
 | `COMMONVEIL_VERSION` | Which release runs. The updater changes it. `latest` follows each new release. |
 | `COMMONVEIL_DIR`, `UPDATER_TOKEN` | This folder's full path, and the secret the app and the updater share. `install.sh` sets both. |

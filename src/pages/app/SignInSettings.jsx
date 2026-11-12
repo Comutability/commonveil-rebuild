@@ -9,6 +9,7 @@ import { SettingsGroup, SettingsTitle } from "@/components/settings/SettingsLayo
 import { useSecure } from "@/lib/secure/SecureContext";
 import { addPasskey, answerApproval, forgetDevice, identityAction, identityStatus, passkeysSupported, pendingApprovals, setOwnerKey } from "@/lib/identity/client";
 import { clearSession } from "@/lib/identity/session";
+import { useConfirmItsYou } from "@/components/identity/ConfirmItsYou";
 import { looksLikePrivateKey, phraseFromPrivateKey, privateKeyFromPhrase } from "@/lib/crypto/owner";
 
 const HOW = { registration: "when you made your account", password: "with your password", passkey: "with a passkey", key: "with your recovery phrase or private key", device: "from another device", email: "with an email code", session: "already signed in" };
@@ -20,6 +21,7 @@ export default function SignInSettings() {
   const [approvals, setApprovals] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  const { confirm, dialog } = useConfirmItsYou();
 
   const refresh = useCallback(async () => {
     try {
@@ -56,6 +58,7 @@ export default function SignInSettings() {
         Sign-in and recovery
       </SettingsTitle>
       <ErrorNote>{error}</ErrorNote>
+      {dialog}
 
       {state.email_retiring && (
         <div className="mb-6 rounded-xl border border-primary/40 bg-primary/5 p-4 text-sm" role="status">
@@ -63,7 +66,7 @@ export default function SignInSettings() {
           <p className="mt-1 text-muted-foreground">
             You signed in with <span className="font-medium text-foreground">{state.email}</span>. From now on your account signs in with your username, <span className="font-medium text-foreground">@{me?.profile?.username}</span>, and a password. To get back in, you'll use your recovery phrase, and optionally a passkey or another signed-in device. Set a password and confirm your phrase below, then remove your email.
           </p>
-          <Button className="mt-3" size="sm" variant="outline" disabled={!state.owner || !state.has_password || Boolean(busy)} onClick={() => run("email", () => identityAction("remove_email"))}>
+          <Button className="mt-3" size="sm" variant="outline" disabled={!state.owner || !state.has_password || Boolean(busy)} onClick={() => run("email", () => confirm((o) => identityAction("remove_email", {}, o)))}>
             Remove my email now
           </Button>
           {(!state.owner || !state.has_password) && <p className="mt-2 text-xs text-muted-foreground">{!state.has_password ? "Set a password first." : "Confirm your recovery phrase first."}</p>}
@@ -79,7 +82,7 @@ export default function SignInSettings() {
                   <p className="font-medium">{a.device_name}</p>
                   <p className="font-mono text-lg tracking-widest">{a.code.slice(0, 3)} {a.code.slice(3)}</p>
                 </div>
-                <Button size="sm" disabled={Boolean(busy)} onClick={() => run(`ap:${a.id}`, () => answerApproval(a.id, true))}>Approve</Button>
+                <Button size="sm" disabled={Boolean(busy)} onClick={() => run(`ap:${a.id}`, () => confirm((o) => answerApproval(a.id, true, o)))}>Approve</Button>
                 <Button size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => run(`ap:${a.id}`, () => answerApproval(a.id, false))}>It wasn't me</Button>
               </li>
             ))}
@@ -99,7 +102,7 @@ export default function SignInSettings() {
                   <p className="font-medium">{p.name}</p>
                   <p className="text-xs text-muted-foreground">{p.synced ? "Synced by a password manager or account" : "This device only"}. Added {formatDate(p.created_at)}{p.last_used ? `, last used ${formatDate(p.last_used)}` : ""}</p>
                 </div>
-                <Button size="sm" variant="ghost" aria-label={`Remove ${p.name}`} disabled={Boolean(busy)} onClick={() => run(`pk:${p.id}`, () => identityAction("remove_passkey", { id: p.id }))}>
+                <Button size="sm" variant="ghost" aria-label={`Remove ${p.name}`} disabled={Boolean(busy)} onClick={() => run(`pk:${p.id}`, () => confirm((o) => identityAction("remove_passkey", { id: p.id }, o)))}>
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </li>
@@ -108,10 +111,10 @@ export default function SignInSettings() {
         )}
         {passkeysSupported() ? (
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button size="sm" disabled={Boolean(busy)} onClick={() => run("add-device", () => addPasskey("device"))}>
+            <Button size="sm" disabled={Boolean(busy)} onClick={() => run("add-device", () => confirm((o) => addPasskey("device", "", o)))}>
               {busy === "add-device" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Add a passkey on this device
             </Button>
-            <Button size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => run("add-synced", () => addPasskey("synced"))}>
+            <Button size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => run("add-synced", () => confirm((o) => addPasskey("synced", "", o)))}>
               {busy === "add-synced" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Add one to a password manager
             </Button>
           </div>
@@ -165,13 +168,14 @@ function RecoverySection({ owner, ownerSetAt, onSaved }) {
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const itsYou = useConfirmItsYou();
 
   const confirm = async () => {
     setBusy(true);
     setError("");
     setNote("");
     try {
-      await setOwnerKey(secret);
+      await itsYou.confirm((o) => setOwnerKey(secret, o));
       setSecret("");
       setNote("Saved. You can use this phrase or private key to confirm new devices and get back in.");
       await onSaved();
@@ -196,6 +200,7 @@ function RecoverySection({ owner, ownerSetAt, onSaved }) {
       title="Recovery phrase and private key"
       description="Your 24-word recovery phrase and your private key are the same secret written two ways: keep whichever is easier to store safely. Either one proves the account is yours. This site only ever sees a signature made with it."
     >
+      {itsYou.dialog}
       <p className="mb-3 flex items-center gap-2 text-sm">
         <KeyRound className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
         {owner ? `Set up${ownerSetAt ? ` ${formatDate(ownerSetAt)}` : ""}. You can get back in with it.` : "Not confirmed yet. Enter your recovery phrase so you can always get back in."}

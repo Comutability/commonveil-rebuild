@@ -3,6 +3,7 @@
 //
 //   make-admin <username>     give an account the admin role (or an older account's email)
 //   reset-password <username> set a temporary password and print it
+//   setup-code                the one-time code for creating a new site's first (admin) account
 //   backup                    copy the database to DATA_DIR/backups
 //   version                   print this site's version
 import crypto from "node:crypto";
@@ -45,8 +46,16 @@ export async function runCli(config, [command, arg]) {
       // and messages still need the person's recovery phrase or another of their devices.
       const temporary = crypto.randomBytes(12).toString("base64url");
       const { hashPassword } = await import("../base44/shared/identity/crypto.ts");
-      save("CvAccount", row.id, { ...JSON.parse(row.data), password: await hashPassword(temporary, config.passwordRounds), failed: 0 });
+      const acct = JSON.parse(row.data);
+      // Sessions made before this can no longer change how the account is protected.
+      save("CvAccount", row.id, { ...acct, password: await hashPassword(temporary, config.passwordRounds), failed: 0, security_epoch: (Number(acct.security_epoch) || 0) + 1 });
       console.log(`Give this temporary password to ${arg}, once you're sure it's them, and ask them to change it:\n${temporary}\n(Restart the app for it to take effect: docker compose restart app)`);
+      return 0;
+    }
+    if (command === "setup-code") {
+      const file = path.join(config.dataDir, "setup-code");
+      if (!fs.existsSync(file)) return fail("There's no setup code: this site already has an admin. Use make-admin to add another.");
+      console.log(fs.readFileSync(file, "utf8").trim());
       return 0;
     }
     if (command === "backup") {
@@ -57,7 +66,7 @@ export async function runCli(config, [command, arg]) {
       console.log(`Saved ${file}`);
       return 0;
     }
-    return fail(`Unknown command ${command}. Try: make-admin, reset-password, backup, version`);
+    return fail(`Unknown command ${command}. Try: make-admin, reset-password, setup-code, backup, version`);
   } finally {
     db.close();
   }

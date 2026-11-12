@@ -25,6 +25,8 @@ import * as S from "./store.js";
 import * as O from "../offline/outbox.js";
 import { isOffline, onOfflineChange, reportReachable } from "../offline/mode.js";
 import { templateChannel, templateRole, templateServer } from "./serverTemplates.js";
+import { createVouchCache } from "./vouch.js";
+
 
 const ServerContext = createContext(null);
 
@@ -132,7 +134,7 @@ export function ServerProvider({ children }) {
   const memberListsRef = useRef({});
   const cursors = useRef({ messages: null, changes: null, changesAt: 0, needChanges: false });
   const workers = useRef({});
-  const vouched = useRef(new Set());
+  const vouched = useRef(createVouchCache());
   const requested = useRef(new Set());
   const refetched = useRef(new Set());
   const waits = useRef({});
@@ -212,13 +214,13 @@ export function ServerProvider({ children }) {
 
   // ---------- keys ----------
 
-  /** True once a generation or grant has checked out; only successes are remembered. */
-  const check = useCallback(async (tag, fn) => {
-    if (vouched.current.has(tag)) return true;
-    const ok = await fn().catch(() => false);
-    if (ok) vouched.current.add(tag);
-    return ok;
-  }, []);
+  /**
+   * True once a generation or grant has checked out; only successes are remembered. The memory is
+   * keyed by a digest of the whole record and everything it was checked against (the signer's key
+   * history and devices), never by its signature alone: a record that changes in any way, or whose
+   * signer's keys change, is checked again (CV-01).
+   */
+  const check = useCallback((kind, record, against, fn) => vouched.current(kind, record, against, fn), []);
 
   /**
    * Open the grants in a server's state into this device's keys. Only generations signed by a
@@ -231,23 +233,29 @@ export function ServerProvider({ children }) {
     if (others.length) await loadPeers(others).catch(() => {});
     const gens = [];
     for (const g of st.generations) {
-      const ok = await check(`g:${g.signature}`, () => SP.generationIsVouched({ generation: g, creatorChain: latestChainOf(g.creator_id), creatorDevices: devicesOf(g.creator_id) }));
+      const against = { chain: latestChainOf(g.creator_id), devices: devicesOf(g.creator_id) };
+      const ok = await check("g", g, against, () => SP.generationIsVouched({ generation: g, creatorChain: against.chain, creatorDevices: against.devices }));
       if (ok) gens.push(g);
     }
     const fresh = [];
     for (const gr of st.grants) {
       if (keys.has(gr.chain_id, gr.generation) && keys.firstStep(gr.chain_id, gr.generation) <= gr.step) continue;
-      const ok = await check(`k:${gr.signature}`, () => SP.grantIsVouched({ grant: gr, grantorChain: latestChainOf(gr.grantor_id), grantorDevices: devicesOf(gr.grantor_id) }));
+      const against = { chain: latestChainOf(gr.grantor_id), devices: devicesOf(gr.grantor_id) };
+      const ok = await check("k", gr, against, () => SP.grantIsVouched({ grant: gr, grantorChain: against.chain, grantorDevices: against.devices }));
       if (ok) fresh.push(gr);
     }
     if (!fresh.length) return;
-    const { unreadable } = await SP.openGrants({ grants: fresh, generations: gens, userId, keyring, keys });
+    const { unreadable, bad } = await SP.openGrants({ grants: fresh, generations: gens, userId, keyring, keys });
     bumpKeys();
-    // Copies sealed to keys this account no longer has (after a reset): ask for new ones, once.
+    // Copies sealed to keys this account no longer has (after a reset), and copies that opened but
+    // weren't the key their generation committed to (CV-14): ask for new ones, once each. The
+    // sender of a wrong one is refused from then on.
     const ask = unreadable.filter((gid) => !requested.current.has(gid));
-    if (ask.length) {
-      ask.forEach((gid) => requested.current.add(gid));
-      callFn("servers", await SP.serverRequest({ userId, device, action: "request_keys", payload: { server_id: serverId, grant_ids: ask } })).catch(() => {});
+    const wrong = (bad || []).filter((gid) => !requested.current.has(gid));
+    if (ask.length || wrong.length) {
+      [...ask, ...wrong].forEach((gid) => requested.current.add(gid));
+      const payload = { server_id: serverId, grant_ids: ask, ...(wrong.length ? { bad_grant_ids: wrong } : {}) };
+      callFn("servers", await SP.serverRequest({ userId, device, action: "request_keys", payload })).catch(() => {});
     }
   }, [userId, device, keyring, loadPeers, latestChainOf, devicesOf, check, bumpKeys]);
 

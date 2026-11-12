@@ -56,6 +56,43 @@ function hiddenFromNewcomer(view: any, m: any) {
   return joinedOnly && parsePlatformTime(String(m.created_date)) < Date.parse(view.member.joined_at);
 }
 
+/**
+ * Of these messages, the ones this member may read right now: worked out from the server's current
+ * roles, overwrites and their membership (never from a stored access list that may lag behind a
+ * permission change, CV-05), and with the same history rule as listing (CV-06). Read with the
+ * member's own access: rows they can't read can only make the answer smaller.
+ */
+async function readableNow(own: any, userId: string, rows: any[]) {
+  if (!rows.length) return rows;
+  const serverIds = [...new Set(rows.map((m) => m.server_id).filter(Boolean))] as string[];
+  const channelIds = [...new Set(rows.map((m) => m.channel_id).filter(Boolean))] as string[];
+  const [members, servers, roles, channels] = await Promise.all([
+    own.entities.ServerMember.filter({ user_id: userId, server_id: { $in: serverIds } }, "created_date", serverIds.length + 5),
+    own.entities.Server.filter({ audience_id: { $in: serverIds } }, "created_date", serverIds.length + 5),
+    own.entities.Role.filter({ server_id: { $in: serverIds } }, "position", (SERVER_LIMITS.rolesPerServer + 5) * serverIds.length),
+    own.entities.Channel.filter({ id: { $in: channelIds } }, "position", channelIds.length + 5),
+  ]);
+  const views = new Map<string, any>();
+  const viewFor = (serverId: string, channelId: string) => {
+    const key = `${serverId}|${channelId}`;
+    if (views.has(key)) return views.get(key);
+    const member = members.find((m: any) => m.server_id === serverId);
+    const server = servers.find((s: any) => s.audience_id === serverId || s.id === serverId);
+    const channel = channels.find((c: any) => c.id === channelId && c.server_id === serverId);
+    let view = null;
+    if (member && server && server.status !== "deleting" && channel) {
+      const perms = channelPermissions(server, roles.filter((r: any) => r.server_id === serverId), member, channel);
+      if (has(perms, P.VIEW_CHANNEL)) view = { member, server, channel, perms };
+    }
+    views.set(key, view);
+    return view;
+  };
+  return rows.filter((m) => {
+    const view = viewFor(m.server_id, m.channel_id);
+    return view && !hiddenFromNewcomer(view, m);
+  });
+}
+
 export const serverMessageActions: Actions = {
   async send({ sr, own, user, body, now }) {
     const serverId = id(body.server_id, "server");
@@ -274,8 +311,9 @@ export async function pollServers(
   let cursor = since;
   for (const m of page) if (String(m.updated_date) > cursor) cursor = String(m.updated_date);
   if (!hasMore && cursor > settled) cursor = settled > since ? settled : since;
+  const visible = await readableNow(own, userId, page.filter((m: any) => isLive(m, now)));
   const out: Record<string, unknown> = {
-    server_messages: page.filter((m: any) => isLive(m, now)).map(serverMessageOut),
+    server_messages: visible.map(serverMessageOut),
     servers_cursor: cursor,
     servers_more: hasMore,
   };
