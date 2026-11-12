@@ -1,15 +1,15 @@
 {
   "name": "secure-net",
-  "version": "0.2.1",
+  "version": "0.3.1",
   "files": {
-    "package.json": "zJGggImr7z-SiX8dggzbCqIN7SN7qXd86ZfTUAmBsno",
+    "package.json": "tqWj_E0oyk6kTKAjl0yFvTxaOmOt8h3UDxZL0uhg13I",
     "README.md": "_0NFFrXM5D9R_LeIfMngCFU24w07RKBe4lfCzvD18zs",
     "LICENSE": "2KbMMavBa2dIx6IfIWEfWh7DP2fSLKI9faHBm5VJa-4",
     "src/commons/ledger.js": "1H0lyYpbzDpuCZtwVUSOskAHLBialPHa8HM0ODtrdvg",
     "src/consent/capsule.js": "nG5DHNKGSbL1yrN5ztYs28Zkcz4gtf91zsoGazA9kTI",
     "src/core/bytes.js": "KLNX6WXYivIT1Ei3UzmqKmtiafYUoKYUDqqzA5OXPTs",
     "src/core/canonical.js": "_nTi9T6EdlxsbWLj4DSMqeK8qVV5C5hcv9aERSTyXJU",
-    "src/core/signed.js": "Z4s5v9nueEkQ1giVVD4YQz2KAmtlKc3cB6DooYEkb_E",
+    "src/core/signed.js": "aqjdgMuh67hrPB4Ui-RNkW-eInZx5YBeZHJB3inz3sE",
     "src/crypto/canonical.js": "cQyMjJ499-EJW1_4CmiuTmUdRUqoNZ7pOXB1wTG41F0",
     "src/crypto/device.js": "i8LNJTQTlUfZiST71OcXMRWDuVFe_qXC6Wt1jlZBU28",
     "src/crypto/encoding.js": "EhmKx2bXWJdpETyIO0gXYu5SNe4Q2MekBYgZmfUPq0k",
@@ -28,17 +28,20 @@
     "src/identity/portable.js": "efpbB6eFpwZu7qJpAY7TSZJ6XtV5nmKNGlt0eZqWH3A",
     "src/index.js": "k_TrkKKK1msBKw-JC2VBhPfcN8fWda6-H5tLcIbF7aA",
     "src/tokens/voprf.js": "WrwBmXPvGNpBghXJf3llQDxXuo-RybkqGYBdEUw53zI",
-    "src/wire/features.js": "I00cLkdIb_CeYjtBWovrrsSZGX24POyZhSZEdogp_-0",
+    "src/wire/features.js": "1-u0YxSpDnlRC-jMRMRfbfcE4DBLpigSagXBhp-jXuk",
     "src/wire/federation.js": "HnQ4n5pgzyENwxVF9HCV2T_Rei1QlWFJZQD3soSjDJw",
+    "src/wire/sealed.js": "Teu_LQT-V0zoZURAaMx2vSOWMKDb37Vi4eO9CTRAiKs",
     "spec/CVP-011-commons-ledger.md": "PmbEi8pvHArsMpSv1_lYm3AZw2vqtF0YyndVKUzsW14",
     "spec/CVP-012-governance.md": "I9oLgZw7xoCU1N29NHOTKShqi2e9PlKqEMwf5vceHls",
     "spec/CVP-013-tokens.md": "2ShPi3ic4Pn4xNa56IulrBDaeYu_7NjDpnP8NuxFeT8",
+    "spec/CVP-015-quantum-resistance.md": "G72CeTOY42O4x4s6cd4aMz1UEM2lyiDlHGJNtd4niAg",
     "spec/INTEROPERABILITY.md": "hwXV9LCK_eadojF4_EK0Wd_KBM5LoPIaFCNNEpYuIT8",
-    "spec/README.md": "3EA-wbu7r2mLVJd3jPfgxSRwUIetbK6BUZkS33LVhCA",
+    "spec/README.md": "1HlZ3CLyYYBQvuomc_oJ3LPXMrEA3ux9isqwrSPZlBo",
     "test/core.test.mjs": "0sz3DbcDSAVMJgHrYefiys3bh7iZuXtuB4_Se8uVQlc",
     "test/crypto.test.mjs": "MOhUqh-m1qKBCbim9csEoIwDfSeR7edZp2Szqf_KmoY",
     "test/governance.test.mjs": "o4syEWl_XAmRQP_7l8AJCLvDRA7CPB3iAykYHV3-HcA",
     "test/identity-consent-extensions.test.mjs": "qtYbdV7Jv64F0AyhdStvqejQEWuL6_9x5T3wLpq0Duw",
-    "test/ledger.test.mjs": "AoJ_zi_YatnJleVsZ5c9gOc20cO8Z6V-Gq-OAcDRr1M"
+    "test/ledger.test.mjs": "AoJ_zi_YatnJleVsZ5c9gOc20cO8Z6V-Gq-OAcDRr1M",
+    "test/pq.test.mjs": "uWLBUr4k7bdLNOqzltad_VkPOzGSZuERUDIF-VWoKkE"
   }
 }

@@ -4,6 +4,10 @@
   "type": "object",
   "description": "Another Commonveil site this one has talked to, with its key as first seen. Set blocked to stop talking to it; delete the row to accept a changed key. Backend only.",
   "properties": {
+    "pq": {
+      "type": "string",
+      "description": "The site's relay keys as first seen (JSON), pinned like its key."
+    },
     "host": {
       "type": "string"
     },

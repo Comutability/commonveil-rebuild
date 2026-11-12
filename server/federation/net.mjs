@@ -12,6 +12,13 @@ import { WebSocket } from "ws";
 import { PROTOCOL, HOST_RE, SITE_DOCUMENT, signatureBase, digestOf, isPrivate, endpointsOf } from "../../packages/secure-net/src/wire/federation.js";
 
 export { PROTOCOL, HOST_RE, signatureBase, digestOf, isPrivate, endpointsOf };
+import { ml_kem768 } from "@noble/post-quantum/ml-kem.js";
+import { ml_dsa65 } from "@noble/post-quantum/ml-dsa.js";
+import { relaySuite, relayContext, relayKeysOf, relayKeysAcceptable, SUITE } from "../../packages/secure-net/src/wire/sealed.js";
+
+/** The sealed relay (packages/secure-net/spec/CVP-015): requests between sites, sealed and signed post-quantum. */
+export const relay = relaySuite({ ml_kem768, ml_dsa65 });
+export { relayContext, relayKeysOf };
 
 const SKEW_MS = 5 * 60_000;
 const MAX_RESPONSE = 4 * 1024 * 1024;
@@ -233,6 +240,7 @@ export class Signer {
     this.docs = new Map();
     const db = store.db;
     db.exec(`CREATE TABLE IF NOT EXISTS fed_sites (host TEXT PRIMARY KEY, key TEXT NOT NULL, name TEXT, handle_domain TEXT, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, blocked INTEGER NOT NULL DEFAULT 0)`);
+    if (!db.prepare("PRAGMA table_info(fed_sites)").all().some((c) => c.name === "pq")) db.exec("ALTER TABLE fed_sites ADD COLUMN pq TEXT");
     this.q = {
       get: db.prepare("SELECT * FROM fed_sites WHERE host = ?"),
       put: db.prepare("INSERT INTO fed_sites (host, key, name, handle_domain, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(host) DO UPDATE SET name = excluded.name, handle_domain = excluded.handle_domain, last_seen = excluded.last_seen"),
@@ -242,19 +250,58 @@ export class Signer {
     };
   }
 
-  headers({ method, to, path, body, user }) {
+  /** This site's relay keys, made once and kept with the data. */
+  async relayKeys() {
+    if (!this.relayKeysMade) {
+      let saved = this.store.getSetting("federation:relay-keys");
+      if (!saved) {
+        saved = await relay.generateKeys();
+        this.store.setSetting("federation:relay-keys", saved);
+      }
+      this.relayKeysMade = saved;
+    }
+    return this.relayKeysMade;
+  }
+
+  /** What the site document says about them. */
+  async relayDoc() {
+    const k = await this.relayKeys();
+    return { suite: SUITE, kem: k.kem.public, sig: k.sig.public };
+  }
+
+  /** The headers of a signed request: Ed25519 and ML-DSA-65 over the same base. */
+  async headers({ method, to, path, body, user }) {
     const date = new Date().toISOString();
     const nonce = b64u(crypto.randomBytes(16));
     const digest = digestOf(body);
-    const signature = this.key.sign(signatureBase({ method, to, path, from: this.host, date, nonce, digest, user }));
-    return { "CV-From": this.host, "CV-Date": date, "CV-Nonce": nonce, "CV-Digest": digest, "CV-Signature": signature, ...(user ? { "CV-User": user } : {}) };
+    const base = signatureBase({ method, to, path, from: this.host, date, nonce, digest, user });
+    return { "CV-From": this.host, "CV-Date": date, "CV-Nonce": nonce, "CV-Digest": digest, "CV-Signature": this.key.sign(base), "CV-PQ-Signature": relay.sign((await this.relayKeys()).sig.secret, base), ...(user ? { "CV-User": user } : {}) };
   }
 
-  /** POST JSON to another site, signed. Answers { status, data }. */
+  /** POST JSON to another site, signed, and sealed for it if it publishes relay keys. Answers { status, data }. */
   async post(to, path, payload, { user } = {}) {
     this.#refuseBlocked(to);
-    const body = JSON.stringify(payload);
-    return this.transport.request(to, path, { method: "POST", body, headers: { "Content-Type": "application/json", ...this.headers({ method: "POST", to, path, body, user }) } });
+    let body = JSON.stringify(payload);
+    const peer = relayKeysOf(await this.siteDoc(to));
+    const context = relayContext({ from: this.host, to, path });
+    let replyKey = null;
+    if (peer) {
+      const sealed = await relay.seal(peer.kem, body, context);
+      body = JSON.stringify({ sealed: sealed.sealed });
+      replyKey = sealed.replyKey;
+    }
+    const r = await this.transport.request(to, path, { method: "POST", body, headers: { "Content-Type": "application/json", ...(peer ? { "CV-Sealed": "1" } : {}), ...(await this.headers({ method: "POST", to, path, body, user })) } });
+    if (!replyKey) return r;
+    if (typeof r.data?.sealed === "string") {
+      try {
+        return { status: r.status, data: JSON.parse(await relay.openReply(replyKey, r.data.sealed, context)) };
+      } catch {
+        throw new FederationError(502, "SITE_ERROR", `${to}'s reply couldn't be opened.`);
+      }
+    }
+    // A refusal before the request was opened comes back plain; an answer never does.
+    if (r.status < 400) throw new FederationError(502, "SITE_ERROR", `${to} answered a sealed request in the clear.`);
+    return r;
   }
 
   /** Where one of a site's endpoints is, from its site document (act, directory, inbox, ...). */
@@ -281,13 +328,17 @@ export class Signer {
       throw new FederationError(502, "NOT_A_SITE", `${host} isn't a Commonveil site, or doesn't talk to other sites.`);
     }
     const pinned = this.q.get.get(host);
-    if (pinned && pinned.key !== "-" && pinned.key !== data.key.public) {
+    const relayNow = relayKeysOf(data);
+    const relayWas = pinned?.pq ? JSON.parse(pinned.pq) : null;
+    if (pinned && pinned.key !== "-" && (pinned.key !== data.key.public || !relayKeysAcceptable(relayWas, relayNow))) {
       this.log.warn?.(`[federation] ${host} now presents a different key; refusing it until an admin accepts the change`);
       throw new FederationError(403, "SITE_KEY_CHANGED", `${host}'s key changed. An admin of this site has to accept the change first.`);
     }
     const now = new Date().toISOString();
     this.q.put.run(host, data.key.public, String(data.name || "").slice(0, 80), String(data.handle_domain || host), pinned?.first_seen || now, now);
     if (pinned?.key === "-") this.store.db.prepare("UPDATE fed_sites SET key = ? WHERE host = ?").run(data.key.public, host);
+    // Relay keys are pinned with the site's key; a site may start sealing, never stop.
+    if (relayNow && !relayWas) this.store.db.prepare("UPDATE fed_sites SET pq = ? WHERE host = ?").run(JSON.stringify(relayNow), host);
     this.docs.set(host, { doc: data, at: Date.now() });
     return data;
   }
@@ -310,9 +361,25 @@ export class Signer {
     const user = h("cv-user");
     const ok = verifyEd25519(doc.key.public, signatureBase({ method: req.method, to: this.host, path, from, date, nonce, digest: h("cv-digest"), user }), h("cv-signature"));
     if (!ok) throw new FederationError(401, "BAD_SIGNATURE", "The signature didn't verify.");
+    // A site that publishes relay keys is held to them: both signatures, and sealed bodies.
+    const peer = relayKeysOf(doc);
+    const sealed = h("cv-sealed") === "1";
+    if (peer) {
+      const base = signatureBase({ method: req.method, to: this.host, path, from, date, nonce, digest: h("cv-digest"), user });
+      if (!relay.verify(peer.sig, base, h("cv-pq-signature"))) throw new FederationError(401, "BAD_SIGNATURE", "The post-quantum signature didn't verify.");
+      if (req.method === "POST" && !sealed) throw new FederationError(401, "UNSEALED", "This site only takes sealed requests from that site.");
+    }
     this.nonces.set(seenKey, Date.now());
     if (this.nonces.size > 20_000) for (const [k, at] of this.nonces) if (Date.now() - at > 2 * SKEW_MS) this.nonces.delete(k);
-    return { from, user, doc };
+    if (!sealed) return { from, user, doc, body, reply: null };
+    // Opened only now that it's known who sent it. The reply goes back under the request's own key.
+    const context = relayContext({ from, to: this.host, path });
+    try {
+      const opened = await relay.open((await this.relayKeys()).kem.secret, JSON.parse(body).sealed, context);
+      return { from, user, doc, body: opened.text, reply: async (data) => ({ sealed: await relay.sealReply(opened.replyKey, JSON.stringify(data), context) }) };
+    } catch {
+      throw new FederationError(400, "CANNOT_OPEN", "That request wasn't sealed for this site.");
+    }
   }
 
   sites() {

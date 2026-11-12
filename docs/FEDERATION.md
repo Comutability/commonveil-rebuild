@@ -280,3 +280,27 @@ https and relies on the platform's network rules beyond that.
 
 Turning it on: deploy, open `/functions/fedidentity?site=1`, copy the `public_key` it reports
 into `federation/site.ts`, set `enabled: true`, and publish.
+
+## The sealed relay (quantum-resistant)
+
+What one site sends another is sealed for that site and signed twice
+(`packages/secure-net/spec/CVP-015-quantum-resistance.md`, `wire/sealed.js`):
+
+- **Sealed**: the request body is encrypted from site to site with an ephemeral P-256 exchange
+  and ML-KEM-768 together, then AES-256-GCM, and bound to the two sites and the endpoint. The
+  answer comes back sealed under a one-time key from inside the request. Nothing in between (the
+  network, a CDN, a hosting platform's proxy, or someone recording traffic to decrypt years
+  later) learns who is writing to whom or what they asked for.
+- **Signed twice**: Ed25519 and ML-DSA-65 over the same signature base. Both must verify.
+- **No going back**: relay keys are published in the site document (`pq`) and pinned with the
+  site's key. A site that has published them is refused if they change or vanish, and plain or
+  singly-signed requests from it are refused.
+
+Both kinds of site do this. On a self-hosted site the keys are made on first start and kept with
+its data. On the hosted site they are in the `FedKey` table (purpose `relay`), and their public
+halves are copied into `federation/site.ts` like the site key. Sites that don't publish relay
+keys (older versions) are still talked to as before, until they do.
+
+Message content was already quantum-resistant end to end between people (ML-KEM-768 with P-256).
+Still classical: the signatures people's devices put on messages (forging one needs a quantum
+computer at the time; a recording is no use), and private voting tokens.

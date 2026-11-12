@@ -13,6 +13,34 @@ import { peerDeviceOut, statementOut } from "../store.ts";
 import { CURSOR_FIELDS, FAN_OUT, mergeResults, unb64u } from "./merge.ts";
 import { SITE, siteDocument } from "./site.ts";
 import * as W from "./wire.ts";
+import { relaySuite, relayContext, relayKeysOf, relayKeysAcceptable } from "./sealed.generated.js";
+
+/**
+ * The sealed relay's algorithms (packages/secure-net/spec/CVP-015). The post-quantum library is
+ * loaded only when first needed, and if it can't be, this site neither publishes relay keys nor
+ * talks to sites that require them: it never quietly sends in the clear to a site that seals.
+ */
+let suiteLoading: Promise<any> | null = null;
+export function relayAlgorithms(): Promise<any> {
+  suiteLoading ||= (async () => {
+    let kem: any;
+    let dsa: any;
+    try {
+      // @ts-ignore: an npm specifier, resolved by the functions' runtime
+      [kem, dsa] = await Promise.all([import("npm:@noble/post-quantum@0.7.1/ml-kem.js"), import("npm:@noble/post-quantum@0.7.1/ml-dsa.js")]);
+    } catch {
+      try {
+        // Under Node (tests), the same package by its plain name.
+        const plain = "@noble/post-quantum/";
+        [kem, dsa] = await Promise.all([import(`${plain}ml-kem.js`), import(`${plain}ml-dsa.js`)]);
+      } catch {
+        return null;
+      }
+    }
+    return relaySuite({ ml_kem768: kem.ml_kem768, ml_dsa65: dsa.ml_dsa65 });
+  })();
+  return suiteLoading;
+}
 
 const ID24 = /^[a-f0-9]{24}$/;
 const HANDLE_RE = /^[a-z0-9][a-z0-9-]{1,19}(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
@@ -84,13 +112,33 @@ export class HostedFederation {
   async key(): Promise<{ public: string; secret: string }> {
     return remembered(`key:${this.host}`, 3600_000, async () => {
       const T = this.sr.entities.FedKey;
-      let rows = await T.filter({}, "created_date", 5);
+      const mine = async () => (await T.filter({}, "created_date", 20)).filter((r: any) => !r.purpose);
+      let rows = await mine();
       if (!rows.length) {
         await T.create(await W.generateSiteKey());
         // Two first uses at once each make one: everyone then uses the older.
-        rows = await T.filter({}, "created_date", 5);
+        rows = await mine();
       }
       return { public: rows[0].public, secret: rows[0].secret };
+    });
+  }
+
+  /** This site's relay keys (sealing and post-quantum signing), made on first use; null if the algorithms can't be loaded. */
+  async relayKeys(): Promise<{ suite: any; kem: { public: string; secret: string }; sig: { public: string; secret: string } } | null> {
+    const suite = await relayAlgorithms();
+    if (!suite) return null;
+    return remembered(`relay:${this.host}`, 3600_000, async () => {
+      const T = this.sr.entities.FedKey;
+      const mine = () => T.filter({ purpose: "relay" }, "created_date", 5);
+      let rows = await mine();
+      if (!rows.length) {
+        const k = await suite.generateKeys();
+        await T.create({ purpose: "relay", public: JSON.stringify({ kem: k.kem.public, sig: k.sig.public }), secret: JSON.stringify({ kem: k.kem.secret, sig: k.sig.secret }) });
+        rows = await mine();
+      }
+      const pub = JSON.parse(rows[0].public);
+      const sec = JSON.parse(rows[0].secret);
+      return { suite, kem: { public: pub.kem, secret: sec.kem }, sig: { public: pub.sig, secret: sec.sig } };
     });
   }
 
@@ -128,13 +176,17 @@ export class HostedFederation {
       if (status !== 200 || data?.protocol !== W.PROTOCOL || data.host !== host || typeof data.key?.public !== "string") {
         throw new FederationError(502, "NOT_A_SITE", `${host} isn't a Commonveil site, or doesn't talk to other sites.`);
       }
-      if (pinned && pinned.key !== data.key.public) {
+      const relayNow = relayKeysOf(data);
+      const relayWas = pinned?.pq ? JSON.parse(pinned.pq) : null;
+      if (pinned && (pinned.key !== data.key.public || !relayKeysAcceptable(relayWas, relayNow))) {
         throw new FederationError(403, "SITE_KEY_CHANGED", `${host}'s key changed. An admin of this site has to accept the change first.`);
       }
       const now = new Date().toISOString();
       const row = { host, key: data.key.public, name: String(data.name || "").slice(0, 80), handle_domain: String(data.handle_domain || host), last_seen: now };
-      if (!pinned) await T.create({ ...row, first_seen: now, blocked: false });
-      else if (pinned.last_seen < new Date(Date.now() - 24 * 3600_000).toISOString()) await T.update(pinned.id, row);
+      // Relay keys are pinned with the site's key; a site may start sealing, never stop.
+      const pq = relayNow ? JSON.stringify(relayNow) : "";
+      if (!pinned) await T.create({ ...row, pq, first_seen: now, blocked: false });
+      else if ((relayNow && !relayWas) || pinned.last_seen < new Date(Date.now() - 24 * 3600_000).toISOString()) await T.update(pinned.id, { ...row, ...(relayNow ? { pq } : {}) });
       return data;
     });
   }
@@ -143,15 +195,40 @@ export class HostedFederation {
     return W.endpointsOf(await this.siteDoc(host))[name];
   }
 
-  /** POST to one of a site's endpoints, signed with this site's key. */
+  /** POST to one of a site's endpoints: signed, and sealed for it if it publishes relay keys. */
   async send(to: string, name: string, payload: unknown, user = "") {
     const path = await this.endpoint(to, name);
-    const body = JSON.stringify(payload);
+    let body = JSON.stringify(payload);
+    const peer = relayKeysOf(await this.siteDoc(to));
+    const mine = await this.relayKeys();
+    const context = relayContext({ from: this.host, to, path });
+    let replyKey: Uint8Array | null = null;
+    if (peer) {
+      if (!mine) throw new FederationError(502, "SITE_UNREACHABLE", `${to} only takes sealed requests, which this site can't make right now.`);
+      const sealed = await mine.suite.seal(peer.kem, body, context);
+      body = JSON.stringify({ sealed: sealed.sealed });
+      replyKey = sealed.replyKey;
+    }
     const date = new Date().toISOString();
     const nonce = W.b64u(crypto.getRandomValues(new Uint8Array(16)));
     const digest = await W.digestOf(body);
-    const signature = await W.signText((await this.key()).secret, W.signatureBase({ method: "POST", to, path, from: this.host, date, nonce, digest, user }));
-    return this.request(to, path, { method: "POST", body, headers: { "Content-Type": "application/json", "CV-From": this.host, "CV-Date": date, "CV-Nonce": nonce, "CV-Digest": digest, "CV-Signature": signature, ...(user ? { "CV-User": user } : {}) } });
+    const base = W.signatureBase({ method: "POST", to, path, from: this.host, date, nonce, digest, user });
+    const headers: Record<string, string> = { "Content-Type": "application/json", "CV-From": this.host, "CV-Date": date, "CV-Nonce": nonce, "CV-Digest": digest, "CV-Signature": await W.signText((await this.key()).secret, base) };
+    if (mine) headers["CV-PQ-Signature"] = mine.suite.sign(mine.sig.secret, base);
+    if (peer) headers["CV-Sealed"] = "1";
+    if (user) headers["CV-User"] = user;
+    const r = await this.request(to, path, { method: "POST", body, headers });
+    if (!replyKey || !mine) return r;
+    if (typeof r.data?.sealed === "string") {
+      try {
+        return { status: r.status, data: JSON.parse(await mine.suite.openReply(replyKey, r.data.sealed, context)) };
+      } catch {
+        throw new FederationError(502, "SITE_ERROR", `${to}'s reply couldn't be opened.`);
+      }
+    }
+    // A refusal before the request was opened comes back plain; an answer never does.
+    if (r.status < 400) throw new FederationError(502, "SITE_ERROR", `${to} answered a sealed request in the clear.`);
+    return r;
   }
 
   /** Check a signed request from another site. Answers { from, user } or throws. */
@@ -171,13 +248,31 @@ export class HostedFederation {
     const user = h("cv-user");
     const base = W.signatureBase({ method: req.method, to: this.host, path: url.pathname + url.search, from, date, nonce, digest: h("cv-digest"), user });
     if (!(await W.verifyText(doc.key.public, base, h("cv-signature")))) throw new FederationError(401, "BAD_SIGNATURE", "The signature didn't verify.");
+    // A site that publishes relay keys is held to them: both signatures, and sealed bodies.
+    const peer = relayKeysOf(doc);
+    const sealed = h("cv-sealed") === "1";
+    const mine = peer || sealed ? await this.relayKeys() : null;
+    if (peer) {
+      if (!mine) throw new FederationError(503, "RELAY_UNAVAILABLE", "This site can't check sealed requests right now.");
+      if (!mine.suite.verify(peer.sig, base, h("cv-pq-signature"))) throw new FederationError(401, "BAD_SIGNATURE", "The post-quantum signature didn't verify.");
+      if (req.method === "POST" && !sealed) throw new FederationError(401, "UNSEALED", "This site only takes sealed requests from that site.");
+    }
     // Each signed request works once. The row is written before anything is done with it.
     const N = this.sr.entities.FedNonce;
     const key = `${from}:${nonce}`;
     if ((await N.filter({ key }, "created_date", 1)).length) throw new FederationError(401, "REPLAY", "That request was already used.");
     await N.create({ key, expires_at: new Date(Date.now() + 2 * W.SKEW_MS).toISOString() });
     if ((await N.filter({ key }, "created_date", 2)).length > 1) throw new FederationError(401, "REPLAY", "That request was already used.");
-    return { from, user };
+    if (!sealed) return { from, user, body, reply: null as null | ((data: unknown) => Promise<unknown>) };
+    // Opened only now that it's known who sent it. The reply goes back under the request's own key.
+    const context = relayContext({ from, to: this.host, path: url.pathname + url.search });
+    try {
+      if (!mine) throw new Error("no relay keys");
+      const opened = await mine.suite.open(mine.kem.secret, JSON.parse(body).sealed, context);
+      return { from, user, body: opened.text as string, reply: async (data: unknown) => ({ sealed: await mine.suite.sealReply(opened.replyKey, JSON.stringify(data), context) }) };
+    } catch {
+      throw new FederationError(400, "CANNOT_OPEN", "That request wasn't sealed for this site.");
+    }
   }
 
   // ---------- handles and people ----------

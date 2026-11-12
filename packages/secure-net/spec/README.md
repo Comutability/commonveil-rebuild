@@ -21,6 +21,7 @@ tests (CVP-010).
 | CVP-012 | Governance: motions, debates, votes | Implemented | `governance/*` ([CVP-012](CVP-012-governance.md)) |
 | CVP-013 | Private tokens (RFC 9497) | Implemented | `tokens/voprf` ([CVP-013](CVP-013-tokens.md)) |
 | CVP-014 | Consent capsules | Implemented | `consent/capsule` |
+| CVP-015 | Quantum resistance and the sealed relay | Implemented | `wire/sealed`, `core/signed` ([CVP-015](CVP-015-quantum-resistance.md)) |
 
 ## Goals (CVP-000)
 

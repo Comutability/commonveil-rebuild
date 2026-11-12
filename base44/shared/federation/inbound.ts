@@ -62,18 +62,27 @@ export async function serveFederation(req: Request, makeClient: (req: Request) =
   const url = new URL(req.url);
   try {
     // Setting up: the site's public key, for whoever runs the site to publish (federation/site.ts).
-    if (endpoint === "identity" && url.searchParams.get("site") === "1") return json(200, { host: fed.host, enabled: fed.enabled, public_key: (await fed.key()).public });
+    if (endpoint === "identity" && url.searchParams.get("site") === "1") {
+      const relayKeys = await fed.relayKeys().catch(() => null);
+      return json(200, { host: fed.host, enabled: fed.enabled, public_key: (await fed.key()).public, pq: relayKeys ? { kem: relayKeys.kem.public, sig: relayKeys.sig.public } : null });
+    }
     if (!fed.enabled) return json(404, { error: "This site doesn't talk to other sites.", code: "FEDERATION_OFF" });
     if (endpoint === "identity") return json(200, await fed.identity(url.searchParams.get("handle") || ""), { "Access-Control-Allow-Origin": "*" });
     if (endpoint === "discover") return json(200, await fed.discover(url.searchParams.get("tag") || ""), { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=120" });
     if (req.method !== "POST") return json(405, { error: "Use POST.", code: "METHOD_NOT_ALLOWED" });
     const body = await req.text();
     if (body.length > MAX_BODY) return json(413, { error: "That request is too large.", code: "TOO_LARGE" });
-    const { from, user } = await fed.verify(req, body);
-    const payload = JSON.parse(body || "{}");
-    if (endpoint === "act") return await inboundAct(fed, base44, inboundTable({ defaultAdmins: options.defaultAdmins }), from, payload, user);
-    if (endpoint === "directory") return json(200, await fed.inboundDirectory(from, payload));
-    if (endpoint === "inbox") return json(200, await fed.inboundInbox(from, payload));
+    const checked = await fed.verify(req, body);
+    const { from, user } = checked;
+    const payload = JSON.parse(checked.body || "{}");
+    // A sealed request gets a sealed answer.
+    const answer = async (status: number, data: unknown) => json(status, checked.reply ? await checked.reply(data) : data);
+    if (endpoint === "act") {
+      const res = await inboundAct(fed, base44, inboundTable({ defaultAdmins: options.defaultAdmins }), from, payload, user);
+      return answer(res.status, await res.json().catch(() => ({})));
+    }
+    if (endpoint === "directory") return answer(200, await fed.inboundDirectory(from, payload));
+    if (endpoint === "inbox") return answer(200, await fed.inboundInbox(from, payload));
     return json(404, { error: "Not found", code: "NOT_FOUND" });
   } catch (err: any) {
     if (err instanceof FederationError) return json(err.status, { error: err.message, code: err.code });

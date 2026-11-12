@@ -22,9 +22,11 @@ before(async () => {
   net = await startSites(["alpha.test"]);
   alpha = net.sites["alpha.test"];
   world = new FakeWorld();
-  site = { enabled: true, host: HOSTED, name: "Hosted", public_key: "" };
+  site = { enabled: true, host: HOSTED, name: "Hosted", public_key: "", pq: { kem: "", sig: "" } };
   fed = new HostedFederation({ sr: world.clientFor(null).asServiceRole, site, urlFor: (_host, path) => `${alpha.url}${path}`, log: { warn() {} } });
   site.public_key = (await fed.key()).public;
+  const relayKeys = await fed.relayKeys();
+  site.pq = { kem: relayKeys.kem.public, sig: relayKeys.sig.public };
   // Account lookups for people from other sites follow the site's own setting.
   Object.assign(SITE, { enabled: true, host: HOSTED, public_key: site.public_key });
   // What the platform serves: the static site document, and one function per endpoint.
@@ -93,6 +95,10 @@ test("a conversation hosted on the hosted site, with someone on a self-hosted si
   await ben.send(dm, "Hi Hana!");
   assert.deepEqual((await hana.read(dm)).map((m) => m.text), ["Hello from the hosted site", "Hi Hana!"]);
   assert.equal(alpha.app.store.has(dm.id), false, "nothing is copied to Ben's site");
+  // Everything that went between the two sites was sealed and doubly signed, both ways.
+  const [pinnedThere] = await world.entities.FedSite.filter({ host: "alpha.test" });
+  assert.match(pinnedThere.pq, /mlkem768/, "the hosted site holds the self-hosted site to its relay keys");
+  assert.match(alpha.app.store.db.prepare("SELECT pq FROM fed_sites WHERE host = ?").get(HOSTED).pq, /mlkem768/, "and the other way round");
 });
 
 test("a conversation hosted on a self-hosted site, with someone on the hosted site", async () => {

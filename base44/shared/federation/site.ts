@@ -10,6 +10,9 @@ export const SITE = {
   host: "commonveil-rebuild-71d823fd.base44.app",
   name: "Commonveil",
   public_key: "s-gk8goe9oIRNtXkJfPANc1lgYyFF-3fKeCRWDM9MH8",
+  // The site's relay keys (sealing and post-quantum signatures), as fedidentity?site=1 reports
+  // them. Empty until then: the site document publishes them only when both are set.
+  pq: { kem: "", sig: "" },
 };
 
 /** Where the hosted site's endpoints are: one function each (the platform has no sub-paths). */
@@ -31,6 +34,7 @@ export function siteDocument(site = SITE, version = "") {
     handle_domain: site.host,
     key: { alg: "Ed25519", public: site.public_key },
     endpoints: { ...HOSTED_ENDPOINTS },
+    ...(site.pq?.kem && site.pq?.sig ? { pq: { suite: "p256-mlkem768+mldsa65", kem: site.pq.kem, sig: site.pq.sig } } : {}),
     // What this site can't do with others, so they can say so instead of failing oddly.
     limits: { actors: false, files: false, holds: false },
   };
