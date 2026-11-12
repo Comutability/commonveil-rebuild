@@ -244,3 +244,12 @@ The protocol is named in every site document (`commonveil/1`) and in the signed 
 (`commonveil-request/v1`). Changes that existing sites would misread get a new version; sites
 then speak every version they know. New fields may be added to documents and cards at any time,
 and must be ignored by sites that don't know them.
+
+## Endpoints come from the site document
+
+Only `/.well-known/commonveil` is at a fixed address. Everything else (`act`, `directory`,
+`inbox`, `discover`, `actors`, `identity`, `files`) is wherever the site document's `endpoints`
+says, and other sites use those addresses and sign for them. Each must be a plain path on the
+same site; anything else is ignored in favour of the usual address. A site that can only be
+reached under a path sets `FEDERATION_PATH_PREFIX` (for example `/functions/federation`). This is
+what lets a site on a hosting platform, which can't serve `/cvp/v1/...`, take part.

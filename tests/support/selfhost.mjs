@@ -42,7 +42,7 @@ export async function startSites(names, env = {}, { prepare, setUp = true } = {}
   for (const name of names) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), `cv-${name}-`));
     await prepare?.(name, dir);
-    const config = loadConfig({ DATA_DIR: dir, SITE_URL: `http://${name}`, TRUST_PROXY: "true", FEDERATION_ALLOW_PRIVATE: "true", UPDATE_CHECK_HOURS: "1000", PASSWORD_ROUNDS: "1000", ...env });
+    const config = loadConfig({ DATA_DIR: dir, SITE_URL: `http://${name}`, TRUST_PROXY: "true", FEDERATION_ALLOW_PRIVATE: "true", UPDATE_CHECK_HOURS: "1000", PASSWORD_ROUNDS: "1000", ...(typeof env === "function" ? env(name) : env) });
     const app = await createApp(config, { log: quiet, transport });
     // Most tests don't care who runs the site: mark it set up, so anyone can sign up.
     if (setUp && app.bootstrap.pending) app.bootstrap.consume(setupCodeOf(config));

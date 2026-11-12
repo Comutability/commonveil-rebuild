@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { canonicalJson } from "../src/core/canonical.js";
 import { generateSigningKey, sign, verify, cosign, checkSignature, keyId } from "../src/core/signed.js";
-import { signatureBase, signRequest, verifyRequest, digestOf, isPrivate, normHost, freshEnough } from "../src/wire/federation.js";
+import { signatureBase, signRequest, verifyRequest, digestOf, isPrivate, normHost, freshEnough, endpointsOf, DEFAULT_ENDPOINTS } from "../src/wire/federation.js";
 import { negotiate, FEATURES } from "../src/wire/features.js";
 
 test("canonical JSON: one encoding per value, and anything ambiguous is refused", () => {
@@ -54,4 +54,12 @@ test("address rules: private networks are off limits, site names have one form",
 test("feature negotiation: only what both speak, at the lower version", () => {
   assert.deepEqual(negotiate({ a: 2, b: 1 }, { a: 1, c: 3 }), { a: 1 });
   assert.ok(FEATURES["cvp.commons-ledger"] >= 1);
+});
+
+test("endpoints come from the site document, and can only ever be paths on that site", () => {
+  assert.deepEqual(endpointsOf({}), { ...DEFAULT_ENDPOINTS });
+  const e = endpointsOf({ endpoints: { act: "/functions/federation/act", inbox: "https://evil.example/inbox", directory: "//evil.example/d", identity: "/a/../../b", discover: "/x?y=1", files: 7, extra: "/ignored" } });
+  assert.equal(e.act, "/functions/federation/act");
+  for (const k of ["inbox", "directory", "identity", "discover", "files"]) assert.equal(e[k], DEFAULT_ENDPOINTS[k], k);
+  assert.equal(e.extra, undefined);
 });

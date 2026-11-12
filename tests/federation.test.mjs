@@ -168,3 +168,30 @@ test("an admin can stop talking to a site", async () => {
   assert.equal(r.status, 403);
   a.app.federation.signer.setBlocked("beta.test", false);
 });
+
+test("a site that keeps its endpoints under a path says so, and other sites find it there", async () => {
+  // gamma can only be reached under /functions/federation (as a site on a hosting platform would be).
+  const mixed = await startSites(["plain.test", "gamma.test"], (name) => (name === "gamma.test" ? { FEDERATION_PATH_PREFIX: "/functions/federation" } : {}));
+  try {
+    const plain = mixed.sites["plain.test"];
+    const gamma = mixed.sites["gamma.test"];
+    const doc = (await http(gamma, "/.well-known/commonveil")).data;
+    assert.equal(doc.endpoints.act, "/functions/federation/cvp/v1/act");
+    assert.equal(doc.endpoints.identity, "/functions/federation/.well-known/commonveil/identity");
+    const pat = await new Person(plain, "pat").setup();
+    const gus = await new Person(gamma, "gus").setup();
+    // Both directions: found by handle, conversation made, message read on the other side.
+    const dm = (await pat.ok("conversations", await pat.signed("create_dm", { username: "gus.gamma.test" }))).conversation;
+    assert.ok(dm.member_ids.includes(gus.id));
+    await pat.send(dm, "Found you under a path");
+    const list = await gus.ok("messages", { action: "list", conversation_id: dm.id });
+    const [opened] = await gus.read(list.messages, dm.member_ids);
+    assert.equal(opened.text, "Found you under a path");
+    const back = (await gus.ok("conversations", await gus.signed("create_dm", { username: "pat.plain.test" }))).conversation;
+    assert.ok(back.member_ids.includes(pat.id));
+    // Unsigned requests are refused at either address.
+    for (const path of ["/cvp/v1/act", "/functions/federation/cvp/v1/act"]) assert.ok((await http(gamma, path, { method: "POST", body: {} })).status >= 400);
+  } finally {
+    await mixed.close();
+  }
+});

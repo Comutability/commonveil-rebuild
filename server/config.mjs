@@ -42,6 +42,9 @@ export function loadConfig(env = process.env) {
     updaterToken: env.UPDATER_TOKEN || "",
     // Federation (docs/FEDERATION.md): on unless turned off.
     federation: bool(env.FEDERATION, true),
+    // For a site that can only be reached under a path (behind a gateway that owns the rest of the
+    // address): its protocol endpoints move under this prefix, and its site document says so.
+    federationPrefix: /^(\/[A-Za-z0-9._~-]+){1,4}$/.test(String(env.FEDERATION_PATH_PREFIX || "")) ? String(env.FEDERATION_PATH_PREFIX) : "",
     // People's handles are <username>.<handleDomain>; it defaults to the site's own name.
     handleDomain: String(env.HANDLE_DOMAIN || host).toLowerCase(),
     allowPrivateFederation: bool(env.FEDERATION_ALLOW_PRIVATE, false),
