@@ -5,6 +5,20 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.20.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.20.0): A full security review, and Secure Net
+
+_2026-11-12_
+
+- All 24 findings from an independent security review are fixed, each with a test. docs/SECURITY_REVIEW.md lists them.
+- Disconnecting a device, changing your password or recovering your account now signs out every other session at once.
+- Adding a passkey, approving a new browser or replacing your owner key now needs proof it's you: one of your devices confirms it without asking, or you enter your password.
+- Removing a device now changes the keys of every community it could read, so it can't read anything new.
+- Self-hosted sites: the first admin needs a one-time setup code printed on the server, so a stranger can't claim a new site first. ADMIN_USERNAMES and email (SMTP) settings are gone.
+- Self-hosted sites: updates that fail no longer stay "Updating…", the updater won't go backwards unless you allow it, and backups are pruned by age.
+- Self-hosted sites no longer depend on Base44 in any way: the image builds and runs with nothing of theirs, and a check stops the build if that ever changes.
+- Talking to other sites is safer: a site's address is checked at the moment of connecting, and replies are cut off as soon as they're too big.
+- Commonveil is now built on Secure Net, our protocol as a separate library (github.com/Comutability/secure-net) that other apps and sites can use. It adds communities that approved sites can mirror and keep running if their home site goes down, structured debates and votes (public or secret) that can authorise changes, private tokens (RFC 9497), personas, consent capsules, and extension and theme manifests.
+
 ## [0.19.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.19.0): Sign in your way, install the app, and private push notifications
 
 _2026-11-06_
