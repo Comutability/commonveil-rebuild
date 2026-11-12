@@ -1,0 +1,24 @@
+// Another site one of this site's people has conversations or servers on. Backend only.
+{
+  "name": "FedUserHost",
+  "type": "object",
+  "description": "Another site one of this site's people has conversations or servers on. Backend only.",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "host": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "host"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

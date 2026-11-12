@@ -2,6 +2,7 @@
 // Each function is a small set of named actions. Every action runs only after the caller is known:
 // a Commonveil sign-in session (checked here; see identity/), or, on self-hosted sites, the person
 // the server already checked. Base44's own sessions only reach the sign-in function.
+import { SITE } from "./federation/site.ts";
 import { personClient } from "./rls.ts";
 import { userRecord, verifyAccess } from "./identity/sessions.ts";
 
@@ -77,6 +78,18 @@ export type RunOptions = {
   allowPlatformUser?: boolean;
   /** Self-hosted sites: the server checked the caller already, so the client's auth.me() is them. */
   trustPlatformUser?: boolean;
+  /**
+   * The hosted site's protocol endpoint only (federation/inbound.ts): a person from another site,
+   * whose own site signed for them. No sign-in session is involved.
+   */
+  actAs?: { id: string; email: string; role: string; [k: string]: unknown };
+  /**
+   * The hosted site only (federation/hosted.ts): called once the caller is known, before the
+   * action runs. It may answer the call itself (something on another site), or return null.
+   */
+  relay?: (fn: string, body: any, user: any, runLocal: (body: any) => Promise<{ status: number; data: any }>) => Promise<{ status: number; data: any } | null>;
+  /** The function's name, for relay. */
+  functionName?: string;
   /** Push notifications: who the site's pushes say they're from (handlers/notifications.ts). */
   push?: { subject: string };
 };
@@ -110,7 +123,10 @@ export async function runAction(base44: any, rawBody: string, actions: Actions, 
     let platformUser: any = null;
     const token = body._session;
     delete body._session;
-    if (typeof token === "string" && token) {
+    if (options.actAs) {
+      user = { ...options.actAs };
+      own = personClient(sr, user, user);
+    } else if (typeof token === "string" && token) {
       session = await verifyAccess(sr, token);
       const record = session ? await userRecord(sr, session.userId) : null;
       if (!session || !record) throw new ApiError(401, "SIGN_IN_REQUIRED", "Please sign in again.");
@@ -130,7 +146,19 @@ export async function runAction(base44: any, rawBody: string, actions: Actions, 
     if (!user && !options.allowAnonymous) throw new ApiError(401, "SIGN_IN_REQUIRED", "Please sign in again.");
     const action = typeof body.action === "string" ? body.action : "";
     if (!Object.prototype.hasOwnProperty.call(actions, action)) throw new ApiError(400, "UNKNOWN_ACTION", "Unknown action.");
-    const result = await actions[action]({ sr, own, user, body, now: new Date(), federation: options.federation, push: options.push, session, platformUser } as any);
+    const run = (b: any) => actions[action]({ sr, own, user, body: b, now: new Date(), federation: options.federation, push: options.push, session, platformUser } as any);
+    if (options.relay && user && !options.actAs) {
+      const relayed = await options.relay(options.functionName || "", body, user, async (b) => {
+        try {
+          return { status: 200, data: (await run(b)) ?? { ok: true } };
+        } catch (error) {
+          if (error instanceof ApiError) return { status: error.status, data: { error: error.message, code: error.code } };
+          throw error;
+        }
+      });
+      if (relayed) return json(relayed.status, relayed.data ?? {});
+    }
+    const result = await run(body);
     return json(200, result ?? { ok: true });
   } catch (error) {
     if (error instanceof ApiError) return json(error.status, { error: error.message, code: error.code });
@@ -153,7 +181,15 @@ export async function runAction(base44: any, rawBody: string, actions: Actions, 
 export async function serve(req: Request, makeClient: (req: Request) => any, actions: Actions, options: RunOptions = {}): Promise<Response> {
   if (req.method !== "POST") return json(405, { error: "Use POST.", code: "METHOD_NOT_ALLOWED" });
   const raw = await req.text();
-  return runAction(makeClient(req), raw, actions, options);
+  const base44 = makeClient(req);
+  // The hosted site talks to other sites once its key is published (federation/site.ts).
+  if (SITE.enabled && SITE.public_key && !options.relay) {
+    const { HostedFederation } = await import("./federation/hosted.ts");
+    const fed = new HostedFederation({ sr: base44.asServiceRole });
+    const name = req.headers.get("base44-function-name") || new URL(req.url).pathname.split("/").pop() || "";
+    options = { ...options, federation: options.federation || fed.handlers, functionName: name, relay: (fn, body, user, runLocal) => fed.relay(fn, body, user, runLocal) };
+  }
+  return runAction(base44, raw, actions, options);
 }
 
 // ---------- small validators ----------

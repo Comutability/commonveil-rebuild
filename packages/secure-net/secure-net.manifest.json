@@ -1,8 +1,8 @@
 {
   "name": "secure-net",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "files": {
-    "package.json": "Mv3QghKxz6JcR1Hk37zlO_pdSFNPgZHotKjgeTRzK0U",
+    "package.json": "zJGggImr7z-SiX8dggzbCqIN7SN7qXd86ZfTUAmBsno",
     "README.md": "_0NFFrXM5D9R_LeIfMngCFU24w07RKBe4lfCzvD18zs",
     "LICENSE": "2KbMMavBa2dIx6IfIWEfWh7DP2fSLKI9faHBm5VJa-4",
     "src/commons/ledger.js": "1H0lyYpbzDpuCZtwVUSOskAHLBialPHa8HM0ODtrdvg",
@@ -28,7 +28,7 @@
     "src/identity/portable.js": "efpbB6eFpwZu7qJpAY7TSZJ6XtV5nmKNGlt0eZqWH3A",
     "src/index.js": "k_TrkKKK1msBKw-JC2VBhPfcN8fWda6-H5tLcIbF7aA",
     "src/tokens/voprf.js": "WrwBmXPvGNpBghXJf3llQDxXuo-RybkqGYBdEUw53zI",
-    "src/wire/features.js": "2N_BlbcHG6YUZITeDpOyDD4EIXLKnWyq5szyK6lBfEY",
+    "src/wire/features.js": "I00cLkdIb_CeYjtBWovrrsSZGX24POyZhSZEdogp_-0",
     "src/wire/federation.js": "HnQ4n5pgzyENwxVF9HCV2T_Rei1QlWFJZQD3soSjDJw",
     "spec/CVP-011-commons-ledger.md": "PmbEi8pvHArsMpSv1_lYm3AZw2vqtF0YyndVKUzsW14",
     "spec/CVP-012-governance.md": "I9oLgZw7xoCU1N29NHOTKShqi2e9PlKqEMwf5vceHls",
@@ -38,7 +38,7 @@
     "test/core.test.mjs": "0sz3DbcDSAVMJgHrYefiys3bh7iZuXtuB4_Se8uVQlc",
     "test/crypto.test.mjs": "MOhUqh-m1qKBCbim9csEoIwDfSeR7edZp2Szqf_KmoY",
     "test/governance.test.mjs": "o4syEWl_XAmRQP_7l8AJCLvDRA7CPB3iAykYHV3-HcA",
-    "test/identity-consent-extensions.test.mjs": "CjiUxwtUkvykA12Gr_WgJijnDmNVox1AqgTsNMA_At4",
+    "test/identity-consent-extensions.test.mjs": "qtYbdV7Jv64F0AyhdStvqejQEWuL6_9x5T3wLpq0Duw",
     "test/ledger.test.mjs": "AoJ_zi_YatnJleVsZ5c9gOc20cO8Z6V-Gq-OAcDRr1M"
   }
 }

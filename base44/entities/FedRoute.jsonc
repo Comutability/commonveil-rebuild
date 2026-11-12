@@ -1,0 +1,27 @@
+// A conversation, server or channel that lives on another site, and which site. Backend only.
+{
+  "name": "FedRoute",
+  "type": "object",
+  "description": "A conversation, server or channel that lives on another site, and which site. Backend only.",
+  "properties": {
+    "ref_id": {
+      "type": "string"
+    },
+    "host": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "ref_id",
+    "host"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

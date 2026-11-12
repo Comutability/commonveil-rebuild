@@ -6,6 +6,7 @@ import { defineConfig } from 'vite'
 import { BASE44_CSP, SELF_HOSTED_CSP } from './csp.config.mjs'
 import { parseArticle, sortArticles } from './src/lib/site/help.js'
 import { DEFAULT_SITE_URL, SITE_PLACEHOLDER, sitemapXml } from './src/lib/site/seo.js'
+import { SITE as HOSTED_SITE, siteDocument } from './base44/shared/federation/site.ts'
 
 // "selfhost" builds the site for a self-hosted server (server/), with no Base44 code in it.
 const SELF_HOSTED = process.env.VITE_COMMONVEIL_BACKEND === 'selfhost'
@@ -54,6 +55,12 @@ function sitemap() {
       this.emitFile({ type: "asset", fileName: "sitemap.xml", source: sitemapXml({ siteUrl, articles, lastmod: releases[0]?.date || "" }) });
       const robots = readFileSync(new URL("./robots.template.txt", import.meta.url), "utf8").split("{{SITE_URL}}").join(siteUrl);
       this.emitFile({ type: "asset", fileName: "robots.txt", source: robots });
+      // The hosted site's site document for other Commonveil sites (base44/shared/federation/site.ts).
+      // A self-hosted site's server answers this address itself.
+      if (!SELF_HOSTED && HOSTED_SITE.enabled && HOSTED_SITE.public_key) {
+        const { version } = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
+        this.emitFile({ type: "asset", fileName: ".well-known/commonveil", source: JSON.stringify(siteDocument(HOSTED_SITE, version)) });
+      }
       // For a self-hosted server, which writes each page's tags itself (server/http.mjs).
       const index = articles.map(({ slug, title, summary, section }) => ({ slug, title, summary, section }));
       this.emitFile({ type: "asset", fileName: "help-index.json", source: JSON.stringify(index) });

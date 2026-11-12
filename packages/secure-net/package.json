@@ -1,6 +1,6 @@
 {
   "name": "@comutability/secure-net",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Secure Net: the Commonveil Protocol. Private, end-to-end encrypted, federated communication that any app or site can use.",
   "type": "module",
   "license": "AGPL-3.0-only",

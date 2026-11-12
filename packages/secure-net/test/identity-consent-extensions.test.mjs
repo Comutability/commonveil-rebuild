@@ -33,7 +33,7 @@ test("consent capsules: specific, time-limited, revocable, and honest about revo
   const me = generateSigningKey();
   const friend = generateSigningKey();
   const now = Date.now();
-  const c = grant({ audience: [friend.kid], actions: ["read"], resource: "file:abc", expires: new Date(now + 3600_000).toISOString(), purpose: "Holiday photos" }, me);
+  const c = grant({ audience: [friend.kid], actions: ["read"], resource: "file:abc", notBefore: new Date(now).toISOString(), expires: new Date(now + 3600_000).toISOString(), purpose: "Holiday photos" }, me);
   const ask = (over = {}) => check(c, { grantorPub: me.publicKey, actor: friend.kid, action: "read", resource: "file:abc", now, ...over });
   assert.ok(ask().allowed);
   assert.equal(ask({ action: "forward" }).why, "doesn't allow forward");

@@ -253,3 +253,30 @@ says, and other sites use those addresses and sign for them. Each must be a plai
 same site; anything else is ignored in favour of the usual address. A site that can only be
 reached under a path sets `FEDERATION_PATH_PREFIX` (for example `/functions/federation`). This is
 what lets a site on a hosting platform, which can't serve `/cvp/v1/...`, take part.
+
+## The hosted site
+
+The hosted site (the Base44 build) speaks the same protocol, on what a hosted function has
+(`base44/shared/federation/`):
+
+- Its site document is a static file the build writes from `federation/site.ts`. Its endpoints
+  are one function each: `/functions/fedact`, `feddirectory`, `fedinbox`, `fedidentity`,
+  `feddiscover`.
+- Its key is made on first use and kept in the backend-only `FedKey` table. What it knows about
+  other sites is in `FedSite` (pinned keys; set `blocked` to stop talking to one, delete the row
+  to accept a changed key), `FedRoute`, `FedUserHost`, `FedShadow` and `FedNonce` (used requests).
+- People from other sites have no account there, only what their own site shares: a profile row
+  marked `remote`, their public keys, and a `FedShadow` row. They can never sign in there.
+- Notices to other sites (someone was added to a conversation, keys changed, a block) are sent
+  as part of the request that caused them.
+- Every function call checks whether it names something on another site (one small read), and
+  if working that out fails, the call carries on locally.
+
+What it doesn't do with other sites: calls and presence, files and pictures in conversations
+hosted elsewhere, and holding a message for a site that's down (the app is told instead). Its
+site document says so under `limits`. It can't check the address a name resolves to at the
+moment of connecting, as self-hosted sites do, so it only connects to public DNS names over
+https and relies on the platform's network rules beyond that.
+
+Turning it on: deploy, open `/functions/fedidentity?site=1`, copy the `public_key` it reports
+into `federation/site.ts`, set `enabled: true`, and publish.

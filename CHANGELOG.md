@@ -5,6 +5,17 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.21.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.21.0): The hosted site can talk to self-hosted sites
+
+_2026-11-12_
+
+- The hosted site now speaks the same protocol as self-hosted sites: people on either can find each other by address, start conversations, and read and reply, end-to-end encrypted, with each person's keys checked against their own key history.
+- Sites now tell each other where their protocol endpoints are in their site document, so a site that can only be reached under a path can take part. Self-hosted sites need this release to talk to the hosted site.
+- People from other sites never get an account on the hosted site: it keeps only what their own site shares about them, and they can't sign in there.
+- Not yet between the hosted site and others: calls and presence, files and pictures in conversations hosted elsewhere, and holding messages for a site that's down.
+- Self-hosted sites: new optional setting FEDERATION_PATH_PREFIX, for a site that can only be reached under a path.
+- Built on Secure Net 0.2.1.
+
 ## [0.20.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.20.0): A full security review, and Secure Net
 
 _2026-11-12_

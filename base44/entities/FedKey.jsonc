@@ -1,0 +1,24 @@
+// The hosted site's own key for talking to other sites. The oldest row is the key. Backend only.
+{
+  "name": "FedKey",
+  "type": "object",
+  "description": "The hosted site's own key for talking to other sites. The oldest row is the key. Backend only.",
+  "properties": {
+    "public": {
+      "type": "string"
+    },
+    "secret": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "public",
+    "secret"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

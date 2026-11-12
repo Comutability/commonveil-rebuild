@@ -1,6 +1,6 @@
 // Feature negotiation (CVP-008): each site publishes what it speaks, and two sites use what both
 // support. Unknown features are ignored, never errors, so sites can upgrade one at a time.
-export const SECURE_NET_VERSION = "0.2.0";
+export const SECURE_NET_VERSION = "0.2.1";
 
 /** Everything this version of Secure Net implements, with the version of each. */
 export const FEATURES = {

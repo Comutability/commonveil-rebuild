@@ -2,6 +2,14 @@
   "name": "Profile",
   "type": "object",
   "properties": {
+    "remote": {
+      "type": "boolean",
+      "description": "True for someone from another site: this row is what their own site shares about them."
+    },
+    "home": {
+      "type": "string",
+      "description": "For someone from another site: the site they belong to."
+    },
     "user_id": {
       "type": "string",
       "description": "Base44 user id of the owner."

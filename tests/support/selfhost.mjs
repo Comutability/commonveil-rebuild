@@ -53,6 +53,11 @@ export async function startSites(names, env = {}, { prepare, setUp = true } = {}
   return {
     sites,
     transport,
+    /** Another site, not started here, that these can reach by name (a hosted site in tests). */
+    addHost(name, port) {
+      names.push(name);
+      ports[name] = port;
+    },
     /** Cut a site off from the others (true), or bring it back (false). */
     setDown(name, isDown) {
       if (isDown) down.add(name);

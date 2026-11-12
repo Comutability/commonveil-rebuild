@@ -1,0 +1,31 @@
+// A person from another site, as this site knows them: their id, home site and handle. Their profile and public keys are in the usual tables. Backend only.
+{
+  "name": "FedShadow",
+  "type": "object",
+  "description": "A person from another site, as this site knows them: their id, home site and handle. Their profile and public keys are in the usual tables. Backend only.",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "home": {
+      "type": "string"
+    },
+    "handle": {
+      "type": "string"
+    },
+    "digest": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "home",
+    "handle"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

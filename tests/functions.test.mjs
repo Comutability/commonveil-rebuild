@@ -963,9 +963,16 @@ test("review O: rate limits hold when requests arrive at the same moment", async
 test("only sign-in, the security-report and invite-preview functions let in callers who aren't signed in", () => {
   const dir = new URL("../base44/functions/", import.meta.url);
   const names = readdirSync(dir).sort();
-  assert.deepEqual(names, [...Object.keys(FUNCTIONS), ...Object.keys(PUBLIC_FUNCTIONS), ...SCHEDULED_FUNCTIONS, "identity"].sort(), "every deployed function is covered here");
+  // The protocol's endpoints for other sites: callers are sites, checked by signature, never by sign-in (tests/hostedFederation.test.mjs).
+  const PROTOCOL_FUNCTIONS = ["fedact", "feddirectory", "fedinbox", "fedidentity", "feddiscover"];
+  assert.deepEqual(names, [...Object.keys(FUNCTIONS), ...Object.keys(PUBLIC_FUNCTIONS), ...SCHEDULED_FUNCTIONS, ...PROTOCOL_FUNCTIONS, "identity"].sort(), "every deployed function is covered here");
   for (const name of names) {
     const source = readFileSync(new URL(`${name}/entry.ts`, dir), "utf8");
+    if (PROTOCOL_FUNCTIONS.includes(name)) {
+      assert.doesNotMatch(source, /serve\(req|allowAnonymous|allowPlatformUser|trustPlatformUser|asServiceRole/, name);
+      assert.match(source, new RegExp(`return serveFederation\\(req, createClientFromRequest, "${name.slice(3)}"`), name);
+      continue;
+    }
     // Base44's own sessions (accounts made with an email) only reach sign-in, to move to Commonveil sign-in.
     if (name === "identity") {
       assert.match(source, /return serve\(req, createClientFromRequest, actions, \{ allowAnonymous: true, allowPlatformUser: true \}\);/);

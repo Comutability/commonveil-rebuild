@@ -57,7 +57,7 @@ export async function expireMessages(sr: any, now: Date, deadline: number) {
     // Sign-in leftovers past their time: challenges (including used ones and password attempts),
     // refresh tokens and notification codes. Their expiry checks refuse them; this removes them.
     let signInRemoved = 0;
-    for (const entity of ["CvChallenge", "CvRefresh", "PushCode"]) {
+    for (const entity of ["CvChallenge", "CvRefresh", "PushCode", "FedNonce"]) {
       for (;;) {
         if (Date.now() > deadline) throw new OutOfTime();
         const rows = await sr.entities[entity].filter({ expires_at: { $gt: "", $lte: now.toISOString() } }, "created_date", 200).catch(() => []);

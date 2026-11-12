@@ -1,0 +1,39 @@
+// Another Commonveil site this one has talked to, with its key as first seen. Set blocked to stop talking to it; delete the row to accept a changed key. Backend only.
+{
+  "name": "FedSite",
+  "type": "object",
+  "description": "Another Commonveil site this one has talked to, with its key as first seen. Set blocked to stop talking to it; delete the row to accept a changed key. Backend only.",
+  "properties": {
+    "host": {
+      "type": "string"
+    },
+    "key": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "handle_domain": {
+      "type": "string"
+    },
+    "first_seen": {
+      "type": "string"
+    },
+    "last_seen": {
+      "type": "string"
+    },
+    "blocked": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "host",
+    "key"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

@@ -1,0 +1,24 @@
+// A signed request from another site that has been used, so it can't be used again. Swept after ten minutes. Backend only.
+{
+  "name": "FedNonce",
+  "type": "object",
+  "description": "A signed request from another site that has been used, so it can't be used again. Swept after ten minutes. Backend only.",
+  "properties": {
+    "key": {
+      "type": "string"
+    },
+    "expires_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "key",
+    "expires_at"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

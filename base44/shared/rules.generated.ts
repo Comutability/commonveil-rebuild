@@ -98,6 +98,42 @@ export const RULES = {
     "update": false,
     "delete": false
   },
+  "FedKey": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
+  "FedNonce": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
+  "FedRoute": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
+  "FedShadow": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
+  "FedSite": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
+  "FedUserHost": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
   "Invite": {
     "read": false,
     "create": false,

@@ -10,6 +10,7 @@
 // for ordinary reading and writing. Anything that changes how the account is protected (passkeys,
 // devices, the owner key, the password) also checks liveSession: the device must still be connected
 // and the epoch unchanged, so a disconnected or reset session can't make itself permanent.
+import { SITE } from "../federation/site.ts";
 import { b64url, fromB64url, hmac, randomToken, sameString, sha256Hex, utf8 } from "./crypto.ts";
 
 export const ACCESS_SECONDS = 15 * 60;
@@ -112,7 +113,13 @@ export async function userRecord(sr: any, id: string): Promise<any | null> {
   if (typeof id !== "string" || !id) return null;
   const person = await sr.entities.Person.get(id).catch(() => null);
   if (person) return person;
-  return sr.entities.User.get(id).catch(() => null);
+  const user = await sr.entities.User.get(id).catch(() => null);
+  if (user) return user;
+  // The hosted site: someone from another site has no account row here, only what their own
+  // site shares about them (federation/hosted.ts). They exist, but can never sign in here.
+  if (!SITE.enabled) return null;
+  const [shadow] = await sr.entities.FedShadow.filter({ user_id: id }, "created_date", 1).catch(() => []);
+  return shadow ? { id, email: "", role: "user", remote: true, home: shadow.home } : null;
 }
 
 /** Change a person's own record, whichever table it's in. */

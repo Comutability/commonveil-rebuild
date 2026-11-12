@@ -2,10 +2,24 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.21.0",
+      "date": "2026-11-12",
+      "title": "The hosted site can talk to self-hosted sites",
+      "commit": null,
+      "notes": [
+        "The hosted site now speaks the same protocol as self-hosted sites: people on either can find each other by address, start conversations, and read and reply, end-to-end encrypted, with each person's keys checked against their own key history.",
+        "Sites now tell each other where their protocol endpoints are in their site document, so a site that can only be reached under a path can take part. Self-hosted sites need this release to talk to the hosted site.",
+        "People from other sites never get an account on the hosted site: it keeps only what their own site shares about them, and they can't sign in there.",
+        "Not yet between the hosted site and others: calls and presence, files and pictures in conversations hosted elsewhere, and holding messages for a site that's down.",
+        "Self-hosted sites: new optional setting FEDERATION_PATH_PREFIX, for a site that can only be reached under a path.",
+        "Built on Secure Net 0.2.1."
+      ]
+    },
+    {
       "version": "0.20.0",
       "date": "2026-11-12",
       "title": "A full security review, and Secure Net",
-      "commit": null,
+      "commit": "f046bfa946e4a8a5c9855d6a93c368d1e86c3944",
       "notes": [
         "All 24 findings from an independent security review are fixed, each with a test. docs/SECURITY_REVIEW.md lists them.",
         "Disconnecting a device, changing your password or recovering your account now signs out every other session at once.",

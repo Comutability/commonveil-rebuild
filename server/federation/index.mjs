@@ -19,12 +19,12 @@ import { peerDeviceOut, statementOut } from "../../base44/shared/store.ts";
 import { userRecord } from "../../base44/shared/identity/sessions.ts";
 import { json, readBody, bearer } from "../http.mjs";
 import { FederationError, PROTOCOL, Signer, Transport, normHost } from "./net.mjs";
+import { CURSOR_FIELDS, FAN_OUT, mergeResults } from "../../base44/shared/federation/merge.ts";
 import { DEFAULT_ENDPOINTS } from "../../packages/secure-net/src/wire/federation.js";
 
 const ID24 = /^[0-9a-f]{24}$/;
 const ID_KEYS = new Set(["conversation_id", "server_id", "channel_id", "event_id", "report_id", "case_id", "message_id", "thread_id", "ticket_id", "invite_id", "role_id", "id", "parent_id"]);
 const ID_LIST_KEYS = new Set(["conversation_ids", "server_ids", "channel_ids", "file_ids", "message_ids"]);
-const CURSOR_FIELDS = { since: "cursor", conversations_since: "conversations_cursor", servers_since: "servers_cursor", server_changes_since: "server_changes_cursor" };
 const MAX_ACT_BODY = 9 * 1024 * 1024;
 // Held messages (docs/OFFLINE.md): tried again after 30 seconds, then less and less often (at
 // most every 30 minutes), for up to a week; the same week a message written offline may wait.
@@ -35,16 +35,6 @@ const HELD_MAX_AGE_MS = 7 * 24 * 3600_000;
 const SHADOW_FIELDS = ["display_name", "bio", "pronouns", "accent_color", "avatar_emoji", "avatar_image"];
 const ACTOR_NAMES = new Set(["VoiceRoom", "Presence"]);
 
-/** Actions that, with no conversation or server named, mean "everything of mine", here and elsewhere. */
-const FAN_OUT = {
-  "messages.poll": "merge",
-  "conversations.list": "merge",
-  "servers.list": "merge",
-  "messages.scheduled": "merge",
-  "messages.deliver_mine": "merge",
-  "keys.peer_keys": "people",
-  "profile.get_many": "people",
-};
 
 const b64 = (s) => Buffer.from(s).toString("base64url");
 const unb64 = (s) => Buffer.from(String(s), "base64url").toString();
@@ -841,33 +831,4 @@ export class Federation {
   }
 }
 
-/** Put the answers from several sites together: lists joined, cursors kept per site, flags combined. */
-export function mergeResults(results) {
-  const out = {};
-  const ok = results.filter((r) => r.data);
-  for (const { data } of ok) {
-    for (const [k, v] of Object.entries(data)) {
-      if (Object.values(CURSOR_FIELDS).includes(k)) continue;
-      if (Array.isArray(v)) {
-        out[k] ||= [];
-        for (const x of v) {
-          if (x && typeof x === "object" && typeof x.id === "string" ? !out[k].some((y) => y?.id === x.id) : !out[k].includes(x)) out[k].push(x);
-        }
-      } else if (typeof v === "boolean") out[k] = Boolean(out[k]) || v;
-      else if (v && typeof v === "object") out[k] = { ...(out[k] || {}), ...v };
-      else if (!(k in out)) out[k] = v;
-    }
-  }
-  for (const cursorKey of Object.values(CURSOR_FIELDS)) {
-    const local = results[0].data?.[cursorKey];
-    if (local === undefined) continue;
-    const others = {};
-    for (const r of results.slice(1)) {
-      const field = Object.keys(CURSOR_FIELDS).find((f) => CURSOR_FIELDS[f] === cursorKey);
-      const c = r.data ? r.data[cursorKey] : r.keep?.[field];
-      if (typeof c === "string") others[r.host] = c;
-    }
-    out[cursorKey] = Object.keys(others).length ? `${local}~${b64(JSON.stringify(others))}` : local;
-  }
-  return out;
-}
+export { mergeResults };
