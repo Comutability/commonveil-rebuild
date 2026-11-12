@@ -202,6 +202,7 @@ export async function makeGrant({ serverId, chainId, generation, step, keyBytes,
     recipient_key_version: recipient.key_version,
   };
   const sealed = JSON.stringify(await sealToRecipient({ ecdhPub: recipient.ecdh_pub, kemPub: recipient.kem_pub || null }, keyBytes, grantContext(base)));
+  /** @type {Record<string, any>} */
   const grant = { ...base, sealed, grantor_id: userId, grantor_device_id: device.device_id, granted_at: new Date().toISOString() };
   grant.signature = await signBytes(device.sign_priv, utf8(await grantText(grant)));
   return grant;
@@ -313,6 +314,7 @@ export async function decryptServerItem({ base, envelope, keys }) {
   }
 }
 
+/** @param {any} item */
 async function itemText({ kind, serverId, channelId, itemId, senderId, deviceId, envelopeJson, sentAt }) {
   return canonical(
     CONTEXTS.serverItem,

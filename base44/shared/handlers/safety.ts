@@ -1,6 +1,6 @@
 // Blocking and reporting, plus the staff side: reports, and erasing what removed sign-ins left behind.
 import { ApiError, LIMITS, cleanText, id, type Actions } from "../http.ts";
-import { conversationForMember, enforceRate, profileOf, publicProfile, rateLimited, withinRate } from "../store.ts";
+import { conversationForMember, enforceRate, profileFor, profileOf, rateLimited, withinRate } from "../store.ts";
 import { purgeAccount } from "../accountDeletion.ts";
 
 const REASONS = new Set(["spam", "harassment", "impersonation", "illegal", "under_16", "other"]);
@@ -28,7 +28,8 @@ export const safetyActions: Actions = {
     const rows = await sr.entities.Block.filter({ user_id: user.id }, "-created_date", 500);
     const ids = rows.map((r: any) => r.blocked_user_id);
     const profiles = ids.length ? await sr.entities.Profile.filter({ user_id: { $in: ids } }, "created_date", 500) : [];
-    return { blocked: profiles.map(publicProfile) };
+    // As much of each as they chose to show (CV-10): blocking someone isn't a way to see more of them.
+    return { blocked: profiles.map((p: any) => profileFor(p, { contact: false })) };
   },
 
   /** Reports you've made, for your own copy of your data. Reports about you are the reporters' words, not yours. */

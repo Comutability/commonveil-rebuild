@@ -44,6 +44,8 @@ services:
     restart: unless-stopped
     environment:
       UPDATER_TOKEN: ${UPDATER_TOKEN:?Set UPDATER_TOKEN in .env (install.sh makes one)}
+      # Going back to an older version: only if you set this to true yourself.
+      UPDATER_ALLOW_DOWNGRADE: ${UPDATER_ALLOW_DOWNGRADE:-false}
       PROJECT_DIR: ${COMMONVEIL_DIR:?Set COMMONVEIL_DIR in .env to this folder's full path}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

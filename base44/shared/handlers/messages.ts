@@ -53,6 +53,15 @@ export const messageActions: Actions = {
       envelope, sent_at: sentAt, signature: body.signature, signPub: device.sign_pub,
     });
     if (!ok) throw new ApiError(403, "SIGNATURE_INVALID", "The message signature didn't verify, so it wasn't sent.");
+    // A message that's waiting (send later, or a check-in) is reserved: its signature covers what it
+    // says, not when it may go, so it can't be sent early through here by whoever holds a session
+    // (CV-09). It goes when it's due, or the sender cancels it and sends something new.
+    // Only someone with messages waiting needs the (shared) lookup.
+    const [myProfile] = await own.entities.Profile.filter({ user_id: user.id }, "created_date", 1);
+    if ((Number(myProfile?.scheduled_waiting) || 0) > 0) {
+      const waiting = await sr.entities.ScheduledMessage.filter({ conversation_id: conv.id, msg_id: msgId }, "created_date", 1);
+      if (waiting.some((w: any) => w.deliver_at)) throw new ApiError(409, "SCHEDULED_ITEM", "That message is waiting to be sent at its time.");
+    }
     // A retry of a send that was stored but whose answer got lost: same message id, same message.
     // (Every message is sealed to its sender too, so the sender's own access sees it.)
     const duplicate = await own.entities.Message.filter({ conversation_id: conv.id, msg_id: msgId }, "created_date", 1);

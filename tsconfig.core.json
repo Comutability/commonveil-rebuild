@@ -1,0 +1,21 @@
+{
+  // A strict, must-pass type check for the code that keeps people safe: the cryptography and the
+  // pieces of the encryption layer that don't depend on React (CV-22). Part of `npm run verify`.
+  // The rest of the app is checked by `npm run typecheck`, a baseline being worked down.
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["esnext", "dom"],
+    "target": "esnext",
+    "checkJs": true,
+    "allowJs": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "noImplicitThis": true,
+    "noFallthroughCasesInSwitch": true,
+    "resolveJsonModule": true,
+    "types": []
+  },
+  "include": ["src/lib/crypto/**/*.js", "src/lib/secure/vouch.js"]
+}

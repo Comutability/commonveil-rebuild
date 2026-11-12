@@ -259,9 +259,20 @@ export const moderationActions: Actions = {
     const seconds = [3600, 21_600, 86_400, 604_800].includes(data.seconds) ? data.seconds : null;
     if (!seconds) throw new ApiError(400, "BAD_FIELD", "Choose how far back.");
     const since = new Date(now.getTime() - seconds * 1000).toISOString().replace("Z", "");
+    // Only channels this moderator can see and manage messages in, as for an ordinary delete
+    // (CV-12): a server-wide permission doesn't reach into channels hidden from them.
+    const manageable = new Set(
+      parts.channels.filter((c: any) => {
+        const p = permsOf(parts, member, c);
+        return has(p, P.VIEW_CHANNEL) && has(p, P.MANAGE_MESSAGES);
+      }).map((c: any) => c.id),
+    );
     const q: any = { server_id: serverId, sender_id: targetId, created_date: { $gte: since } };
-    if (data.channel_id) q.channel_id = id(data.channel_id, "channel");
-    const rows = await sr.entities.ServerMessage.filter(q, "created_date", 1000);
+    if (data.channel_id) {
+      q.channel_id = id(data.channel_id, "channel");
+      if (!manageable.has(q.channel_id)) throw new ApiError(404, "CHANNEL_NOT_FOUND", "Channel not found.");
+    }
+    const rows = (await sr.entities.ServerMessage.filter(q, "created_date", 1000)).filter((m: any) => manageable.has(m.channel_id));
     let n = 0;
     for (const m of rows) {
       if (m.deleted) continue;

@@ -56,8 +56,21 @@ export async function deliverDue(sr: any, now: Date, deadline: number, only: any
     }
     await sr.entities.ScheduledMessage.update(row.id, BLANK).catch(() => null);
     await sr.entities.ScheduledMessage.delete(row.id).catch(() => null);
+    await recountWaiting(sr, row.sender_id).catch(() => null);
   }
   return delivered;
+}
+
+/**
+ * How many of a sender's messages are waiting, kept on their own profile (which only they can
+ * read, and only the backend can change) so that an ordinary send can tell, without a shared
+ * lookup, whether it needs to check its id isn't a waiting one (messages.send, CV-09).
+ */
+export async function recountWaiting(sr: any, senderId: string) {
+  const rows = await sr.entities.ScheduledMessage.filter({ sender_id: senderId }, "created_date", SCHEDULE_LIMITS.pendingPerUser + 5);
+  const count = rows.filter((r: any) => r.deliver_at).length;
+  const [profile] = await sr.entities.Profile.filter({ user_id: senderId }, "created_date", 1);
+  if (profile && (Number(profile.scheduled_waiting) || 0) !== count) await sr.entities.Profile.update(profile.id, { scheduled_waiting: count });
 }
 
 export const scheduledActions: Actions = {
@@ -95,6 +108,7 @@ export const scheduledActions: Actions = {
       conversation_id: conv.id, sender_id: user.id, device_id: device.device_id, msg_id: msgId, envelope, signature: body.signature, sent_at: sentAt,
       recipient_ids: wraps.map((w) => w.u), deliver_at: deliverAt.toISOString(), kind, checkin_hours: hours,
     });
+    await recountWaiting(sr, user.id);
     return { scheduled: scheduledOut(row) };
   },
 
@@ -113,6 +127,7 @@ export const scheduledActions: Actions = {
     const row = await mine(ctx, data.id);
     await ctx.sr.entities.ScheduledMessage.update(row.id, BLANK);
     await ctx.sr.entities.ScheduledMessage.delete(row.id);
+    await recountWaiting(ctx.sr, ctx.user.id);
     return { ok: true };
   },
 

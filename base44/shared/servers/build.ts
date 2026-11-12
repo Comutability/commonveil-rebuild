@@ -126,7 +126,7 @@ export function cleanAdminList(list: unknown): string[] {
  * Add someone to a server. Checks bans, pauses and limits; the caller has checked the way in
  * (an invite, an open server, the community server). Returns the member row.
  */
-export async function addMember(sr: any, server: any, user: any, { listed = false, adminEmails = [] as string[], now }: any) {
+export async function addMember(sr: any, server: any, user: any, { listed = false, adminEmails = [] as string[], now, viaInvite = "" }: any) {
   if (server.status === "deleting") throw new ApiError(404, "SERVER_NOT_FOUND", "Server not found.");
   const existing = await memberRow(sr, server.id, user.id);
   if (existing) return { member: existing, joined: false };
@@ -170,6 +170,7 @@ export async function addMember(sr: any, server: any, user: any, { listed = fals
     rules_accepted_at: "",
     timeout_until: "",
     key_status: "pending",
+    via_invite: viaInvite || "",
   });
   // Two joins at once: one row stays.
   const rows = withRow(await sr.entities.ServerMember.filter({ server_id: server.id, user_id: user.id }, "created_date", 5), created);
@@ -184,6 +185,17 @@ export async function addMember(sr: any, server: any, user: any, { listed = fals
   });
   await refreshAccess(sr, user.id);
   return { member: created, joined: true };
+}
+
+/**
+ * Undo a join that turned out not to be allowed (an invite used up by someone a moment earlier,
+ * CV-13). The member had no keys yet, so nothing else needs renewing.
+ */
+export async function undoJoin(sr: any, server: any, member: any) {
+  await sr.entities.ServerMember.delete(member.id).catch(() => null);
+  const fresh = await sr.entities.Server.get(server.id).catch(() => server);
+  await sr.entities.Server.update(server.id, { member_count: Math.max(0, (Number(fresh?.member_count) || 1) - 1) });
+  await refreshAccess(sr, member.user_id);
 }
 
 /**

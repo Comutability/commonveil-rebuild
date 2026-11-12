@@ -218,7 +218,7 @@ export const profileActions: Actions = {
   },
 
   /** Exact-match lookup. Blocked pairs can't find each other. */
-  async find({ sr, user, body, federation }) {
+  async find({ sr, own, user, body, federation }) {
     const raw = typeof body.username === "string" ? body.username.trim().replace(/^@/, "").toLowerCase() : "";
     let key: string;
     if (federation && HANDLE_RE.test(raw)) {
@@ -234,7 +234,10 @@ export const profileActions: Actions = {
       throw new ApiError(404, "NOT_FOUND", "No member has that username.");
     }
     const keys = await accountKeysOf(sr, target.user_id);
-    return { profile: publicProfile(target), encryption_ready: keys.length > 0 };
+    // Only as much as they chose to show you: knowing someone's exact username isn't a reason to
+    // see a profile set to "Nobody" (CV-10).
+    const profile = target.user_id === user.id ? publicProfile(target) : profileFor(target, { contact: (await contactsOf(own, user.id)).has(target.user_id) });
+    return { profile, encryption_ready: keys.length > 0 };
   },
 
   /**

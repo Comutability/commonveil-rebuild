@@ -1,7 +1,9 @@
-# Runs when a release tag (vX.Y.Z) is pushed: makes the GitHub release from the notes in
-# src/content/releases.json and, for versions that have one, builds the Docker image and
-# publishes it as ghcr.io/<owner>/commonveil:<version> (and :latest for the newest release).
-# Self-hosted sites check these releases for updates.
+# Runs when a release tag (vX.Y.Z) is pushed. In this order, each step only if the one before worked:
+#   1. test: the tests, lint and both builds, at that tag;
+#   2. image: the Docker images, ghcr.io/<owner>/commonveil:<version> (and :latest for the newest);
+#   3. release: the GitHub release, from the notes in src/content/releases.json, with the images'
+#      digests. Self-hosted sites offer a release as an update as soon as it appears, so it only
+#      appears once there's something to install (CV-20).
 name: Release
 
 on:
@@ -21,35 +23,26 @@ concurrency:
   group: release-${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
-  release:
+  test:
     runs-on: ubuntu-latest
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
-      - name: Release notes come from the default branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: notes
+          ref: ${{ env.TAG }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Write the notes for this version
-        run: node notes/scripts/release.mjs --notes "$TAG" > notes.md
-      - name: Create or update the GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          latest="v$(node -p 'require("./notes/package.json").version')"
-          flag=$([ "$TAG" = "$latest" ] && echo "--latest" || echo "--latest=false")
-          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --title "Commonveil ${TAG#v}" --notes-file notes.md $flag
-          else
-            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "Commonveil ${TAG#v}" --notes-file notes.md --verify-tag $flag
-          fi
+      - run: npm ci --no-audit --no-fund
+      - run: npm run verify
+      - run: npm audit --omit=dev --audit-level=high
 
   image:
-    needs: release
+    needs: test
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      updater_digest: ${{ steps.push_updater.outputs.digest }}
     runs-on: ubuntu-latest
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
@@ -83,6 +76,7 @@ jobs:
           latest="v$(node -p 'require("./notes/package.json").version')"
           echo "latest=$([ "$TAG" = "$latest" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - if: steps.has.outputs.dockerfile == 'yes'
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -99,6 +93,7 @@ jobs:
             org.opencontainers.image.version=${{ steps.name.outputs.version }}
             org.opencontainers.image.licenses=AGPL-3.0-only
       - name: The updater image
+        id: push_updater
         if: steps.has.outputs.dockerfile == 'yes' && hashFiles('updater/Dockerfile') != ''
         uses: docker/build-push-action@v6
         with:
@@ -108,3 +103,39 @@ jobs:
           tags: |
             ${{ steps.name.outputs.image }}-updater:${{ steps.name.outputs.version }}
             ${{ steps.name.outputs.latest == 'true' && format('{0}-updater:latest', steps.name.outputs.image) || '' }}
+
+  release:
+    needs: image
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - name: Release notes come from the default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: notes
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Write the notes for this version
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
+          UPDATER_DIGEST: ${{ needs.image.outputs.updater_digest }}
+        run: |
+          node notes/scripts/release.mjs --notes "$TAG" > notes.md
+          if [ -n "$DIGEST" ]; then
+            printf '\n\nImages (check these digests before running them):\n\n- commonveil: `%s`\n' "$DIGEST" >> notes.md
+            [ -n "$UPDATER_DIGEST" ] && printf -- '- commonveil-updater: `%s`\n' "$UPDATER_DIGEST" >> notes.md
+          fi
+      - name: Create or update the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest="v$(node -p 'require("./notes/package.json").version')"
+          flag=$([ "$TAG" = "$latest" ] && echo "--latest" || echo "--latest=false")
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --title "Commonveil ${TAG#v}" --notes-file notes.md $flag
+          else
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "Commonveil ${TAG#v}" --notes-file notes.md --verify-tag $flag
+          fi

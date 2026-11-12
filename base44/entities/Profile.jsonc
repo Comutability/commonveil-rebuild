@@ -72,6 +72,10 @@
     "default_server_done": {
       "type": "boolean",
       "description": "The member has been added to the community server once (and may have left it)."
+    },
+    "scheduled_waiting": {
+      "type": "number",
+      "description": "How many of this member's messages are waiting to be sent (send later, check-ins). Only they can read it; set only by the backend."
     }
   },
   "required": [

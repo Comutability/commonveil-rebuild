@@ -29,6 +29,10 @@
       "type": "string",
       "description": "Timed out until then: can't post, react or join calls."
     },
+    "via_invite": {
+      "type": "string",
+      "description": "The invite this member joined with, if any: invite uses are counted from these. Set only by the backend."
+    },
     "refused_grantors": {
       "type": "array",
       "items": { "type": "string" },

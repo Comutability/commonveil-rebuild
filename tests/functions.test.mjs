@@ -1690,3 +1690,34 @@ test("profile pictures: small inline images only, checked by their first bytes, 
   assert.equal((await bob.ok("profile", { action: "get_many", user_ids: [alice.id] })).profiles[0].avatar_image, "", "hidden with the rest");
   assert.equal((await alice.ok("profile", { action: "update", avatar_image: "" })).profile.avatar_image, "");
 });
+
+// ---------- the security review's findings (docs/SECURITY_REVIEW.md) ----------
+
+test("CV-09: a waiting check-in can't be sent early by whoever holds the session", async () => {
+  const { w, members: [alice, bob] } = await world("alice", "bob");
+  const dm = await alice.dm(bob);
+  const { chains } = await alice.chainsFor(dm);
+  const body = await buildMessage({ userId: alice.id, device: alice.device, conversation: dm, chains, text: "Please call me", keyring: alice.keyring });
+  await alice.ok("messages", { ...body, action: "schedule", kind: "checkin", checkin_hours: 24 });
+  // The same signed message, sent as an ordinary one: refused.
+  const early = await alice.call("messages", { ...body, action: "send" });
+  assert.equal(early.body.code, "SCHEDULED_ITEM");
+  assert.ok(!w.rows("Message").some((m) => m.msg_id === body.msg_id), "nothing reached bob");
+  // Someone with nothing waiting sends as usual, with no extra shared lookup.
+  const { chains: bc } = await bob.chainsFor(dm);
+  const reply = await buildMessage({ userId: bob.id, device: bob.device, conversation: dm, chains: bc, text: "ok", keyring: bob.keyring });
+  w.serviceReads = 0;
+  await bob.ok("messages", { ...reply, action: "send" });
+  assert.ok(w.serviceReads <= 3, "the usual few shared reads");
+});
+
+test("CV-10: an exact username doesn't reveal a profile set to Nobody", async () => {
+  const { members: [alice, bob] } = await world("alice", "bob");
+  await bob.ok("profile", { action: "update", bio: "Private bio", display_name: "Bob B", profile_visibility: "nobody" });
+  const found = await alice.ok("profile", { action: "find", username: "bob" });
+  assert.equal(found.profile.username, "bob", "the username, which alice already knew");
+  assert.deepEqual([found.profile.bio, found.profile.display_name], ["", ""], "nothing they chose to hide");
+  await alice.ok("safety", { action: "block", user_id: bob.id }).catch(() => null);
+  const own = await bob.ok("profile", { action: "find", username: "bob" });
+  assert.equal(own.profile.bio, "Private bio", "you always see your own");
+});

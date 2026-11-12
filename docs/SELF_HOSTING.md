@@ -29,9 +29,11 @@ curl -fsSLO https://raw.githubusercontent.com/Comutability/commonveil-rebuild/ma
 sh install.sh
 ```
 
-It asks for your domain, an email address for Let's Encrypt, and the username you'll use, then
-writes `.env` and starts everything. Open `https://chat.example.com` and create your account with
-that username: it's the site's admin. (If you skip the username, the first account made is.)
+It asks for your domain and an email address for Let's Encrypt, writes `.env`, starts everything
+and prints a one-time **setup code**. Open `https://chat.example.com`, create your account and
+enter the code: that account becomes the site's admin. Nobody can make an account until then, so
+a stranger can't get there first. If you lose the code, print it again with
+`docker compose exec app node server/index.mjs setup-code`.
 
 To do it by hand instead: copy `deploy/docker-compose.yml`, `deploy/Caddyfile` and
 `deploy/.env.example` (as `.env`) from this repository, fill in `.env`, then run
@@ -55,12 +57,11 @@ All settings are in `.env`. After changing one, run `docker compose up -d`.
 | `HANDLE_DOMAIN` | People's addresses are `username.HANDLE_DOMAIN`. Leave empty to use `SITE_DOMAIN`. |
 | `SITE_NAME` | The name shown to other sites and in passkey prompts. |
 | `ACME_EMAIL` | Let's Encrypt sends certificate notices here. |
-| `ADMIN_USERNAMES` | Usernames that are site admins, comma-separated. The first account made is an admin too. |
-| `ADMIN_EMAILS` | Only for sites with accounts from before usernames: admins by their old sign-in email. |
-| `DEFAULT_SERVER_ADMINS` | Admins of the Commonveil Community server every new account joins: usernames (or older accounts' emails). |
-| `OPEN_REGISTRATION` | `false` lets only the first account sign up. |
+| `DEFAULT_SERVER_ADMINS` | Admins of the Commonveil Community server every new account joins, by username. Only accounts that are site admins count. |
+| `OPEN_REGISTRATION` | `false` stops new sign-ups once the first admin exists. The first admin always needs the setup code. |
 | `FEDERATION` | `false` keeps your site to itself: no other site can reach it, and its people can't reach others. |
 | `COMMONVEIL_VERSION` | Which release runs. The updater changes it. `latest` follows each new release. |
+| `UPDATER_ALLOW_DOWNGRADE` | `true` lets the updater go back to an older release. Leave it off otherwise. |
 | `COMMONVEIL_DIR`, `UPDATER_TOKEN` | This folder's full path, and the secret the app and the updater share. `install.sh` sets both. |
 
 Advanced settings you can add to the `app` service's environment in `docker-compose.yml`:
@@ -85,7 +86,8 @@ Commands for the command line (run them in your Commonveil folder):
 
 ```bash
 docker compose exec app node server/index.mjs make-admin <username>
-docker compose exec app node server/index.mjs reset-password <username>   # prints a temporary password
+docker compose exec app node server/index.mjs setup-code                  # shows the first-admin code, if still unused
+docker compose exec app node server/index.mjs reset-password <username>   # prints a temporary password and signs them out everywhere
 docker compose exec app node server/index.mjs backup
 docker compose exec app node server/index.mjs version
 ```

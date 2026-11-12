@@ -142,8 +142,16 @@ export const serverMessageActions: Actions = {
     const envelope = str(body.envelope, "message", SERVER_LIMITS.maxMessageEnvelopeChars);
     const env = parseItemEnvelope(envelope);
     const chainId = chainForChannel(serverId, channel);
-    const gens = await own.entities.KeyGeneration.filter({ server_id: serverId, chain_id: chainId }, "created_date", 500);
+    const [gens, chainRows] = await Promise.all([
+      own.entities.KeyGeneration.filter({ server_id: serverId, chain_id: chainId }, "created_date", 500),
+      own.entities.KeyChain.filter({ server_id: serverId, chain_id: chainId }, "created_date", 1),
+    ]);
     const latest = latestGeneration(gens, chainId);
+    // Someone who held this key lost access (a removed device, a ban, a permission change): nothing
+    // new is sealed with it until a moderator's app has renewed it (CV-04, CV-05).
+    if (chainRows[0]?.rotation_needed) {
+      throw new ApiError(409, "KEYS_RENEWING", "This channel's keys are being renewed after someone lost access. You can post again as soon as a moderator's app has renewed them, usually within moments.");
+    }
     if (!latest) throw new ApiError(409, "NO_KEYS_YET", "This channel's encryption is still being set up. Try again in a moment.");
     if (env.chain !== chainId || env.gen !== Number(latest.generation) || env.step !== stepAt(chainId, latest.started_at, Date.parse(sentAt))) {
       throw new ApiError(409, "STALE_SERVER_KEYS", "This channel's keys changed. Refreshing and trying again.");

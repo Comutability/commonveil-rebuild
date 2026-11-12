@@ -243,6 +243,7 @@ export async function makeDeviceProof({ userId, device, action, payloadJson }) {
   return proof;
 }
 
+/** @param {any} item */
 async function itemText({ kind, conversationId, itemId, senderId, deviceId, envelopeJson, sentAt }) {
   const envelope_hash = await sha256B64(envelopeJson);
   return canonical(

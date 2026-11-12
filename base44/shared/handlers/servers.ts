@@ -8,7 +8,7 @@ import { isKemSealed, validSealed, verifyGenerationSignature, verifyGrantSignatu
 import { DEFAULT_EVERYONE, P, STAFF_PERMISSIONS, ALL_PERMISSIONS, channelIsPrivate, has, isStaff, topPosition } from "../permissions.ts";
 import { accountKeysOf, byAge, countSince, latestKeysFor, profileOf, rateLimited, withRow } from "../store.ts";
 import { STARTER_TEMPLATES } from "../servers/template.ts";
-import { addMember, cleanAdminList, createFromTemplate, ensureDefaultServer, membersWhoCanSee, removeMember } from "../servers/build.ts";
+import { addMember, cleanAdminList, createFromTemplate, ensureDefaultServer, membersWhoCanSee, removeMember, undoJoin } from "../servers/build.ts";
 import { checkRaid, guardNuke, logCase } from "../servers/moderation.ts";
 import {
   CHANNEL_EXPIRY_CHOICES,
@@ -112,7 +112,7 @@ function cardOf(profile: any) {
     pronouns: hidden ? "" : profile.pronouns || "",
     bio: hidden ? "" : profile.bio || "",
     accent_color: profile.accent_color || "",
-    avatar_emoji: profile.avatar_emoji || "",
+    avatar_emoji: hidden ? "" : profile.avatar_emoji || "",
     avatar_image: hidden ? "" : profile.avatar_image || "",
   };
 }
@@ -288,9 +288,13 @@ function checkOverwrites(parts: any, member: any, channel: any, next: any[]) {
   for (const id of changedIds) {
     const role = parts.roles.find((r: any) => r.id === id);
     if (role && !role.is_everyone && (Number(role.position) || 0) >= top) throw new ApiError(403, "HIERARCHY", "You can only change permissions for roles below your own.");
-    const o: any = next.find((x) => x.role_id === id) || before.get(id) || { allow: 0, deny: 0 };
-    const bits = (Number(o.allow) || 0) | (Number(o.deny) || 0);
-    if ((bits & ~mine) !== 0) throw new ApiError(403, "MISSING_PERMISSION", "You can't allow or deny permissions you don't have here.");
+    // Every bit that changes counts, whichever way: adding an allow or deny, or taking one away.
+    // Removing an entry is the same as zeroing it. Otherwise lifting a deny (by zeroing the entry)
+    // would hand back a permission the actor isn't allowed to give (CV-11).
+    const was: any = before.get(id) || { allow: 0, deny: 0 };
+    const now: any = next.find((x) => x.role_id === id) || { allow: 0, deny: 0 };
+    const changed = ((Number(was.allow) || 0) ^ (Number(now.allow) || 0)) | ((Number(was.deny) || 0) ^ (Number(now.deny) || 0));
+    if ((changed & ~mine) !== 0) throw new ApiError(403, "MISSING_PERMISSION", "You can't allow or deny permissions you don't have here.");
   }
 }
 
@@ -561,8 +565,19 @@ export function serverActions(config: ServerConfig): Actions {
         if (server.join_mode !== "open" || !(server.discoverable || server.is_default)) throw new ApiError(403, "INVITE_REQUIRED", "You need an invite to join this server.");
       }
       const profile = await profileOf(sr, user.id);
-      const { member, joined } = await addMember(sr, server, user, { listed: profile?.default_listed === true, adminEmails: adminEmails(), now });
-      if (joined && invite) await sr.entities.Invite.update(invite.id, { uses: (Number(invite.uses) || 0) + 1 });
+      const { member, joined } = await addMember(sr, server, user, { listed: profile?.default_listed === true, adminEmails: adminEmails(), now, viaInvite: invite?.id || "" });
+      if (joined && invite) {
+        // Uses are counted from the joins themselves, oldest first, never "what I read plus one": two
+        // people joining at the same moment can't both get the last use (CV-13).
+        const used = (await sr.entities.ServerMember.filter({ server_id: server.id, via_invite: invite.id }, "created_date", 5000)).sort(byAge);
+        const mine = withRow(used, member).findIndex((m: any) => m.id === member.id);
+        const max = Number(invite.max_uses) || 0;
+        if (max > 0 && mine >= max) {
+          await undoJoin(sr, server, member);
+          throw new ApiError(404, "INVITE_INVALID", "That invite has expired or isn't valid.");
+        }
+        await sr.entities.Invite.update(invite.id, { uses: max > 0 ? Math.min(max, withRow(used, member).length) : withRow(used, member).length });
+      }
       if (joined) await checkRaid(sr, server, now);
       if (server.is_default && profile && !profile.default_server_done) await sr.entities.Profile.update(profile.id, { default_server_done: true });
       return { server_id: server.id, member: memberOut(member, { self: true }), joined };

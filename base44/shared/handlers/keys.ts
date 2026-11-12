@@ -23,6 +23,8 @@ import {
   verifyProof,
   verifyStatement,
 } from "../verify.ts";
+import { needRotation } from "../servers/model.ts";
+import { bumpEpoch } from "../identity/sessions.ts";
 import { payloadOf, signedByActiveDevice } from "../deviceAuth.ts";
 import { emailNotice, newDeviceEmail, phraseUsedEmail, resetDoneEmail, resetRequestedEmail } from "../notify.ts";
 import {
@@ -415,7 +417,23 @@ export const keysActions: Actions = {
     const envelopes = await sr.entities.KeyEnvelope.filter({ user_id: user.id, kind: "device", device_id: target.device_id }, "created_date", 100);
     for (const e of envelopes) await sr.entities.KeyEnvelope.delete(e.id);
     const remaining = (await devicesOf(sr, user.id)).filter((d: any) => d.status === "active");
-    return { remaining: remaining.map((d: any) => deviceOut(d, now)), revoked_self: target.device_id === actor.device_id };
+    const revokedSelf = target.device_id === actor.device_id;
+    if (!revokedSelf) {
+      // A device taken off from elsewhere may be in someone else's hands. Every server key this
+      // account holds is one it may have copied: each is renewed, and nothing new is sealed with
+      // the old ones meanwhile (CV-04). Direct messages need nothing: each is sealed to the
+      // account's current devices only.
+      const held = await sr.entities.KeyGrant.filter({ user_id: user.id }, "created_date", 5000);
+      const byServer = new Map<string, Set<string>>();
+      for (const g of held) {
+        if (!byServer.has(g.server_id)) byServer.set(g.server_id, new Set());
+        byServer.get(g.server_id)!.add(g.chain_id);
+      }
+      for (const [serverId, chains] of byServer) await needRotation(sr, serverId, [...chains], "device");
+      // And its sign-in session can't change how the account is protected any more.
+      await bumpEpoch(sr, user.id);
+    }
+    return { remaining: remaining.map((d: any) => deviceOut(d, now)), revoked_self: revokedSelf };
   },
 
   /**

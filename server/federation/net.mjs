@@ -90,7 +90,11 @@ export class Transport {
     return `${ws ? scheme.replace("http", "ws") : scheme}://${host}${path}`;
   }
 
-  async request(host, path, { method = "GET", headers = {}, body } = {}) {
+  async request(host, path, opts = {}) {
+    return withSlot(() => this.#request(host, path, opts));
+  }
+
+  async #request(host, path, { method = "GET", headers = {}, body } = {}) {
     await this.#check(host);
     let res;
     try {
@@ -100,8 +104,10 @@ export class Transport {
     }
     const len = Number(res.headers.get("content-length") || 0);
     if (len > MAX_RESPONSE) throw new FederationError(502, "TOO_LARGE", `${host} sent too much.`);
-    const text = await res.text();
-    if (text.length > MAX_RESPONSE) throw new FederationError(502, "TOO_LARGE", `${host} sent too much.`);
+    // Counted as it arrives and cut off at the limit, whatever the length header said (CV-17).
+    const raw = await readCapped(res, MAX_RESPONSE);
+    if (!raw) throw new FederationError(502, "TOO_LARGE", `${host} sent too much.`);
+    const text = new TextDecoder().decode(raw);
     let data = null;
     try {
       data = text ? JSON.parse(text) : null;
@@ -113,17 +119,69 @@ export class Transport {
 
   /** Fetch bytes (a file's encrypted parts) from another site. */
   async bytes(host, path) {
+    return withSlot(() => this.#bytes(host, path));
+  }
+
+  async #bytes(host, path) {
     await this.#check(host);
     const res = await this.fetch(this.url(host, path), { headers: this.hostHeader ? { "X-Forwarded-Host": host } : {}, redirect: "manual", signal: AbortSignal.timeout(30_000) });
-    if (res.status !== 200) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    return buf.length <= 2 * 1024 * 1024 ? buf : null;
+    if (res.status !== 200) {
+      await res.body?.cancel?.().catch?.(() => {});
+      return null;
+    }
+    const raw = await readCapped(res, MAX_FILE_PART);
+    return raw ? Buffer.from(raw) : null;
   }
 
   async websocket(host, path, headers) {
     await this.#check(host);
     return new this.Ws(this.url(host, path, true), { headers: { ...(this.hostHeader ? { "X-Forwarded-Host": host } : {}), ...headers }, handshakeTimeout: 10_000, maxPayload: 64 * 1024 });
   }
+}
+
+const MAX_FILE_PART = 2 * 1024 * 1024;
+const MAX_OUTBOUND = 16;
+let outbound = 0;
+const queue = [];
+
+/** At most MAX_OUTBOUND reads from other sites at once; the rest wait their turn. */
+async function withSlot(fn) {
+  if (outbound >= MAX_OUTBOUND) await new Promise((resolve) => queue.push(resolve));
+  outbound += 1;
+  try {
+    return await fn();
+  } finally {
+    outbound -= 1;
+    queue.shift()?.();
+  }
+}
+
+/** A response body, read chunk by chunk, or null as soon as it passes max bytes (reading stops there). */
+export async function readCapped(res, max) {
+  if (!res.body?.getReader) {
+    const buf = new Uint8Array(await res.arrayBuffer());
+    return buf.length <= max ? buf : null;
+  }
+  const reader = res.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out;
 }
 
 export function isPrivate(ip) {

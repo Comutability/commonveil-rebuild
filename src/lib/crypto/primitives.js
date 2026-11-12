@@ -79,7 +79,7 @@ export async function hkdfBytes(ikm, salt, info, length = 32) {
 
 export async function aesKeyFromBytes(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length !== 32) throw new CryptoFormatError("AES key must be 32 bytes");
-  return subtle().importKey("raw", bytes, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  return subtle().importKey("raw", /** @type {BufferSource} */ (bytes), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
 export async function hkdfAesKey(ikm, salt, info) {

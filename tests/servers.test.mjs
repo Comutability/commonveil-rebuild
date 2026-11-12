@@ -968,3 +968,129 @@ test("moderation: flood and raid protection, staff limits and temporary bans are
   const ban = w.rows("ServerBan").find((b) => b.user_id === "tempbanned0001");
   assert.ok(ban.expires_at);
 });
+// ---------- the security review's findings (docs/SECURITY_REVIEW.md) ----------
+
+test("CV-06: polling doesn't hand newcomers what came before they joined", async () => {
+  const { members: [alice, bob, carol] } = await world("alice", "bobby", "carol");
+  const sid = await serverWith(alice, bob);
+  const general = await alice.channelNamed(sid, "general");
+  const start = await carol.ok("messages", { action: "poll" });
+  await alice.say(sid, general, "before carol");
+  const { code } = await alice.invite(sid);
+  await carol.join(code);
+  await alice.fulfil(sid);
+  await alice.say(sid, general, "after carol");
+  // An old cursor, so the poll covers the earlier message too.
+  const p = await carol.ok("messages", { action: "poll", since: start.cursor, servers_since: "2000-01-01T00:00:00" });
+  const mine = p.server_messages.filter((m) => m.channel_id === general.id);
+  assert.equal(mine.length, 1, "only what came after she joined");
+  const listed = await carol.readChannel(sid, general);
+  assert.deepEqual(listed.map((r) => r.text), ["after carol"], "the same as the channel list");
+});
+
+test("CV-05: losing sight of a private channel stops new messages reaching you, and renews its keys", async () => {
+  const { members: [alice, bob] } = await world("alice", "bobby");
+  const sid = await alice.create("community");
+  const { code } = await alice.invite(sid);
+  await bob.join(code);
+  const st = await bob.server(sid);
+  const mod = st.roles.find((r) => r.template_key === "moderator");
+  await alice.ok("servers", await signed(alice, "set_member_roles", { server_id: sid, user_id: bob.id, role_ids: [mod.id] }));
+  await alice.fulfil(sid);
+  const staffChat = (await alice.server(sid)).channels.find((c) => c.template_key === "staff-chat");
+  const start = await bob.ok("messages", { action: "poll" });
+  // Moderators lose the channel through its overwrites (the role keeps its own permissions).
+  const everyone = st.roles.find((r) => r.is_everyone);
+  await alice.ok("servers", await signed(alice, "update_channel", { server_id: sid, channel_id: staffChat.id, overwrites: [{ role_id: everyone.id, deny: serverPerms.P.VIEW_CHANNEL }] }));
+  const chain = (await alice.server(sid)).chains.find((c) => c.chain_id === channelChain(sid, staffChat.id));
+  assert.equal(chain.rotation_needed, true, "the keys bob held are due to be renewed");
+  // Until they are, nothing new is sealed with them.
+  assert.equal((await alice.say(sid, staffChat, "after bob")).body.code, "KEYS_RENEWING");
+  const p = await bob.ok("messages", { action: "poll", since: start.cursor, servers_since: "2000-01-01T00:00:00" });
+  assert.ok(!p.server_messages.some((m) => m.channel_id === staffChat.id), "polling doesn't bring it");
+});
+
+test("CV-04: removing a device renews every server key the account holds, and holds new messages until then", async () => {
+  const { members: [alice, bob] } = await world("alice", "bobby");
+  const sid = await serverWith(alice, bob);
+  const general = await alice.channelNamed(sid, "general");
+  const { device: lost } = await bob.linkDevice("Lost phone");
+  const { prepareRevoke } = await import("../src/lib/secure/protocol.js");
+  await bob.ok("keys", await prepareRevoke({ userId: bob.id, device: bob.device, targetDeviceId: lost.device_id }));
+  const chains = (await alice.server(sid)).chains;
+  assert.ok(chains.filter((c) => c.kind !== "c").every((c) => c.rotation_needed), "every chain bob held");
+  assert.equal((await alice.say(sid, general, "after the phone went")).body.code, "KEYS_RENEWING");
+});
+
+test("CV-13: two people can't both take an invite's last use", async () => {
+  const { members: [alice, bob, carol] } = await world("alice", "bobby", "carol");
+  const sid = await alice.create("blank");
+  const { code } = await alice.invite(sid, { max_uses: 1 });
+  const results = await Promise.all([bob, carol].map(async (m) => m.call("servers", await signed(m, "join_server", { invite_code: code }))));
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 404], "one gets in, the other is told it's used up");
+  const state = await alice.server(sid);
+  assert.equal(state.server.member_count, 2, "alice and one of them");
+});
+
+test("CV-12: a moderator's purge only reaches channels they can manage", async () => {
+  const { moderationActions } = await import("../base44/shared/handlers/moderation.ts");
+  addFunctions({ moderation: moderationActions });
+  const { members: [alice, bob, carol] } = await world("alice", "bobby", "carol");
+  const sid = await alice.create("community");
+  for (const m of [bob, carol]) {
+    const { code } = await alice.invite(sid);
+    await m.join(code);
+  }
+  await alice.fulfil(sid);
+  const st = await alice.server(sid);
+  const mod = st.roles.find((r) => r.template_key === "moderator");
+  const staffChat = st.channels.find((c) => c.template_key === "staff-chat");
+  // Carol can post in staff chat (she's a moderator for now).
+  await alice.ok("servers", await signed(alice, "set_member_roles", { server_id: sid, user_id: carol.id, role_ids: [mod.id] }));
+  await alice.fulfil(sid);
+  assert.equal((await carol.say(sid, staffChat, "carol in staff")).status, 200);
+  // Bob may manage messages across the server, but staff chat isn't open to his role.
+  const cleaner = await alice.ok("servers", await signed(alice, "create_role", { server_id: sid, permissions: serverPerms.P.MANAGE_MESSAGES | serverPerms.P.VIEW_CHANNEL | serverPerms.P.SEND_MESSAGES }));
+  await alice.ok("servers", await signed(alice, "set_member_roles", { server_id: sid, user_id: bob.id, role_ids: [cleaner.role.id] }));
+  assert.equal((await bob.call("channels", { action: "list", server_id: sid, channel_id: staffChat.id })).body.code, "CHANNEL_NOT_FOUND", "bob can't see staff chat");
+  // Carol is junior to bob now, so only the channel decides.
+  await alice.ok("servers", await signed(alice, "set_member_roles", { server_id: sid, user_id: carol.id, role_ids: [] }));
+  const r = await bob.ok("moderation", await signed(bob, "purge", { server_id: sid, user_id: carol.id, seconds: 3600 }));
+  assert.equal(r.deleted, 0, "nothing in a channel bob can't see");
+});
+
+test("CV-11: zeroing a channel deny is the same as removing it: neither hands back a power the actor can't give", async () => {
+  const { members: [alice, bob, carol] } = await world("alice", "bobby", "carol");
+  const sid = await serverWith(alice, bob, carol);
+  const state = await alice.server(sid);
+  const everyone = state.roles.find((r) => r.is_everyone);
+  const manager = serverPerms.P.VIEW_CHANNEL | serverPerms.P.SEND_MESSAGES | serverPerms.P.MANAGE_CHANNELS | serverPerms.P.MANAGE_ROLES | serverPerms.P.MANAGE_MESSAGES;
+  // Bob holds a manager role and a junior one below it.
+  const { role: junior } = await alice.ok("servers", await signed(alice, "create_role", { server_id: sid, permissions: serverPerms.P.VIEW_CHANNEL }));
+  const { role: mgr } = await alice.ok("servers", await signed(alice, "create_role", { server_id: sid, permissions: manager }));
+  await alice.ok("servers", await signed(alice, "set_member_roles", { server_id: sid, user_id: bob.id, role_ids: [mgr.id, junior.id] }));
+  const general = await alice.channelNamed(sid, "general");
+  // In general, the junior role may not manage messages, so neither may bob.
+  await alice.ok("servers", await signed(alice, "update_channel", { server_id: sid, channel_id: general.id, overwrites: [{ role_id: junior.id, deny: serverPerms.P.MANAGE_MESSAGES }] }));
+  for (const overwrites of [[{ role_id: junior.id, allow: 0, deny: 0 }], []]) {
+    await bob.fails("servers", await signed(bob, "update_channel", { server_id: sid, channel_id: general.id, overwrites }), "MISSING_PERMISSION");
+  }
+  void everyone;
+});
+
+test("CV-14: a member told a key that doesn't match takes no more from whoever sent it", async () => {
+  const { w, members: [alice, bob, carol] } = await world("alice", "bobby", "carol");
+  const sid = await serverWith(alice, bob);
+  const { code } = await alice.invite(sid);
+  await carol.join(code);
+  await bob.fulfil(sid);
+  const grant = w.rows("KeyGrant").find((g) => g.user_id === carol.id && g.grantor_id === bob.id);
+  assert.ok(grant, "bob handed carol a key");
+  // Carol's app finds it opens to the wrong key and says so.
+  await carol.ok("servers", await signed(carol, "request_keys", { server_id: sid, grant_ids: [], bad_grant_ids: [grant.id] }));
+  const member = w.rows("ServerMember").find((m) => m.server_id === sid && m.user_id === carol.id);
+  assert.deepEqual(member.refused_grantors, [bob.id]);
+  assert.equal(member.key_status, "pending", "she's waiting for keys again");
+  assert.equal(await bob.fulfil(sid), 0, "bob's handouts to her are refused");
+  assert.ok((await alice.fulfil(sid)) > 0, "someone else's aren't");
+});

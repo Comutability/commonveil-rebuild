@@ -58,6 +58,14 @@ enter it in **Settings → Sign-in and recovery**.
 Each browser that signs in becomes a **device**: the site gives it a secret, kept in the browser's
 storage, and only a hash of it is stored. Passwords are hashed with scrypt. Sessions last 30 days.
 
+Every session carries the account's **security epoch**. Recovering the account, changing or
+setting the password, disconnecting a device, removing a passkey, replacing the owner key or
+removing an encryption device moves the epoch on, which ends every other session at once (the
+browser that made the change gets a fresh one). Changes to how you sign in, such as adding a
+passkey or approving a new browser, also need proof it's you: a signature from one of your
+encryption devices, which happens without asking, or else your password. Ten wrong passwords in
+15 minutes lock password sign-in for a while; each attempt is recorded before it's checked.
+
 ## Confirming a new device
 
 When the password is right but the browser is new, it must be confirmed with one of:

@@ -36,8 +36,12 @@ export async function verifyHello({ room, peer, chain, devices }) {
   if (!h || !chain) return false;
   const issued = Date.parse(h.issued_at);
   if (!Number.isFinite(issued) || Math.abs(Date.now() - issued) > HELLO_MAX_AGE_MS) return false;
+  // The device's status comes from the server, which can't be trusted to say it was removed. Its
+  // certificate can: only one made under the account's latest key counts. After a device is
+  // removed the account's key moves on and its other devices are certified again, so the removed
+  // one's old certificate no longer does (CV-04).
   const device = (devices || []).find((d) => d.device_id === peer.device_id && d.status !== "revoked" && d.status !== "expired");
-  if (!device || !(await deviceIsCertified(peer.user_id, device, chain))) return false;
+  if (!device || !(await deviceIsCertified(peer.user_id, device, chain, { currentOnly: true }))) return false;
   const text = helloText({ room, userId: peer.user_id, deviceId: peer.device_id, callId: h.call_id, fingerprint: h.fingerprint, issuedAt: h.issued_at });
   return verifyWithRaw(device.sign_pub, h.signature, text);
 }

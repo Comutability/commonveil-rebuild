@@ -407,7 +407,7 @@ export function ServerProvider({ children }) {
     }
   }, [applyList, loadState]);
 
-  latest.current = { loadAll, loadState, scheduleWorker };
+  latest.current = { loadAll, loadState, scheduleWorker, serviceKeys };
 
   useEffect(() => {
     let cancelled = false;
@@ -860,8 +860,10 @@ export function ServerProvider({ children }) {
         mergeRows([res.message]);
         return res.message;
       } catch (err) {
-        if (attempt === 0 && ((err instanceof ApiError && (err.code === "STALE_SERVER_KEYS" || err.code === "NO_KEYS_YET")) || (err instanceof ServerKeyError && err.code === "NO_KEY"))) {
+        if (attempt === 0 && ((err instanceof ApiError && (err.code === "STALE_SERVER_KEYS" || err.code === "NO_KEYS_YET" || err.code === "KEYS_RENEWING")) || (err instanceof ServerKeyError && err.code === "NO_KEY"))) {
           await loadState(sid);
+          // Keys being renewed: this app renews them itself if it may (MANAGE_KEYS), then tries once more.
+          if (err.code === "KEYS_RENEWING") await Promise.resolve(latest.current.serviceKeys?.(sid)).catch(() => {});
           continue;
         }
         throw friendly(err);
