@@ -182,7 +182,7 @@ reached again.
 docker build -t commonveil:local .          # from a clone of this repository
 ```
 
-Then set `image: commonveil:local` for the `app` service. Without Docker: Node 24, then
+Then set `image: commonveil:local` for the `app` service. Without Docker: Node 26 (26.12.1 or later), then
 `npm ci`, `VITE_COMMONVEIL_BACKEND=selfhost npx vite build --outDir dist-selfhost`, and
 `DATA_DIR=./data SITE_URL=http://localhost:8080 DIST_DIR=./dist-selfhost node server/index.mjs`.
 `http://localhost` works for trying it out; anywhere else needs HTTPS.

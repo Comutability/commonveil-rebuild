@@ -1,0 +1,44 @@
+# Every pull request and every push to main runs the full checks on the Node.js lines Commonveil
+# supports: 26 (what the Docker images use) and 24 (for people running it without Docker).
+name: Test
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [26, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node --version
+      - run: npm ci --no-audit --no-fund
+      - run: npm run verify
+      - run: npm audit --omit=dev --audit-level=high
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the site image
+        run: docker build -t commonveil:ci .
+      - name: Build the updater image
+        run: docker build -t commonveil-updater:ci updater
+      - name: The updater has Node 26 or later, Docker and Compose
+        run: |
+          docker run --rm --entrypoint sh commonveil-updater:ci -c 'node --version && docker --version && docker compose version'
+          docker run --rm --entrypoint node commonveil-updater:ci -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 26 || (major === 26 && minor < 12)) { console.error("Node " + process.version + " is older than 26.12"); process.exit(1) }'
+      - name: The site image starts and answers
+        run: |
+          docker run -d --name cv --network none commonveil:ci
+          sleep 8
+          docker exec cv node --version
+          docker exec cv wget -qO- http://127.0.0.1:8080/api/health
+          docker rm -f cv

@@ -33,7 +33,7 @@ jobs:
           ref: ${{ env.TAG }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 26
       - run: npm ci --no-audit --no-fund
       - run: npm run verify
       - run: npm audit --omit=dev --audit-level=high
@@ -117,7 +117,7 @@ jobs:
           path: notes
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 26
       - name: Write the notes for this version
         env:
           DIGEST: ${{ needs.image.outputs.digest }}

@@ -2,8 +2,9 @@
 #   docker build -t commonveil .
 # Release images are built by .github/workflows/release.yml as ghcr.io/comutability/commonveil.
 
-# The Node.js base image. Override only to test with a local base.
-ARG NODE_IMAGE=node:24-alpine
+# The Node.js base image: the 26.x LTS line, which has the fixes from Node's October 2026
+# security release (26.12.1 and later). Override only to test with a local base.
+ARG NODE_IMAGE=node:26-alpine
 
 # ---- Build the site (the browser app), for a self-hosted server ----
 FROM ${NODE_IMAGE} AS site

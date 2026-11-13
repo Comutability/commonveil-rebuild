@@ -1,0 +1,15 @@
+# Snyk policy: findings accepted on purpose, each with its reason and an expiry date, after
+# which Snyk reports them again. Accepting one is a security decision for a human maintainer
+# (docs/SECURITY_REVIEW.md, "Accepted findings").
+version: v1.25.0
+ignore:
+  SNYK-JS-BRACES-19963945:
+    - '*':
+        reason: >-
+          No fixed version of braces exists. It is only reached through tailwindcss 3 (chokidar,
+          micromatch) while building the site, on file patterns written in this repository, so no
+          attacker can supply input to it. It is not in the browser bundle or in either Docker
+          image. Revisit when braces publishes a fix or the site moves to Tailwind 4.
+        expires: 2026-12-13T00:00:00.000Z
+        created: 2026-11-13T23:30:00.000Z
+patch: {}

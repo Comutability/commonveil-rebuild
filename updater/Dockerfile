@@ -1,8 +1,16 @@
 # The Commonveil updater (updater/updater.mjs): Docker's command-line tools plus Node.js.
 # Release images: ghcr.io/comutability/commonveil-updater
+#
+# Node comes from the official Node image (the 26.x LTS line, kept current by Node's own
+# security releases), not from Alpine's package, which lags behind them. The Docker CLI and its
+# Compose plugin are copied in from Docker's own image.
 ARG DOCKER_IMAGE=docker:28.2.2-cli-alpine3.21
-FROM ${DOCKER_IMAGE}
-RUN apk add --no-cache nodejs
+ARG NODE_IMAGE=node:26-alpine
+FROM ${DOCKER_IMAGE} AS docker
+
+FROM ${NODE_IMAGE}
+COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 WORKDIR /updater
 COPY updater.mjs ./
 LABEL org.opencontainers.image.title="Commonveil updater" \
