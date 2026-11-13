@@ -60,3 +60,16 @@ tags it writes into pages (escaped). Fixed:
 Known and accepted: ten wrong passwords lock password sign-in to an account for 15 minutes, so
 someone who knows a username can lock its password out for a while. Passkeys and the recovery
 phrase still work, and the alternative (no lockout) is worse.
+
+## Snyk findings, 13 November 2026
+
+| Finding | Severity (Snyk) | In Commonveil? | What was done |
+|---|---|---|---|
+| fflate: memory exhaustion in `unzipSync` (CVE-2026-122146) | High 8.7, no fix | Yes, through jspdf | jspdf was a template leftover that nothing used. Removed, so fflate is gone. |
+| leaflet: cross-site scripting through `bindPopup` (CVE-2025-69993) | Medium 5.3, no fix | Yes, through react-leaflet | Also an unused template leftover. Removed, so leaflet is gone. |
+| braces: uncontrolled recursion (CVE-2026-93687) | High 8.7, no fix | Build tools only | Accepted until 13 December 2026 in `.snyk`, with the reason. It is reached only through Tailwind 3 while building, on patterns written in this repository, and is in neither the browser bundle nor the Docker images. |
+| node: permission model wildcard over-grant (CVE-2026-106071) | Medium 5.3 | Not exploitable | Node's advisory scopes it to the 26.x line, and Commonveil never runs with `--permission`. The images and CI now use Node 26 LTS (26.12.1 or later), which has this fix and the rest of Node's October 2026 security release. The updater now takes Node from the official Node image instead of Alpine's package, which lags behind Node's releases. |
+| nodemailer: envelope recipient confusion (CVE-2026-125755) | High 8.3 | No longer | Removed from Commonveil on 12 November (self-hosted sites stopped sending email). The finding comes from an earlier scan and should clear on the next. |
+
+The same unused jspdf and react-leaflet packages come with every app made from Base44's template, so other
+Comutability apps made that way are likely to carry the same fflate and leaflet findings.

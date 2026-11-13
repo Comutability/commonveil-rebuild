@@ -22,7 +22,7 @@ jobs:
           path: .secure-net
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
       - run: npm ci --no-audit --no-fund
       - run: node scripts/secure-net-sync.mjs .secure-net && rm -rf .secure-net
       - name: Anything new?
