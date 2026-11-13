@@ -55,6 +55,11 @@ Commonveil keeps a copy in `packages/secure-net` and checks it against `secure-n
 on every build, so the two can't drift apart unnoticed. Change Secure Net here, then update
 Commonveil's copy with its `npm run secure-net:sync`.
 
+## How it changes
+
+Protocol changes go through public, numbered proposals decided by human maintainers: see
+[GOVERNANCE.md](GOVERNANCE.md) and [`snips/`](snips/). (Draft, not yet ratified.)
+
 ## Licence
 
 AGPL-3.0-only, the same as Commonveil.

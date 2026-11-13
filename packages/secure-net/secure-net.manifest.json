@@ -3,8 +3,12 @@
   "version": "0.3.1",
   "files": {
     "package.json": "tqWj_E0oyk6kTKAjl0yFvTxaOmOt8h3UDxZL0uhg13I",
-    "README.md": "_0NFFrXM5D9R_LeIfMngCFU24w07RKBe4lfCzvD18zs",
+    "README.md": "wFsYqG705O1nfwJS4kAsb1cULFNCVDvJrjTi9UnJdOs",
     "LICENSE": "2KbMMavBa2dIx6IfIWEfWh7DP2fSLKI9faHBm5VJa-4",
+    "GOVERNANCE.md": "W2SmLJxEhVVIQ4nzwXqvPQ6qrzmaNREBWgQxY_mPb7U",
+    "snips/SNIP-0001.md": "5y27d7uFle76iHY5uwPqbZaLC8BYm5Tvfv37qqGHf-w",
+    "snips/SNIP-0002.md": "bjEqZRx7BfgCm_wm3McdT3Pk5uyCp0fsxW3ejhMdU3E",
+    "snips/SNIP-TEMPLATE.md": "WFgCKM1xLizwATnbGV_0V04c-nY5ETt5ZQ5rhZJ9l04",
     "src/commons/ledger.js": "1H0lyYpbzDpuCZtwVUSOskAHLBialPHa8HM0ODtrdvg",
     "src/consent/capsule.js": "nG5DHNKGSbL1yrN5ztYs28Zkcz4gtf91zsoGazA9kTI",
     "src/core/bytes.js": "KLNX6WXYivIT1Ei3UzmqKmtiafYUoKYUDqqzA5OXPTs",
