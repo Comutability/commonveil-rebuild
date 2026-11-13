@@ -26,6 +26,10 @@ COPY .npmrc deploy/runtime/package.json deploy/runtime/package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 
 FROM ${NODE_IMAGE}
+# Alpine's security fixes published since the Node image was built. The minimum versions for
+# fixes Snyk has reported are pinned too, so apk refuses to build an image without them:
+# zlib 1.4-r0 (CVE-2026-4738).
+RUN apk upgrade --no-cache && apk add --no-cache "zlib>=1.4-r0"
 ARG COMMONVEIL_VERSION=""
 LABEL org.opencontainers.image.title="Commonveil" \
       org.opencontainers.image.description="End-to-end encrypted chat and communities you can run yourself" \

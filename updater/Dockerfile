@@ -9,6 +9,10 @@ ARG NODE_IMAGE=node:26-alpine
 FROM ${DOCKER_IMAGE} AS docker
 
 FROM ${NODE_IMAGE}
+# Alpine's security fixes published since the Node image was built. The minimum versions for
+# fixes Snyk has reported are pinned too, so apk refuses to build an image without them:
+# zlib 1.4-r0 (CVE-2026-4738).
+RUN apk upgrade --no-cache && apk add --no-cache "zlib>=1.4-r0"
 COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 WORKDIR /updater
