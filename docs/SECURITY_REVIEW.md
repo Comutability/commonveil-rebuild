@@ -71,5 +71,7 @@ phrase still work, and the alternative (no lockout) is worse.
 | node: permission model wildcard over-grant (CVE-2026-106071) | Medium 5.3 | Not exploitable | Node's advisory scopes it to the 26.x line, and Commonveil never runs with `--permission`. The images and CI now use Node 26 LTS (26.12.1 or later), which has this fix and the rest of Node's October 2026 security release. The updater now takes Node from the official Node image instead of Alpine's package, which lags behind Node's releases. |
 | nodemailer: envelope recipient confusion (CVE-2026-125755) | High 8.3 | No longer | Removed from Commonveil on 12 November (self-hosted sites stopped sending email). The finding comes from an earlier scan and should clear on the next. |
 
+| zlib (Alpine 3.24): out-of-bounds memory access (CVE-2026-4738) | Low, fixed in Alpine's zlib 1.4-r0 | In both Docker images, through the `node:26-alpine` base | Upstream, the flaw is in zlib's `infback9` contrib code as bundled in GDAL; Commonveil never calls it, so it was not reachable. Fixed anyway: both images now apply Alpine's security updates when they are built and require `zlib>=1.4-r0`, so a build from an older base image fails rather than shipping it. |
+
 The same unused jspdf and react-leaflet packages come with every app made from Base44's template, so other
 Comutability apps made that way are likely to carry the same fflate and leaflet findings.

@@ -35,6 +35,10 @@ jobs:
         run: |
           docker run --rm --entrypoint sh commonveil-updater:ci -c 'node --version && docker --version && docker compose version'
           docker run --rm --entrypoint node commonveil-updater:ci -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 26 || (major === 26 && minor < 12)) { console.error("Node " + process.version + " is older than 26.12"); process.exit(1) }'
+      - name: Both images have Alpine's zlib fix (1.4-r0 or later)
+        run: |
+          docker run --rm --entrypoint sh commonveil:ci -c 'apk list -I zlib || apk info -v zlib'
+          docker run --rm --entrypoint sh commonveil-updater:ci -c 'apk list -I zlib || apk info -v zlib'
       - name: The site image starts and answers
         run: |
           docker run -d --name cv --network none commonveil:ci
