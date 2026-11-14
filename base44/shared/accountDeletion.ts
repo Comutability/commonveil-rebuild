@@ -133,6 +133,11 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
     // can't wipe the record of abuse; they only ever held the reporter's own words.
     await blankAndDeleteAll(sr, "Report", { reporter_id: userId }, BLANK.Report, deadline);
     await blankAndDeleteAll(sr, "ResetRequest", { user_id: userId }, BLANK.ResetRequest, deadline);
+    // The experimental protocol layer: its identity, prekeys and any envelopes waiting either way.
+    await blankAndDeleteAll(sr, "ProtoActor", { user_id: userId }, { user_id: "", actor_id: "", handle: "", document: "", sealed_account: "" }, deadline);
+    await blankAndDeleteAll(sr, "ProtoPrekey", { user_id: userId }, { user_id: "", device: "", prekey_id: "", record: "" }, deadline);
+    await blankAndDeleteAll(sr, "ProtoMail", { to_user_id: userId }, { to_user_id: "", to_device: "", from_user_id: "", envelope: "" }, deadline);
+    await blankAndDeleteAll(sr, "ProtoMail", { from_user_id: userId }, { to_user_id: "", to_device: "", from_user_id: "", envelope: "" }, deadline);
     // Security reports are about the app, not the person: keep them, but unlink the account.
     for (const r of await sr.entities.SecurityReport.filter({ reporter_user_id: userId }, "created_date", 500)) {
       await sr.entities.SecurityReport.update(r.id, { reporter_user_id: "" });

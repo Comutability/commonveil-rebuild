@@ -29,6 +29,7 @@ const CHANNELS = {
   guides: { name: "guides", topic: "Step-by-step guides written by the community. One post per guide." },
   "show-and-tell": { name: "show-and-tell", topic: "Share setups, projects and things you've made." },
   ideas: { name: "ideas", topic: "Suggest features and improvements. One idea per post." },
+  snips: { name: "snip-proposals", topic: "Secure Net Improvement Proposals. One thread per proposal on GitHub, opened and closed automatically." },
   help: { name: "help", topic: "Ask a question in a new post. Answers go in the thread." },
   "support-tickets": { name: "support-tickets", topic: "Private help from the support team, end-to-end encrypted." },
   "bug-reports": { name: "bug-reports", topic: "What you did, what happened, and what you expected." },

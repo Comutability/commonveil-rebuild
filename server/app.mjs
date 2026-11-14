@@ -70,6 +70,7 @@ export async function createApp(config, options = {}) {
   await bootstrap.prepare(serviceClient);
   const functions = functionTable({
     defaultAdmins: config.defaultServerAdmins,
+    snipForum: config.snipForum,
     identity: {
       realm: config.host,
       siteName: config.siteName,

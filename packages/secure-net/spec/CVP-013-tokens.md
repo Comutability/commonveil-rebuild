@@ -1,5 +1,14 @@
 # CVP-013: Private tokens (RFC 9497 VOPRF)
 
+| | |
+| --- | --- |
+| Status | Draft |
+| Version | 1 |
+| Feature | `cvp.tokens` (version 1) |
+| Depends on | none |
+| Code | `src/tokens/voprf.js` |
+| Proposed in | none (written before the proposal process; recorded in [SNIP-0004](../snips/SNIP-0004.md)) |
+
 One-use tokens an issuer hands out without being able to recognise them later. Suite:
 `P256-SHA256` in VOPRF mode (the issuer proves which key it used), from RFC 9497.
 
@@ -26,3 +35,22 @@ One-use tokens an issuer hands out without being able to recognise them later. S
   that hides addresses if that matters, and don't spend straight after receiving.
 - A person entitled to tokens can give them to someone else. Tokens prove entitlement, not
   identity.
+
+## Security and privacy
+
+See "What it protects, and what it doesn't" above. In addition: forging a token needs the
+discrete logarithm problem on P-256 broken, which a large quantum computer could do; that would
+let an attacker make tokens, not link the ones already spent (unlinkability rests on no hardness
+assumption). There is no standardised post-quantum VOPRF yet (CVP-015).
+
+## Conformance
+
+`test/governance.test.mjs` covers issuing, checking proofs and spending. RFC 9497's own test vectors
+apply to the underlying suite (`P256-SHA256`, VOPRF mode); vectors for this part's scope
+derivation and nullifiers are still to write (CVP-010, section 6).
+
+## Changes
+
+| Version | Date | SNIP | Change |
+| --- | --- | --- | --- |
+| 1 | 2026-11-12 | none | First version, in Secure Net 0.1.0 |

@@ -1,0 +1,82 @@
+{
+  "description": "CVP-016 session protocol, version 1. All byte strings are hex. seq(s, n) means the n bytes s, s+1, s+2, ... (mod 256).",
+  "x25519": {
+    "aSecret": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "bSecret": "4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f60",
+    "aPublic": "07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c",
+    "bPublic": "64b101b1d0be5a8704bd078f9895001fc03e8e9f9522f188dd128d9846d48466",
+    "shared": "26c2c17fdb82161cb21ad16e721315355b64d1763119b10bfc962530dc7cc163"
+  },
+  "mlkem768": {
+    "seed": "8182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0",
+    "coins": "c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0",
+    "publicKeySha256": "59cdc7c72490affe9285d90c2389155f94c9730bb314aa959a2313c51f8c7c76",
+    "cipherTextSha256": "03cdd46af03ef946690e25a769a133b949350215956a705b8758ec1ce8a1a20e",
+    "sharedSecret": "b77492afefd475d590f82dfe7c3dafa3d0a5c8a51f9c38bdea60264603211b6e"
+  },
+  "transcript": {
+    "input": {
+      "v": 1,
+      "initiator": {
+        "account": "A",
+        "device": "a1",
+        "sign": "As",
+        "dh": "Ad"
+      },
+      "responder": {
+        "account": "B",
+        "device": "b1",
+        "sign": "Bs",
+        "dh": "Bd"
+      },
+      "ek": "E",
+      "ct": "C",
+      "signed": "s",
+      "pq": "p",
+      "oneTime": null
+    },
+    "hash": "65ff62aea14fa8a543ff3f3330cbcd0595f2afee67e93d9b90042d5565425459"
+  },
+  "handshake": {
+    "dh": [
+      "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+      "303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f",
+      "505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f",
+      "707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f"
+    ],
+    "mlkem": "909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+    "transcriptHash": "65ff62aea14fa8a543ff3f3330cbcd0595f2afee67e93d9b90042d5565425459",
+    "secret": "95354462924646844457e9c37412236d0506b755699b7ccc8e54006605460abc",
+    "threeDh": "f8f5997628e806a3a38854fec9646841673bccee28de8a9bfcb775111eb80791"
+  },
+  "root": {
+    "rk": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "dh": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+    "mlkem": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+    "out": {
+      "rk": "4ec0ece493911b4618bd73f0d760d53a8b3a712d548bd580791d1a0a88d5e436",
+      "ck": "0f1a565ab59952a83bbc5d58cc761be8fa51009ed4107f19e25159c6a766f6f0"
+    },
+    "withoutMlkem": {
+      "rk": "151914ce2ef8f703a3f555dcbbaa3d53c7864818370b93b1eef708645b49ab13",
+      "ck": "2eaf05ced51731e64ab058053604f0115d629f6478d652b2034a5c4efb0f8be8"
+    }
+  },
+  "chain": {
+    "ck": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+    "mk": "58f2956a30c09e7a101cc38453d6e6df204d39caff1c253fdf56ea51de9c8f8d",
+    "next": "5c15db8afb3521f258740393e15d338c6562288afa95f175fbc22bb41b148581"
+  },
+  "message": {
+    "mk": "58f2956a30c09e7a101cc38453d6e6df204d39caff1c253fdf56ea51de9c8f8d",
+    "key": "66b8a566944f48b523311b87d38736bb2c87a412d30810f0c72fb9486806724f",
+    "iv": "639faa94cba27411769a4039",
+    "plaintext": "secure-net",
+    "ad": "6164",
+    "ciphertext": "4ee348340368b5a9b5b0e5f1e7c36297e33d185d7304bed7aac5"
+  },
+  "codes": {
+    "linkCode": "45738 54404 95747 41332 67581 41885",
+    "safetyNumber": "07956 65823 21917 20320 78628 58457 89864 76849"
+  }
+}

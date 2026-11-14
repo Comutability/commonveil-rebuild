@@ -1,0 +1,49 @@
+// An account's protocol identity (experimental): its signed actor document, which anyone signed in may fetch, and its account key sealed to the account's own keyring so its other devices can use it. Backend only.
+{
+  "name": "ProtoActor",
+  "type": "object",
+  "description": "An account's protocol identity (experimental): its signed actor document, which anyone signed in may fetch, and its account key sealed to the account's own keyring so its other devices can use it. Backend only.",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "actor_id": {
+      "type": "string",
+      "description": "The id of the actor's account key."
+    },
+    "handle": {
+      "type": "string"
+    },
+    "seq": {
+      "type": "number",
+      "description": "The document's version; only ever goes up."
+    },
+    "document": {
+      "type": "string",
+      "description": "The signed actor document, as JSON. Checked by people's devices, not by the server."
+    },
+    "sealed_account": {
+      "type": "string",
+      "description": "The actor's account key, sealed to the account's keyring. The server can't open it."
+    },
+    "sealed_version": {
+      "type": "number",
+      "description": "The keyring version it is sealed to."
+    }
+  },
+  "required": [
+    "user_id",
+    "actor_id",
+    "handle",
+    "seq",
+    "document",
+    "sealed_account",
+    "sealed_version"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

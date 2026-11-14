@@ -1,0 +1,29 @@
+// The site's cached copy of the Secure Net Improvement Proposals on GitHub, for the proposals forum in the community server. Public facts only. Backend only.
+{
+  "name": "SnipCache",
+  "type": "object",
+  "description": "The site's cached copy of the Secure Net Improvement Proposals on GitHub, for the proposals forum in the community server. Public facts only. Backend only.",
+  "properties": {
+    "key": {
+      "type": "string"
+    },
+    "fetched_at": {
+      "type": "string"
+    },
+    "data": {
+      "type": "string",
+      "description": "The proposals, as JSON."
+    }
+  },
+  "required": [
+    "key",
+    "fetched_at",
+    "data"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

@@ -421,6 +421,70 @@ export function QuietSection() {
   );
 }
 
+/** The experimental protocol layer: off unless someone turns it on, and plainly labelled. */
+export function ProtocolSection() {
+  const { pq } = useChat();
+  const [state, setState] = useState({ busy: false, error: "" });
+  const [confirmOff, setConfirmOff] = useState(false);
+  const on = pq.status.enabled;
+  const run = async (fn) => {
+    setState({ busy: true, error: "" });
+    try {
+      await fn();
+      setState({ busy: false, error: "" });
+    } catch (err) {
+      setState({ busy: false, error: err.message || "That didn't work. Please try again." });
+    }
+  };
+  const problems = Object.keys(pq.status.problems || {}).length;
+  return (
+    <Section icon={ShieldCheck} title="Experimental: Secure Net protocol" description="Adds a second, forward-secret layer to direct messages, using the new Secure Net protocol. Not yet reviewed by independent security experts.">
+      <div className="space-y-3 text-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <Pill tone={on ? "accent" : "muted"}>{on ? "On for this device" : "Off"}</Pill>
+          <Pill tone="warn">Experimental</Pill>
+        </div>
+        {on ? (
+          <>
+            <p className="text-muted-foreground">Your protocol handle is <span className="font-mono text-foreground">{pq.status.handle}</span>, on {pq.status.devices} {pq.status.devices === 1 ? "device" : "devices"}.</p>
+            <p className="text-muted-foreground">Direct messages with people who also have this on are sealed a second time. Each message's key goes only to the devices linked at that moment, over post-quantum sessions (X25519 with ML-KEM-768), so a device linked later can't read them, and neither can anyone who gets hold of your account keys afterwards.</p>
+            {problems > 0 && <p className="rounded-lg border border-[hsl(var(--warning)/0.4)] bg-[hsl(var(--warning)/0.08)] p-3">The protocol identity of {problems} {problems === 1 ? "person" : "people"} you talk to has changed since this device first saw it. Messages to them go without the extra layer until that's checked with them.</p>}
+          </>
+        ) : (
+          <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+            <li>Your messages stay protected exactly as they are now. This adds to that and never replaces it.</li>
+            <li>It only applies to direct messages where both of you have turned it on. Groups, servers, edits, reactions and scheduled messages are unchanged.</li>
+            <li>Messages sent with it can only be read on devices that were linked when they were sent. A device you add later, or one restored from your recovery phrase, won't show them.</li>
+            <li>The design and code have not had an independent security review yet.</li>
+          </ul>
+        )}
+        {!pq.available && <p className="text-muted-foreground">This browser can't store the keys it needs.</p>}
+        {pq.blockedByLock && !on && <p className="text-muted-foreground">It can't be turned on while a passcode lock is set: the lock doesn't protect its keys yet.</p>}
+        <ErrorNote>{state.error}</ErrorNote>
+        <div className="flex flex-wrap gap-2">
+          {on ? (
+            <Button variant="outline" disabled={state.busy} onClick={() => setConfirmOff(true)}>Turn off</Button>
+          ) : (
+            <Button disabled={state.busy || !pq.available || pq.blockedByLock} onClick={() => run(() => pq.enable())}>{state.busy ? "Turning on..." : "Turn on for this device"}</Button>
+          )}
+        </div>
+      </div>
+      <AlertDialog open={confirmOff} onOpenChange={setConfirmOff}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Turn off the experimental protocol?</AlertDialogTitle>
+            <AlertDialogDescription>This removes your protocol identity from Commonveil and its keys from this device. Messages already sent with the extra layer can no longer be read on this device. New messages go as they did before.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it on</AlertDialogCancel>
+            <AlertDialogAction onClick={() => run(() => pq.disable({ everywhere: true }))}>Turn off</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Section>
+  );
+}
+
 /** A passcode that encrypts this browser's keys, and locks after a while without use. */
 export function LockSection() {
   const { lockInfo, setPasscode, setLockIdle, removePasscode, lockNow } = useSecure();

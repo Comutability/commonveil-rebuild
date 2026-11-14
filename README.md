@@ -48,6 +48,8 @@ depends on it until a review is published.
 | [`docs/FEDERATION.md`](docs/FEDERATION.md) | The Commonveil Protocol (`commonveil/1`): addresses, signed site-to-site requests, endpoints, privacy. |
 | [`docs/IDENTITY.md`](docs/IDENTITY.md) | Accounts on self-hosted sites: passkeys, the owner key, device checks, recovery. |
 | [`docs/OFFLINE.md`](docs/OFFLINE.md) | Offline mode, holding messages, local sites, and the design for a phone-to-phone mesh. |
+| [`docs/SNIP_FORUM.md`](docs/SNIP_FORUM.md) | The proposals forum in the community server: one thread per Secure Net Improvement Proposal on GitHub. |
+| [`docs/SECURE_NET_LAYER.md`](docs/SECURE_NET_LAYER.md) | The experimental Secure Net layer: what it adds to direct messages, its limits, and what the site stores. |
 | [`docs/PROTOCOL.md`](docs/PROTOCOL.md) | The encryption protocol (version 2), exactly as implemented. |
 | [`docs/SERVERS_AND_VOICE.md`](docs/SERVERS_AND_VOICE.md) | Post-quantum keys, servers and voice calls, and platform notes. |
 | [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) | What is and isn't protected, against whom, and the known limitations. |

@@ -5,6 +5,23 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.23.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.23.0): A first step onto the Secure Net protocol (experimental), and a forum for protocol proposals
+
+_2026-11-14_
+
+- Commonveil now carries the new Secure Net protocol (0.5.0) and takes its first step onto it. It is off unless you turn it on: Settings, Devices and keys, Experimental: Secure Net protocol.
+- With it on for both people, a direct message is sealed a second time under a one-off key. That key goes only to the devices linked at that moment, over post-quantum sessions (X25519 with ML-KEM-768), so someone who later gets hold of an account's keys or recovery phrase still can't read it.
+- It adds to the protection messages already have and never replaces it. Messages to people who haven't turned it on go exactly as before, and everything already sent stays readable.
+- Turning it on gives your account a protocol identity: a quantum-resistant key and the handle @username@site.
+- Limits for now: direct messages only (not groups, servers, edits, reactions or scheduled messages); a device added later can't read messages sent with it before; it can't be used together with a passcode lock; and it works within one site.
+- It is labelled experimental because the protocol has not had an independent security review yet. docs/SECURE_NET_LAYER.md says exactly what it does and what the site can see.
+- Self-hosted sites get the same feature with this update; there is nothing new to configure.
+- New: the community server gets a forum, snip-proposals, with one thread for every Secure Net Improvement Proposal (SNIP) on GitHub. Anyone in the server can read the threads and reply.
+- Threads follow GitHub by themselves: a new proposal gets a thread, and a thread is closed with a note when its proposal is accepted, rejected, implemented, released or withdrawn, or its pull request is closed without merging.
+- Posts stay end-to-end encrypted, so the site can't write them. A community admin's app does it whenever they have Commonveil open, so changes on GitHub show up the next time an admin is online.
+- Only the site reads GitHub, and only its public list of proposals. Your device never contacts GitHub.
+- Self-hosted sites: this is off unless you set SNIP_FORUM=on (docs/SNIP_FORUM.md).
+
 ## [0.22.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.22.0): A sealed, quantum-resistant relay between sites
 
 _2026-11-12_

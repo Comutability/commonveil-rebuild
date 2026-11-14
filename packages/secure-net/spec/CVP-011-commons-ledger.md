@@ -1,5 +1,14 @@
 # CVP-011: The Commons ledger
 
+| | |
+| --- | --- |
+| Status | Draft |
+| Version | 1 |
+| Feature | `cvp.commons-ledger` (version 1) |
+| Depends on | CVP-002 |
+| Code | `src/commons/ledger.js` |
+| Proposed in | none (written before the proposal process; recorded in [SNIP-0004](../snips/SNIP-0004.md)) |
+
 A community's history as a chain of signed blocks that any approved site keeps a full copy of.
 If the community's home site goes down, a copy keeps it running. If the home site is gone for
 good, the community moves to a copy and keeps its id, history and members.
@@ -89,3 +98,28 @@ take over the community. That's deliberate.
 
 `host.move` (threshold-signed) names a new home. The community keeps its id, history and members;
 clients follow the change from the ledger itself.
+
+## Security and privacy
+
+- **Integrity.** Every block is a signed record (CVP-002) and every copy checks the whole chain
+  from the first block, so no site, including the home site, can rewrite or forge history.
+  Communities that use quantum-resistant keys get that protection against a quantum attacker too.
+- **What every copy sees.** As "What's in the clear" says: the structure of the community (member
+  key ids, roles, channels, hosting sites) is readable by every copy; only content is encrypted.
+- **Availability, not authority.** Failover keeps a community running when its home site is down,
+  but an acting site can't change authority, and lost authority keys can't be replaced by any
+  site.
+- **Not protected:** who is in a community, from the sites that copy it; timing of activity;
+  a split where both sides have the same authority behind them is settled by a fixed rule, not by
+  what anyone intended.
+
+## Conformance
+
+`test/ledger.test.mjs` covers replay, reconciliation, splits and failover. There are no
+language-neutral vectors for this part yet (CVP-010, section 6).
+
+## Changes
+
+| Version | Date | SNIP | Change |
+| --- | --- | --- | --- |
+| 1 | 2026-11-12 | none | First version, in Secure Net 0.1.0 |

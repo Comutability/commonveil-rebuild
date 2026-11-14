@@ -146,7 +146,7 @@ function Bubble({ row, mine, showName, name, handle, nameOf, highlighted, canSen
   else if (result.status === "locked") {
     body = (
       <span className="inline-flex items-center gap-1.5 italic opacity-80" title={result.message}>
-        <Lock className="h-3.5 w-3.5" aria-hidden="true" /> Can't be read on this device
+        <Lock className="h-3.5 w-3.5" aria-hidden="true" /> {result.code === "FS_KEY_MISSING" ? "Sent with extra protection before this device was linked" : "Can't be read on this device"}
       </span>
     );
   } else {

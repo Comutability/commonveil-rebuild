@@ -1,0 +1,168 @@
+{
+  "implementation": "Secure Net (reference implementation)",
+  "version": "0.5.0",
+  "source": "https://github.com/Comutability/secure-net",
+  "licence": "AGPL-3.0-only",
+  "release": "0.5.0",
+  "profiles": [
+    "core",
+    "messaging",
+    "site",
+    "social",
+    "community",
+    "governance",
+    "extensions",
+    "commonveil-compatible"
+  ],
+  "parts": {
+    "CVP-001": {
+      "roles": [
+        "send",
+        "receive"
+      ]
+    },
+    "CVP-002": {
+      "roles": [
+        "send",
+        "receive"
+      ],
+      "vectors": [
+        "cvp-002-v1.json"
+      ]
+    },
+    "CVP-003": {
+      "roles": [
+        "send",
+        "receive"
+      ]
+    },
+    "CVP-004": {
+      "roles": [
+        "send",
+        "receive"
+      ]
+    },
+    "CVP-005": {
+      "roles": [
+        "send",
+        "receive"
+      ],
+      "note": "Signing and checking only; the HTTP routes are in Commonveil's server"
+    },
+    "CVP-008": {
+      "roles": [
+        "send",
+        "receive"
+      ]
+    },
+    "CVP-011": {
+      "roles": [
+        "send",
+        "receive"
+      ]
+    },
+    "CVP-012": {
+      "roles": [
+        "send",
+        "receive"
+      ]
+    },
+    "CVP-013": {
+      "roles": [
+        "send",
+        "receive"
+      ]
+    },
+    "CVP-014": {
+      "roles": [
+        "send",
+        "receive"
+      ]
+    },
+    "CVP-015": {
+      "roles": [
+        "send",
+        "receive"
+      ]
+    },
+    "CVP-016": {
+      "roles": [
+        "send",
+        "receive"
+      ],
+      "vectors": [
+        "cvp-016-v1.json"
+      ]
+    },
+    "CVP-017": {
+      "roles": [
+        "send",
+        "receive"
+      ],
+      "vectors": [
+        "cvp-017-v1.json"
+      ]
+    },
+    "CVP-018": {
+      "roles": [
+        "send",
+        "receive"
+      ],
+      "vectors": [
+        "cvp-018-v1.json"
+      ]
+    },
+    "CVP-019": {
+      "roles": [
+        "send",
+        "receive"
+      ],
+      "vectors": [
+        "cvp-019-v1.json"
+      ],
+      "note": "Client and site rules; the reference site is in memory and doesn't seal between sites (CVP-015), which real sites must"
+    },
+    "CVP-020": {
+      "roles": [
+        "send",
+        "receive"
+      ],
+      "vectors": [
+        "cvp-020-v1.json"
+      ]
+    },
+    "CVP-021": {
+      "roles": [
+        "send",
+        "receive"
+      ],
+      "vectors": [
+        "cvp-021-v1.json"
+      ]
+    }
+  },
+  "features": {
+    "cvp.federation": 2,
+    "cvp.sealed-relay": 1,
+    "cvp.pq-signatures": 1,
+    "cvp.identity": 2,
+    "cvp.sessions": 1,
+    "cvp.envelope": 1,
+    "cvp.commons-ledger": 1,
+    "cvp.governance": 1,
+    "cvp.tokens": 1,
+    "cvp.personas": 1,
+    "cvp.consent": 1,
+    "cvp.extensions": 1,
+    "cvp.actors": 1,
+    "cvp.activities": 1,
+    "cvp.delivery": 1,
+    "cvp.repos": 1,
+    "cvp.lexicons": 1
+  },
+  "deviations": [],
+  "tested": {
+    "how": "npm test; node scripts/vectors.mjs --check; node scripts/standards.mjs; node examples/two-party.mjs; node examples/social.mjs. CVP-001, 003, 004, 005, 008 and 014 have no part document yet, so for those the reference code is the definition (CVP-010, section 5). No independent implementation has interoperated with it yet."
+  },
+  "contact": "https://github.com/Comutability/secure-net/issues"
+}
