@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { SecureProvider, useSecure } from "@/lib/secure/SecureContext";
 import { ChatProvider } from "@/lib/secure/ChatContext";
 import { ServerProvider } from "@/lib/secure/ServerContext";
+import SnipForumSync from "@/components/app/SnipForumSync";
 import { VoiceProvider } from "@/lib/voice/VoiceContext";
 import { PresenceProvider } from "@/lib/secure/PresenceContext";
 import { LogoMark } from "@/components/site/Logo";
@@ -117,6 +118,7 @@ function Gate() {
             <PushLanding />
             <OfflineBanner />
             <QuickSwitcher />
+            <SnipForumSync />
             <div className="relative min-h-0 flex-1">
               <Outlet />
             </div>

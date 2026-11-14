@@ -33,6 +33,8 @@ export function loadConfig(env = process.env) {
     // PBKDF2 rounds for passwords. Only tests lower it.
     passwordRounds: Math.max(1000, Number(env.PASSWORD_ROUNDS || 600_000)),
     defaultServerAdmins: list(env.DEFAULT_SERVER_ADMINS),
+    // The proposals forum in the community server: off unless asked for (docs/SNIP_FORUM.md).
+    snipForum: { enabled: String(env.SNIP_FORUM || "").toLowerCase() === "on", repo: env.SNIP_REPO || "", token: env.GITHUB_TOKEN || "" },
     openRegistration: bool(env.OPEN_REGISTRATION, true),
     trustProxy: bool(env.TRUST_PROXY, false),
     // Updates: where releases are announced, and the updater container that applies them.

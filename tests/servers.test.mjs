@@ -1094,3 +1094,150 @@ test("CV-14: a member told a key that doesn't match takes no more from whoever s
   assert.equal(await bob.fulfil(sid), 0, "bob's handouts to her are refused");
   assert.ok((await alice.fulfil(sid)) > 0, "someone else's aren't");
 });
+
+// ---------- the proposals forum (docs/SNIP_FORUM.md) ----------
+
+test("the proposals forum: a thread for every SNIP on GitHub, made and closed by an admin's app", async () => {
+  const { snipActions, snipThreadId, snipClosedNoteId } = await import("../base44/shared/handlers/snips.ts");
+  const { runSnipSync, planSnipSync } = await import("../src/lib/secure/snipForum.js");
+  // A pretend GitHub: files on the default branch, and pull requests carrying files.
+  const gh = { main: {}, pulls: [], down: false, calls: 0 };
+  const snip = (n, title, status) => `# SNIP-${n}: ${title}\n\n| | |\n| --- | --- |\n| Status | ${status} |\n`;
+  const fetcher = async (url) => {
+    gh.calls += 1;
+    if (gh.down) throw new Error("offline");
+    const u = String(url);
+    const json = (v) => new Response(JSON.stringify(v), { status: 200 });
+    let m;
+    if (u.endsWith("/contents/snips")) return json(Object.keys(gh.main).map((name) => ({ name })));
+    if ((m = /raw\.githubusercontent\.com\/[^/]+\/[^/]+\/([^/]+)\/snips\/(.+)$/.exec(u))) {
+      const text = m[1] === "HEAD" ? gh.main[m[2]] : gh.pulls.find((p) => p.head.sha === m[1])?.files[m[2]];
+      return text ? new Response(text) : new Response("", { status: 404 });
+    }
+    if ((m = /\/pulls\/(\d+)\/files/.exec(u))) return json(Object.keys(gh.pulls.find((p) => p.number === Number(m[1])).files).map((f) => ({ filename: `snips/${f}`, status: "added" })));
+    if (u.includes("/pulls?state=open")) return json(gh.pulls.filter((p) => p.state === "open"));
+    if (u.includes("/pulls?state=closed")) return json(gh.pulls.filter((p) => p.state === "closed"));
+    return new Response("", { status: 404 });
+  };
+  gh.main["SNIP-0001.md"] = snip("0001", "The proposal process", "Draft");
+  gh.main["SNIP-0002.md"] = snip("0002", "The sealed relay", "Public Review. Implemented ahead of this process.");
+  gh.main["SNIP-TEMPLATE.md"] = "# SNIP-NNNN: Title";
+
+  let on = true;
+  addFunctions({ snips: snipActions({ enabled: () => on, token: () => "t" }, { fetcher }) });
+  const w = new FakeWorld();
+  ADMINS = ["owner@example.test", "second@example.test"];
+  try {
+    const first = await new Member(w, "first").setup();
+    const owner = await new Member(w, "owner", { email: "owner@example.test" }).setup();
+    const second = await new Member(w, "second", { email: "second@example.test" }).setup();
+    const sid = (await first.ok("servers", { action: "list" })).servers[0].id;
+    await owner.ok("servers", { action: "list" });
+    await second.ok("servers", { action: "list" });
+    await owner.initKeys(sid);
+    await owner.fulfil(sid);
+    const refresh = () => {
+      w.rows("SnipCache").length = 0; // as if the cache had run out
+    };
+    const ioFor = (member) => ({
+      status: () => member.ok("snips", { action: "status" }),
+      ensureForum: async () => member.ok("snips", await signed(member, "ensure_forum", {})),
+      channelOf: async (id) => (await member.server(sid)).channels.find((c) => c.id === id) || null,
+      post: async (channel, payload, { kind, threadId = "", itemId }) => {
+        const state = await member.server(sid);
+        const { keys } = await member.keysOf(state);
+        const body = await buildChannelMessage({ serverId: sid, channel, generations: state.generations, keys, userId: member.id, device: member.device, payload, kind, threadId, itemId });
+        const r = await member.call("channels", body);
+        if (r.status !== 200) throw Object.assign(new Error(r.body.error), { code: r.body.code });
+      },
+      lock: async (channel, msgId) => member.ok("channels", await signed(member, "lock_thread", { server_id: sid, channel_id: channel.id, msg_id: msgId, locked: true })),
+    });
+
+    // Someone who isn't an admin learns only that it's on, and can't make the forum.
+    assert.deepEqual(await first.ok("snips", { action: "status" }), { enabled: true, manager: false });
+    await first.fails("snips", await signed(first, "ensure_forum", {}), "FORBIDDEN");
+    assert.equal(gh.calls, 0, "and GitHub isn't read on their account");
+
+    // First pass from an admin's app: the forum, then a thread for each proposal on GitHub.
+    let done = await runSnipSync(ioFor(owner));
+    assert.deepEqual(done, { forum: true, posted: ["SNIP-0001", "SNIP-0002"], closed: [] });
+    const forum = await owner.channelNamed(sid, "snips");
+    assert.equal(forum.kind, "forum");
+    let posts = (await owner.readChannel(sid, forum)).filter((m) => m.content?.type === "post");
+    assert.deepEqual(posts.map((p) => p.content.title), ["SNIP-0001: The proposal process", "SNIP-0002: The sealed relay"]);
+    assert.match(posts[1].content.text, /Status on GitHub: Public Review[\s\S]*github\.com\/Comutability\/secure-net\/blob\/HEAD\/snips\/SNIP-0002\.md/);
+    assert.ok(!JSON.stringify(w.rows("ServerMessage")).includes("sealed relay"), "the server holds only ciphertext");
+    // Again, and from another admin's app: nothing is posted twice.
+    assert.deepEqual(await runSnipSync(ioFor(owner)), { forum: false, posted: [], closed: [] });
+    assert.deepEqual(await runSnipSync(ioFor(second)), { forum: false, posted: [], closed: [] });
+    assert.equal(w.rows("Channel").filter((c) => c.template_key === "snips").length, 1);
+    // Two admins' apps racing for the same proposal: the fixed id lets only one post exist.
+    await ioFor(second).post(forum, { type: "post", title: "SNIP-0001: again", text: "x" }, { kind: "post", itemId: snipThreadId("SNIP-0001") }).then(() => assert.fail("should be a duplicate"), (e) => assert.equal(e.code, "DUPLICATE_ID"));
+
+    // Members discuss in a proposal's thread, but only the forum's keepers start threads.
+    await owner.fulfil(sid);
+    await first.ok("servers", await signed(first, "accept_rules", { server_id: sid }));
+    { const r = await first.post(sid, forum, textPayload("I have a question about this"), "message", snipThreadId("SNIP-0001")); assert.equal(r.status, 200, JSON.stringify(r.body)); }
+    assert.equal((await first.post(sid, forum, { type: "post", title: "My own proposal", text: "x" }, "post")).body.code, "MISSING_PERMISSION");
+
+    // A new proposal arrives in a pull request: it gets a thread while still under discussion.
+    gh.pulls.push({ number: 7, state: "open", merged_at: null, html_url: "https://github.com/Comutability/secure-net/pull/7", head: { sha: "abc123" }, files: { "SNIP-0003.md": snip("0003", "Post-quantum sessions", "Draft") } });
+    refresh();
+    done = await runSnipSync(ioFor(owner));
+    assert.deepEqual(done.posted, ["SNIP-0003"]);
+    // It is merged (now on the default branch, still a Draft): the thread stays open.
+    gh.pulls[0].state = "closed";
+    gh.pulls[0].merged_at = "2026-11-14T00:00:00Z";
+    gh.main["SNIP-0003.md"] = snip("0003", "Post-quantum sessions", "Draft");
+    refresh();
+    assert.deepEqual(await runSnipSync(ioFor(owner)), { forum: false, posted: [], closed: [] });
+
+    // Accepted on GitHub: a closing note, then the thread is locked.
+    gh.main["SNIP-0001.md"] = snip("0001", "The proposal process", "Accepted on 20 November 2026");
+    refresh();
+    done = await runSnipSync(ioFor(owner));
+    assert.deepEqual(done.closed, ["SNIP-0001"]);
+    const thread = (await owner.readChannel(sid, forum, { thread_id: snipThreadId("SNIP-0001") })).map((m) => m.text);
+    assert.ok(thread.some((t) => /now: Accepted on 20 November 2026\. This thread is closed/.test(t || "")));
+    assert.ok(w.rows("ServerMessage").find((m) => m.msg_id === snipThreadId("SNIP-0001")).thread_locked);
+    assert.equal(w.rows("ServerMessage").filter((m) => m.msg_id === snipClosedNoteId("SNIP-0001")).length, 1);
+    assert.equal((await first.post(sid, forum, textPayload("too late"), "message", snipThreadId("SNIP-0001"))).body.code, "THREAD_LOCKED");
+    assert.deepEqual(await runSnipSync(ioFor(second)), { forum: false, posted: [], closed: [] }, "and it isn't closed twice");
+
+    // A proposal whose pull request is closed without merging gets a thread that is closed at once... 
+    gh.pulls.push({ number: 9, state: "closed", merged_at: null, html_url: "https://github.com/Comutability/secure-net/pull/9", head: { sha: "def456" }, files: { "SNIP-0004.md": snip("0004", "An idea that was turned down", "Draft") } });
+    refresh();
+    done = await runSnipSync(ioFor(owner));
+    assert.deepEqual([done.posted, done.closed], [["SNIP-0004"], []]);
+    done = await runSnipSync(ioFor(owner));
+    assert.deepEqual(done.closed, ["SNIP-0004"], "on the next pass");
+    // ...and one rejected on the default branch is closed too.
+    gh.main["SNIP-0002.md"] = snip("0002", "The sealed relay", "Rejected");
+    refresh();
+    assert.deepEqual((await runSnipSync(ioFor(owner))).closed, ["SNIP-0002"]);
+
+    // GitHub unreachable: the last copy is used, marked stale, and nothing is opened or closed from it.
+    gh.down = true;
+    w.rows("SnipCache")[0].fetched_at = new Date(Date.now() - 3_600_000).toISOString();
+    const stale = await owner.ok("snips", { action: "status" });
+    assert.equal(stale.stale, true);
+    assert.deepEqual(planSnipSync({ ...stale, threads: {} }), []);
+    refresh();
+    await owner.fails("snips", { action: "status" }, "GITHUB_UNAVAILABLE");
+    gh.down = false;
+
+    // A thread someone locked by hand is left alone, and the server's cache spares GitHub.
+    const before = gh.calls;
+    await owner.ok("snips", { action: "status" });
+    const afterOne = gh.calls;
+    await owner.ok("snips", { action: "status" });
+    assert.ok(afterOne > before && gh.calls === afterOne, "a second look within the cache time reads nothing from GitHub");
+
+    // Turned off: nobody's app does anything.
+    on = false;
+    assert.deepEqual(await owner.ok("snips", { action: "status" }), { enabled: false });
+    await owner.fails("snips", await signed(owner, "ensure_forum", {}), "NOT_ENABLED");
+  } finally {
+    ADMINS = [];
+  }
+});

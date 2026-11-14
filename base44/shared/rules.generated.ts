@@ -355,6 +355,12 @@ export const RULES = {
     "update": false,
     "delete": false
   },
+  "SnipCache": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
   "User": null,
   "VoiceTicket": {
     "read": false,

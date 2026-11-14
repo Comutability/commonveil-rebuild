@@ -982,6 +982,10 @@ export function ServerProvider({ children }) {
     return m;
   }, [sendBuilt, markChannelRead, touchActivity, userId, device]);
 
+  /** Send a checked payload with a chosen id (the proposals forum: one fixed id per proposal). */
+  const sendWithId = useCallback((sid, channel, payload, opts) => sendBuilt(sid, channel, payload, opts), [sendBuilt]);
+  const reloadServer = useCallback((sid) => loadState(sid), [loadState]);
+
   const sendPost = useCallback(async (sid, channel, title, text, { mentions = null } = {}) => {
     const m = await sendBuilt(sid, channel, SP.postPayload(title, text, { mentions }), { kind: "post" });
     if (m) markChannelRead(channel.id, m.created_date);
@@ -1580,7 +1584,7 @@ export function ServerProvider({ children }) {
     react,
     edit,
     deleteMessage,
-    pinMessage, lockThread, openItemOf, modCall, reportToMods, loadReports, warnMember, addModNote, loadCases, caseItem, loadEvents, createEvent, updateEvent, cancelEvent, rsvp,
+    pinMessage, lockThread, sendWithId, reloadServer, openItemOf, modCall, reportToMods, loadReports, warnMember, addModNote, loadCases, caseItem, loadEvents, createEvent, updateEvent, cancelEvent, rsvp,
     // unread and local preferences
     markChannelRead,
     markServerRead,
@@ -1622,7 +1626,7 @@ export function ServerProvider({ children }) {
     loaded, loadError, servers, order, rows, opened, hasMore, readState, prefs, unread, memberLists, keysTick,
     serverLook, serverName, channelName, channelTopic, roleName, roleColor, serverRules, serverOnboarding, serverEmoji, automodOf, memberName, nickOf, memberColor, profileOf, rolesOfMember,
     permsFor, can, myTop, keyState, loadState, openView, loadOlder, threadOf, postsOf, loadPins, loadMembers, memberCard,
-    sendText, discardWaitingRow, sendPost, sendPoll, vote, react, edit, deleteMessage, pinMessage, lockThread, openItemOf, modCall, reportToMods, loadReports, warnMember, addModNote, loadCases, caseItem, loadEvents, createEvent, updateEvent, cancelEvent, rsvp, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
+    sendText, discardWaitingRow, sendWithId, reloadServer, sendPost, sendPoll, vote, react, edit, deleteMessage, pinMessage, lockThread, openItemOf, modCall, reportToMods, loadReports, warnMember, addModNote, loadCases, caseItem, loadEvents, createEvent, updateEvent, cancelEvent, rsvp, markChannelRead, markServerRead, setActiveChannel, muted, toggleMute,
     toggleCollapsed, moveServer, markOnboarded, act, setServerProfile, setServerRules, setServerSet, updateSettings, setNickname, createChannel, updateChannel,
     createRole, updateRole, banMember, openBanReason, joinServer, leaveServer, deleteServer, createServer, createInvite, listInvites,
     revokeInvite, discover, listTickets, openTicket, setTicketStatus, renewKeys, serviceKeys,

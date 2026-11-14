@@ -16,11 +16,12 @@ import { moderationActions } from "../base44/shared/handlers/moderation.ts";
 import { identityActions } from "../base44/shared/handlers/identity.ts";
 import { notificationActions } from "../base44/shared/handlers/notifications.ts";
 import { protocolActions } from "../base44/shared/handlers/protocol.ts";
+import { snipActions } from "../base44/shared/handlers/snips.ts";
 
 export { runMaintenance } from "../base44/shared/maintenance.ts";
 
 /** name -> [actions, options]. identity: the site's sign-in settings (handlers/identity.ts). */
-export function functionTable({ defaultAdmins, identity }) {
+export function functionTable({ defaultAdmins, identity, snipForum = null }) {
   return {
     ...(identity ? { identity: [identityActions(identity), { allowAnonymous: true }] } : {}),
     notifications: [notificationActions],
@@ -39,6 +40,8 @@ export function functionTable({ defaultAdmins, identity }) {
     events: [eventActions],
     moderation: [moderationActions],
     protocol: [protocolActions],
+    // Off on self-hosted sites unless SNIP_FORUM=on (docs/SNIP_FORUM.md).
+    snips: [snipActions({ enabled: () => Boolean(snipForum?.enabled), repo: () => snipForum?.repo || "", token: () => snipForum?.token || "" })],
   };
 }
 

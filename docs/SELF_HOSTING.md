@@ -58,6 +58,7 @@ All settings are in `.env`. After changing one, run `docker compose up -d`.
 | `SITE_NAME` | The name shown to other sites and in passkey prompts. |
 | `ACME_EMAIL` | Let's Encrypt sends certificate notices here. |
 | `DEFAULT_SERVER_ADMINS` | Admins of the Commonveil Community server every new account joins, by username. Only accounts that are site admins count. |
+| `SNIP_FORUM` | `on` adds a proposals forum to the community server, with one post per Secure Net Improvement Proposal on GitHub. Your server then reads GitHub's public API about every 20 minutes. Off by default. See [SNIP_FORUM.md](SNIP_FORUM.md). |
 | `OPEN_REGISTRATION` | `false` stops new sign-ups once the first admin exists. The first admin always needs the setup code. |
 | `FEDERATION` | `false` keeps your site to itself: no other site can reach it, and its people can't reach others. |
 | `COMMONVEIL_VERSION` | Which release runs. The updater changes it. `latest` follows each new release. |
