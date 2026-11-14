@@ -2,10 +2,21 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.23.1",
+      "date": "2026-11-14",
+      "title": "Fix: the app showed a blank page after signing in",
+      "commit": null,
+      "notes": [
+        "Fixed a mistake in 0.23.0 that made the app show a blank page straight after \"Checking your keys\", for everyone signed in. No messages, keys or accounts were affected: the app stopped before it showed anything.",
+        "The cause was two lines of the new experimental protocol code placed above the code they depend on. A new check now runs on every change and fails if any part of the app uses something before it is defined.",
+        "The app, the new Settings switch and turning the experimental layer on have now been checked in a real browser."
+      ]
+    },
+    {
       "version": "0.23.0",
       "date": "2026-11-14",
       "title": "A first step onto the Secure Net protocol (experimental), and a forum for protocol proposals",
-      "commit": null,
+      "commit": "5009e6507763ceb0cb9a872220f688c36417b2bd",
       "notes": [
         "Commonveil now carries the new Secure Net protocol (0.5.0) and takes its first step onto it. It is off unless you turn it on: Settings, Devices and keys, Experimental: Secure Net protocol.",
         "With it on for both people, a direct message is sealed a second time under a one-off key. That key goes only to the devices linked at that moment, over post-quantum sessions (X25519 with ML-KEM-768), so someone who later gets hold of an account's keys or recovery phrase still can't read it.",

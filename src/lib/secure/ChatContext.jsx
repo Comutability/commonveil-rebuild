@@ -241,10 +241,6 @@ export function ChatProvider({ children }) {
       return next;
     });
   }, []);
-  loadProfilesRef.current = loadProfiles;
-  useEffect(() => {
-    if (userId) loadProfiles([userId]).catch(() => {});
-  }, [userId, loadProfiles]);
 
   // Disappearing messages: hidden the moment their time is up (the rows are worked out against
   // `now`), and dropped from memory too.
@@ -347,6 +343,11 @@ export function ChatProvider({ children }) {
       return next;
     });
   }, []);
+  // The experimental layer (above) needs our own username, and loads profiles through this.
+  loadProfilesRef.current = loadProfiles;
+  useEffect(() => {
+    if (userId) loadProfiles([userId]).catch(() => {});
+  }, [userId, loadProfiles]);
 
   useEffect(() => {
     conversationsRef.current = conversations;

@@ -75,3 +75,13 @@ phrase still work, and the alternative (no lockout) is worse.
 
 The same unused jspdf and react-leaflet packages come with every app made from Base44's template, so other
 Comutability apps made that way are likely to carry the same fflate and leaflet findings.
+
+## Blank page after sign-in in 0.23.0, 14 November 2026
+
+0.23.0 was merged and deployed at 11:18 UTC and showed every signed-in person a blank page after "Checking your keys". It was reported at 11:22 and fixed in 0.23.1.
+
+- **Cause:** in `src/lib/secure/ChatContext.jsx`, two lines added with the experimental protocol layer used `loadProfiles` about 100 lines above its declaration, which throws as soon as the component renders.
+- **Effect:** the app could not be used. No data was lost, changed or exposed: the failure happened before anything was shown or sent.
+- **Why it wasn't caught:** the tests run the app's logic against the real backend handlers, but nothing rendered the app itself, and the change was not opened in a browser before merging. ESLint has no rule for this.
+- **What changed:** `npm run check:order` (in `npm run verify`, so in CI) runs the TypeScript compiler over `src/` and fails on anything used before its declaration. It reports this bug on the 0.23.0 code and nothing on the fix. The fix was confirmed by signing up and loading the app in headless Chromium against a local self-hosted site, including the new Settings section.
+- **Still missing:** an automated browser test in CI that signs in and loads the app. Until there is one, changes to the app's start-up path should be opened in a browser before they are merged.

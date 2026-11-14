@@ -5,6 +5,14 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.23.1](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.23.1): Fix: the app showed a blank page after signing in
+
+_2026-11-14_
+
+- Fixed a mistake in 0.23.0 that made the app show a blank page straight after "Checking your keys", for everyone signed in. No messages, keys or accounts were affected: the app stopped before it showed anything.
+- The cause was two lines of the new experimental protocol code placed above the code they depend on. A new check now runs on every change and fails if any part of the app uses something before it is defined.
+- The app, the new Settings switch and turning the experimental layer on have now been checked in a real browser.
+
 ## [0.23.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.23.0): A first step onto the Secure Net protocol (experimental), and a forum for protocol proposals
 
 _2026-11-14_
