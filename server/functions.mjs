@@ -15,6 +15,7 @@ import { eventActions } from "../base44/shared/handlers/events.ts";
 import { moderationActions } from "../base44/shared/handlers/moderation.ts";
 import { identityActions } from "../base44/shared/handlers/identity.ts";
 import { notificationActions } from "../base44/shared/handlers/notifications.ts";
+import { protocolActions } from "../base44/shared/handlers/protocol.ts";
 
 export { runMaintenance } from "../base44/shared/maintenance.ts";
 
@@ -37,6 +38,7 @@ export function functionTable({ defaultAdmins, identity }) {
     files: [fileActions, { maxBodyBytes: FILES_MAX_BODY }],
     events: [eventActions],
     moderation: [moderationActions],
+    protocol: [protocolActions],
   };
 }
 

@@ -46,3 +46,13 @@ Every update to the project is a release. Never ship an update without one:
 Both the Base44 site (`npm run build`) and the self-hosted site (`VITE_COMMONVEIL_BACKEND=selfhost npx vite build --outDir dist-selfhost`) are built from the same code. Features that only exist on self-hosted sites check `SELF_HOSTED` from `src/api/base44Client.js`.
 
 When shared backend code (`base44/shared/`) changes, bump the "Shared code revision" line in each `base44/functions/*/entry.ts`, so Base44 redeploys them.
+
+## Keeping up with the protocol
+
+Commonveil is built on Secure Net (https://github.com/Comutability/secure-net), copied into `packages/secure-net`. From 0.23.0 on, Commonveil follows the protocol: whenever Secure Net changes, bring Commonveil up to it in the next release.
+
+1. Check out the Secure Net version to adopt, run `node scripts/manifest.mjs --check` there, then `npm run secure-net:sync -- <path>` here. Never edit `packages/secure-net` directly.
+2. Read what changed (Secure Net's `snips/`, `spec/registry.json` and each part's "Changes" table) and update what Commonveil builds on it: `src/lib/secure/pq/`, `base44/shared/handlers/protocol.ts`, the federation code, and `docs/SECURE_NET_LAYER.md`.
+3. A breaking protocol change needs a migration that keeps existing messages readable, written into the release notes.
+4. Anything built on parts Secure Net marks Draft stays opt-in and labelled experimental in the app until that part has been reviewed and accepted.
+5. Then release as above.

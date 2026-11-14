@@ -16,6 +16,8 @@ import { DEFAULT_ALERTS, alertText, cleanAlerts, isQuiet, showAlert } from "./al
 import * as O from "../offline/outbox.js";
 import { isOffline, offlineChosen, onOfflineChange, reportReachable } from "../offline/mode.js";
 import { mirrorPushPrefs } from "../pwa/push.js";
+import { PqLayer } from "./pq/layer.js";
+import { browserStore, pqStorageAvailable } from "./pq/store.js";
 
 const ChatContext = createContext(null);
 
@@ -73,7 +75,7 @@ async function withRetry(fn) {
 const deliver = (body) => withRetry(() => callFn("messages", body));
 
 export function ChatProvider({ children }) {
-  const { userId, device, keyring, peers, loadPeers, chainsFor, chainOf, devicesOf, ownMinCertVersion, refresh: refreshSecure } = useSecure();
+  const { userId, device, keyring, peers, loadPeers, chainsFor, chainOf, devicesOf, ownMinCertVersion, refresh: refreshSecure, lockInfo } = useSecure();
   const navigate = useNavigate();
   const [conversations, setConversations] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -239,6 +241,10 @@ export function ChatProvider({ children }) {
       return next;
     });
   }, []);
+  loadProfilesRef.current = loadProfiles;
+  useEffect(() => {
+    if (userId) loadProfiles([userId]).catch(() => {});
+  }, [userId, loadProfiles]);
 
   // Disappearing messages: hidden the moment their time is up (the rows are worked out against
   // `now`), and dropped from memory too.
@@ -272,6 +278,63 @@ export function ChatProvider({ children }) {
   useEffect(() => {
     profilesRef.current = profiles;
   }, [profiles]);
+
+  // ---- The experimental protocol layer (pq/layer.js, docs/SECURE_NET_LAYER.md) ----
+  const accountRef = useRef({});
+  accountRef.current = { userId, device, keyring, username: profiles[userId]?.username || "" };
+  const pqLayer = useRef(null);
+  const [pqStatus, setPqStatus] = useState({ enabled: false });
+  /** Goes up when one-off keys arrive, so messages waiting for theirs are opened again. */
+  const [pqEpoch, setPqEpoch] = useState(0);
+  const usernamesOf = useCallback((ids) => Object.fromEntries(ids.map((id) => [id, profilesRef.current[id]?.username]).filter(([, u]) => u)), []);
+  useEffect(() => {
+    if (!userId || !device || !pqStorageAvailable()) return undefined;
+    const layer = new PqLayer({ call: callFn, store: browserStore(userId), account: () => accountRef.current, host: window.location.host.toLowerCase() });
+    pqLayer.current = layer;
+    let stopped = false;
+    const off = layer.onKeys(() => setPqEpoch((e) => e + 1));
+    const sync = () => {
+      if (stopped || !layer.enabled || isOffline()) return;
+      layer.sync(usernamesOf(Object.keys(profilesRef.current))).then(() => !stopped && setPqStatus(layer.status())).catch(() => {});
+    };
+    layer.start().then((on) => {
+      if (stopped) return;
+      setPqStatus(layer.status());
+      if (on) sync();
+    }).catch(() => {});
+    const t = setInterval(sync, 15_000);
+    const onVisible = () => document.visibilityState === "visible" && sync();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      stopped = true;
+      off();
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+      pqLayer.current = null;
+    };
+    // The layer reads the account through accountRef, so it isn't rebuilt when keys rotate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, Boolean(device)]);
+  const pq = useMemo(() => ({
+    status: pqStatus,
+    available: pqStorageAvailable(),
+    /** A passcode lock doesn't cover the layer's keys yet, so the two can't be on together. */
+    blockedByLock: Boolean(lockInfo),
+    enable: async () => {
+      if (lockInfo) throw new Error("Remove the passcode lock first: it doesn't protect the experimental protocol's keys yet.");
+      if (!accountRef.current.username) await loadProfilesRef.current([userId]);
+      const st = await pqLayer.current.enable();
+      setPqStatus(st);
+      return st;
+    },
+    disable: async (opts) => {
+      await pqLayer.current.disable(opts);
+      setPqStatus({ enabled: false });
+      setPqEpoch((e) => e + 1);
+    },
+    safetyNumber: (otherId) => pqLayer.current?.safetyNumber(otherId) || null,
+  }), [pqStatus, lockInfo, userId]);
+  const loadProfilesRef = useRef(async () => {});
 
   // Stable, so the polling loop below isn't restarted every time a profile arrives.
   const loadProfiles = useCallback(async (ids) => {
@@ -452,7 +515,8 @@ export function ChatProvider({ children }) {
         for (const m of list) {
           const cacheKey = `${m.id}:${m.deleted ? "d" : "v"}`;
           const prev = opened[m.id];
-          if (prev && prev.cacheKey === cacheKey) continue;
+          // A message whose one-off key hadn't arrived is tried again when keys do.
+          if (prev && prev.cacheKey === cacheKey && !(prev.code === "FS_KEY_MISSING" && prev.pqEpoch !== pqEpoch)) continue;
           const senderChain = chainOf(m.sender_id);
           // Wait for a current member's keys; someone who has left can't be looked up, so open without verification.
           const members = membersOf.get(m.conversation_id);
@@ -469,8 +533,9 @@ export function ChatProvider({ children }) {
             senderChain,
             senderDevices: devicesOf(m.sender_id),
             minCertVersion: m.sender_id === userId ? ownMinCertVersion : 1,
+            fsOpen: pqLayer.current?.enabled ? pqLayer.current.opener() : null,
           });
-          results[m.id] = { ...r, cacheKey };
+          results[m.id] = { ...r, cacheKey, pqEpoch };
           if (!prev) fresh.push([m, r]);
           if (cancelled) return;
         }
@@ -483,7 +548,7 @@ export function ChatProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [messages, conversations, keyring, peers, userId, chainOf, devicesOf, opened, knowsDevice, ownMinCertVersion, maybeAlert]);
+  }, [messages, conversations, keyring, peers, userId, chainOf, devicesOf, opened, knowsDevice, ownMinCertVersion, maybeAlert, pqEpoch]);
 
   // Group names.
   useEffect(() => {
@@ -741,10 +806,13 @@ export function ChatProvider({ children }) {
     return null;
   }, [chainsFor, mergeMessages, touchConversation, refreshConversation, membershipProblem, holdForLater]);
 
+  /** The experimental layer's second seal for a conversation, or null when it's off or doesn't apply. */
+  const fsFor = useCallback((conv) => (pqLayer.current?.enabled && !isOffline() ? pqLayer.current.wrapperFor(conv, usernamesOf(conv.member_ids)) : null), [usernamesOf]);
+
   /** files / forwardFiles / onProgress as in servers' sendText. */
   const send = useCallback(async (conversation, text, { replyTo = null, forwarded = false, files = [], forwardFiles = [], onProgress = null } = {}) => {
     if (!files.length && !forwardFiles.length && !forwarded) {
-      return sendBuilt(conversation, (conv, chains) => P.buildMessage({ userId, device, conversation: conv, chains, text, keyring, replyTo }));
+      return sendBuilt(conversation, (conv, chains) => P.buildMessage({ userId, device, conversation: conv, chains, text, keyring, replyTo, fs: fsFor(conv) }));
     }
     const problem = membershipProblem(conversation);
     if (problem) throw new Error(problem);
@@ -755,8 +823,8 @@ export function ChatProvider({ children }) {
     if (files.length) attachments = await uploadAttachments({ userId, device, place, msgId: itemId, items: files, onProgress });
     if (forwardFiles.length) attachments = [...attachments, ...(await copyAttachments({ userId, device, place, msgId: itemId, attachments: forwardFiles }))];
     const payload = { type: "text", text: String(text || "").trim() ? text : "", ...(replyTo ? { reply_to: replyTo } : {}), ...(forwarded ? { forwarded: true } : {}), ...(attachments.length ? { attachments } : {}) };
-    return sendBuilt(conversation, (conv, chains) => P.buildPayloadMessage({ userId, device, conversation: conv, chains, keyring, payload, itemId }));
-  }, [sendBuilt, userId, device, keyring, membershipProblem]);
+    return sendBuilt(conversation, (conv, chains) => P.buildPayloadMessage({ userId, device, conversation: conv, chains, keyring, payload, itemId, fs: fsFor(conv) }));
+  }, [sendBuilt, userId, device, keyring, membershipProblem, fsFor]);
 
   /** A waiting message that couldn't be sent: send its text again (sealed afresh), or let it go. */
   const resendWaiting = useCallback(async (conversation, message, text) => {
@@ -940,6 +1008,7 @@ export function ChatProvider({ children }) {
   );
 
   const value = useMemo(() => ({
+    pq,
     loaded,
     conversations: liveConversations,
     messages,
@@ -989,7 +1058,7 @@ export function ChatProvider({ children }) {
     membershipProblem,
     addPollExtension,
     touchActivity,
-  }), [loaded, liveConversations, messages, threads, hasMore, opened, titles, profiles, alerts, updateAlerts, openConversation, closeConversation, loadOlder, loadHistory, searchMessages, markRead, isUnread, send, resendWaiting, discardWaiting, react, sendPoll, startCall, scheduleMessage, loadScheduled, cancelScheduled, checkIn, setSelfDestruct, vote, editMessage, setTitle, setExpiry, setAdmin, removeMember, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem, addPollExtension, touchActivity]);
+  }), [pq, loaded, liveConversations, messages, threads, hasMore, opened, titles, profiles, alerts, updateAlerts, openConversation, closeConversation, loadOlder, loadHistory, searchMessages, markRead, isUnread, send, resendWaiting, discardWaiting, react, sendPoll, startCall, scheduleMessage, loadScheduled, cancelScheduled, checkIn, setSelfDestruct, vote, editMessage, setTitle, setExpiry, setAdmin, removeMember, startDm, startGroup, addMembers, leave, deleteMessage, refreshConversation, nameOf, handleOf, conversationName, loadProfiles, newMembersOf, acknowledgeMembers, membershipProblem, addPollExtension, touchActivity]);
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }

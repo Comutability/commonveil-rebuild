@@ -1,0 +1,45 @@
+// One published prekey of one device (experimental protocol). One-time prekeys are deleted when handed out. Backend only.
+{
+  "name": "ProtoPrekey",
+  "type": "object",
+  "description": "One published prekey of one device (experimental protocol). One-time prekeys are deleted when handed out. Backend only.",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "device": {
+      "type": "string",
+      "description": "The protocol device's key id."
+    },
+    "slot": {
+      "type": "string",
+      "enum": [
+        "signed",
+        "last",
+        "otk",
+        "pq"
+      ],
+      "description": "signed: signed prekey; last: last-resort ML-KEM prekey; otk and pq: one-time prekeys."
+    },
+    "prekey_id": {
+      "type": "string"
+    },
+    "record": {
+      "type": "string",
+      "description": "The signed prekey record, as JSON."
+    }
+  },
+  "required": [
+    "user_id",
+    "device",
+    "slot",
+    "prekey_id",
+    "record"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

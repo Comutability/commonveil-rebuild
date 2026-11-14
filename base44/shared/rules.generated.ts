@@ -204,6 +204,24 @@ export const RULES = {
     "update": false,
     "delete": false
   },
+  "ProtoActor": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
+  "ProtoMail": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
+  "ProtoPrekey": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
   "PushCode": {
     "read": false,
     "create": false,

@@ -26,6 +26,23 @@ export const DEFAULT_ENDPOINTS = Object.freeze({
   files: "/api/files",
 });
 
+/**
+ * Where the social protocol's endpoints are by default (CVP-017 to CVP-021). Kept apart from
+ * DEFAULT_ENDPOINTS, which sites publish as it stands: a site lists these in its site document
+ * only once it serves them, alongside the features it announces.
+ */
+export const SOCIAL_ENDPOINTS = Object.freeze({
+  actor: "/.well-known/commonveil/actor",
+  prekeys: "/cvp/v2/prekeys/{actor}/{device}",
+  deliver: "/cvp/v2/deliver",
+  outbox: "/cvp/v2/outbox",
+  mailbox: "/cvp/v2/mailbox",
+  public: "/cvp/v2/public/{actor}",
+  repo: "/cvp/v2/repo/{actor}",
+  changes: "/cvp/v2/changes",
+  lexicon: "/cvp/v2/lexicon/{id}",
+});
+
 const ENDPOINT_RE = /^\/[A-Za-z0-9._~{}\/-]{0,199}$/;
 
 /**

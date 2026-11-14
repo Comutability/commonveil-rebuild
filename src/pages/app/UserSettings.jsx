@@ -27,7 +27,7 @@ import {
   DataSection,
   DeleteSection,
   DevicesSection,
-  LockSection,
+  LockSection, ProtocolSection,
   RecoverySection,
   SignOutSection,
 } from "./Settings";
@@ -247,6 +247,7 @@ function KeySettings() {
         <DevicesSection />
         <RecoverySection />
         <LockSection />
+        <ProtocolSection />
       </div>
     </>
   );

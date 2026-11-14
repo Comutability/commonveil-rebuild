@@ -1,0 +1,1602 @@
+{
+  "about": "The registries of the Commonveil Protocol (CVP-000, section 7). Normative. Changed only by a SNIP, in the same pull request as the part text and code. scripts/standards.mjs checks the reference code against this file and writes spec/REGISTRIES.md and the index in spec/README.md from it.",
+  "release": "0.5.0",
+  "partStatuses": [
+    "Reserved",
+    "Draft",
+    "Proposed",
+    "Accepted",
+    "Stable",
+    "Deprecated",
+    "Withdrawn"
+  ],
+  "entryStatuses": [
+    "active",
+    "deprecated",
+    "legacy",
+    "removed"
+  ],
+  "parts": [
+    {
+      "id": "CVP-000",
+      "title": "How the standard works: language, versions, compatibility, registries, conformance",
+      "status": "Draft",
+      "version": 1,
+      "doc": "CVP-000-framework.md",
+      "features": [],
+      "dependsOn": [],
+      "code": [
+        "scripts/standards.mjs"
+      ],
+      "vectors": []
+    },
+    {
+      "id": "CVP-001",
+      "title": "Identifiers, keys, signatures, rotation, recovery, personas, migration",
+      "status": "Draft",
+      "version": 1,
+      "doc": null,
+      "features": [
+        "cvp.identity",
+        "cvp.personas"
+      ],
+      "dependsOn": [
+        "CVP-002"
+      ],
+      "code": [
+        "src/crypto/identity.js",
+        "src/crypto/recovery.js",
+        "src/identity/portable.js"
+      ],
+      "vectors": []
+    },
+    {
+      "id": "CVP-002",
+      "title": "Canonical encoding and signed records",
+      "status": "Draft",
+      "version": 1,
+      "doc": "CVP-002-signed-records.md",
+      "features": [],
+      "dependsOn": [],
+      "code": [
+        "src/core/canonical.js",
+        "src/core/signed.js"
+      ],
+      "vectors": [
+        "vectors/cvp-002-v1.json"
+      ]
+    },
+    {
+      "id": "CVP-003",
+      "title": "Account-wide envelopes and community keys (older; superseded for new messages by CVP-016)",
+      "status": "Draft",
+      "version": 1,
+      "doc": null,
+      "features": [
+        "cvp.envelope"
+      ],
+      "dependsOn": [
+        "CVP-001"
+      ],
+      "code": [
+        "src/crypto/envelope.js",
+        "src/crypto/serverKeys.js",
+        "src/crypto/kem.js"
+      ],
+      "vectors": []
+    },
+    {
+      "id": "CVP-004",
+      "title": "Spaces, channels, membership and policy",
+      "status": "Draft",
+      "version": 1,
+      "doc": null,
+      "features": [],
+      "dependsOn": [
+        "CVP-011"
+      ],
+      "code": [
+        "src/commons/ledger.js"
+      ],
+      "vectors": []
+    },
+    {
+      "id": "CVP-005",
+      "title": "Site-to-site federation",
+      "status": "Draft",
+      "version": 2,
+      "doc": null,
+      "features": [
+        "cvp.federation"
+      ],
+      "dependsOn": [
+        "CVP-008"
+      ],
+      "code": [
+        "src/wire/federation.js"
+      ],
+      "vectors": []
+    },
+    {
+      "id": "CVP-006",
+      "title": "Attachments, retention and backup",
+      "status": "Reserved",
+      "version": 0,
+      "doc": null,
+      "features": [],
+      "dependsOn": [],
+      "code": [],
+      "vectors": []
+    },
+    {
+      "id": "CVP-007",
+      "title": "Reports, disclosures and federation controls",
+      "status": "Reserved",
+      "version": 0,
+      "doc": null,
+      "features": [],
+      "dependsOn": [],
+      "code": [],
+      "vectors": []
+    },
+    {
+      "id": "CVP-008",
+      "title": "Extensions, themes and feature negotiation",
+      "status": "Draft",
+      "version": 1,
+      "doc": null,
+      "features": [
+        "cvp.extensions"
+      ],
+      "dependsOn": [
+        "CVP-002"
+      ],
+      "code": [
+        "src/extensions/manifest.js",
+        "src/wire/features.js"
+      ],
+      "vectors": []
+    },
+    {
+      "id": "CVP-009",
+      "title": "Bridges and labels",
+      "status": "Reserved",
+      "version": 0,
+      "doc": null,
+      "features": [],
+      "dependsOn": [],
+      "code": [],
+      "vectors": []
+    },
+    {
+      "id": "CVP-010",
+      "title": "Conformance: profiles, statements and tests",
+      "status": "Draft",
+      "version": 1,
+      "doc": "CVP-010-conformance.md",
+      "features": [],
+      "dependsOn": [
+        "CVP-000"
+      ],
+      "code": [
+        "test/",
+        "scripts/vectors.mjs"
+      ],
+      "vectors": []
+    },
+    {
+      "id": "CVP-011",
+      "title": "Commons ledger: replication and failover",
+      "status": "Draft",
+      "version": 1,
+      "doc": "CVP-011-commons-ledger.md",
+      "features": [
+        "cvp.commons-ledger"
+      ],
+      "dependsOn": [
+        "CVP-002"
+      ],
+      "code": [
+        "src/commons/ledger.js"
+      ],
+      "vectors": []
+    },
+    {
+      "id": "CVP-012",
+      "title": "Governance: motions, debates and votes",
+      "status": "Draft",
+      "version": 1,
+      "doc": "CVP-012-governance.md",
+      "features": [
+        "cvp.governance"
+      ],
+      "dependsOn": [
+        "CVP-002",
+        "CVP-011",
+        "CVP-013"
+      ],
+      "code": [
+        "src/governance/vote.js",
+        "src/governance/debate.js"
+      ],
+      "vectors": []
+    },
+    {
+      "id": "CVP-013",
+      "title": "Private tokens (RFC 9497 VOPRF)",
+      "status": "Draft",
+      "version": 1,
+      "doc": "CVP-013-tokens.md",
+      "features": [
+        "cvp.tokens"
+      ],
+      "dependsOn": [],
+      "code": [
+        "src/tokens/voprf.js"
+      ],
+      "vectors": []
+    },
+    {
+      "id": "CVP-014",
+      "title": "Consent capsules",
+      "status": "Draft",
+      "version": 1,
+      "doc": null,
+      "features": [
+        "cvp.consent"
+      ],
+      "dependsOn": [
+        "CVP-002"
+      ],
+      "code": [
+        "src/consent/capsule.js"
+      ],
+      "vectors": []
+    },
+    {
+      "id": "CVP-015",
+      "title": "Quantum resistance and the sealed relay",
+      "status": "Draft",
+      "version": 1,
+      "doc": "CVP-015-quantum-resistance.md",
+      "features": [
+        "cvp.sealed-relay",
+        "cvp.pq-signatures"
+      ],
+      "dependsOn": [
+        "CVP-002",
+        "CVP-005"
+      ],
+      "code": [
+        "src/wire/sealed.js",
+        "src/core/signed.js"
+      ],
+      "vectors": []
+    },
+    {
+      "id": "CVP-016",
+      "title": "End-to-end sessions: post-quantum handshake, ratchet, devices, groups, new devices",
+      "status": "Draft",
+      "version": 1,
+      "doc": "CVP-016-sessions.md",
+      "features": [
+        "cvp.sessions"
+      ],
+      "dependsOn": [
+        "CVP-002"
+      ],
+      "code": [
+        "src/session/"
+      ],
+      "vectors": [
+        "vectors/cvp-016-v1.json"
+      ]
+    },
+    {
+      "id": "CVP-017",
+      "title": "Actors and discovery: self-certifying actor documents and handles",
+      "status": "Draft",
+      "version": 1,
+      "doc": "CVP-017-actors.md",
+      "features": [
+        "cvp.actors"
+      ],
+      "dependsOn": [
+        "CVP-002",
+        "CVP-016"
+      ],
+      "code": [
+        "src/social/actor.js"
+      ],
+      "vectors": [
+        "vectors/cvp-017-v1.json"
+      ]
+    },
+    {
+      "id": "CVP-018",
+      "title": "Activities and objects: the ActivityStreams vocabulary, signed on devices",
+      "status": "Draft",
+      "version": 1,
+      "doc": "CVP-018-activities.md",
+      "features": [
+        "cvp.activities"
+      ],
+      "dependsOn": [
+        "CVP-002",
+        "CVP-017"
+      ],
+      "code": [
+        "src/social/vocabulary.js",
+        "src/social/activity.js"
+      ],
+      "vectors": [
+        "vectors/cvp-018-v1.json"
+      ]
+    },
+    {
+      "id": "CVP-019",
+      "title": "Delivery: public, direct and audience envelopes, end to end encrypted",
+      "status": "Draft",
+      "version": 1,
+      "doc": "CVP-019-delivery.md",
+      "features": [
+        "cvp.delivery"
+      ],
+      "dependsOn": [
+        "CVP-005",
+        "CVP-015",
+        "CVP-016",
+        "CVP-017",
+        "CVP-018"
+      ],
+      "code": [
+        "src/social/delivery.js",
+        "src/social/site.js",
+        "src/social/client.js"
+      ],
+      "vectors": [
+        "vectors/cvp-019-v1.json"
+      ]
+    },
+    {
+      "id": "CVP-020",
+      "title": "Repositories and sync: an actor's public activities as a signed, portable, verifiable set",
+      "status": "Draft",
+      "version": 1,
+      "doc": "CVP-020-repositories.md",
+      "features": [
+        "cvp.repos"
+      ],
+      "dependsOn": [
+        "CVP-002",
+        "CVP-017",
+        "CVP-018"
+      ],
+      "code": [
+        "src/social/repo.js"
+      ],
+      "vectors": [
+        "vectors/cvp-020-v1.json"
+      ]
+    },
+    {
+      "id": "CVP-021",
+      "title": "Lexicons: new object types named by domain",
+      "status": "Draft",
+      "version": 1,
+      "doc": "CVP-021-lexicons.md",
+      "features": [
+        "cvp.lexicons"
+      ],
+      "dependsOn": [
+        "CVP-002",
+        "CVP-017",
+        "CVP-018"
+      ],
+      "code": [
+        "src/social/lexicon.js"
+      ],
+      "vectors": [
+        "vectors/cvp-021-v1.json"
+      ]
+    }
+  ],
+  "features": [
+    {
+      "name": "cvp.federation",
+      "version": 2,
+      "part": "CVP-005",
+      "status": "active"
+    },
+    {
+      "name": "cvp.sealed-relay",
+      "version": 1,
+      "part": "CVP-015",
+      "status": "active"
+    },
+    {
+      "name": "cvp.pq-signatures",
+      "version": 1,
+      "part": "CVP-015",
+      "status": "active"
+    },
+    {
+      "name": "cvp.identity",
+      "version": 2,
+      "part": "CVP-001",
+      "status": "active"
+    },
+    {
+      "name": "cvp.sessions",
+      "version": 1,
+      "part": "CVP-016",
+      "status": "active"
+    },
+    {
+      "name": "cvp.envelope",
+      "version": 1,
+      "part": "CVP-003",
+      "status": "active"
+    },
+    {
+      "name": "cvp.commons-ledger",
+      "version": 1,
+      "part": "CVP-011",
+      "status": "active"
+    },
+    {
+      "name": "cvp.governance",
+      "version": 1,
+      "part": "CVP-012",
+      "status": "active"
+    },
+    {
+      "name": "cvp.tokens",
+      "version": 1,
+      "part": "CVP-013",
+      "status": "active"
+    },
+    {
+      "name": "cvp.personas",
+      "version": 1,
+      "part": "CVP-001",
+      "status": "active"
+    },
+    {
+      "name": "cvp.consent",
+      "version": 1,
+      "part": "CVP-014",
+      "status": "active"
+    },
+    {
+      "name": "cvp.extensions",
+      "version": 1,
+      "part": "CVP-008",
+      "status": "active"
+    },
+    {
+      "name": "cvp.actors",
+      "version": 1,
+      "part": "CVP-017",
+      "status": "active"
+    },
+    {
+      "name": "cvp.activities",
+      "version": 1,
+      "part": "CVP-018",
+      "status": "active"
+    },
+    {
+      "name": "cvp.delivery",
+      "version": 1,
+      "part": "CVP-019",
+      "status": "active"
+    },
+    {
+      "name": "cvp.repos",
+      "version": 1,
+      "part": "CVP-020",
+      "status": "active"
+    },
+    {
+      "name": "cvp.lexicons",
+      "version": 1,
+      "part": "CVP-021",
+      "status": "active"
+    }
+  ],
+  "recordKinds": [
+    {
+      "name": "actor.document",
+      "part": "CVP-017",
+      "status": "active"
+    },
+    {
+      "name": "commons.block",
+      "part": "CVP-011",
+      "status": "active"
+    },
+    {
+      "name": "commons.host",
+      "part": "CVP-011",
+      "status": "active"
+    },
+    {
+      "name": "consent.capsule",
+      "part": "CVP-014",
+      "status": "active"
+    },
+    {
+      "name": "consent.revocation",
+      "part": "CVP-014",
+      "status": "active"
+    },
+    {
+      "name": "debate.argument",
+      "part": "CVP-012",
+      "status": "active"
+    },
+    {
+      "name": "debate.evidence",
+      "part": "CVP-012",
+      "status": "active"
+    },
+    {
+      "name": "debate.moderation",
+      "part": "CVP-012",
+      "status": "active"
+    },
+    {
+      "name": "debate.position",
+      "part": "CVP-012",
+      "status": "active"
+    },
+    {
+      "name": "debate.rebuttal",
+      "part": "CVP-012",
+      "status": "active"
+    },
+    {
+      "name": "debate.round",
+      "part": "CVP-012",
+      "status": "active"
+    },
+    {
+      "name": "extension.manifest",
+      "part": "CVP-008",
+      "status": "active"
+    },
+    {
+      "name": "governance.motion",
+      "part": "CVP-012",
+      "status": "active"
+    },
+    {
+      "name": "identity.migration",
+      "part": "CVP-001",
+      "status": "active"
+    },
+    {
+      "name": "identity.persona-link",
+      "part": "CVP-001",
+      "status": "active"
+    },
+    {
+      "name": "lexicon.schema",
+      "part": "CVP-021",
+      "status": "active"
+    },
+    {
+      "name": "repo.commit",
+      "part": "CVP-020",
+      "status": "active"
+    },
+    {
+      "name": "session.device-list",
+      "part": "CVP-016",
+      "status": "active"
+    },
+    {
+      "name": "session.prekey",
+      "part": "CVP-016",
+      "status": "active"
+    },
+    {
+      "name": "social.activity",
+      "part": "CVP-018",
+      "status": "active"
+    },
+    {
+      "name": "theme.package",
+      "part": "CVP-008",
+      "status": "active"
+    },
+    {
+      "name": "vote.ballot",
+      "part": "CVP-012",
+      "status": "active"
+    },
+    {
+      "name": "vote.result",
+      "part": "CVP-012",
+      "status": "active"
+    },
+    {
+      "name": "vote.secret-ballot",
+      "part": "CVP-012",
+      "status": "active"
+    }
+  ],
+  "ledgerEvents": [
+    {
+      "name": "commons.genesis",
+      "capability": "authority",
+      "part": "CVP-011",
+      "status": "active"
+    },
+    {
+      "name": "keys.set",
+      "capability": "authority",
+      "part": "CVP-011",
+      "status": "active"
+    },
+    {
+      "name": "replicas.set",
+      "capability": "authority",
+      "part": "CVP-011",
+      "status": "active"
+    },
+    {
+      "name": "policy.set",
+      "capability": "authority",
+      "part": "CVP-011",
+      "status": "active"
+    },
+    {
+      "name": "host.move",
+      "capability": "authority",
+      "part": "CVP-011",
+      "status": "active"
+    },
+    {
+      "name": "governance.result",
+      "capability": "govern",
+      "part": "CVP-012",
+      "status": "active"
+    },
+    {
+      "name": "member.add",
+      "capability": "members",
+      "part": "CVP-004",
+      "status": "active"
+    },
+    {
+      "name": "member.remove",
+      "capability": "members",
+      "part": "CVP-004",
+      "status": "active"
+    },
+    {
+      "name": "role.set",
+      "capability": "roles",
+      "part": "CVP-004",
+      "status": "active"
+    },
+    {
+      "name": "ban.set",
+      "capability": "moderate",
+      "part": "CVP-004",
+      "status": "active"
+    },
+    {
+      "name": "channel.set",
+      "capability": "channels",
+      "part": "CVP-004",
+      "status": "active"
+    },
+    {
+      "name": "channel.remove",
+      "capability": "channels",
+      "part": "CVP-004",
+      "status": "active"
+    },
+    {
+      "name": "content.ref",
+      "capability": "content",
+      "part": "CVP-004",
+      "status": "active"
+    },
+    {
+      "name": "note",
+      "capability": "content",
+      "part": "CVP-011",
+      "status": "active",
+      "grandfathered": "Registered before the naming rule; new events must be <area>.<name>"
+    }
+  ],
+  "capabilities": [
+    {
+      "name": "authority",
+      "part": "CVP-011",
+      "note": "implies every other capability; authority events also need the community's threshold"
+    },
+    {
+      "name": "govern",
+      "part": "CVP-012"
+    },
+    {
+      "name": "members",
+      "part": "CVP-004"
+    },
+    {
+      "name": "roles",
+      "part": "CVP-004"
+    },
+    {
+      "name": "moderate",
+      "part": "CVP-004"
+    },
+    {
+      "name": "channels",
+      "part": "CVP-004"
+    },
+    {
+      "name": "content",
+      "part": "CVP-004"
+    }
+  ],
+  "extensionExecution": [
+    {
+      "name": "client-local",
+      "permissions": [
+        "read.selected",
+        "read.channel",
+        "write.message",
+        "ui.panel",
+        "ui.command",
+        "storage.local"
+      ],
+      "part": "CVP-008"
+    },
+    {
+      "name": "server-side",
+      "permissions": [
+        "read.metadata",
+        "read.ciphertext",
+        "write.ciphertext",
+        "queue",
+        "ratelimit"
+      ],
+      "part": "CVP-008",
+      "grandfathered": "queue and ratelimit predate the <verb>.<object> rule"
+    },
+    {
+      "name": "external",
+      "permissions": [
+        "send.selected",
+        "ui.panel"
+      ],
+      "part": "CVP-008"
+    },
+    {
+      "name": "public",
+      "permissions": [
+        "read.public",
+        "publish.public"
+      ],
+      "part": "CVP-008"
+    }
+  ],
+  "consentActions": [
+    {
+      "name": "read",
+      "part": "CVP-014"
+    },
+    {
+      "name": "store",
+      "part": "CVP-014"
+    },
+    {
+      "name": "replicate",
+      "part": "CVP-014"
+    },
+    {
+      "name": "forward",
+      "part": "CVP-014"
+    },
+    {
+      "name": "process",
+      "part": "CVP-014"
+    },
+    {
+      "name": "publish",
+      "part": "CVP-014"
+    }
+  ],
+  "voteMethods": [
+    {
+      "name": "majority",
+      "part": "CVP-012"
+    },
+    {
+      "name": "supermajority",
+      "part": "CVP-012"
+    },
+    {
+      "name": "approval",
+      "part": "CVP-012"
+    },
+    {
+      "name": "ranked",
+      "part": "CVP-012"
+    }
+  ],
+  "suites": [
+    {
+      "name": "Ed25519",
+      "use": "classical signatures on signed records and site requests",
+      "part": "CVP-002",
+      "code": "core/signed.js ALG",
+      "status": "active"
+    },
+    {
+      "name": "Ed25519+ML-DSA-65",
+      "use": "quantum-resistant signatures on signed records; both must verify",
+      "part": "CVP-015",
+      "code": "core/signed.js HYBRID_ALG",
+      "status": "active"
+    },
+    {
+      "name": "p256-mlkem768+mldsa65",
+      "use": "sealed relay between sites",
+      "part": "CVP-015",
+      "code": "wire/sealed.js SUITE",
+      "status": "active"
+    },
+    {
+      "name": "P256-SHA256",
+      "use": "RFC 9497 VOPRF tokens",
+      "part": "CVP-013",
+      "code": "tokens/voprf.js SUITE",
+      "status": "active"
+    },
+    {
+      "name": "MLKEM768-P256",
+      "use": "hybrid sealing in the older envelope",
+      "part": "CVP-003",
+      "code": "crypto/kem.js KEM_NAME",
+      "status": "active"
+    }
+  ],
+  "labels": [
+    {
+      "label": "secure-net/<kind>/v1",
+      "use": "signed records: prefix of the signed bytes, followed by a newline",
+      "part": "CVP-002",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/relay/v1",
+      "use": "sealed relay key derivation",
+      "part": "CVP-015",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/tokens/v1/<scope>",
+      "use": "VOPRF key derivation per scope",
+      "part": "CVP-013",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/nullifier/v1",
+      "use": "token nullifiers",
+      "part": "CVP-013",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/session/v1",
+      "use": "prefix of every session label below",
+      "part": "CVP-016",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/session/v1/<purpose>",
+      "use": "how session/primitives.js builds the labels below; it refuses any purpose not registered here",
+      "part": "CVP-016",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/session/v1/handshake",
+      "use": "handshake secret (HKDF info, followed by the transcript hash)",
+      "part": "CVP-016",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/session/v1/transcript",
+      "use": "transcript hash prefix",
+      "part": "CVP-016",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/session/v1/root",
+      "use": "root chain HKDF info",
+      "part": "CVP-016",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/session/v1/message",
+      "use": "message key HKDF info",
+      "part": "CVP-016",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/session/v1/group",
+      "use": "group message key HKDF info, and associated-data prefix",
+      "part": "CVP-016",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/session/v1/group-sig",
+      "use": "group message signature prefix",
+      "part": "CVP-016",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/session/v1/history",
+      "use": "history chunk HKDF info, and associated-data prefix",
+      "part": "CVP-016",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/session/v1/history/<i>",
+      "use": "per-chunk key derivation",
+      "part": "CVP-016",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/session/v1/link",
+      "use": "link code",
+      "part": "CVP-016",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/session/v1/safety",
+      "use": "safety number",
+      "part": "CVP-016",
+      "status": "active"
+    },
+    {
+      "label": "commonveil-request/v1",
+      "use": "first line of a site request's signature base",
+      "part": "CVP-005",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/<context>",
+      "use": "older canonical signing contexts",
+      "part": "CVP-001",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/content/v1",
+      "use": "older envelope content binding",
+      "part": "CVP-003",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/key-commitment/v1",
+      "use": "older key commitments",
+      "part": "CVP-003",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/wrap/v1",
+      "use": "older key wrapping",
+      "part": "CVP-003",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/chain-digest/v1",
+      "use": "account key chain digests",
+      "part": "CVP-001",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/link-code/v2",
+      "use": "older link codes",
+      "part": "CVP-001",
+      "status": "deprecated"
+    },
+    {
+      "label": "commonveil/link-code/v3",
+      "use": "older link codes with ML-KEM keys",
+      "part": "CVP-001",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/safety/v2",
+      "use": "older safety numbers",
+      "part": "CVP-001",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/kem-seal/v1",
+      "use": "older hybrid sealing salt",
+      "part": "CVP-003",
+      "status": "active"
+    },
+    {
+      "label": "commonveil.keyring.v1",
+      "use": "older account keyring",
+      "part": "CVP-003",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/keyring-recovery/v1",
+      "use": "older keyring recovery",
+      "part": "CVP-003",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/keyring-to-device/v1",
+      "use": "older keyring delivery to devices",
+      "part": "CVP-003",
+      "status": "active"
+    },
+    {
+      "label": "commonveil passcode check v1",
+      "use": "app lock passcode check",
+      "part": "CVP-001",
+      "status": "active",
+      "grandfathered": "Not in label form"
+    },
+    {
+      "label": "commonveil-lock:<purpose>",
+      "use": "app lock associated data",
+      "part": "CVP-001",
+      "status": "active",
+      "grandfathered": "Not in label form"
+    },
+    {
+      "label": "commonveil/owner/v1",
+      "use": "site owner proofs",
+      "part": "CVP-005",
+      "status": "active"
+    },
+    {
+      "label": "commonveil-owner/v1",
+      "use": "site owner challenge",
+      "part": "CVP-005",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/recovery/v1",
+      "use": "recovery phrase derivation",
+      "part": "CVP-001",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/invite-preview/v1",
+      "use": "invite previews",
+      "part": "CVP-003",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/server-item-key/v1",
+      "use": "community item keys",
+      "part": "CVP-003",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/chain-commit/v1",
+      "use": "community key chain commitments",
+      "part": "CVP-003",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/key-grant/v1",
+      "use": "community key grants",
+      "part": "CVP-003",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/ratchet/v1",
+      "use": "community key ratchet",
+      "part": "CVP-003",
+      "status": "active"
+    },
+    {
+      "label": "commonveil/server-content/v1",
+      "use": "community content binding",
+      "part": "CVP-003",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/social/v1/session",
+      "use": "session tag on direct envelopes (SHA-256 of this label, a newline and the session's handshake hash)",
+      "part": "CVP-019",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/repo/v1/leaf",
+      "use": "Merkle leaf hash prefix (followed by a newline and the record id)",
+      "part": "CVP-020",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/repo/v1/node",
+      "use": "Merkle node hash prefix (followed by a newline and the two child hashes)",
+      "part": "CVP-020",
+      "status": "active"
+    },
+    {
+      "label": "secure-net/repo/v1/empty",
+      "use": "root of an empty repository",
+      "part": "CVP-020",
+      "status": "active"
+    }
+  ],
+  "identifiers": [
+    {
+      "name": "commonveil/1",
+      "use": "the federation protocol identifier (wire/federation.js PROTOCOL)",
+      "part": "CVP-005",
+      "status": "active"
+    },
+    {
+      "name": "secure-net",
+      "use": "the protocol named in a site document (wire/features.js describeSite)",
+      "part": "CVP-008",
+      "status": "active"
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "site-document",
+      "path": "/.well-known/commonveil",
+      "part": "CVP-005",
+      "fixed": true
+    },
+    {
+      "name": "act",
+      "path": "/cvp/v1/act",
+      "part": "CVP-005"
+    },
+    {
+      "name": "directory",
+      "path": "/cvp/v1/directory",
+      "part": "CVP-005"
+    },
+    {
+      "name": "inbox",
+      "path": "/cvp/v1/inbox",
+      "part": "CVP-005"
+    },
+    {
+      "name": "discover",
+      "path": "/cvp/v1/discover",
+      "part": "CVP-005"
+    },
+    {
+      "name": "actors",
+      "path": "/cvp/v1/actors/{name}/{room}",
+      "part": "CVP-005"
+    },
+    {
+      "name": "identity",
+      "path": "/.well-known/commonveil/identity",
+      "part": "CVP-001"
+    },
+    {
+      "name": "files",
+      "path": "/api/files",
+      "part": "CVP-006"
+    },
+    {
+      "name": "actor",
+      "path": "/.well-known/commonveil/actor",
+      "part": "CVP-017"
+    },
+    {
+      "name": "prekeys",
+      "path": "/cvp/v2/prekeys/{actor}/{device}",
+      "part": "CVP-017"
+    },
+    {
+      "name": "deliver",
+      "path": "/cvp/v2/deliver",
+      "part": "CVP-019"
+    },
+    {
+      "name": "outbox",
+      "path": "/cvp/v2/outbox",
+      "part": "CVP-019"
+    },
+    {
+      "name": "mailbox",
+      "path": "/cvp/v2/mailbox",
+      "part": "CVP-019"
+    },
+    {
+      "name": "public",
+      "path": "/cvp/v2/public/{actor}",
+      "part": "CVP-019"
+    },
+    {
+      "name": "repo",
+      "path": "/cvp/v2/repo/{actor}",
+      "part": "CVP-020"
+    },
+    {
+      "name": "changes",
+      "path": "/cvp/v2/changes",
+      "part": "CVP-020"
+    },
+    {
+      "name": "lexicon",
+      "path": "/cvp/v2/lexicon/{id}",
+      "part": "CVP-021"
+    }
+  ],
+  "headers": [
+    {
+      "name": "CV-From",
+      "use": "sending site's host",
+      "part": "CVP-005"
+    },
+    {
+      "name": "CV-Date",
+      "use": "request time",
+      "part": "CVP-005"
+    },
+    {
+      "name": "CV-Nonce",
+      "use": "one-off request nonce",
+      "part": "CVP-005"
+    },
+    {
+      "name": "CV-Digest",
+      "use": "body digest (sha-256=<base64url>)",
+      "part": "CVP-005"
+    },
+    {
+      "name": "CV-User",
+      "use": "id of the person the request is made on behalf of (covered by the signature)",
+      "part": "CVP-005"
+    },
+    {
+      "name": "CV-Person",
+      "use": "base64 JSON profile card of that person, on actor connections; its id MUST equal CV-User",
+      "part": "CVP-005"
+    },
+    {
+      "name": "CV-Signature",
+      "use": "Ed25519 signature over the signature base",
+      "part": "CVP-005"
+    },
+    {
+      "name": "CV-PQ-Signature",
+      "use": "ML-DSA-65 signature over the signature base",
+      "part": "CVP-015"
+    },
+    {
+      "name": "CV-Sealed",
+      "use": "marks a sealed request body",
+      "part": "CVP-015"
+    }
+  ],
+  "profiles": [
+    {
+      "name": "core",
+      "title": "Core",
+      "parts": [
+        "CVP-002"
+      ],
+      "for": "Anything that creates or checks signed records"
+    },
+    {
+      "name": "messaging",
+      "title": "Messaging app",
+      "parts": [
+        "CVP-002",
+        "CVP-016"
+      ],
+      "for": "Apps that send end-to-end encrypted messages"
+    },
+    {
+      "name": "site",
+      "title": "Federating site",
+      "parts": [
+        "CVP-002",
+        "CVP-005",
+        "CVP-008",
+        "CVP-015"
+      ],
+      "for": "Servers that talk to other sites"
+    },
+    {
+      "name": "community",
+      "title": "Community host or mirror",
+      "parts": [
+        "CVP-002",
+        "CVP-004",
+        "CVP-011"
+      ],
+      "for": "Sites that host or mirror communities"
+    },
+    {
+      "name": "governance",
+      "title": "Governance",
+      "parts": [
+        "CVP-002",
+        "CVP-011",
+        "CVP-012",
+        "CVP-013"
+      ],
+      "for": "Motions, debates and ballots"
+    },
+    {
+      "name": "extensions",
+      "title": "Extensions and consent",
+      "parts": [
+        "CVP-002",
+        "CVP-008",
+        "CVP-014"
+      ],
+      "for": "Hosts that run extensions or honour consent capsules"
+    },
+    {
+      "name": "commonveil-compatible",
+      "title": "Commonveil-compatible (older)",
+      "parts": [
+        "CVP-001",
+        "CVP-002",
+        "CVP-003",
+        "CVP-005"
+      ],
+      "for": "Talking to today's Commonveil sites, before they move to CVP-016"
+    },
+    {
+      "name": "social",
+      "title": "Social network site or app",
+      "parts": [
+        "CVP-002",
+        "CVP-005",
+        "CVP-015",
+        "CVP-016",
+        "CVP-017",
+        "CVP-018",
+        "CVP-019",
+        "CVP-020",
+        "CVP-021"
+      ],
+      "for": "Federated social networking, end to end encrypted, with portable accounts and verifiable public data"
+    }
+  ],
+  "actorTypes": [
+    {
+      "name": "Person",
+      "part": "CVP-017",
+      "as2": "https://www.w3.org/ns/activitystreams#Person"
+    },
+    {
+      "name": "Group",
+      "part": "CVP-017",
+      "as2": "https://www.w3.org/ns/activitystreams#Group"
+    },
+    {
+      "name": "Organization",
+      "part": "CVP-017",
+      "as2": "https://www.w3.org/ns/activitystreams#Organization"
+    },
+    {
+      "name": "Service",
+      "part": "CVP-017",
+      "as2": "https://www.w3.org/ns/activitystreams#Service"
+    },
+    {
+      "name": "Application",
+      "part": "CVP-017",
+      "as2": "https://www.w3.org/ns/activitystreams#Application"
+    }
+  ],
+  "activityTypes": [
+    {
+      "name": "Create",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Create"
+    },
+    {
+      "name": "Update",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Update"
+    },
+    {
+      "name": "Delete",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Delete"
+    },
+    {
+      "name": "Follow",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Follow"
+    },
+    {
+      "name": "Accept",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Accept"
+    },
+    {
+      "name": "Reject",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Reject"
+    },
+    {
+      "name": "Undo",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Undo"
+    },
+    {
+      "name": "Like",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Like"
+    },
+    {
+      "name": "Announce",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Announce"
+    },
+    {
+      "name": "Add",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Add"
+    },
+    {
+      "name": "Remove",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Remove"
+    },
+    {
+      "name": "Block",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Block"
+    },
+    {
+      "name": "Flag",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Flag"
+    },
+    {
+      "name": "Join",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Join"
+    },
+    {
+      "name": "Leave",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Leave"
+    },
+    {
+      "name": "Invite",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Invite"
+    },
+    {
+      "name": "Move",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Move"
+    }
+  ],
+  "objectTypes": [
+    {
+      "name": "Note",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Note"
+    },
+    {
+      "name": "Article",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Article"
+    },
+    {
+      "name": "Image",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Image"
+    },
+    {
+      "name": "Video",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Video"
+    },
+    {
+      "name": "Audio",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Audio"
+    },
+    {
+      "name": "Document",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Document"
+    },
+    {
+      "name": "Page",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Page"
+    },
+    {
+      "name": "Event",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Event"
+    },
+    {
+      "name": "Place",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Place"
+    },
+    {
+      "name": "Question",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Question"
+    },
+    {
+      "name": "Tombstone",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Tombstone"
+    }
+  ],
+  "addresses": [
+    {
+      "name": "public",
+      "part": "CVP-018",
+      "as2": "https://www.w3.org/ns/activitystreams#Public"
+    },
+    {
+      "name": "followers",
+      "part": "CVP-018",
+      "as2": "the actor's followers collection"
+    }
+  ],
+  "envelopeModes": [
+    {
+      "name": "public",
+      "part": "CVP-019",
+      "note": "signed, readable"
+    },
+    {
+      "name": "direct",
+      "part": "CVP-019",
+      "note": "CVP-016 session to one device"
+    },
+    {
+      "name": "audience",
+      "part": "CVP-019",
+      "note": "CVP-016 sender key, one ciphertext for an audience"
+    }
+  ],
+  "lexiconFieldTypes": [
+    {
+      "name": "string",
+      "part": "CVP-021"
+    },
+    {
+      "name": "integer",
+      "part": "CVP-021"
+    },
+    {
+      "name": "boolean",
+      "part": "CVP-021"
+    },
+    {
+      "name": "id",
+      "part": "CVP-021"
+    },
+    {
+      "name": "actor",
+      "part": "CVP-021"
+    },
+    {
+      "name": "array",
+      "part": "CVP-021"
+    }
+  ]
+}

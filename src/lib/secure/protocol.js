@@ -446,8 +446,21 @@ const timerOf = (conversation) => {
   return EXPIRY_CHOICES.includes(seconds) && seconds > 0 ? { expire_seconds: seconds } : {};
 };
 
-async function buildMessageBody({ userId, device, conversation, chains, payload, keyring, itemId = null }) {
-  const item = await buildItem({ kind: "message", userId, device, conversation, chains, payload: { ...payload, ...timerOf(conversation) }, keyring, itemId });
+/**
+ * fs: the experimental protocol layer's second seal (pq/engine.js), when it's on and everyone in
+ * the conversation has it. Called with the finished payload and what it is for; returns the
+ * payload to send in its place (sealed under a one-off key it has already sent to their devices),
+ * or null to send as usual. A failure there never stops a message: it goes without the layer.
+ */
+async function buildMessageBody({ userId, device, conversation, chains, payload, keyring, itemId = null, fs = null }) {
+  let full = { ...payload, ...timerOf(conversation) };
+  let presetId = itemId;
+  if (fs) {
+    presetId = presetId && isItemId(presetId) ? presetId : randomId(16);
+    const wrapped = await Promise.resolve(fs(full, { conversationId: conversation.id, itemId: presetId, senderId: userId })).catch(() => null);
+    if (wrapped && wrapped.type === "fs") full = { ...wrapped, ...timerOf(conversation) };
+  }
+  const item = await buildItem({ kind: "message", userId, device, conversation, chains, payload: full, keyring, itemId: presetId });
   return {
     action: "send",
     conversation_id: conversation.id,
@@ -463,13 +476,13 @@ async function buildMessageBody({ userId, device, conversation, chains, payload,
  * chains: Map(user_id -> verified chain) covering every member, including you.
  * replyTo: the msg_id of the message this answers, if any. Only the id is sent, never a copy of it.
  */
-export async function buildMessage({ userId, device, conversation, chains, text, keyring = null, replyTo = null }) {
+export async function buildMessage({ userId, device, conversation, chains, text, keyring = null, replyTo = null, fs = null }) {
   const payload = { type: "text", text: cleanMessageText(text) };
   if (replyTo !== null && replyTo !== undefined) {
     if (!isItemId(replyTo)) throw new Error("That message can't be replied to.");
     payload.reply_to = replyTo;
   }
-  return buildMessageBody({ userId, device, conversation, chains, payload, keyring });
+  return buildMessageBody({ userId, device, conversation, chains, payload, keyring, fs });
 }
 
 /** Add (or, with remove, take back) one of the offered reactions to a message. */
@@ -481,9 +494,9 @@ export async function buildReaction({ userId, device, conversation, chains, keyr
 }
 
 /** Any other checked payload (a poll, a vote), built like a message. */
-export async function buildPayloadMessage({ userId, device, conversation, chains, keyring = null, payload, itemId = null }) {
+export async function buildPayloadMessage({ userId, device, conversation, chains, keyring = null, payload, itemId = null, fs = null }) {
   if (!messageContent(payload)) throw new Error("That can't be sent.");
-  return buildMessageBody({ userId, device, conversation, chains, payload, keyring, itemId });
+  return buildMessageBody({ userId, device, conversation, chains, payload, keyring, itemId, fs });
 }
 
 // ---------- reports to a server's moderators ----------
@@ -603,7 +616,12 @@ export function sentAfterRemoval(chain, certVersion, sentAt) {
  * minCertVersion: the oldest key version whose device certificates count (for your own
  * account, the first version in your keyring).
  */
-export async function openItem({ kind, item, userId, keyring, senderChain, senderDevices, minCertVersion = 1, reportServerId = null }) {
+/**
+ * fsOpen: the experimental protocol layer (pq/engine.js). Called with a payload that was sealed a
+ * second time and what it is for; returns the payload inside, or null when this device doesn't
+ * hold that message's one-off key (it wasn't linked when the message was sent).
+ */
+export async function openItem({ kind, item, userId, keyring, senderChain, senderDevices, minCertVersion = 1, reportServerId = null, fsOpen = null }) {
   if (item.deleted || !item.envelope) return { status: "deleted" };
   const itemId = kind === "title" ? item.item_id : item.msg_id;
   const conversationId = item.conversation_id;
@@ -644,7 +662,23 @@ export async function openItem({ kind, item, userId, keyring, senderChain, sende
     // A report is about the person it says it's about: the service can't relabel it.
     return report ? { ...base, content: report, text: report.note } : { status: "locked", code: "BAD_PAYLOAD", message: "Unrecognised report." };
   }
+  let forwardSecret = false;
+  if (kind === "message" && payload?.type === "fs") {
+    const missing = { status: "locked", code: "FS_KEY_MISSING", message: "This message has extra protection, and its key was only sent to the devices linked at the time. This device wasn't one of them." };
+    if (!fsOpen) return missing;
+    let inner = null;
+    try {
+      inner = await fsOpen(payload, { conversationId, itemId, senderId: item.sender_id });
+    } catch {
+      return { status: "locked", code: "FS_BAD_KEY", message: "This message's extra protection couldn't be opened." };
+    }
+    // What's inside is an ordinary message: never another sealed one.
+    if (!inner) return missing;
+    if (inner.type === "fs") return { status: "locked", code: "BAD_PAYLOAD", message: "Unrecognised content." };
+    payload = inner;
+    forwardSecret = true;
+  }
   const content = messageContent(payload);
   if (!content) return { status: "locked", code: "BAD_PAYLOAD", message: "This message needs a newer version of Commonveil." };
-  return { ...base, text: textOf(content), content };
+  return { ...base, text: textOf(content), content, ...(forwardSecret ? { forwardSecret: true } : {}) };
 }
