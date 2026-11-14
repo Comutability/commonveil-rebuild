@@ -84,7 +84,10 @@ test("tampering, downgrades and replays are refused, and leave the session as it
   let { a, b } = await pair();
   const m = await encrypt(b, "secret");
   b = m.state;
-  const flip = { ...m.message, c: m.message.c.slice(0, -2) + (m.message.c.endsWith("A") ? "BA" : "AA") };
+  // Change one character in the middle: the last characters of base64url carry spare bits, so
+  // changing those can leave the bytes as they were.
+  const mid = Math.floor(m.message.c.length / 2);
+  const flip = { ...m.message, c: m.message.c.slice(0, mid) + (m.message.c[mid] === "A" ? "B" : "A") + m.message.c.slice(mid + 1) };
   assert.equal(await code(decrypt(a, flip)), "DECRYPT_FAILED");
   assert.equal(await code(decrypt(a, { ...m.message, h: { ...m.message.h, n: 1 } })), "DECRYPT_FAILED");
   const { ct: _ct, ...noKem } = m.message.h;
