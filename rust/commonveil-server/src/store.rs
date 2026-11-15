@@ -252,8 +252,7 @@ fn indexable(query: &Value, out: &mut Vec<(String, Vec<Value>)>) {
     }
 }
 
-/// Rows and index sets keep insertion order, as JavaScript's Map and Set do: with a comparison
-/// that isn't consistent (mixed types), the order rows reach the sort decides the result.
+/// Rows and index sets keep insertion order, as JavaScript's Map and Set do.
 #[derive(Default)]
 struct Table {
     rows: IndexMap<String, Value>,
@@ -507,7 +506,7 @@ impl Store {
         let field = if field_text.starts_with('-') || field_text.starts_with('+') { &field_text[1..] } else { &field_text[..] };
         let dir = if js::truthy(Some(sort)) && js::to_js_string(Some(sort)).starts_with('-') { -1 } else { 1 };
         let mut found = Self::find(t, query)?;
-        // `dir * compare(a[field], b[field]) || seqA - seqB`, sorted exactly as V8 sorts.
+        // `dir * compare(a[field], b[field]) || seqA - seqB` (see timsort.rs on mixed types).
         crate::timsort::sort(&mut found, |a, b| {
             let c = match js::compare(t.rows[a].get(field), t.rows[b].get(field)) {
                 std::cmp::Ordering::Less => -1,

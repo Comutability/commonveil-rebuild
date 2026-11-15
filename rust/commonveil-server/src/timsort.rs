@@ -1,8 +1,9 @@
-//! `Array.prototype.sort` exactly as V8 does it (its TimSort, from third_party/v8/builtins/
-//! array-sort.tq, itself after CPython's listsort). With a consistent comparison any stable sort
-//! would do; the store's comparison isn't consistent when a field mixes types (as JavaScript's `<`
-//! isn't), and then only the same algorithm gives the same order. It also never panics on an
-//! inconsistent comparison, which the standard library's sort may.
+//! A TimSort (after V8's array-sort.tq as of Node.js 22, itself after CPython's listsort), used
+//! because it never panics on an inconsistent comparison, which the standard library's sort may.
+//! The store's comparison is consistent whenever a field holds one type, as real fields do, and
+//! then any stable sort gives the same order. When a field mixes types, JavaScript leaves the
+//! order to the engine (Node.js 22 and 26 differ), so no order is promised; this one is at least
+//! deterministic.
 const MIN_GALLOP_WINS: usize = 7;
 
 struct State<'a, T, F> {

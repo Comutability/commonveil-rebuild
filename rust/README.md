@@ -19,11 +19,12 @@ image switches, in a release made under [AGENTS.md](../AGENTS.md)'s rules.
 Anything not yet moved answers `501 NOT_YET`, so a half-moved server can't be mistaken for a
 working one.
 
-Two things the comparison found, both now matched: JavaScript's `<` isn't a consistent ordering
-when a field mixes types, so the store sorts with a port of V8's own `Array.prototype.sort`
-(`timsort.rs`), and rows are kept in insertion order, as JavaScript's `Map` and `Set` keep them,
-because with such a comparison that order decides the result. A `sort` of `null` sorts oldest
-first, as in the Node.js store, while a missing one sorts newest first.
+What the comparison found: a `sort` of `null` sorts oldest first in the Node.js store, while a
+missing one sorts newest first; Rust now does the same. And JavaScript's `<` isn't a consistent
+ordering when a field mixes types, so the order of such a sort is up to the engine: Node.js 22 and
+26 give different orders for the same rows. Real fields hold one type each (their schemas say
+which), so the comparison sorts only on such fields. The store sorts with a TimSort (`timsort.rs`)
+because, unlike the standard library's sort, it never panics on an inconsistent comparison.
 
 ## Working on it
 

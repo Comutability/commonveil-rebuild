@@ -62,6 +62,20 @@ fn workload(seed: u64) -> Vec<Value> {
                 if r.chance(4) {
                     row.remove("n");
                 }
+                // Sorted fields hold one type each, as real fields do: JavaScript leaves the order
+                // of mixed types up to the engine (Node 22 and 26 differ), so it isn't compared.
+                match r.next() % 4 {
+                    0 => {}
+                    1 => {
+                        row.insert("rank".into(), json!(null));
+                    }
+                    _ => {
+                        row.insert("rank".into(), json!((r.next() % 7) as i64 - 3));
+                    }
+                }
+                if !r.chance(5) {
+                    row.insert("label".into(), json!(r.pick(&["b", "A", "a", "é", "10", "9", "Zoë", ""])));
+                }
                 let id = format!("id{i:06}x{}", r.next() % 1000);
                 ids.push((table.to_string(), id.clone()));
                 json!({ "op": "create", "table": table, "id": id, "data": row })
@@ -78,7 +92,7 @@ fn workload(seed: u64) -> Vec<Value> {
                     7 => json!({ field: [v, "a"] }),
                     _ => json!({}),
                 };
-                let sort = r.pick(&[json!(null), json!("n"), json!("-n"), json!("name"), json!("-name"), json!("+status"), json!("-created_date"), json!("missing")]).clone();
+                let sort = r.pick(&[json!(null), json!("rank"), json!("-rank"), json!("label"), json!("-label"), json!("+status"), json!("-created_date"), json!("missing")]).clone();
                 let limit = r.pick(&[json!(null), json!(3), json!(0), json!(-1), json!(10000)]).clone();
                 let skip = r.pick(&[json!(null), json!(1), json!(2.7)]).clone();
                 let mut o = json!({ "op": "filter", "table": table, "query": query, "sort": sort, "limit": limit, "skip": skip });
