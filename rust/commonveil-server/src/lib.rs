@@ -25,6 +25,7 @@ pub mod server_messages;
 pub mod file_store;
 pub mod actors;
 pub mod rooms;
+pub mod cli;
 pub mod files;
 pub mod updates;
 pub mod maintenance;
