@@ -369,6 +369,12 @@ impl Store {
         Ok(Self { schemas, inner: Mutex::new(Inner { db, seq, micros: 0, tables: HashMap::new() }), on_write: None, on_remove: None })
     }
 
+    /// A consistent copy of the whole database in a new file (SQLite's `VACUUM INTO`).
+    pub fn vacuum_into(&self, file: &std::path::Path) -> rusqlite::Result<()> {
+        let inner = self.inner.lock().unwrap();
+        inner.db.execute("VACUUM INTO ?", [file.to_string_lossy().as_ref()]).map(|_| ())
+    }
+
     /// Small settings the server keeps for itself (not entities).
     pub fn get_setting(&self, k: &str) -> Option<Value> {
         let inner = self.inner.lock().unwrap();

@@ -13,6 +13,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let entities = std::env::var("ENTITIES_DIR").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../base44/entities"));
     let (bind, port, url, version) = (config.bind.clone(), config.port, config.site_url.clone(), config.version.clone());
     let app = App::new(config, &entities)?;
+    // Scheduled tasks (on Base44 these are workflows).
+    commonveil_server::maintenance::start(&app);
+    commonveil_server::updates::start(&app);
     let listener = tokio::net::TcpListener::bind((bind.as_str(), port)).await?;
     println!("Commonveil {version} (Rust server) is running at {url} (listening on {bind}:{port})");
     axum::serve(listener, app.router())
