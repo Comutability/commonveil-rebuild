@@ -13,6 +13,7 @@ pub mod seo;
 pub mod sessions;
 pub mod store;
 pub mod timsort;
+pub mod webauthn;
 
 use std::path::Path;
 use std::sync::Arc;
