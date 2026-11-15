@@ -77,9 +77,16 @@ pub fn blank(v: &Value) -> Value {
         Value::String(s) if s.len() == 6 && s.bytes().all(|c| c.is_ascii_digit()) => json!("<code>"),
         Value::String(s) if s.len() >= 12 && s.bytes().all(|c| c.is_ascii_alphanumeric() || b"_-.".contains(&c)) && s.bytes().any(|c| c.is_ascii_digit()) => json!("<random>"),
         Value::String(s) if s.len() >= 16 && s.bytes().all(|c| c.is_ascii_alphanumeric() || b"+/=_-.".contains(&c)) && s.bytes().any(|c| c.is_ascii_digit() || b"+/=".contains(&c)) => json!("<random>"),
+        // Tokens and secrets: long runs of base64 characters (even ones that happen to hold no digit).
+        Value::String(s) if s.len() >= 24 && s.bytes().all(|c| c.is_ascii_alphanumeric() || b"+/=_-.".contains(&c)) && !s.bytes().all(|c| c.is_ascii_uppercase() || c == b'_') => json!("<random>"),
         Value::Number(n) if n.as_f64().is_some_and(|f| f > 1e12) => json!("<time>"),
         Value::Array(a) => Value::Array(a.iter().map(blank).collect()),
-        Value::Object(o) => Value::Object(o.iter().map(|(k, v)| (if blank(&json!(k)).is_string() && blank(&json!(k)) != json!(k) { "<key>".to_string() } else { k.clone() }, blank(v))).collect()),
+        // Ciphertext parts are random whatever characters they happen to use.
+        Value::Object(o) => Value::Object(o.iter().map(|(k, v)| {
+            let key = if blank(&json!(k)) != json!(k) { "<key>".to_string() } else { k.clone() };
+            let value = if ["iv", "ct", "kct", "epk", "wk"].contains(&k.as_str()) && v.is_string() { json!("<random>") } else { blank(v) };
+            (key, value)
+        }).collect()),
         _ => v.clone(),
     }
 }
