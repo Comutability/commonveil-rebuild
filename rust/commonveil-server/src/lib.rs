@@ -22,6 +22,12 @@ pub mod profile;
 pub mod safety;
 pub mod seo;
 pub mod server_messages;
+pub mod file_store;
+pub mod files;
+pub mod moderation;
+pub mod protocol;
+pub mod snips;
+pub mod voice_events;
 pub mod servers;
 pub mod servers_build;
 pub mod servers_core;
@@ -48,9 +54,7 @@ use crate::store::Store;
 
 /// What the Node.js server answers that this one doesn't do yet (so a half-ported server can't be
 /// mistaken for a working one).
-const NOT_YET: [&str; 3] = ["/api/functions/", "/api/files/", "/api/admin/updates"];
-/// The backend functions this server runs so far.
-const FUNCTIONS: [&str; 12] = ["identity", "profile", "keys", "conversations", "messages", "notifications", "safety", "admin", "disclose", "invite", "servers", "channels"];
+const NOT_YET: [&str; 1] = ["/api/admin/updates"];
 const ENTITY_OPS: [&str; 6] = ["filter", "list", "get", "create", "update", "delete"];
 /// Tables the app only ever reads through the backend functions (CV-06): direct reads are refused.
 const FUNCTIONS_ONLY: [&str; 1] = ["ServerMessage"];
@@ -61,15 +65,24 @@ pub struct App {
     pub store: Store,
     pub keys: sessions::Keys,
     pub bootstrap: bootstrap::Bootstrap,
+    pub files: file_store::FileStore,
     functions: std::collections::BTreeMap<&'static str, api::Actions>,
 }
 
 impl App {
     pub fn new(config: Config, entities_dir: &Path) -> rusqlite::Result<Arc<Self>> {
-        let store = Store::open(config.db_file.to_str().unwrap_or(":memory:"), store::load_schemas(entities_dir))?;
+        let mut store = Store::open(config.db_file.to_str().unwrap_or(":memory:"), store::load_schemas(entities_dir))?;
+        let files = file_store::FileStore::new(&config.files_dir, &config.secret, &config.site_url);
+        // Deleting a file's row removes the file.
+        let on_files = files.clone();
+        store.on_remove = Some(Box::new(move |entity: &str, _id: &str, row: &serde_json::Value| {
+            if entity == "Attachment" && crate::js::truthy(row.get("file_uri")) {
+                on_files.remove(row["file_uri"].as_str().unwrap_or(""));
+            }
+        }));
         let bootstrap = bootstrap::Bootstrap::new(&config.data_dir);
         bootstrap.prepare(&store);
-        Ok(Arc::new(Self { config, store, keys: sessions::Keys::default(), bootstrap, functions: [("identity", identity::actions()), ("profile", profile::actions()), ("keys", keys::actions()), ("conversations", conversations::actions()), ("messages", messages::actions()), ("notifications", notifications::actions()), ("safety", safety::safety_actions()), ("admin", safety::admin_actions()), ("disclose", safety::disclosure_actions()), ("invite", servers::invite_actions()), ("servers", servers::actions()), ("channels", server_messages::actions())].into_iter().collect() }))
+        Ok(Arc::new(Self { config, store, keys: sessions::Keys::default(), bootstrap, files, functions: [("identity", identity::actions()), ("profile", profile::actions()), ("keys", keys::actions()), ("conversations", conversations::actions()), ("messages", messages::actions()), ("notifications", notifications::actions()), ("safety", safety::safety_actions()), ("admin", safety::admin_actions()), ("disclose", safety::disclosure_actions()), ("invite", servers::invite_actions()), ("servers", servers::actions()), ("channels", server_messages::actions()), ("voice", voice_events::voice_actions()), ("events", voice_events::event_actions()), ("files", files::actions()), ("moderation", moderation::actions()), ("protocol", protocol::actions()), ("snips", snips::actions())].into_iter().collect() }))
     }
 
     /// Who's calling: Commonveil sign-in's access token, sent as the bearer token. The user is
@@ -145,10 +158,13 @@ async fn entities(app: Arc<App>, req: Request, path: &str) -> Response<Body> {
 
 /// `/api/functions/<name>`: one backend function's action, as the caller.
 async fn function(app: Arc<App>, req: Request, name: &str) -> Response<Body> {
-    if req.method() != Method::POST {
+    if req.method() != Method::POST || !app.functions.contains_key(name) {
         return http::json(404, &json!({ "error": "Unknown function.", "code": "NOT_FOUND" }));
     }
-    let options = api::RunOptions { allow_anonymous: name == "identity" || name == "disclose" || name == "invite", ..Default::default() };
+    let options = api::RunOptions {
+        allow_anonymous: name == "identity" || name == "disclose" || name == "invite",
+        max_body_bytes: if name == "files" { files::FILES_MAX_BODY } else { api::Limits::MAX_BODY_BYTES },
+    };
     let token = bearer(&req);
     let Ok(bytes) = axum::body::to_bytes(req.into_body(), options.max_body_bytes + 1024).await else {
         return http::json(413, &json!({ "error": "That request is too large.", "code": "TOO_LARGE" }));
@@ -171,6 +187,25 @@ async fn function(app: Arc<App>, req: Request, name: &str) -> Response<Body> {
     }
 }
 
+/// `/api/files/<name>?exp=&sig=`: a file behind a signed, short-lived link.
+fn file_link(app: &App, head: bool, name: &str, query: &str) -> Response<Body> {
+    let get = |k: &str| url::form_urlencoded::parse(query.as_bytes()).find(|(n, _)| n == k).map(|(_, v)| v.into_owned()).unwrap_or_default();
+    let Some(file) = app.files.open(name, &get("exp"), &get("sig"), sessions::now_ms()) else {
+        return http::json(404, &json!({ "error": "That link has expired.", "code": "NOT_FOUND" }));
+    };
+    let Ok(bytes) = std::fs::read(&file) else {
+        return http::json(404, &json!({ "error": "That link has expired.", "code": "NOT_FOUND" }));
+    };
+    let headers = [
+        ("Content-Type", "application/octet-stream".to_string()),
+        ("Cache-Control", "private, no-store".to_string()),
+        ("X-Content-Type-Options", "nosniff".to_string()),
+        ("Referrer-Policy", "no-referrer".to_string()),
+        ("Content-Length", bytes.len().to_string()),
+    ];
+    http::response(200, if head { Vec::new() } else { bytes }, &headers)
+}
+
 async fn handle(State(app): State<Arc<App>>, req: Request) -> Response<Body> {
     let path = req.uri().path().to_string();
     let pq = req.uri().path_and_query().map_or(path.clone(), |p| p.as_str().to_string());
@@ -188,9 +223,12 @@ async fn handle(State(app): State<Arc<App>>, req: Request) -> Response<Body> {
     if path.starts_with("/api/entities/") {
         return entities(app.clone(), req, &path).await;
     }
-    if let Some(name) = path.strip_prefix("/api/functions/").filter(|n| FUNCTIONS.contains(n)) {
+    if let Some(name) = path.strip_prefix("/api/functions/") {
         let name = name.to_string();
         return function(app.clone(), req, &name).await;
+    }
+    if let Some(name) = path.strip_prefix("/api/files/").filter(|_| req.method() == Method::GET || req.method() == Method::HEAD) {
+        return file_link(&app, req.method() == Method::HEAD, name, req.uri().query().unwrap_or(""));
     }
     if NOT_YET.iter().any(|p| path.starts_with(p)) {
         return http::json(501, &json!({ "error": "This part of the server hasn't moved to Rust yet.", "code": "NOT_YET" }));
