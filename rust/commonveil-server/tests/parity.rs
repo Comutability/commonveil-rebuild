@@ -316,3 +316,105 @@ fn the_site_and_its_pages_are_served_as_the_node_server_serves_them() {
         assert!(a.2 == b.2, "{method} {path}: body differs\nnode: {}\nrust: {}", String::from_utf8_lossy(&a.2[..a.2.len().min(400)]), String::from_utf8_lossy(&b.2[..b.2.len().min(400)]));
     }
 }
+
+fn request_json(port: u16, method: &str, path: &str, token: &str, body: &str) -> (u16, Value) {
+    use std::io::Read;
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let auth = if token.is_empty() { String::new() } else { format!("Authorization: Bearer {token}\r\n") };
+    write!(s, "{method} {path} HTTP/1.1\r\nHost: cv.example\r\nConnection: close\r\n{auth}Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+    let mut raw = Vec::new();
+    s.read_to_end(&mut raw).unwrap();
+    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let status: u16 = String::from_utf8_lossy(&raw[..split]).split(' ').nth(1).unwrap().parse().unwrap();
+    let mut body = raw[split + 4..].to_vec();
+    if String::from_utf8_lossy(&raw[..split]).to_lowercase().contains("transfer-encoding: chunked") {
+        let (mut out, mut i) = (Vec::new(), 0);
+        while let Some(end) = body[i..].windows(2).position(|w| w == b"\r\n") {
+            let size = usize::from_str_radix(String::from_utf8_lossy(&body[i..i + end]).trim(), 16).unwrap_or(0);
+            if size == 0 {
+                break;
+            }
+            out.extend_from_slice(&body[i + end + 2..i + end + 2 + size]);
+            i += end + 2 + size + 2;
+        }
+        body = out;
+    }
+    (status, serde_json::from_slice(&body).unwrap_or(Value::Null))
+}
+
+#[test]
+fn entity_reads_and_writes_follow_the_rules_as_on_the_node_server() {
+    if !node_ok() || !repo().join("node_modules").exists() || !repo().join("dist-selfhost/index.html").exists() {
+        eprintln!("skipped: node, the npm packages or dist-selfhost aren't there");
+        return;
+    }
+    use commonveil_server::sessions::{issue_access, now_ms, Keys};
+    let seed = tempfile::tempdir().unwrap();
+    let db = seed.path().join("commonveil.db");
+    let (t1, t2, t3) = {
+        let s = Store::open(db.to_str().unwrap(), load_schemas(&repo().join("base44/entities"))).unwrap();
+        let p = |id: &str, role: &str, access: &[&str]| s.create("Person", &json!({ "username": id, "role": role, "cv_access": access }), Some(&format!("{id}-0000000000"))).unwrap();
+        p("alice", "user", &["a1"]);
+        p("boss", "admin", &["a1", "a2"]);
+        s.create("User", &json!({ "email": "old@x", "role": "user", "cv_access": ["a2"] }), Some("olduser-000000")).unwrap();
+        for (i, (a, b)) in [("alice-0000000000", "boss-0000000000"), ("boss-0000000000", "olduser-000000"), ("olduser-000000", "olduser-000000")].iter().enumerate() {
+            s.create("Message", &json!({ "recipient_ids": [a, b], "n": i }), Some(&format!("message-{i:06}"))).unwrap();
+        }
+        for (i, a) in ["a1", "a2", "a3", "a1"].iter().enumerate() {
+            s.create("Channel", &json!({ "audience_id": a, "name": format!("c{i}"), "position": 4 - i }), Some(&format!("channel-{i:06}"))).unwrap();
+            s.create("ServerMessage", &json!({ "audience_id": a }), Some(&format!("smessage-{i:06}"))).unwrap();
+        }
+        for (i, st) in ["published", "draft", "published"].iter().enumerate() {
+            s.create("Resource", &json!({ "status": st, "name": format!("r{i}") }), Some(&format!("resource-{i:06}"))).unwrap();
+        }
+        s.create("Profile", &json!({ "user_id": "alice-0000000000", "bio": "hi" }), Some("profile-alice0")).unwrap();
+        let k = Keys::default();
+        let now = now_ms();
+        (issue_access(&k, &s, "alice-0000000000", "dev-a", now).0, issue_access(&k, &s, "boss-0000000000", "dev-b", now).0, issue_access(&k, &s, "olduser-000000", "dev-c", now).0)
+    };
+    let dist = repo().join("dist-selfhost");
+    let (d1, d2) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    for d in [&d1, &d2] {
+        std::fs::copy(&db, d.path().join("commonveil.db")).unwrap();
+    }
+    let (node, rust) = (start(true, &dist, d1.path()), start(false, &dist, d2.path()));
+    let bent = format!("{}x", &t1[..t1.len() - 1]);
+    let tokens = ["", t1.as_str(), t2.as_str(), t3.as_str(), bent.as_str()];
+    let bodies = [
+        ("Message", "filter", r#"{}"#),
+        ("Message", "filter", r#"{"query":{"n":{"$gte":1}},"sort":"-n"}"#),
+        ("Message", "list", r#"{"limit":1,"skip":1,"sort":"n"}"#),
+        ("Message", "get", r#"{"id":"message-000001"}"#),
+        ("Message", "get", r#"{"id":"message-000002"}"#),
+        ("Channel", "filter", r#"{"sort":"position","limit":"2"}"#),
+        ("Channel", "list", r#"{"sort":{"x":1},"limit":-1}"#),
+        ("Channel", "filter", r#"{"query":[1,2]}"#),
+        ("Channel", "filter", r#"{"query":{"name":{"$regex":"c"}}}"#),
+        ("ServerMessage", "filter", r#"{}"#),
+        ("Resource", "list", r#"{}"#),
+        ("Resource", "create", r#"{"data":{"status":"draft","name":"new"}}"#),
+        ("Resource", "update", r#"{"id":"resource-000001","data":{"name":"renamed"}}"#),
+        ("Resource", "delete", r#"{"id":"resource-000002"}"#),
+        ("Resource", "list", r#"{"sort":"name"}"#),
+        ("Profile", "update", r#"{"id":"profile-alice0","data":{"bio":"x"}}"#),
+        ("Profile", "get", r#"{"id":"profile-alice0"}"#),
+        ("Person", "filter", r#"{}"#),
+        ("User", "list", r#"{}"#),
+        ("Nothing", "list", r#"{}"#),
+        ("Channel", "drop", r#"{}"#),
+        ("Message", "get", r#"{"id":null}"#),
+    ];
+    let mut checked = 0;
+    for token in tokens {
+        for (table, op, body) in bodies {
+            let path = format!("/api/entities/{table}/{op}");
+            let (mut a, mut b) = (request_json(node.1, "POST", &path, token, body), request_json(rust.1, "POST", &path, token, body));
+            strip(&mut a.1);
+            strip(&mut b.1);
+            assert_eq!(a, b, "{table}/{op} {body} as {}", if token.is_empty() { "nobody" } else { &token[..12] });
+            checked += 1;
+        }
+    }
+    assert_eq!(request_json(node.1, "GET", "/api/entities/Message/list", &t1, "").0, request_json(rust.1, "GET", "/api/entities/Message/list", &t1, "").0);
+    assert!(checked > 100);
+}
