@@ -1,0 +1,23 @@
+[package]
+name = "commonveil-server"
+version = "0.23.1"
+description = "The self-hosted Commonveil server, in Rust: replacing server/ and base44/shared stage by stage."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "fs", "signal", "time"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+base64 = "0.23"
+getrandom = "0.4"
+regex = "1"
+indexmap = "2"
+percent-encoding = "2"
+
+[dev-dependencies]
+tempfile = "3"
