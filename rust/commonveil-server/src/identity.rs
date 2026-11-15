@@ -3,7 +3,7 @@
 //! confirming new browsers, and devices.
 use serde_json::{json, Value};
 
-use crate::api::{clean_text, random_id_field, Actions, ApiError, Ctx, Limits, Result};
+use crate::api::{clean_text, Actions, ApiError, Ctx, Result};
 use crate::crypto::{b64url, check_password, from_b64url, hash_password, hmac, random_bytes, random_token, same_string, sha256_hex, verify_ed25519};
 use crate::js::{to_js_string, truthy};
 use crate::sessions::{bump_epoch, issue_access, live_session, refresh_row, signed_in, user_record};
@@ -291,44 +291,6 @@ fn has_encryption_device(s: &Store, user_id: &str) -> bool {
     first(s, "Device", json!({ "user_id": user_id, "status": "active" }), "created_date", 1.0).is_ok_and(|r| !r.is_empty())
 }
 
-/// The account's encryption device (store.ts requireActiveDevice).
-pub fn require_active_device(s: &Store, user_id: &str, device_id: &str) -> Result<Value> {
-    let d = first(s, "Device", json!({ "user_id": user_id, "device_id": device_id }), "created_date", 5.0)?.into_iter().next();
-    let Some(d) = d else { return Err(deny(403, "DEVICE_UNKNOWN", "This device isn't registered to your account.")) };
-    if d["status"] != "active" {
-        return Err(deny(403, "DEVICE_NOT_ACTIVE", "This device hasn't been approved, or was removed."));
-    }
-    Ok(d)
-}
-
-fn iso_time(v: &Value, name: &str) -> Result<String> {
-    let re = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$").unwrap();
-    match v.as_str() {
-        Some(s) if s.len() <= 40 && re.is_match(s) && crate::dates::parse(s).is_some() => Ok(s.into()),
-        _ => Err(crate::api::bad_field(name)),
-    }
-}
-
-/// Proof that a request was signed by the device holding `sign_pub` (verify.ts verifyProof).
-pub fn verify_proof(user_id: &str, action: &str, payload_json: &str, proof: &Value, sign_pub: &str, now: i64) -> Result<String> {
-    if !proof.is_object() && !proof.is_array() {
-        return Err(deny(401, "PROOF_REQUIRED", "This action must come from one of your devices."));
-    }
-    let device_id = random_id_field(&proof["device_id"], "device id")?;
-    let issued_at = iso_time(&proof["issued_at"], "proof time")?;
-    let nonce = random_id_field(&proof["nonce"], "nonce")?;
-    if (now as f64 - crate::dates::parse(&issued_at).unwrap_or(f64::NAN)).abs() > Limits::PROOF_SKEW_MS as f64 {
-        return Err(deny(401, "PROOF_EXPIRED", "That request is too old. Check your device clock and try again."));
-    }
-    let text = secure_net_core::cv::canonical::device_proof_text(&json!({ "user_id": user_id, "device_id": device_id, "action": action, "payload_hash": secure_net_core::cv::encoding::sha256_b64(payload_json), "issued_at": issued_at, "nonce": nonce }))
-        .map_err(|e| ApiError { status: 500, code: "INTERNAL".into(), message: e.message })?;
-    let sig = proof["signature"].as_str().unwrap_or("");
-    if sig.is_empty() || !secure_net_core::cv::primitives::verify_with_raw(sign_pub, sig, &text) {
-        return Err(deny(403, "PROOF_INVALID", "This device couldn't prove it's yours."));
-    }
-    Ok(device_id)
-}
-
 /// A change that adds or removes a way into the account: a live session, plus a proof from an
 /// encryption device or the current password. Returns the request's fields.
 fn proven_change(ctx: &Ctx, action: &str) -> Result<Value> {
@@ -340,8 +302,8 @@ fn proven_change(ctx: &Ctx, action: &str) -> Result<Value> {
             if !(fields.is_object() || fields.is_array()) || fields["action"] != action || fields["user_id"] != uid {
                 return Err(deny(400, "BAD_PAYLOAD", "Invalid request."));
             }
-            let device = require_active_device(s, uid, &text_or_empty(&body["proof"]["device_id"]))?;
-            verify_proof(uid, &format!("identity.{action}"), payload, &body["proof"], device["sign_pub"].as_str().unwrap_or(""), now())?;
+            let device = crate::shared::require_active_device(&crate::db::Db::service(s), uid, &text_or_empty(&body["proof"]["device_id"]))?;
+            crate::verify::verify_proof(uid, &format!("identity.{action}"), payload, &body["proof"], device["sign_pub"].as_str().unwrap_or(""), now())?;
             let mut out = if fields.is_object() { fields } else { json!({}) };
             put(&mut out, "proven_by", json!("device"));
             return Ok(out);

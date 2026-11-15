@@ -7,14 +7,22 @@ pub mod api;
 pub mod bootstrap;
 pub mod config;
 pub mod crypto;
+pub mod db;
+pub mod deletion;
 pub mod dates;
 pub mod http;
 pub mod identity;
 pub mod js;
+pub mod keys;
+pub mod permissions;
+pub mod profile;
 pub mod seo;
+pub mod servers_core;
+pub mod shared;
 pub mod sessions;
 pub mod store;
 pub mod timsort;
+pub mod verify;
 pub mod webauthn;
 
 use std::path::Path;
@@ -33,7 +41,7 @@ use crate::store::Store;
 /// mistaken for a working one).
 const NOT_YET: [&str; 3] = ["/api/functions/", "/api/files/", "/api/admin/updates"];
 /// The backend functions this server runs so far.
-const FUNCTIONS: [&str; 1] = ["identity"];
+const FUNCTIONS: [&str; 3] = ["identity", "profile", "keys"];
 const ENTITY_OPS: [&str; 6] = ["filter", "list", "get", "create", "update", "delete"];
 /// Tables the app only ever reads through the backend functions (CV-06): direct reads are refused.
 const FUNCTIONS_ONLY: [&str; 1] = ["ServerMessage"];
@@ -44,7 +52,7 @@ pub struct App {
     pub store: Store,
     pub keys: sessions::Keys,
     pub bootstrap: bootstrap::Bootstrap,
-    identity: api::Actions,
+    functions: std::collections::BTreeMap<&'static str, api::Actions>,
 }
 
 impl App {
@@ -52,7 +60,7 @@ impl App {
         let store = Store::open(config.db_file.to_str().unwrap_or(":memory:"), store::load_schemas(entities_dir))?;
         let bootstrap = bootstrap::Bootstrap::new(&config.data_dir);
         bootstrap.prepare(&store);
-        Ok(Arc::new(Self { config, store, keys: sessions::Keys::default(), bootstrap, identity: identity::actions() }))
+        Ok(Arc::new(Self { config, store, keys: sessions::Keys::default(), bootstrap, functions: [("identity", identity::actions()), ("profile", profile::actions()), ("keys", keys::actions())].into_iter().collect() }))
     }
 
     /// Who's calling: Commonveil sign-in's access token, sent as the bearer token. The user is
@@ -144,9 +152,7 @@ async fn function(app: Arc<App>, req: Request, name: &str) -> Response<Body> {
             Some((u, s)) => (Some(u), Some(s)),
             None => (None, None),
         };
-        // Only identity so far (FUNCTIONS); the others join here as they move to Rust.
-        debug_assert_eq!(name, "identity");
-        let actions = &app.identity;
+        let Some(actions) = app.functions.get(name.as_str()) else { return (404, json!({ "error": "Unknown function.", "code": "NOT_FOUND" })) };
         api::run_action(&app, user, session, &raw, actions, &options)
     })
     .await;

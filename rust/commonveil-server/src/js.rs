@@ -165,6 +165,17 @@ pub fn truthy(v: Option<&Value>) -> bool {
     }
 }
 
+/// A JavaScript number as JSON writes it: whole numbers without a fraction, NaN and infinities as null.
+pub fn number_value(f: f64) -> Value {
+    if !f.is_finite() {
+        Value::Null
+    } else if f.fract() == 0.0 && f.abs() < 9.007_199_254_740_992e15 {
+        Value::from(f as i64)
+    } else {
+        serde_json::Number::from_f64(f).map_or(Value::Null, Value::Number)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,3 +199,4 @@ mod tests {
         assert!(string_to_number("1_000").is_nan());
     }
 }
+

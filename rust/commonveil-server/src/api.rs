@@ -54,6 +54,15 @@ impl Ctx<'_> {
     pub fn store(&self) -> &crate::store::Store {
         &self.app.store
     }
+    /// The service role: every row.
+    pub fn sr(&self) -> crate::db::Db<'_> {
+        crate::db::Db::service(&self.app.store)
+    }
+    /// The caller's own access, under the entities' row rules.
+    pub fn own(&self) -> crate::db::Db<'_> {
+        let user = self.user.clone().unwrap_or_else(|| json!({ "id": "", "email": "" }));
+        crate::db::Db::person(&self.app.store, crate::person_of(&user))
+    }
     /// The caller's id (actions that need a signed-in caller only run with one).
     pub fn user_id(&self) -> &str {
         self.user.as_ref().and_then(|u| u["id"].as_str()).unwrap_or("")
@@ -152,4 +161,52 @@ pub fn clean_text(v: &Value, max: usize) -> Result<String> {
 /// without the Z.
 pub fn platform_time(ms: i64) -> String {
     crate::store::iso(ms).trim_end_matches('Z').to_string()
+}
+
+/// A list of ids, each checked, duplicates dropped (first kept).
+pub fn id_list(v: &Value, name: &str, max: usize) -> Result<Vec<String>> {
+    let Some(a) = v.as_array().filter(|a| a.len() <= max) else { return Err(bad_field(name)) };
+    let mut out: Vec<String> = Vec::new();
+    for x in a {
+        let i = id(x, name)?;
+        if !out.contains(&i) {
+            out.push(i);
+        }
+    }
+    Ok(out)
+}
+
+/// `atob`: forgiving base64 (WHATWG), `None` where it would throw.
+pub fn atob(s: &str) -> Option<Vec<u8>> {
+    let mut t: Vec<u8> = s.bytes().filter(|c| !matches!(c, b' ' | b'\t' | b'\n' | b'\x0c' | b'\r')).collect();
+    if t.len().is_multiple_of(4) {
+        for _ in 0..2 {
+            if t.last() == Some(&b'=') {
+                t.pop();
+            }
+        }
+    }
+    if t.len() % 4 == 1 {
+        return None;
+    }
+    let mut bits: u32 = 0;
+    let (mut n, mut out) = (0, Vec::new());
+    for c in t {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        } as u32;
+        bits = (bits << 6) | v;
+        n += 6;
+        if n >= 8 {
+            n -= 8;
+            out.push((bits >> n) as u8);
+            bits &= (1 << n) - 1;
+        }
+    }
+    Some(out)
 }
