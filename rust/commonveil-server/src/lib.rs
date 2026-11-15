@@ -21,7 +21,11 @@ pub mod permissions;
 pub mod profile;
 pub mod safety;
 pub mod seo;
+pub mod server_messages;
+pub mod servers;
+pub mod servers_build;
 pub mod servers_core;
+pub mod servers_template;
 pub mod shared;
 pub mod sessions;
 pub mod store;
@@ -46,7 +50,7 @@ use crate::store::Store;
 /// mistaken for a working one).
 const NOT_YET: [&str; 3] = ["/api/functions/", "/api/files/", "/api/admin/updates"];
 /// The backend functions this server runs so far.
-const FUNCTIONS: [&str; 9] = ["identity", "profile", "keys", "conversations", "messages", "notifications", "safety", "admin", "disclose"];
+const FUNCTIONS: [&str; 12] = ["identity", "profile", "keys", "conversations", "messages", "notifications", "safety", "admin", "disclose", "invite", "servers", "channels"];
 const ENTITY_OPS: [&str; 6] = ["filter", "list", "get", "create", "update", "delete"];
 /// Tables the app only ever reads through the backend functions (CV-06): direct reads are refused.
 const FUNCTIONS_ONLY: [&str; 1] = ["ServerMessage"];
@@ -65,7 +69,7 @@ impl App {
         let store = Store::open(config.db_file.to_str().unwrap_or(":memory:"), store::load_schemas(entities_dir))?;
         let bootstrap = bootstrap::Bootstrap::new(&config.data_dir);
         bootstrap.prepare(&store);
-        Ok(Arc::new(Self { config, store, keys: sessions::Keys::default(), bootstrap, functions: [("identity", identity::actions()), ("profile", profile::actions()), ("keys", keys::actions()), ("conversations", conversations::actions()), ("messages", messages::actions()), ("notifications", notifications::actions()), ("safety", safety::safety_actions()), ("admin", safety::admin_actions()), ("disclose", safety::disclosure_actions())].into_iter().collect() }))
+        Ok(Arc::new(Self { config, store, keys: sessions::Keys::default(), bootstrap, functions: [("identity", identity::actions()), ("profile", profile::actions()), ("keys", keys::actions()), ("conversations", conversations::actions()), ("messages", messages::actions()), ("notifications", notifications::actions()), ("safety", safety::safety_actions()), ("admin", safety::admin_actions()), ("disclose", safety::disclosure_actions()), ("invite", servers::invite_actions()), ("servers", servers::actions()), ("channels", server_messages::actions())].into_iter().collect() }))
     }
 
     /// Who's calling: Commonveil sign-in's access token, sent as the bearer token. The user is
@@ -144,7 +148,7 @@ async fn function(app: Arc<App>, req: Request, name: &str) -> Response<Body> {
     if req.method() != Method::POST {
         return http::json(404, &json!({ "error": "Unknown function.", "code": "NOT_FOUND" }));
     }
-    let options = api::RunOptions { allow_anonymous: name == "identity" || name == "disclose", ..Default::default() };
+    let options = api::RunOptions { allow_anonymous: name == "identity" || name == "disclose" || name == "invite", ..Default::default() };
     let token = bearer(&req);
     let Ok(bytes) = axum::body::to_bytes(req.into_body(), options.max_body_bytes + 1024).await else {
         return http::json(413, &json!({ "error": "That request is too large.", "code": "TOO_LARGE" }));

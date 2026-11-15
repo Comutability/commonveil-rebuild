@@ -85,7 +85,7 @@ pub fn blank(v: &Value) -> Value {
         // Ciphertext parts are random whatever characters they happen to use.
         Value::Object(o) => Value::Object(o.iter().map(|(k, v)| {
             let key = if blank(&json!(k)) != json!(k) { "<key>".to_string() } else { k.clone() };
-            let value = if ["iv", "ct", "kct", "epk", "wk", "envelope", "signature", "kc"].contains(&k.as_str()) && v.is_string() { json!("<random>") } else { blank(v) };
+            let value = if ["iv", "ct", "kct", "epk", "wk", "envelope", "signature", "kc", "sealed"].contains(&k.as_str()) && v.is_string() { json!("<random>") } else { blank(v) };
             (key, value)
         }).collect()),
         _ => v.clone(),
