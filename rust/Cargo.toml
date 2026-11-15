@@ -7,3 +7,9 @@ edition = "2021"
 license = "AGPL-3.0-only"
 repository = "https://github.com/Comutability/commonveil-rebuild"
 rust-version = "1.88"
+
+# Secure Net's OpenMLS copies (one added ciphersuite; see its rust/vendor/*/SECURE_NET_PATCH.md),
+# from the same release: a dependency's own [patch] doesn't carry over.
+[patch.crates-io]
+openmls_traits = { git = "https://github.com/Comutability/secure-net", rev = "e3b1450d02a7ccfcf0a20f906afbcbdd7109f54a" }
+openmls_rust_crypto = { git = "https://github.com/Comutability/secure-net", rev = "e3b1450d02a7ccfcf0a20f906afbcbdd7109f54a" }
