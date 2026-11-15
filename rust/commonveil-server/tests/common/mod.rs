@@ -7,6 +7,8 @@ use std::process::{Command, Stdio};
 use secure_net_core::cv::{device, identity, keyring, recovery};
 use serde_json::{json, Value};
 
+pub mod servers;
+
 pub fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
 }
@@ -75,6 +77,7 @@ pub fn blank(v: &Value) -> Value {
     let iso = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$").unwrap();
     match v {
         Value::String(s) if iso.is_match(s) => json!("<time>"),
+        Value::String(s) if s.starts_with("https://cv.example/api/files/") => json!("<file link>"),
         Value::String(s) if s.len() == 6 && s.bytes().all(|c| c.is_ascii_digit()) => json!("<code>"),
         Value::String(s) if s.len() >= 12 && s.bytes().all(|c| c.is_ascii_alphanumeric() || b"_-.".contains(&c)) && s.bytes().any(|c| c.is_ascii_digit()) => json!("<random>"),
         Value::String(s) if s.len() >= 16 && s.bytes().all(|c| c.is_ascii_alphanumeric() || b"+/=_-.".contains(&c)) && s.bytes().any(|c| c.is_ascii_digit() || b"+/=".contains(&c)) => json!("<random>"),
@@ -224,4 +227,15 @@ pub fn random_id() -> String {
 
 pub fn iso_at(ms: i64) -> String {
     commonveil_server::store::iso(ms)
+}
+
+/// A plain GET, for file links: (status, body bytes).
+pub fn get_raw(port: u16, path: &str) -> (u16, Vec<u8>) {
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    write!(s, "GET {path} HTTP/1.1\r\nHost: cv.example\r\nConnection: close\r\n\r\n").unwrap();
+    let mut raw = Vec::new();
+    s.read_to_end(&mut raw).unwrap();
+    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let head = String::from_utf8_lossy(&raw[..split]).to_string();
+    (head.split(' ').nth(1).unwrap().parse().unwrap(), raw[split + 4..].to_vec())
 }
