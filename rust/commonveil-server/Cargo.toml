@@ -27,5 +27,8 @@ p256 = { version = "0.13", features = ["ecdsa"] }
 rsa = { version = "0.9", default-features = false, features = ["std", "sha2"] }
 percent-encoding = "2"
 
+# Secure Net (the protocol and Commonveil's cryptography), pinned to its 0.7.0 release.
+secure-net-core = { git = "https://github.com/Comutability/secure-net", rev = "e3b1450d02a7ccfcf0a20f906afbcbdd7109f54a" }
+
 [dev-dependencies]
 tempfile = "3"

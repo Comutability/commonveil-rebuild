@@ -15,9 +15,10 @@ image switches, in a release made under [AGENTS.md](../AGENTS.md)'s rules.
 | `/api/health`, `/api/site` | Done | As above |
 | Sign-in cryptography and sessions (`crypto`, `sessions`) | Done | Against the TypeScript it replaces (base44/shared/identity): password hashes made by either check on the other (with NFKC), access tokens are byte-identical, and bent tokens (extra parts, wrong prefix or signature, expiry boundaries, unparseable claims), unusable password hashes and odd Ed25519 signatures (non-canonical, all-zero key) are judged the same |
 | Who's calling, and entity reads and writes (`/api/entities/*`) | Done | Both servers started from the same data: 110 requests (every operation, sorting, paging, odd arguments, refused tables) as nobody, three people of different roles and a bent token give the same status and answer |
-| The action runner and its validators (`api`) | Done | Used by the identity functions next |
-| Sign-in and accounts: the identity functions, passkeys, first-run setup | Next | |
-| Backend functions (`/api/functions/*`), entity reads (`/api/entities/*`), files, realtime rooms, scheduled tasks, updates, federation and the Commonveil Protocol | To do | |
+| The action runner and its validators (`api`) | Done | Through the identity functions below |
+| Sign-in and accounts: `/api/functions/identity`, passkeys (`webauthn`), proofs from encryption devices (through Secure Net's Rust core), first-run setup (`bootstrap`) | Done | The same script of 116 requests runs against each server on a fresh site (setup code, sign-up, passwords, confirming new browsers, refresh and sign-out, account changes, owner keys, a software passkey adding, signing in and recovering, device proofs good and bent, the password lock, malformed requests): every status and answer matches once random values are blanked |
+| The other backend functions (`/api/functions/*`) | Next | Until then they answer 501 `NOT_YET` |
+| Files, realtime rooms, scheduled tasks, updates, federation and the Commonveil Protocol | To do | |
 
 Anything not yet moved answers `501 NOT_YET`, so a half-moved server can't be mistaken for a
 working one.

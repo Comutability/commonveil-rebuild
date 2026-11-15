@@ -4,10 +4,12 @@
 //! stage, keeping the same HTTP API and the same data on disk. Until every part is here, the
 //! Docker image keeps running the Node.js server: see rust/README.md for what is done.
 pub mod api;
+pub mod bootstrap;
 pub mod config;
 pub mod crypto;
 pub mod dates;
 pub mod http;
+pub mod identity;
 pub mod js;
 pub mod seo;
 pub mod sessions;
@@ -30,6 +32,8 @@ use crate::store::Store;
 /// What the Node.js server answers that this one doesn't do yet (so a half-ported server can't be
 /// mistaken for a working one).
 const NOT_YET: [&str; 3] = ["/api/functions/", "/api/files/", "/api/admin/updates"];
+/// The backend functions this server runs so far.
+const FUNCTIONS: [&str; 1] = ["identity"];
 const ENTITY_OPS: [&str; 6] = ["filter", "list", "get", "create", "update", "delete"];
 /// Tables the app only ever reads through the backend functions (CV-06): direct reads are refused.
 const FUNCTIONS_ONLY: [&str; 1] = ["ServerMessage"];
@@ -39,12 +43,16 @@ pub struct App {
     pub config: Config,
     pub store: Store,
     pub keys: sessions::Keys,
+    pub bootstrap: bootstrap::Bootstrap,
+    identity: api::Actions,
 }
 
 impl App {
     pub fn new(config: Config, entities_dir: &Path) -> rusqlite::Result<Arc<Self>> {
         let store = Store::open(config.db_file.to_str().unwrap_or(":memory:"), store::load_schemas(entities_dir))?;
-        Ok(Arc::new(Self { config, store, keys: sessions::Keys::default() }))
+        let bootstrap = bootstrap::Bootstrap::new(&config.data_dir);
+        bootstrap.prepare(&store);
+        Ok(Arc::new(Self { config, store, keys: sessions::Keys::default(), bootstrap, identity: identity::actions() }))
     }
 
     /// Who's calling: Commonveil sign-in's access token, sent as the bearer token. The user is
@@ -118,6 +126,36 @@ async fn entities(app: Arc<App>, req: Request, path: &str) -> Response<Body> {
     }
 }
 
+/// `/api/functions/<name>`: one backend function's action, as the caller.
+async fn function(app: Arc<App>, req: Request, name: &str) -> Response<Body> {
+    if req.method() != Method::POST {
+        return http::json(404, &json!({ "error": "Unknown function.", "code": "NOT_FOUND" }));
+    }
+    let options = api::RunOptions { allow_anonymous: name == "identity", ..Default::default() };
+    let token = bearer(&req);
+    let Ok(bytes) = axum::body::to_bytes(req.into_body(), options.max_body_bytes + 1024).await else {
+        return http::json(413, &json!({ "error": "That request is too large.", "code": "TOO_LARGE" }));
+    };
+    let raw = String::from_utf8_lossy(&bytes).into_owned();
+    let name = name.to_string();
+    let out = tokio::task::spawn_blocking(move || {
+        let who = app.session_for(&token);
+        let (user, session) = match who {
+            Some((u, s)) => (Some(u), Some(s)),
+            None => (None, None),
+        };
+        // Only identity so far (FUNCTIONS); the others join here as they move to Rust.
+        debug_assert_eq!(name, "identity");
+        let actions = &app.identity;
+        api::run_action(&app, user, session, &raw, actions, &options)
+    })
+    .await;
+    match out {
+        Ok((status, v)) => http::json(status, &v),
+        Err(_) => http::json(500, &json!({ "error": "Something went wrong. Nothing was changed.", "code": "INTERNAL" })),
+    }
+}
+
 async fn handle(State(app): State<Arc<App>>, req: Request) -> Response<Body> {
     let path = req.uri().path().to_string();
     let pq = req.uri().path_and_query().map_or(path.clone(), |p| p.as_str().to_string());
@@ -134,6 +172,10 @@ async fn handle(State(app): State<Arc<App>>, req: Request) -> Response<Body> {
     }
     if path.starts_with("/api/entities/") {
         return entities(app.clone(), req, &path).await;
+    }
+    if let Some(name) = path.strip_prefix("/api/functions/").filter(|n| FUNCTIONS.contains(n)) {
+        let name = name.to_string();
+        return function(app.clone(), req, &name).await;
     }
     if NOT_YET.iter().any(|p| path.starts_with(p)) {
         return http::json(501, &json!({ "error": "This part of the server hasn't moved to Rust yet.", "code": "NOT_YET" }));
