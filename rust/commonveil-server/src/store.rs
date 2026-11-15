@@ -138,9 +138,19 @@ pub fn rule_to_query(rule: Option<&Value>, user: Option<&Person>, user_data: &dy
     Ok(Some(if parts.is_empty() { json!({}) } else { json!({ "$and": parts }) }))
 }
 
+/// `Object.entries(query)`: an array's items are conditions on the fields "0", "1", ...
+fn entries(query: &Value) -> Vec<(String, &Value)> {
+    match query {
+        Value::Object(m) => m.iter().map(|(k, v)| (k.clone(), v)).collect(),
+        Value::Array(a) => a.iter().enumerate().map(|(i, v)| (i.to_string(), v)).collect(),
+        _ => vec![],
+    }
+}
+
 /// Whether a record matches a query (the subset of MongoDB's language the app uses).
 pub fn matches(record: &Value, query: &Value) -> Result<bool> {
-    for (key, cond) in query.as_object().into_iter().flatten() {
+    for (key, cond) in entries(query) {
+        let key = key.as_str();
         if key == "$or" {
             let mut any = false;
             for sub in cond.as_array().into_iter().flatten() {
@@ -229,7 +239,8 @@ fn key_of(v: &Value) -> Option<Key> {
 
 /// Top-level conditions an index can answer: field -> the values that may match.
 fn indexable(query: &Value, out: &mut Vec<(String, Vec<Value>)>) {
-    for (key, cond) in query.as_object().into_iter().flatten() {
+    for (key, cond) in entries(query) {
+        let key = &key;
         if key == "$and" {
             for sub in cond.as_array().into_iter().flatten() {
                 indexable(sub, out);

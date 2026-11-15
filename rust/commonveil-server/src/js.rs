@@ -28,7 +28,7 @@ pub fn to_number(v: Option<&Value>) -> f64 {
 
 /// `Number(string)`: whitespace trimmed, empty is 0, decimal, hex/octal/binary and Infinity.
 pub fn string_to_number(s: &str) -> f64 {
-    let t = s.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}');
+    let t = s.trim_matches(is_js_space);
     if t.is_empty() {
         return 0.0;
     }
@@ -125,6 +125,17 @@ pub fn compare(a: Option<&Value>, b: Option<&Value>) -> Ordering {
         return Ordering::Less;
     }
     if lt(a, b) { Ordering::Less } else { Ordering::Greater }
+}
+
+/// `String.prototype.trim`: JavaScript's whitespace and line terminators, both ends.
+pub fn trim(s: &str) -> String {
+    s.trim_matches(is_js_space).to_string()
+}
+
+/// JavaScript's WhiteSpace and LineTerminator (not Rust's `is_whitespace`, which also counts
+/// U+0085).
+pub fn is_js_space(c: char) -> bool {
+    matches!(c, '\t' | '\n' | '\u{B}' | '\u{C}' | '\r' | ' ' | '\u{A0}' | '\u{1680}' | '\u{2000}'..='\u{200A}' | '\u{2028}' | '\u{2029}' | '\u{202F}' | '\u{205F}' | '\u{3000}' | '\u{FEFF}')
 }
 
 /// `String(value)` (`None` is `undefined`).

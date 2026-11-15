@@ -13,13 +13,24 @@ image switches, in a release made under [AGENTS.md](../AGENTS.md)'s rules.
 | Data store (`store`) | Done | Same SQLite file and layout, so a site's existing data is read as it is. The same 1,000 random operations per run (creates, queries with every operator and mixed types, sorting, paging, bulk updates and deletes, and reads and writes as people under the real row rules) give identical answers, across four seeds |
 | The site, its pages and their search tags (`http`, `seo`) | Done | ~40 addresses (pages, help articles, private and moved pages, assets, missing files, attempts to climb out of the site folder, the sitemap, HEAD, POST): the same status, security headers and bytes |
 | `/api/health`, `/api/site` | Done | As above |
-| Sign-in and accounts (passkeys, sessions, devices) | Next | |
+| Sign-in cryptography and sessions (`crypto`, `sessions`) | Done | Against the TypeScript it replaces (base44/shared/identity): password hashes made by either check on the other (with NFKC), access tokens are byte-identical, and bent tokens (extra parts, wrong prefix or signature, expiry boundaries, unparseable claims), unusable password hashes and odd Ed25519 signatures (non-canonical, all-zero key) are judged the same |
+| Who's calling, and entity reads and writes (`/api/entities/*`) | Done | Both servers started from the same data: 110 requests (every operation, sorting, paging, odd arguments, refused tables) as nobody, three people of different roles and a bent token give the same status and answer |
+| The action runner and its validators (`api`) | Done | Used by the identity functions next |
+| Sign-in and accounts: the identity functions, passkeys, first-run setup | Next | |
 | Backend functions (`/api/functions/*`), entity reads (`/api/entities/*`), files, realtime rooms, scheduled tasks, updates, federation and the Commonveil Protocol | To do | |
 
 Anything not yet moved answers `501 NOT_YET`, so a half-moved server can't be mistaken for a
 working one.
 
-What the comparison found: a `sort` of `null` sorts oldest first in the Node.js store, while a
+Deliberate differences: an entity request body over 256 KB is a `413` (the Node.js server answers
+`500`, because its size error isn't one it expects), and a body that isn't JSON says "The request
+wasn't valid JSON." (Node.js passes on V8's own message, which changes between versions). Ed25519
+signatures are checked strictly (canonical encodings, no small-order keys); the cases tested give
+the same answer as Node.js's WebCrypto.
+
+What the comparison found: a JSON array sent as a query is read as conditions on the fields
+"0", "1", ... (JavaScript's `Object.entries`), so it matches nothing; Rust now does the same. A
+`sort` of `null` sorts oldest first in the Node.js store, while a
 missing one sorts newest first; Rust now does the same. And JavaScript's `<` isn't a consistent
 ordering when a field mixes types, so the order of such a sort is up to the engine: Node.js 22 and
 26 give different orders for the same rows. Real fields hold one type each (their schemas say
