@@ -50,10 +50,12 @@ const isLive = (m: any, now: Date) => !m.expires_at || Date.parse(m.expires_at) 
 /**
  * Messages before someone joined, in a channel that only shows newcomers what came after. Both
  * times are the server's own (when the row was stored, when they joined), so no clock can shift them.
+ * The time someone joined is kept to the millisecond, so a message stored in that same millisecond
+ * can't be told apart from one just before: it counts as before (hidden), never as after.
  */
 function hiddenFromNewcomer(view: any, m: any) {
   const joinedOnly = view.channel.history === "joined" || !has(view.perms, P.READ_HISTORY);
-  return joinedOnly && parsePlatformTime(String(m.created_date)) < Date.parse(view.member.joined_at);
+  return joinedOnly && parsePlatformTime(String(m.created_date)) <= Date.parse(view.member.joined_at);
 }
 
 /**
