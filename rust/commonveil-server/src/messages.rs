@@ -160,8 +160,12 @@ fn poll(ctx: &mut Ctx) -> Result<Value> {
         out["conversations_cursor"] = json!(conv_cursor);
     }
     if body.get("servers_since").is_some() {
-        // Server messages move to Rust with the servers themselves.
-        return Err(ApiError::new(501, "NOT_YET", "This part of the server hasn't moved to Rust yet."));
+        let changes = if body.get("server_changes_since").is_none() { None } else { Some(str_field(&body["server_changes_since"], "cursor", 40, 1)?) };
+        let servers_since = str_field(&body["servers_since"], "cursor", 40, 1)?;
+        let more = crate::server_messages::poll_servers(&own, &uid, &servers_since, changes.as_deref(), &settled, POLL_LIMIT, now)?;
+        for (k, v) in more.as_object().into_iter().flatten() {
+            out[k] = v.clone();
+        }
     }
     Ok(out)
 }
