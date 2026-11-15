@@ -3,71 +3,11 @@
 //! each on its own fresh site, and every reply must match once random values are blanked.
 use std::path::Path;
 
-use secure_net_core::cv::{device, identity, keyring, recovery};
+use secure_net_core::cv::identity;
 use serde_json::{json, Value};
 
 mod common;
-use common::{compare, ready, start, succeeded, Flow};
-
-/// Key material made once and used on both sites (only the account ids differ).
-struct Kit {
-    rk: recovery::RecoveryKeys,
-    v: Vec<Value>,
-    d: Vec<Value>,
-}
-
-fn now() -> i64 {
-    commonveil_server::sessions::now_ms()
-}
-
-impl Kit {
-    fn new() -> Self {
-        let rk = recovery::derive_recovery_key(&recovery::generate_recovery_phrase()).unwrap();
-        let v = (1..=3).map(|n| keyring::create_key_version(n, now()).unwrap()).collect();
-        let d = (1..=5).map(|n| device::create_device_keys(&format!("Device {n}"), now()).unwrap()).collect();
-        Self { rk, v, d }
-    }
-    fn statement(&self, uid: &str, v: usize, signer: usize, anchor: bool) -> Value {
-        let mut st = identity::make_account_statement(uid, &self.v[v], &self.rk.public_key, &self.rk.kem_public_key, &self.v[signer], now()).unwrap();
-        if anchor {
-            st["recovery_mac"] = json!(recovery::recovery_anchor_mac(&self.rk.anchor_key[..], &st).unwrap());
-        }
-        st
-    }
-    fn cert(&self, uid: &str, d: usize, v: usize) -> Value {
-        identity::make_device_cert(uid, &self.d[d], &self.v[v], self.d[d]["kem_pub"].as_str().unwrap(), now()).unwrap()
-    }
-    fn keyring(&self, uid: &str, versions: &[usize]) -> Value {
-        let mut k = keyring::new_keyring(uid, self.v[versions[0]].clone()).unwrap();
-        for v in &versions[1..] {
-            k = keyring::with_version(&k, self.v[*v].clone()).unwrap();
-        }
-        k
-    }
-    fn recovery_env(&self, k: &Value, v: usize) -> Value {
-        let mut e = keyring::seal_keyring_for_recovery(k, &self.rk.public_key, Some(&self.rk.kem_public_key)).unwrap();
-        e["key_sign_pub"] = self.v[v]["sign_pub"].clone();
-        e
-    }
-    fn device_env(&self, k: &Value, d: usize, v: usize) -> Value {
-        let dev = &self.d[d];
-        let mut e = keyring::seal_keyring_to_device(k, dev["device_id"].as_str().unwrap(), dev["box_pub"].as_str().unwrap(), dev["kem_pub"].as_str()).unwrap();
-        e["key_sign_pub"] = self.v[v]["sign_pub"].clone();
-        e["device_id"] = dev["device_id"].clone();
-        e
-    }
-    fn public(&self, d: usize) -> Value {
-        device::public_device(&self.d[d])
-    }
-    fn id(&self, d: usize) -> Value {
-        self.d[d]["device_id"].clone()
-    }
-    /// A request signed by device `d`.
-    fn signed(&self, uid: &str, action: &str, d: usize, payload: Value) -> Value {
-        let text = payload.to_string();
-        json!({ "action": action, "payload": text, "proof": identity::make_device_proof(uid, &self.d[d], action, &text, now()).unwrap() })
-    }
-}
+use common::{compare, now, ready, start, succeeded, Flow, Kit};
 
 fn script(port: u16, data: &Path, kit: &Kit) -> Vec<Value> {
     let mut f = Flow::new(port);

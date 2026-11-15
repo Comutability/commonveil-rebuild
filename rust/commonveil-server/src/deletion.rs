@@ -82,6 +82,15 @@ fn erase_conversation(sr: &Db, conversation_id: &str, deadline: i64) -> R<()> {
     Ok(())
 }
 
+/// Blank and delete a conversation with all its messages. False if the deadline passed first.
+pub fn erase_conversation_until(sr: &Db, conversation_id: &str, deadline: i64) -> Result<bool> {
+    match erase_conversation(sr, conversation_id, deadline) {
+        Ok(()) => Ok(true),
+        Err(Stop::Time) => Ok(false),
+        Err(Stop::Error(e)) => Err(e),
+    }
+}
+
 /// Remove everything belonging to `user_id`. True when finished, false if out of time.
 pub fn purge_account(sr: &Db, store: &Store, user_id: &str, deadline: i64) -> Result<bool> {
     match purge(sr, store, user_id, deadline) {

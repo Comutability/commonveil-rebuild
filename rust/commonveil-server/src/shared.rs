@@ -336,3 +336,129 @@ pub fn within_rate(sr: &Db, entity: &str, query: Value, window_ms: i64, cap: usi
     let ordered = with_row(rows, created);
     Ok(ordered.iter().position(|r| id_of(r) == id_of(created)).is_some_and(|i| i < cap))
 }
+
+/// The conversation, if this person is in it; the same 404 whether it doesn't exist or they aren't.
+pub fn conversation_for_member(db: &Db, user_id: &str, conversation_id: &str) -> Result<Value> {
+    match db.get("Conversation", conversation_id) {
+        Some(c) if c["member_ids"].as_array().is_some_and(|m| m.iter().any(|x| x == user_id)) => Ok(c),
+        _ => Err(ApiError::new(404, "CONVERSATION_NOT_FOUND", "Conversation not found.")),
+    }
+}
+
+/// Group admins; in a direct message both people manage their own conversation.
+pub fn is_admin(conv: &Value, user_id: &str) -> bool {
+    conv["kind"] != "group" || admins_of(conv).iter().any(|a| a == user_id)
+}
+
+pub fn require_group_admin(conv: &Value, user_id: &str, what: &str) -> Result<()> {
+    if !is_admin(conv, user_id) {
+        return Err(ApiError::new(403, "NOT_ADMIN", &format!("Only the group's admins can {what}.")));
+    }
+    Ok(())
+}
+
+pub fn conversation_out(c: &Value) -> Value {
+    let expire = { let n = to_number(c.get("expire_seconds")); crate::js::number_value(if n.is_nan() { 0.0 } else { n }) };
+    let mut o = json!({
+        "id": c["id"],
+        "kind": c["kind"],
+        "member_ids": or(&c["member_ids"], json!([])),
+        "admin_ids": admins_of(c),
+        "creator_id": or(&c["creator_id"], json!("")),
+        "created_date": c["created_date"],
+        "updated_date": c["updated_date"],
+        "last_message_at": or(&c["last_message_at"], Value::Null),
+        "expire_seconds": expire,
+        "expiry_set_by": or(&c["expiry_set_by"], Value::Null),
+        "expiry_set_at": or(&c["expiry_set_at"], Value::Null),
+        "destroy_at": or(&c["destroy_at"], Value::Null),
+        "destroy_set_by": or(&c["destroy_set_by"], Value::Null),
+    });
+    for k in ["id", "kind", "created_date", "updated_date"] {
+        if c.get(k).is_none() {
+            o.as_object_mut().unwrap().remove(k);
+        }
+    }
+    if truthy(c.get("server_id")) {
+        let n = to_number(c.get("ticket_number"));
+        o["server_id"] = c["server_id"].clone();
+        o["ticket"] = json!({
+            "number": crate::js::number_value(if n.is_nan() { 0.0 } else { n }),
+            "status": or(&c["ticket_status"], json!("open")),
+            "opened_by": or(&c["ticket_opened_by"], json!("")),
+            "channel_id": or(&c["ticket_channel_id"], json!("")),
+        });
+    }
+    o["title"] = if truthy(c.get("title_envelope")) {
+        let mut t = json!({ "envelope": c["title_envelope"], "item_id": c["title_item_id"], "sender_id": c["title_sender_id"], "device_id": c["title_device_id"], "sent_at": c["title_sent_at"], "signature": c["title_signature"] });
+        let keys = [("item_id", "title_item_id"), ("sender_id", "title_sender_id"), ("device_id", "title_device_id"), ("sent_at", "title_sent_at"), ("signature", "title_signature")];
+        for (k, src) in keys {
+            if c.get(src).is_none() {
+                t.as_object_mut().unwrap().remove(k);
+            }
+        }
+        t
+    } else {
+        Value::Null
+    };
+    o
+}
+
+pub fn message_out(m: &Value) -> Value {
+    let deleted = truthy(m.get("deleted"));
+    let mut o = json!({
+        "id": m["id"], "conversation_id": m["conversation_id"], "msg_id": m["msg_id"], "sender_id": m["sender_id"], "device_id": m["device_id"],
+        "envelope": if deleted { Value::Null } else { m["envelope"].clone() },
+        "signature": if deleted { Value::Null } else { m["signature"].clone() },
+        "sent_at": m["sent_at"], "created_date": m["created_date"],
+        "expires_at": or(&m["expires_at"], Value::Null),
+        "deleted": deleted, "scheduled": truthy(m.get("scheduled")),
+    });
+    for k in ["id", "conversation_id", "msg_id", "sender_id", "device_id", "sent_at", "created_date"] {
+        if m.get(k).is_none() {
+            o.as_object_mut().unwrap().remove(k);
+        }
+    }
+    for k in ["envelope", "signature"] {
+        if !deleted && m.get(k).is_none() {
+            o.as_object_mut().unwrap().remove(k);
+        }
+    }
+    o
+}
+
+/// False once a disappearing message's time is up.
+pub fn is_live(m: &Value, now: i64) -> bool {
+    !truthy(m.get("expires_at")) || platform_ms(&m["expires_at"]) > now as f64
+}
+
+/// Messages a member may list: only those whose key was sealed to them (or from before that was recorded).
+pub fn addressed_to(user_id: &str) -> Value {
+    json!([{ "recipient_ids": user_id }, { "recipient_ids": null }])
+}
+
+/// Every member covered exactly once, each at their current key version, post-quantum where theirs is.
+pub fn assert_wraps_match_members(sr: &Db, wraps: &[crate::verify::Wrap], member_ids: &[String]) -> Result<()> {
+    let latest = latest_keys_for(sr, member_ids)?;
+    let users: HashSet<&str> = wraps.iter().map(|w| w.u.as_str()).collect();
+    let exact = users.len() == member_ids.len() && member_ids.iter().all(|m| users.contains(m.as_str()));
+    if !exact {
+        return Err(ApiError::new(409, "RECIPIENTS_CHANGED", "The people in this conversation changed. Refreshing and trying again."));
+    }
+    let stale = || ApiError::new(409, "STALE_KEYS", "Someone's keys changed. Refreshing and trying again.");
+    for w in wraps {
+        let Some(current) = latest.get(&w.u) else { return Err(ApiError::new(409, "MEMBER_NOT_READY", "Someone here hasn't finished setting up encryption.")) };
+        if !crate::js::strict_eq(Some(&json!(w.kv)), current.get("version")) {
+            return Err(stale());
+        }
+        if truthy(current.get("kem_pub")) && !w.kem {
+            return Err(stale());
+        }
+    }
+    Ok(())
+}
+
+/// A list field as strings (`member_ids` and the like).
+pub fn ids_of(v: &Value) -> Vec<String> {
+    v.as_array().map(|a| a.iter().map(|x| to_js_string(Some(x))).collect()).unwrap_or_default()
+}
