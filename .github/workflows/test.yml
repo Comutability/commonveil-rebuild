@@ -23,6 +23,25 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run verify
       - run: npm audit --omit=dev --audit-level=high
+  rust:
+    # The Rust server (rust/), replacing server/ stage by stage: its tests include running the
+    # same work through the Node.js server and comparing every answer.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - run: npm ci --no-audit --no-fund
+      - name: Build the self-hosted site (both servers serve it in the comparison)
+        run: VITE_COMMONVEIL_BACKEND=selfhost npx vite build --outDir dist-selfhost
+      - run: rustup toolchain install stable --profile minimal --component clippy && rustup default stable
+      - name: Tests, and the comparison with the Node.js server
+        working-directory: rust
+        run: cargo test --locked
+      - name: Lints (warnings are errors)
+        working-directory: rust
+        run: cargo clippy --locked --all-targets -- -D warnings
   images:
     runs-on: ubuntu-latest
     steps:
