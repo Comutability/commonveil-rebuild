@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use secure_net_core::cv::{device, identity, keyring, recovery};
 use serde_json::{json, Value};
 
 pub fn repo() -> PathBuf {
@@ -84,7 +85,7 @@ pub fn blank(v: &Value) -> Value {
         // Ciphertext parts are random whatever characters they happen to use.
         Value::Object(o) => Value::Object(o.iter().map(|(k, v)| {
             let key = if blank(&json!(k)) != json!(k) { "<key>".to_string() } else { k.clone() };
-            let value = if ["iv", "ct", "kct", "epk", "wk"].contains(&k.as_str()) && v.is_string() { json!("<random>") } else { blank(v) };
+            let value = if ["iv", "ct", "kct", "epk", "wk", "envelope", "signature", "kc"].contains(&k.as_str()) && v.is_string() { json!("<random>") } else { blank(v) };
             (key, value)
         }).collect()),
         _ => v.clone(),
@@ -133,4 +134,94 @@ pub fn succeeded(log: &[Value], steps: &[&str]) {
         let s = log.iter().find(|s| s["step"] == *step).unwrap_or_else(|| panic!("no step {step}"));
         assert_eq!(s["status"], 200, "control {step}: {s}");
     }
+}
+
+/// Key material made once and used on both sites (only the account ids differ).
+pub struct Kit {
+    pub rk: recovery::RecoveryKeys,
+    pub v: Vec<Value>,
+    pub d: Vec<Value>,
+}
+
+pub fn now() -> i64 {
+    commonveil_server::sessions::now_ms()
+}
+
+impl Kit {
+    pub fn new() -> Self {
+        let rk = recovery::derive_recovery_key(&recovery::generate_recovery_phrase()).unwrap();
+        let v = (1..=3).map(|n| keyring::create_key_version(n, now()).unwrap()).collect();
+        let d = (1..=5).map(|n| device::create_device_keys(&format!("Device {n}"), now()).unwrap()).collect();
+        Self { rk, v, d }
+    }
+    pub fn statement(&self, uid: &str, v: usize, signer: usize, anchor: bool) -> Value {
+        let mut st = identity::make_account_statement(uid, &self.v[v], &self.rk.public_key, &self.rk.kem_public_key, &self.v[signer], now()).unwrap();
+        if anchor {
+            st["recovery_mac"] = json!(recovery::recovery_anchor_mac(&self.rk.anchor_key[..], &st).unwrap());
+        }
+        st
+    }
+    pub fn cert(&self, uid: &str, d: usize, v: usize) -> Value {
+        identity::make_device_cert(uid, &self.d[d], &self.v[v], self.d[d]["kem_pub"].as_str().unwrap(), now()).unwrap()
+    }
+    pub fn keyring(&self, uid: &str, versions: &[usize]) -> Value {
+        let mut k = keyring::new_keyring(uid, self.v[versions[0]].clone()).unwrap();
+        for v in &versions[1..] {
+            k = keyring::with_version(&k, self.v[*v].clone()).unwrap();
+        }
+        k
+    }
+    pub fn recovery_env(&self, k: &Value, v: usize) -> Value {
+        let mut e = keyring::seal_keyring_for_recovery(k, &self.rk.public_key, Some(&self.rk.kem_public_key)).unwrap();
+        e["key_sign_pub"] = self.v[v]["sign_pub"].clone();
+        e
+    }
+    pub fn device_env(&self, k: &Value, d: usize, v: usize) -> Value {
+        let dev = &self.d[d];
+        let mut e = keyring::seal_keyring_to_device(k, dev["device_id"].as_str().unwrap(), dev["box_pub"].as_str().unwrap(), dev["kem_pub"].as_str()).unwrap();
+        e["key_sign_pub"] = self.v[v]["sign_pub"].clone();
+        e["device_id"] = dev["device_id"].clone();
+        e
+    }
+    pub fn public(&self, d: usize) -> Value {
+        device::public_device(&self.d[d])
+    }
+    pub fn id(&self, d: usize) -> Value {
+        self.d[d]["device_id"].clone()
+    }
+    /// A request signed by device `d`.
+    pub fn signed(&self, uid: &str, action: &str, d: usize, payload: Value) -> Value {
+        let text = payload.to_string();
+        json!({ "action": action, "payload": text, "proof": identity::make_device_proof(uid, &self.d[d], action, &text, now()).unwrap() })
+    }
+}
+
+
+impl Kit {
+    /// The request that sets up encryption with key version 1 and device 0.
+    pub fn init(&self, uid: &str) -> Value {
+        let k = self.keyring(uid, &[0]);
+        self.signed(uid, "init_account", 0, json!({ "device": self.public(0), "statement": self.statement(uid, 0, 0, true), "cert": self.cert(uid, 0, 0), "recovery": self.recovery_env(&k, 0) }))
+    }
+    /// This account as a recipient of an envelope (key version 1).
+    pub fn recipient(&self, uid: &str) -> Value {
+        json!({ "user_id": uid, "key_version": 1, "ecdh_pub": self.v[0]["ecdh_pub"], "kem_pub": self.v[0]["kem_pub"] })
+    }
+}
+
+/// An encrypted, signed item from device 0 of `sender`: (envelope JSON, signature).
+pub fn sealed_item(kind: &str, conversation_id: &str, item_id: &str, sender: (&str, &Kit), recipients: &[Value], sent_at: &str) -> (String, String) {
+    let device_id = sender.1.d[0]["device_id"].as_str().unwrap();
+    let scope = json!({ "kind": kind, "conversation_id": conversation_id, "item_id": item_id, "sender_id": sender.0, "device_id": device_id });
+    let env = secure_net_core::cv::envelope::encrypt_envelope(&scope, recipients, &json!({ "text": "hello" })).unwrap().to_string();
+    let sig = identity::sign_item(sender.1.d[0]["sign_priv"].as_str().unwrap(), &json!({ "kind": kind, "conversationId": conversation_id, "itemId": item_id, "senderId": sender.0, "deviceId": device_id, "envelopeJson": env, "sentAt": sent_at })).unwrap();
+    (env, sig)
+}
+
+pub fn random_id() -> String {
+    secure_net_core::cv::encoding::random_id(16)
+}
+
+pub fn iso_at(ms: i64) -> String {
+    commonveil_server::store::iso(ms)
 }

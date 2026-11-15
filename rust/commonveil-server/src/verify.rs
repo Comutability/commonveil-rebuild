@@ -323,3 +323,93 @@ pub fn signed_by_active_device(ctx: &Ctx, action: &str, max_bytes: usize) -> Res
     verify_proof(ctx.user_id(), action, &text, proof, device["sign_pub"].as_str().unwrap_or(""), ctx.now)?;
     Ok((device, data))
 }
+
+// ---------- encrypted messages and items ----------
+
+pub const MAX_ENVELOPE_CHARS: usize = 96 * 1024;
+pub const MAX_GROUP_MEMBERS: usize = 32;
+pub const SENT_AT_SKEW_MS: i64 = 10 * 60 * 1000;
+pub const QUEUED_MAX_AGE_MS: i64 = 7 * 24 * 3600 * 1000;
+
+/// One member's copy of a message key: who, at which key version, post-quantum or not.
+pub struct Wrap {
+    pub u: String,
+    pub kv: i64,
+    pub kem: bool,
+}
+
+/// A message or title envelope's shape, and its wraps. The server can't read it, but it can insist
+/// it's well-formed.
+pub fn parse_envelope_shape(text: &str, max_chars: usize) -> Result<Vec<Wrap>> {
+    let n = text.encode_utf16().count();
+    if n == 0 || n > max_chars {
+        return Err(deny(413, "TOO_LARGE", "That message is too large."));
+    }
+    let bad = || deny(400, "BAD_ENVELOPE", "The encrypted message is malformed.");
+    let env: Value = serde_json::from_str(text).map_err(|_| bad())?;
+    let v = &env["v"];
+    if !(v.as_f64() == Some(2.0) || v.as_f64() == Some(3.0)) {
+        return Err(bad());
+    }
+    let v3 = v.as_f64() == Some(3.0);
+    let (iv, ct, kc) = (b64_bytes(&env["iv"]), b64_bytes(&env["ct"]), b64_bytes(&env["kc"]));
+    if iv.is_none_or(|x| x.len() != 12) || ct.is_none_or(|x| x.len() < 17) || kc.is_none_or(|x| x.len() != 32) {
+        return Err(bad());
+    }
+    let wraps = env["wraps"].as_array().filter(|w| !w.is_empty() && w.len() <= MAX_GROUP_MEMBERS).ok_or_else(bad)?;
+    let mut out: Vec<Wrap> = Vec::new();
+    for w in wraps {
+        let Some(u) = w["u"].as_str() else { return Err(bad()) };
+        let kv_ok = w["kv"].as_f64().is_some_and(|k| k.is_finite() && k.fract() == 0.0 && k >= 1.0);
+        if !truthy(Some(w)) || out.iter().any(|x| x.u == u) || !kv_ok {
+            return Err(bad());
+        }
+        if b64_bytes(&w["iv"]).is_none_or(|x| x.len() != 12) || b64_bytes(&w["wk"]).is_none_or(|x| x.len() != 48) {
+            return Err(bad());
+        }
+        let kem = w.get("kct").is_some();
+        if kem {
+            if !v3 || w.get("epk").is_some() || b64_bytes(&w["kct"]).is_none_or(|x| x.len() != KEM_CIPHERTEXT_BYTES) {
+                return Err(bad());
+            }
+        } else if b64_bytes(&w["epk"]).is_none_or(|x| x.len() != 65) {
+            return Err(bad());
+        }
+        out.push(Wrap { u: u.to_string(), kv: w["kv"].as_f64().unwrap_or(0.0) as i64, kem });
+    }
+    Ok(out)
+}
+
+/// A message's own send time: never more than a few minutes ahead; at most a few minutes behind,
+/// unless it was written offline and queued (then up to a week).
+pub fn check_sent_at(sent_at: &str, now: i64, queued: &Value) -> Result<()> {
+    let age = now as f64 - crate::dates::parse(sent_at).unwrap_or(f64::NAN);
+    let q = *queued == true;
+    let max = if q { QUEUED_MAX_AGE_MS } else { SENT_AT_SKEW_MS } as f64;
+    if age < -(SENT_AT_SKEW_MS as f64) || age > max {
+        if q && age > 0.0 {
+            return Err(deny(400, "TOO_OLD", "This message waited too long to be sent. Copy it and send it again."));
+        }
+        return Err(deny(400, "CLOCK_SKEW", "Your device clock looks wrong. Check it and try again."));
+    }
+    Ok(())
+}
+
+/// The plain clock check items other than messages use.
+pub fn check_clock(sent_at: &str, now: i64) -> Result<()> {
+    if (now as f64 - crate::dates::parse(sent_at).unwrap_or(f64::NAN)).abs() > SENT_AT_SKEW_MS as f64 {
+        return Err(deny(400, "CLOCK_SKEW", "Your device clock looks wrong. Check it and try again."));
+    }
+    Ok(())
+}
+
+/// A signature over an encrypted conversation item (item/v1): a message or a group name.
+#[allow(clippy::too_many_arguments)]
+pub fn verify_item_signature(kind: &str, conversation_id: &str, item_id: &str, sender_id: &str, device_id: &str, envelope: &str, sent_at: &str, signature: &Value, sign_pub: &str) -> Result<bool> {
+    let text = secure_net_core::cv::canonical::item_text(&json!({
+        "kind": kind, "conversation_id": conversation_id, "item_id": item_id, "sender_id": sender_id, "device_id": device_id,
+        "envelope_hash": secure_net_core::cv::encoding::sha256_b64(envelope), "sent_at": sent_at,
+    }))
+    .map_err(internal)?;
+    Ok(verify_sig(sign_pub, signature, &text))
+}
