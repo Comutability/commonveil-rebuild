@@ -1,6 +1,14 @@
-# Keeps Commonveil's copy of Secure Net (packages/secure-net) in step with
-# https://github.com/Comutability/secure-net: daily, or when run by hand, it copies the latest
-# Secure Net in, runs the full checks, and opens a pull request if anything changed.
+# Keeps Commonveil in step with Secure Net (https://github.com/Comutability/secure-net).
+#
+# Secure Net is Rust only from 0.7.0. The Rust server and updater use its crates, pinned to one
+# Secure Net commit in rust/Cargo.toml and rust/commonveil-server/Cargo.toml. Daily, or when run
+# by hand, this looks at Secure Net's main branch: if its version is newer than the pinned one, it
+# moves the pin there, runs the Rust tests and lints, and opens a pull request for review. A
+# commit that doesn't change Secure Net's version (docs, tooling) isn't followed on its own.
+#
+# packages/secure-net stays the JavaScript copy of Secure Net 0.5.0, the last version with
+# JavaScript, for the browser app and the Base44 functions until they move to Rust. It can't be
+# synced any more; see AGENTS.md, "Keeping up with the protocol".
 name: Secure Net
 on:
   schedule:
@@ -12,7 +20,7 @@ permissions:
   contents: write
   pull-requests: write
 jobs:
-  sync:
+  follow:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,27 +28,65 @@ jobs:
         with:
           repository: Comutability/secure-net
           path: .secure-net
-      - uses: actions/setup-node@v4
+          fetch-depth: 0
+      - name: Is Secure Net's version newer than the pinned one?
+        id: check
+        run: |
+          pinned=$(sed -n 's/^secure-net-core = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' rust/commonveil-server/Cargo.toml)
+          latest=$(git -C .secure-net rev-parse HEAD)
+          if [ -z "$pinned" ]; then echo "::error::No secure-net-core rev found in rust/commonveil-server/Cargo.toml"; exit 1; fi
+          version_at() { git -C .secure-net show "$1:secure-net.manifest.json" | jq -r .version; }
+          from=$(version_at "$pinned"); to=$(version_at "$latest")
+          echo "Pinned: $from ($pinned). Secure Net's main: $to ($latest)."
+          newest=$(printf '%s\n%s\n' "$from" "$to" | sort -V | tail -n 1)
+          if [ "$from" = "$to" ] || [ "$newest" != "$to" ]; then echo "new=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          branch="secure-net-$to"
+          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            echo "A pull request branch for Secure Net $to already exists ($branch)."
+            echo "new=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          {
+            echo "new=true"; echo "pinned=$pinned"; echo "latest=$latest"
+            echo "from=$from"; echo "to=$to"; echo "branch=$branch"
+          } >> "$GITHUB_OUTPUT"
+      - if: steps.check.outputs.new == 'true'
+        name: Move the pin
+        run: |
+          rm -rf .secure-net
+          sed -i "s/${{ steps.check.outputs.pinned }}/${{ steps.check.outputs.latest }}/g" rust/Cargo.toml rust/commonveil-server/Cargo.toml
+          cd rust && cargo update -p secure-net-core -p openmls_traits -p openmls_rust_crypto
+      - if: steps.check.outputs.new == 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: 26
-      - run: npm ci --no-audit --no-fund
-      - run: node scripts/secure-net-sync.mjs .secure-net && rm -rf .secure-net
-      - name: Anything new?
-        id: diff
+      - if: steps.check.outputs.new == 'true'
+        name: Build the self-hosted site (the Rust tests serve it)
         run: |
-          if git diff --quiet -- packages/secure-net; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
-      - if: steps.diff.outputs.changed == 'true'
-        run: npm run verify
-      - if: steps.diff.outputs.changed == 'true'
+          npm ci --no-audit --no-fund
+          VITE_COMMONVEIL_BACKEND=selfhost npx vite build --outDir dist-selfhost
+      - if: steps.check.outputs.new == 'true'
+        name: Tests and lints
+        working-directory: rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy && rustup default stable
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+      - if: steps.check.outputs.new == 'true'
+        name: Open a pull request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FROM: ${{ steps.check.outputs.from }}
+          TO: ${{ steps.check.outputs.to }}
+          PINNED: ${{ steps.check.outputs.pinned }}
+          LATEST: ${{ steps.check.outputs.latest }}
+          BRANCH: ${{ steps.check.outputs.branch }}
         run: |
-          version=$(node -p "require('./packages/secure-net/package.json').version")
-          branch="secure-net-$version-$(git rev-parse --short HEAD)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
-          git add packages/secure-net
-          git commit -m "Update Secure Net to $version"
-          git push origin "$branch"
-          gh pr create --title "Update Secure Net to $version" --body "Copied from Comutability/secure-net by the Secure Net workflow. All checks passed (npm run verify)."
+          git switch -c "$BRANCH"
+          git add rust/Cargo.toml rust/commonveil-server/Cargo.toml rust/Cargo.lock
+          git commit -m "Follow Secure Net $TO"
+          git push origin "$BRANCH"
+          gh pr create --title "Follow Secure Net $TO" --body "Moves the Rust server's Secure Net pin from $FROM (\`$PINNED\`) to $TO (\`$LATEST\`). The Rust tests, with the comparison against the Node.js reference, and the lints passed in the Secure Net workflow.
+
+          Before merging, read what changed in Secure Net (its \`snips/\`, \`spec/registry.json\` and each part's \"Changes\" table) and bring Commonveil up to it in the same pull request, as AGENTS.md (\"Keeping up with the protocol\") says. The browser app and the Base44 functions still use the JavaScript copy of Secure Net 0.5.0, so a change they must follow has to be carried into their code too."

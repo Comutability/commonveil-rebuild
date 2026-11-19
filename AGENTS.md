@@ -51,10 +51,12 @@ When shared backend code (`base44/shared/`) changes, bump the "Shared code revis
 
 ## Keeping up with the protocol
 
-Commonveil is built on Secure Net (https://github.com/Comutability/secure-net), copied into `packages/secure-net`. From 0.23.0 on, Commonveil follows the protocol: whenever Secure Net changes, bring Commonveil up to it in the next release.
+Commonveil is built on Secure Net (https://github.com/Comutability/secure-net). From 0.23.0 on, Commonveil follows the protocol: whenever Secure Net changes, bring Commonveil up to it in the next release.
 
-1. Check out the Secure Net version to adopt, run `node scripts/manifest.mjs --check` there, then `npm run secure-net:sync -- <path>` here. Never edit `packages/secure-net` directly.
-2. Read what changed (Secure Net's `snips/`, `spec/registry.json` and each part's "Changes" table) and update what Commonveil builds on it: `src/lib/secure/pq/`, `base44/shared/handlers/protocol.ts`, the federation code, and `docs/SECURE_NET_LAYER.md`.
+Secure Net is Rust only from 0.7.0. The Rust server uses its crates, pinned to one Secure Net commit in `rust/Cargo.toml` (the OpenMLS copies) and `rust/commonveil-server/Cargo.toml` (`secure-net-core`), always the same commit in both. `packages/secure-net` is the JavaScript copy of Secure Net 0.5.0, the last version with JavaScript, which the browser app and the Base44 functions use until they move to Rust; it can't be synced any more, and must never be edited directly (`npm run verify` checks it against its manifest).
+
+1. When Secure Net's version changes, the Secure Net workflow opens a pull request moving the pin, with the Rust tests already run; to do it by hand, put the new commit in both files, then `cargo update -p secure-net-core -p openmls_traits -p openmls_rust_crypto` and `cargo test` in `rust/`.
+2. Read what changed (Secure Net's `snips/`, `spec/registry.json` and each part's "Changes" table) and update what Commonveil builds on it, in the same pull request: the Rust server, `src/lib/secure/pq/`, `base44/shared/handlers/protocol.ts`, the federation code, and `docs/SECURE_NET_LAYER.md`. A change the browser app or the Base44 functions must follow has to be carried into their JavaScript by hand while they use the 0.5.0 copy.
 3. A breaking protocol change needs a migration that keeps existing messages readable, written into the release notes.
 4. Anything built on parts Secure Net marks Draft stays opt-in and labelled experimental in the app until that part has been reviewed and accepted.
 5. Then release as above.

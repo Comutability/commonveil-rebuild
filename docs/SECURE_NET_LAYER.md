@@ -64,5 +64,9 @@ Turning the layer off, or deleting an account, deletes all three kinds of row fo
 
 ## Keeping in step with the protocol
 
-`packages/secure-net` is a checked copy of Secure Net. Whenever Secure Net changes, Commonveil is
-updated to it as part of the next release (see AGENTS.md, "Keeping up with the protocol").
+Secure Net is Rust only from 0.7.0. The Rust server that self-hosted sites run uses Secure Net's
+crates, pinned to one Secure Net commit, and a daily workflow opens a pull request when Secure
+Net's version moves on. `packages/secure-net` is a checked copy of Secure Net 0.5.0, the last
+version with JavaScript, which the browser app and the Base44 functions use until they move to
+Rust. Whenever Secure Net changes, Commonveil is updated to it as part of the next release (see
+AGENTS.md, "Keeping up with the protocol").
