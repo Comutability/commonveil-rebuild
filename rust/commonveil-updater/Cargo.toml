@@ -1,0 +1,20 @@
+[package]
+name = "commonveil-updater"
+version = "0.24.0"
+description = "The Commonveil updater, in Rust (it replaces updater/updater.mjs): installs a new release when a self-hosted site asks."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+# Only crates the server already uses (and the same versions), so there's nothing new to vet.
+[dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+# Asking the app which version it runs (plain HTTP inside Compose's network; HTTPS if configured).
+ureq = { version = "2", default-features = false, features = ["tls"] }
+
+[dev-dependencies]
+tempfile = "3"

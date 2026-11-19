@@ -1,6 +1,7 @@
 # Runs when a release tag (vX.Y.Z) is pushed. In this order, each step only if the one before worked:
 #   1. test: the tests, lint and both builds, at that tag;
-#   2. image: the Docker images, ghcr.io/<owner>/commonveil:<version> (and :latest for the newest);
+#   2. image: the Docker images, ghcr.io/<owner>/commonveil:<version> (and :latest for the newest),
+#      for amd64 and arm64 (arm64 under emulation, so a release takes a while);
 #   3. release: the GitHub release, from the notes in src/content/releases.json, with the images'
 #      digests. Self-hosted sites offer a release as an update as soon as it appears, so it only
 #      appears once there's something to install (CV-20).
@@ -37,6 +38,13 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run verify
       - run: npm audit --omit=dev --audit-level=high
+      # From 0.24.0 the images run the Rust server and updater: their tests too.
+      - name: The Rust server and updater
+        if: hashFiles('rust/commonveil-updater/Cargo.toml') != ''
+        run: |
+          VITE_COMMONVEIL_BACKEND=selfhost npx vite build --outDir dist-selfhost
+          rustup toolchain install stable --profile minimal --component clippy && rustup default stable
+          cd rust && cargo test --locked && cargo clippy --locked --all-targets -- -D warnings
 
   image:
     needs: test
@@ -75,6 +83,9 @@ jobs:
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
           latest="v$(node -p 'require("./notes/package.json").version')"
           echo "latest=$([ "$TAG" = "$latest" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          # The updater is built from the repository's root from 0.24.0 (it's Rust, in rust/);
+          # before that, from its own folder.
+          echo "updater_context=$([ -f rust/commonveil-updater/Cargo.toml ] && echo . || echo updater)" >> "$GITHUB_OUTPUT"
       - if: steps.has.outputs.dockerfile == 'yes'
         id: push
         uses: docker/build-push-action@v6
@@ -97,7 +108,8 @@ jobs:
         if: steps.has.outputs.dockerfile == 'yes' && hashFiles('updater/Dockerfile') != ''
         uses: docker/build-push-action@v6
         with:
-          context: updater
+          context: ${{ steps.name.outputs.updater_context }}
+          file: updater/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |

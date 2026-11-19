@@ -122,7 +122,9 @@ fn script(port: u16, data: &Path, kits: &[Kit]) -> Vec<Value> {
     m(&mut f, "list: bad limit", carol, json!({ "action": "list", "conversation_id": dm_id, "limit": 51 }));
     m(&mut f, "list: before", carol, json!({ "action": "list", "conversation_id": dm_id, "before": "2000-01-01T00:00:00" }));
     m(&mut f, "list: not a member", dave, json!({ "action": "list", "conversation_id": dm_id }));
-    m(&mut f, "poll", carol, json!({ "action": "poll", "since": first["cursor"], "conversations_since": first["conversations_cursor"] }));
+    // Changes since the start of time, not since the first poll's cursor: which rows changed in the
+    // seconds before that poll depends on how fast the run is, and the comparison mustn't.
+    m(&mut f, "poll", carol, json!({ "action": "poll", "since": first["cursor"], "conversations_since": "2000-01-01T00:00:00" }));
     m(&mut f, "poll: bad cursor", carol, json!({ "action": "poll", "since": 5 }));
 
     // ----- disappearing and self-destructing -----

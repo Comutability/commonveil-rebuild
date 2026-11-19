@@ -121,7 +121,9 @@ fn script(port: u16, data: &Path, kits: &[Kit]) -> Vec<Value> {
     ch(&mut f, "delete someone else's", dave, dave.signed("delete_server_message", json!({ "server_id": sid, "channel_id": general, "msg_id": rid(10) })));
     ch(&mut f, "delete as a moderator", bob, bob.signed("delete_server_message", json!({ "server_id": sid, "channel_id": general, "msg_id": rid(22) })));
     ch(&mut f, "delete my own", carol, carol.signed("delete_server_message", json!({ "server_id": sid, "channel_id": intro, "msg_id": rid(17) })));
-    f.call("messages", "poll servers", &dave.token, json!({ "action": "poll", "since": first["cursor"], "servers_since": "2000-01-01T00:00:00", "server_changes_since": first["server_changes_cursor"] }));
+    // Changes since the start of time, not since the first poll's cursor: which rows changed in the
+    // seconds before that poll depends on how fast the run is, and the comparison mustn't.
+    f.call("messages", "poll servers", &dave.token, json!({ "action": "poll", "since": first["cursor"], "servers_since": "2000-01-01T00:00:00", "server_changes_since": "2000-01-01T00:00:00" }));
     f.call("messages", "poll servers: bad cursor", &dave.token, json!({ "action": "poll", "since": first["cursor"], "servers_since": 5 }));
 
     // ----- roles and channels -----

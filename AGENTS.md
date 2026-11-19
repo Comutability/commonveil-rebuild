@@ -39,11 +39,13 @@ Every update to the project is a release. Never ship an update without one:
 
 1. Add the release at the top of `src/content/releases.json` (version, date, title, plain-language notes for people who use Commonveil) and set the same `version` in `package.json`.
 2. Run `npm run release` to rewrite `CHANGELOG.md`, then `npm run verify`.
-3. Keep the Docker deployment in step with the release, every time: the `Dockerfile`'s runtime stage must copy everything the server now needs (and its runtime dependencies in the `deps` stage), `deploy/docker-compose.yml` and `deploy/.env.example` must offer any new setting, `deploy/install.sh` must still set up a working site, and `docs/SELF_HOSTING.md` must describe it. Build the image (`docker build -t commonveil:test .`) and run it before tagging.
+3. Keep the Docker deployment in step with the release, every time: the `Dockerfile` builds the site (Node.js) and the Rust server, and its runtime stage must copy everything the server reads at run time (today `package.json`, `base44/entities` and the built site); `deploy/docker-compose.yml` and `deploy/.env.example` must offer any new setting, `deploy/install.sh` must still set up a working site, and `docs/SELF_HOSTING.md` must describe it. Set the same version in `rust/commonveil-server/Cargo.toml` and `rust/commonveil-updater/Cargo.toml`. Build both images (`docker build -t commonveil:test .` and `docker build -t commonveil-updater:test -f updater/Dockerfile .`) and run them before tagging (the `images` check does this for every pull request).
 4. Commit, push, then `node scripts/release.mjs --tag` and `git push origin --tags`. The tag's workflow makes the GitHub release and publishes `ghcr.io/comutability/commonveil:<version>` (and `:latest`), which self-hosted sites are offered as an update.
 5. Every tagged commit must build on its own: the workflow builds the image from the tag.
 
 Both the Base44 site (`npm run build`) and the self-hosted site (`VITE_COMMONVEIL_BACKEND=selfhost npx vite build --outDir dist-selfhost`) are built from the same code. Features that only exist on self-hosted sites check `SELF_HOSTED` from `src/api/base44Client.js`.
+
+Self-hosted sites run the Rust server (`rust/commonveil-server`) and updater (`rust/commonveil-updater`), from 0.24.0. The Node.js server (`server/`) and updater (`updater/updater.mjs`) stay only as the reference the Rust tests compare against (`cd rust && cargo test`), until they're retired: a backend change goes into the Rust server, and into `base44/shared/` (which the Base44 site runs) and the Node.js reference too, so the comparison keeps passing.
 
 When shared backend code (`base44/shared/`) changes, bump the "Shared code revision" line in each `base44/functions/*/entry.ts`, so Base44 redeploys them.
 

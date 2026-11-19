@@ -5,6 +5,18 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.0): Self-hosted sites now run on a server written in Rust
+
+_2026-11-19_
+
+- Self-hosted Commonveil sites now run on a new server written in Rust, in place of the Node.js one. It does what the old server did: the same features, the same answers to the app, and the same end-to-end encryption, which still happens on your devices.
+- Nothing changes for people using a site. You stay signed in, your conversations, servers, files and settings are where they were, and other sites still recognise yours.
+- Before the switch, every part of the new server was run side by side with the old one on the same requests, and every answer had to match, including two sites talking to each other with one on each server. A site made by the old server was also copied and carried on by the new one, to check that nothing is lost in the move.
+- For people who run a site: the Docker image no longer contains Node.js. It uses the data volume, the settings and the site's keys as they are, so there is nothing to change. Admin commands now start with docker compose exec app commonveil-server (instead of node server/index.mjs), for example docker compose exec app commonveil-server setup-code.
+- The updater, the container that installs updates, is written in Rust too. The one you have keeps working; to move it to the new one, run docker compose pull updater && docker compose up -d updater once.
+- Sites on a local network with their own certificate authority can name it with the new EXTRA_CA_CERTS setting. NODE_EXTRA_CA_CERTS, which such sites set before, still works.
+- The hosted site, commonveil.online, is not changed by this release.
+
 ## [0.23.1](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.23.1): Fix: the app showed a blank page after signing in
 
 _2026-11-14_

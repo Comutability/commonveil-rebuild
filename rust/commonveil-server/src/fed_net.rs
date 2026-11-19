@@ -180,7 +180,7 @@ impl Transport {
     }
 
     fn build(allow_private: bool, host_header: bool, url_for: Option<UrlFor>) -> Self {
-        let agent = |secs: u64| ureq::AgentBuilder::new().redirects(0).timeout(Duration::from_secs(secs)).resolver(move |netloc: &str| public_addrs(netloc, allow_private)).build();
+        let agent = |secs: u64| crate::tls::agent().redirects(0).timeout(Duration::from_secs(secs)).resolver(move |netloc: &str| public_addrs(netloc, allow_private)).build();
         Self { allow_private, host_header, url_for, agent: agent(15), bytes_agent: agent(30), busy: Mutex::new(0), freed: Condvar::new() }
     }
 
@@ -307,11 +307,8 @@ impl Transport {
         }
         let tcp = tcp.ok_or_else(unreachable)?;
         let stream: Box<dyn Io> = if secure {
-            let mut roots = rustls::RootCertStore::empty();
-            roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-            let config = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider())).with_safe_default_protocol_versions().map_err(|_| unreachable())?.with_root_certificates(roots).with_no_client_auth();
             let server = rustls::pki_types::ServerName::try_from(name.clone()).map_err(|_| unreachable())?;
-            let tls = tokio::time::timeout(Duration::from_secs(10), tokio_rustls::TlsConnector::from(Arc::new(config)).connect(server, tcp)).await.map_err(|_| unreachable())?.map_err(|_| unreachable())?;
+            let tls = tokio::time::timeout(Duration::from_secs(10), tokio_rustls::TlsConnector::from(crate::tls::client_config()).connect(server, tcp)).await.map_err(|_| unreachable())?.map_err(|_| unreachable())?;
             Box::new(tls)
         } else {
             Box::new(tcp)

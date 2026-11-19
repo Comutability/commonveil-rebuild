@@ -33,7 +33,7 @@ It asks for your domain and an email address for Let's Encrypt, writes `.env`, s
 and prints a one-time **setup code**. Open `https://chat.example.com`, create your account and
 enter the code: that account becomes the site's admin. Nobody can make an account until then, so
 a stranger can't get there first. If you lose the code, print it again with
-`docker compose exec app node server/index.mjs setup-code`.
+`docker compose exec app commonveil-server setup-code`.
 
 To do it by hand instead: copy `deploy/docker-compose.yml`, `deploy/Caddyfile` and
 `deploy/.env.example` (as `.env`) from this repository, fill in `.env`, then run
@@ -43,7 +43,7 @@ The stack has three containers:
 
 | Container | What it does |
 | --- | --- |
-| `app` | Commonveil: the site, sign-in, the backend, realtime rooms and the Commonveil Protocol. Data lives in the `data` volume. |
+| `app` | Commonveil: the site, sign-in, the backend, realtime rooms and the Commonveil Protocol, served by one program written in Rust (`commonveil-server`). Data lives in the `data` volume. |
 | `caddy` | HTTPS. Gets and renews certificates by itself, including one for each person's address the first time it's visited (only for accounts that exist: it asks the app). |
 | `updater` | Applies updates when an admin asks, or automatically if you turn that on. It's the only container with access to Docker. |
 
@@ -67,8 +67,9 @@ All settings are in `.env`. After changing one, run `docker compose up -d`.
 
 Advanced settings you can add to the `app` service's environment in `docker-compose.yml`:
 `UPDATE_CHECK_HOURS` (how often to look for releases, default 6), `UPDATE_FEED` (where to look),
-`FEDERATION_ALLOW_PRIVATE` (allow talking to sites on private networks, for local sites only), and
-`SECRET` (otherwise one is made and kept in the data volume).
+`FEDERATION_ALLOW_PRIVATE` (allow talking to sites on private networks, for local sites only),
+`EXTRA_CA_CERTS` (a PEM file of certificate authorities to trust besides the public ones, for local
+sites only), and `SECRET` (otherwise one is made and kept in the data volume).
 
 ## Accounts and admins
 
@@ -86,11 +87,11 @@ encrypted on people's devices.
 Commands for the command line (run them in your Commonveil folder):
 
 ```bash
-docker compose exec app node server/index.mjs make-admin <username>
-docker compose exec app node server/index.mjs setup-code                  # shows the first-admin code, if still unused
-docker compose exec app node server/index.mjs reset-password <username>   # prints a temporary password and signs them out everywhere
-docker compose exec app node server/index.mjs backup
-docker compose exec app node server/index.mjs version
+docker compose exec app commonveil-server make-admin <username>
+docker compose exec app commonveil-server setup-code                  # shows the first-admin code, if still unused
+docker compose exec app commonveil-server reset-password <username>   # prints a temporary password and signs them out everywhere
+docker compose exec app commonveil-server backup
+docker compose exec app commonveil-server version
 ```
 
 Only use `reset-password` once you're sure who you're talking to: a new password signs someone in,
@@ -125,13 +126,20 @@ To update by hand instead: set `COMMONVEIL_VERSION` in `.env` to the version you
 `docker compose pull && docker compose up -d`. Release notes are on the site at `/releases`, in
 `CHANGELOG.md`, and on GitHub.
 
+From 0.24.0 the server is a single program written in Rust instead of Node.js. Updating to it needs
+nothing from you: it uses the same data volume, the same settings and the same keys, so people stay
+signed in and other sites still know yours. The admin commands (under [Accounts and admins](#accounts-and-admins))
+changed from `node server/index.mjs` to `commonveil-server`. If you set `NODE_EXTRA_CA_CERTS` (see [Running a site with no internet](#running-a-site-with-no-internet)),
+it still works; `EXTRA_CA_CERTS` is its new name. To update the updater as well (it's Rust too now),
+run `docker compose pull updater && docker compose up -d updater` once.
+
 ## Backups
 
 Everything is in the `data` volume: the database (`commonveil.db`), uploaded files (all
 encrypted on people's devices before upload) and the site's keys.
 
 ```bash
-docker compose exec app node server/index.mjs backup      # copies the database to /data/backups
+docker compose exec app commonveil-server backup      # copies the database to /data/backups
 docker run --rm -v commonveil_data:/data -v "$PWD":/out alpine tar czf /out/commonveil-data.tgz -C /data .
 ```
 
@@ -171,7 +179,8 @@ by itself. `docs/OFFLINE.md` explains the parts and their limits; in short:
      on each device that will use the site.
 3. Leave `FEDERATION=true`. If the site will talk to other local sites (on the same network),
    add `FEDERATION_ALLOW_PRIVATE: "true"` to the app's environment, and give each site the other's
-   root certificate with `NODE_EXTRA_CA_CERTS`.
+   root certificate: mount the file into the app container and set `EXTRA_CA_CERTS` to its path
+   there (a PEM file; it can hold several certificates).
 
 People with accounts on other sites can't sign in to a local one: they make an account there.
 Their messages on their own site wait in their browser (offline mode) and go out when it can be
@@ -180,13 +189,23 @@ reached again.
 ## Building it yourself
 
 ```bash
-docker build -t commonveil:local .          # from a clone of this repository
+docker build -t commonveil:local .                                   # from a clone of this repository
+docker build -t commonveil-updater:local -f updater/Dockerfile .     # the updater, if you want it too
 ```
 
-Then set `image: commonveil:local` for the `app` service. Without Docker: Node 26 (26.12.1 or later), then
-`npm ci`, `VITE_COMMONVEIL_BACKEND=selfhost npx vite build --outDir dist-selfhost`, and
-`DATA_DIR=./data SITE_URL=http://localhost:8080 DIST_DIR=./dist-selfhost node server/index.mjs`.
-`http://localhost` works for trying it out; anywhere else needs HTTPS.
+Then set `image: commonveil:local` for the `app` service (and `commonveil-updater:local` for
+`updater`). Without Docker you need Rust (1.88 or later) for the server and Node.js (24, or 26.12.1
+or later) to build the site, then, in the clone:
+
+```bash
+npm ci
+VITE_COMMONVEIL_BACKEND=selfhost npx vite build --outDir dist-selfhost
+cargo build --release --manifest-path rust/Cargo.toml -p commonveil-server
+DATA_DIR=./data SITE_URL=http://localhost:8080 DIST_DIR=./dist-selfhost ./rust/target/release/commonveil-server
+```
+
+Run it from the clone's folder (it reads `package.json` and `base44/entities` there), or set
+`APP_ROOT` to that folder. `http://localhost` works for trying it out; anywhere else needs HTTPS.
 
 ## Moving from the hosted site
 

@@ -1,5 +1,5 @@
-# Every pull request and every push to main runs the full checks on the Node.js lines Commonveil
-# supports: 26 (what the Docker images use) and 24 (for people running it without Docker).
+# Every pull request and every push to main runs the full checks: the site (built with Node.js:
+# 26, as the Docker image does, and 24), the Rust server and updater, and both Docker images.
 name: Test
 on:
   pull_request:
@@ -24,8 +24,8 @@ jobs:
       - run: npm run verify
       - run: npm audit --omit=dev --audit-level=high
   rust:
-    # The Rust server (rust/), replacing server/ stage by stage: its tests include running the
-    # same work through the Node.js server and comparing every answer.
+    # The Rust server and updater (rust/), which the Docker images run: their tests include running
+    # the same work through the Node.js server and updater they replaced, and comparing every answer.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,19 +49,32 @@ jobs:
       - name: Build the site image
         run: docker build -t commonveil:ci .
       - name: Build the updater image
-        run: docker build -t commonveil-updater:ci updater
-      - name: The updater has Node 26 or later, Docker and Compose
-        run: |
-          docker run --rm --entrypoint sh commonveil-updater:ci -c 'node --version && docker --version && docker compose version'
-          docker run --rm --entrypoint node commonveil-updater:ci -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 26 || (major === 26 && minor < 12)) { console.error("Node " + process.version + " is older than 26.12"); process.exit(1) }'
+        run: docker build -t commonveil-updater:ci -f updater/Dockerfile .
       - name: Both images have Alpine's zlib fix (1.4-r0 or later)
         run: |
           docker run --rm --entrypoint sh commonveil:ci -c 'apk list -I zlib || apk info -v zlib'
           docker run --rm --entrypoint sh commonveil-updater:ci -c 'apk list -I zlib || apk info -v zlib'
-      - name: The site image starts and answers
+      - name: Neither image has Node.js
+        run: |
+          docker run --rm --entrypoint sh commonveil:ci -c '! command -v node'
+          docker run --rm --entrypoint sh commonveil-updater:ci -c '! command -v node'
+      - name: The updater has Docker and Compose, and won't start without a long enough token
+        run: |
+          docker run --rm --entrypoint sh commonveil-updater:ci -c 'docker --version && docker compose version'
+          if docker run --rm commonveil-updater:ci; then echo "The updater started without UPDATER_TOKEN"; exit 1; fi
+          docker run -d --name up -e UPDATER_TOKEN=a-token-for-the-ci-check-only-0123456789 commonveil-updater:ci
+          sleep 3
+          docker logs up 2>&1 | grep -q "Commonveil updater ready"
+          test "$(docker inspect -f '{{.State.Running}}' up)" = true
+          docker rm -f up
+      - name: The site image starts and answers, as user 1000 (the same as before, so data stays readable)
         run: |
           docker run -d --name cv --network none commonveil:ci
           sleep 8
-          docker exec cv node --version
+          docker exec cv commonveil-server version
+          test "$(docker exec cv id -u)" = 1000
           docker exec cv wget -qO- http://127.0.0.1:8080/api/health
+          docker exec cv wget -qO- http://127.0.0.1:8080/ | grep -q '<div id="root">'
+          docker exec cv commonveil-server setup-code
+          test "$(docker inspect -f '{{.State.Health.Status}}' cv)" != unhealthy
           docker rm -f cv

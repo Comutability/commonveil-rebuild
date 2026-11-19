@@ -71,9 +71,24 @@ fn valid_prefix(s: &str) -> bool {
     s.starts_with('/') && (2..=5).contains(&segs.len()) && segs[1..].iter().all(|p| !p.is_empty() && p.bytes().all(|c| c.is_ascii_alphanumeric() || b"._~-".contains(&c)))
 }
 
+/// Where the server's own files are (package.json, and base44/entities when ENTITIES_DIR isn't
+/// set): APP_ROOT if given, else the working directory if it holds package.json (as in the Docker
+/// image, /app), else the repository this was built from.
+pub fn app_root() -> PathBuf {
+    if let Some(root) = std::env::var_os("APP_ROOT").filter(|r| !r.is_empty()) {
+        return PathBuf::from(root);
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        if cwd.join("package.json").is_file() {
+            return cwd;
+        }
+    }
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
 impl Config {
     pub fn from_env() -> std::io::Result<Self> {
-        Self::load(&std::env::vars().collect(), Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").as_path())
+        Self::load(&std::env::vars().collect(), &app_root())
     }
 
     /// `env`: the variables; `app_root`: where package.json and dist/ are when not configured.
