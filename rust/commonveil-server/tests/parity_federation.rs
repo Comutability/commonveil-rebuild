@@ -324,7 +324,9 @@ fn script(net: &mut Net, kits: &[Kit]) -> Vec<Value> {
     send(net, a, "alice sends", alice, 1, &[alice, bob]);
     let start = net.call(b, "messages", "bob's site polls (first)", bob, json!({ "action": "poll" }));
     std::thread::sleep(Duration::from_millis(50));
-    net.call(b, "messages", "bob's site polls (since)", bob, json!({ "action": "poll", "since": start["cursor"], "conversations_since": start["conversations_cursor"] }));
+    // Changes since the start of time, not since the first poll's cursor: which rows changed in the
+    // seconds before that poll depends on how fast the run is, and the comparison mustn't.
+    net.call(b, "messages", "bob's site polls (since)", bob, json!({ "action": "poll", "since": start["cursor"], "conversations_since": "2000-01-01T00:00:00" }));
     net.call(b, "conversations", "bob's site lists his conversations", bob, json!({ "action": "list" }));
     net.call(b, "messages", "bob reads through his site", bob, json!({ "action": "list", "conversation_id": dm_id }));
     send(net, b, "bob answers through his site", bob, 2, &[alice, bob]);
@@ -357,7 +359,7 @@ fn script(net: &mut Net, kits: &[Kit]) -> Vec<Value> {
     net.call(a, "channels", "alice writes in general, through alpha", alice, alice.message(&sid, &general, &rid(11), &l, &keys, "message", ""));
     net.call(a, "channels", "alice reads general", alice, json!({ "action": "list", "server_id": sid, "channel_id": general }));
     let first = net.call(a, "messages", "alice's site polls", alice, json!({ "action": "poll" }));
-    net.call(a, "messages", "alice's site polls servers too", alice, json!({ "action": "poll", "since": first["cursor"], "servers_since": "2000-01-01T00:00:00", "server_changes_since": first["server_changes_cursor"] }));
+    net.call(a, "messages", "alice's site polls servers too", alice, json!({ "action": "poll", "since": first["cursor"], "servers_since": "2000-01-01T00:00:00", "server_changes_since": "2000-01-01T00:00:00" }));
     net.call(a, "servers", "mixed sites in one request", alice, json!({ "action": "state", "server_id": sid, "conversation_id": dm_id }));
 
     // ----- a file in beta's channel, from alpha -----
