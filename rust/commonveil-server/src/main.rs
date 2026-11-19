@@ -1,7 +1,7 @@
 //! Start a self-hosted Commonveil server (Rust). Settings come from environment variables, the
 //! same as the Node.js server's: see docs/SELF_HOSTING.md.
 //!
-//!   ENTITIES_DIR=base44/entities DIST_DIR=dist cargo run -p commonveil-server
+//!   APP_ROOT=.. DIST_DIR=../dist-selfhost cargo run -p commonveil-server     (from rust/)
 use std::path::PathBuf;
 
 use commonveil_server::config::Config;
@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !args.is_empty() {
         std::process::exit(commonveil_server::cli::run(&config, &args));
     }
-    let entities = std::env::var("ENTITIES_DIR").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../base44/entities"));
+    let entities = std::env::var("ENTITIES_DIR").map(PathBuf::from).unwrap_or_else(|_| commonveil_server::config::app_root().join("base44/entities"));
     let (bind, port, url, version) = (config.bind.clone(), config.port, config.site_url.clone(), config.version.clone());
     let app = App::new(config, &entities)?;
     // Scheduled tasks (on Base44 these are workflows).

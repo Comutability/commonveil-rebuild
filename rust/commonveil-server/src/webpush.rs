@@ -119,7 +119,7 @@ pub fn send_push(endpoint: &str, p256dh: &str, auth: &str, payload: &Value, keys
     // A subscription with bad keys throws in the JavaScript, and the whole notification stops.
     let Some(body) = encrypt_payload(payload.to_string().as_bytes(), p256dh, auth, None) else { return Sent::Unsendable };
     let Some(authz) = vapid_header(endpoint, keys, subject, crate::sessions::now_ms()) else { return Sent::Unsendable };
-    let agent = ureq::AgentBuilder::new().redirects(0).timeout(std::time::Duration::from_secs(5)).build();
+    let agent = crate::tls::agent().redirects(0).timeout(std::time::Duration::from_secs(5)).build();
     let res = agent
         .post(endpoint)
         .set("Authorization", &authz)

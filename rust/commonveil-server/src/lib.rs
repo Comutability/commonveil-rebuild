@@ -43,6 +43,7 @@ pub mod shared;
 pub mod sessions;
 pub mod store;
 pub mod timsort;
+pub mod tls;
 pub mod verify;
 pub mod webpush;
 pub mod webauthn;

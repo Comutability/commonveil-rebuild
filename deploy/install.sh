@@ -42,7 +42,8 @@ echo
 echo "Commonveil is starting."
 code=""
 for _ in $(seq 1 60); do
-  code=$(docker compose exec -T app node server/index.mjs setup-code 2>/dev/null || true)
+  # Releases before 0.24.0 ran the Node.js server; from 0.24.0 it's the Rust one.
+  code=$(docker compose exec -T app commonveil-server setup-code 2>/dev/null || docker compose exec -T app node server/index.mjs setup-code 2>/dev/null || true)
   case "$code" in *-*-*) break ;; esac
   code=""
   sleep 2
@@ -56,6 +57,6 @@ if [ -n "$code" ]; then
   echo "That account becomes the site's admin. The code works once. Until it's used, nobody else can sign up."
 else
   echo "Open https://$site. If this is a new site, get its setup code with:"
-  echo "    docker compose exec app node server/index.mjs setup-code"
+  echo "    docker compose exec app commonveil-server setup-code"
 fi
 echo "Point DNS for that domain (and *.that-domain, for handles) at this server if you haven't yet."

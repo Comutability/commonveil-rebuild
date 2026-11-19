@@ -102,7 +102,7 @@ impl GitHub {
 }
 
 fn fetch_snips(repo: &str, token: &str) -> std::result::Result<Vec<Value>, String> {
-    let g = GitHub { agent: ureq::AgentBuilder::new().timeout(Duration::from_secs(10)).build(), repo: repo.into(), token: token.into() };
+    let g = GitHub { agent: crate::tls::agent().timeout(Duration::from_secs(10)).build(), repo: repo.into(), token: token.into() };
     let mut out: Vec<(String, Value)> = Vec::new();
     // 1. Proposals on the default branch.
     let mut names: Vec<String> = g.gh("/contents/snips")?.as_array().into_iter().flatten().map(|f| format!("snips/{}", to_js_string(f.get("name")))).filter(|n| snip_file(n).is_some()).collect();

@@ -94,7 +94,7 @@ fn updater_base(app: &App) -> String {
 }
 
 fn agent(secs: u64) -> ureq::Agent {
-    ureq::AgentBuilder::new().timeout(Duration::from_secs(secs)).build()
+    crate::tls::agent().timeout(Duration::from_secs(secs)).build()
 }
 
 fn version_of(r: &Value) -> String {

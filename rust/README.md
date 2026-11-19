@@ -1,9 +1,12 @@
-# Commonveil's server, in Rust
+# Commonveil's server and updater, in Rust
 
-The self-hosted Commonveil server is moving from Node.js (`server/` and the backend in
-`base44/shared`) to Rust, stage by stage, with the same HTTP API and the same data on disk. **The
-Docker image keeps running the Node.js server until every part is here and matches it.** Then the
-image switches, in a release made under [AGENTS.md](../AGENTS.md)'s rules.
+The self-hosted Commonveil server moved from Node.js (`server/` and the backend in `base44/shared`)
+to Rust, stage by stage, with the same HTTP API and the same data on disk. **From 0.24.0 the Docker
+images run it, and the updater here too: neither image has Node.js in it.** The Node.js server and
+updater stay in the repository only as the reference these tests compare against.
+
+- `commonveil-server`: the server (the site, its backend, realtime rooms, federation, admin commands).
+- `commonveil-updater`: the updater container's program (it replaces `updater/updater.mjs`).
 
 ## What's here
 
@@ -29,7 +32,11 @@ image switches, in a release made under [AGENTS.md](../AGENTS.md)'s rules.
 | Admin commands: `make-admin`, `reset-password`, `setup-code`, `backup`, `version` (`cli`) | Done | Run against the same site as the Node.js commands: the same messages and exit codes, a reset password that signs in (and the old one that no longer does), a backup that's made. On an empty database Rust says there's no such account where Node.js stops with an SQLite error |
 | Federation and the Commonveil Protocol: signed and sealed (post-quantum) requests between sites, site documents and key pinning, handles, shadows, relaying calls to the site that hosts something, gathering "all of mine" from every site, held messages, files and realtime rooms carried across sites, the well-known documents and the admin's controls (`fed_net`, `federation`) | Done | Two sites, alpha and beta, run the same script four ways: both Node.js, both Rust, and each mixed pair. The script covers site documents, handles and their hosts, WebFinger and NodeInfo, a conversation started by handle and read and answered on both sites, a server on one site found and joined from the other with encrypted channels both ways, polling across sites, a file uploaded through one site and downloaded through it, a presence room carried across sites, people's choices of who reaches them, unsigned, mistimed and wrongly signed requests, and an admin blocking and unblocking a site. Every answer and every realtime message matches the Node.js pair, so the Rust server both behaves as the Node.js one does and talks to it. A site with federation off is compared on its own |
 
-Every part of the Node.js server is now here. The Docker image switches to this server next.
+| Outgoing HTTPS and WebSockets: which certificate authorities they trust (`tls`) | Done | The public ones, and those in `EXTRA_CA_CERTS` (or `NODE_EXTRA_CA_CERTS`, which Node.js read for the same thing): tested against a local HTTPS server with its own authority, trusted only when that file names it |
+| A site the Node.js server made, carried on by the Rust server (`tests/upgrade.rs`) | Done | The Node.js server makes a site (accounts and encryption, a conversation, a group, a server with channel messages, a file, its federation keys), then a copy of its data is served by each server: the site's federation documents are byte for byte the same (same keys), sessions it issued still work, its passwords still check, the file downloads byte for byte, and reading and carrying on (new messages, a new conversation, people's choices) give the same answers |
+| The updater (`commonveil-updater`) | Done | The same requests go to it and to `updater/updater.mjs`, each with its own deployment folder, a stand-in for `docker` and one for the app: the token (missing, wrong, longer), every refused body, versions that aren't newer, an update while another runs, a successful update, a failed pull that goes back, a failed start that can't, a `.env` without the version (and with Windows line ends), going back when the operator allows it, and a token too short to start. Every answer, every `docker` command run and the `.env` left behind match |
+
+Every part of the Node.js server is here, and the Docker images run it.
 
 Deliberate differences: an entity request body over 256 KB is a `413` (the Node.js server answers
 `500`, because its size error isn't one it expects), and a body that isn't JSON says "The request
@@ -50,13 +57,14 @@ because, unlike the standard library's sort, it never panics on an inconsistent 
 
 ```bash
 cd rust
-cargo test        # unit tests, then the comparison with the Node.js server (needs node and npm ci;
-                  # the HTTP comparison also needs the self-hosted site built into dist-selfhost)
+cargo test        # unit tests, then the comparison with the Node.js server and updater (needs node
+                  # and npm ci; the HTTP comparison also needs the self-hosted site built into
+                  # dist-selfhost)
 cargo clippy --all-targets -- -D warnings
-ENTITIES_DIR=../base44/entities DIST_DIR=../dist-selfhost cargo run -p commonveil-server
+APP_ROOT=.. DIST_DIR=../dist-selfhost cargo run -p commonveil-server
 ```
 
-`tests/node/store-ops.mjs` is the only JavaScript here: it drives the Node.js store for the
-comparison, and goes when the Node.js server does.
+The only JavaScript here drives the Node.js reference in the comparisons (`tests/node/*.mjs`,
+`tests/support/*.mjs`), and goes when the reference does.
 
 Licence: AGPL-3.0-only.

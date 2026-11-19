@@ -69,9 +69,12 @@ base44/shared/       the backend: request handling, signature checks, data acces
 base44/functions/    the backend on Base44: 15 functions over base44/shared
 base44/actors/       realtime rooms: VoiceRoom (call set-up) and Presence (status and typing)
 base44/entities/     the tables, with their access rules
-server/              the backend self-hosted: the same handlers, SQLite, sign-in, files, rooms,
-                     updates, and the Commonveil Protocol (server/federation/)
-updater/             the updater container
+rust/                the self-hosted server and updater, in Rust: what the Docker images run
+                     (the same API and data as base44/shared, SQLite, sign-in, files, rooms,
+                     updates, and the Commonveil Protocol)
+server/              the Node.js self-hosted server the Rust one replaced, kept as the reference
+                     its tests compare against
+updater/             the updater image's Dockerfile, and the Node.js updater it replaced
 deploy/              docker-compose.yml, Caddyfile, .env.example, install.sh
 tests/               unit and integration tests (npm test), live browser tests (tests/e2e)
 scripts/             release notes and tags, the user guide, the bundle check
@@ -87,7 +90,9 @@ npm run build          # the Base44 site
 npm run check:bundle   # after a build
 npm run verify         # all of the above
 VITE_COMMONVEIL_BACKEND=selfhost npx vite build --outDir dist-selfhost   # the self-hosted site
+(cd rust && cargo test)                                                    # the Rust server and updater
 docker build -t commonveil:local .                                         # the image
+docker build -t commonveil-updater:local -f updater/Dockerfile .           # the updater's image
 ```
 
 The live browser suite in `tests/e2e/` runs the real app against the real backend, including a
