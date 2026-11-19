@@ -77,7 +77,7 @@ test("P-256 signatures verify across the two", { skip }, async () => {
   const pair = await generateEcdsa(true);
   const pub = await exportRaw(pair.publicKey);
   const text = "commonveil/test/v1\n1\nhello";
-  const jsSig = toB64(await signBytes(pair.privateKey, utf8(text)));
+  const jsSig = await signBytes(pair.privateKey, utf8(text)); // already base64
   assert.equal(call("cv.verifyText", { pub, signature: jsSig, text }), true);
   assert.equal(call("cv.verifyText", { pub, signature: jsSig, text: `${text}!` }), false);
   const rustSig = call("cv.signText", { priv: await exportPkcs8(pair.privateKey), text });
