@@ -47,7 +47,7 @@ Both the Base44 site (`npm run build`) and the self-hosted site (`VITE_COMMONVEI
 
 Self-hosted sites run the Rust server (`rust/commonveil-server`) and updater (`rust/commonveil-updater`), from 0.24.0. The Node.js server (`server/`) and updater (`updater/updater.mjs`) stay only as the reference the Rust tests compare against (`cd rust && cargo test`), until they're retired: a backend change goes into the Rust server, and into `base44/shared/` (which the Base44 site runs) and the Node.js reference too, so the comparison keeps passing.
 
-When shared backend code (`base44/shared/`) changes, bump the "Shared code revision" line in each `base44/functions/*/entry.ts`, so Base44 redeploys them.
+When shared backend code (`base44/shared/`) changes, bump the "Shared code revision" line in each `base44/functions/*/entry.ts` and `base44/actors/*/entry.ts`, so Base44 redeploys them.
 
 ## Keeping up with the protocol
 

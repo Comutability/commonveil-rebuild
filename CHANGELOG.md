@@ -11,6 +11,7 @@ _2026-11-19_
 
 - Behind the scenes, Commonveil now builds the encryption code that runs in your browser from Rust, as WebAssembly. The app doesn't use it yet: this release adds the build and checks it.
 - Every change to Commonveil is now checked so that the Rust build and today's code produce and read the same encrypted data. Moving to it later can't change how your messages are stored or read.
+- Base44 updated the library the hosted site's app uses to talk to it (@base44/sdk 0.8.63), and this release includes that update.
 - Nothing changes for people using Commonveil.
 - For people who run a site: there's nothing to do, and the updater offers 0.24.3 as usual.
 
@@ -19,7 +20,7 @@ _2026-11-19_
 _2026-11-19_
 
 - Base44, which runs the hosted site's server code, now refuses code that works out the name of a library while it runs. One part of the hosted site did that, as a fallback used only by our tests, so Base44 would have refused the hosted site's next update. That part now names its library directly, and a new check stops this from coming back.
-- This release also redeploys all of the hosted site's server code, so every earlier server fix is sure to be in place there.
+- This release also redeploys all of the hosted site's server functions, so every earlier fix to them is sure to be in place there.
 - Nothing changes in how Commonveil works or what it keeps: sealing between sites works exactly as before, and the hosted site still won't talk in the clear to a site that expects sealing.
 - For people who run a site: there's nothing to do. Self-hosted sites run the Rust server, which this doesn't touch, and the updater offers 0.24.2 as usual.
 
