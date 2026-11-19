@@ -302,7 +302,18 @@ pub async fn upgrade(app: Arc<App>, req: axum::extract::Request) -> Response<Bod
     let token = get("token");
     let host = app.actors.clone();
     ws.max_message_size(MAX_MESSAGE_BYTES).on_upgrade(move |socket| async move {
-        let user = tokio::task::spawn_blocking(move || app.session_for(&token).map(|(u, _)| crate::js::to_js_string(u.get("id")))).await.ok().flatten();
-        host.attach(socket, name, instance, conn_id, user).await;
+        let (a, room) = (app.clone(), instance.clone());
+        let found = tokio::task::spawn_blocking(move || {
+            let user = a.session_for(&token).map(|(u, _)| crate::js::to_js_string(u.get("id")));
+            // A room on another site: this site carries the connection there.
+            let remote = user.as_ref().and_then(|_| a.federation.room_host(&room));
+            (user, remote)
+        })
+        .await;
+        let (user, remote) = found.unwrap_or((None, None));
+        match (user, remote) {
+            (Some(user), Some(site)) => app.federation.clone().proxy_actor(socket, site, name, instance, conn_id, user).await,
+            (user, _) => host.attach(socket, name, instance, conn_id, user).await,
+        }
     })
 }
