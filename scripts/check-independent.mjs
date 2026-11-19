@@ -4,10 +4,11 @@
 //   node scripts/check-independent.mjs dist-selfhost
 import fs from "node:fs";
 import path from "node:path";
+import { BASE44_NAMES } from "./base44-names.mjs";
 
 const dist = path.resolve(process.argv[2] || "dist-selfhost");
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
-const FORBIDDEN = /base44\.(app|com|dev)|base44-realtime|@base44\/(sdk|vite-plugin)/;
+const FORBIDDEN = BASE44_NAMES;
 const problems = [];
 
 function scan(dir, filter) {

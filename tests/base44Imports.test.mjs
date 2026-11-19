@@ -22,8 +22,11 @@ function sourceFiles(dir) {
 function nonLiteralImports(text, name = "code.ts") {
   const source = ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, name.endsWith(".ts") ? ts.ScriptKind.TS : ts.ScriptKind.JS);
   const found = [];
+  // import(...), and the newer import.defer(...) and import.source(...), which parse as calls on
+  // import's meta-property.
+  const isImportCall = (callee) => callee.kind === ts.SyntaxKind.ImportKeyword || (ts.isMetaProperty(callee) && callee.keywordToken === ts.SyntaxKind.ImportKeyword && callee.name.text !== "meta");
   const visit = (node) => {
-    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+    if (ts.isCallExpression(node) && isImportCall(node.expression)) {
       const specifier = node.arguments[0];
       if (!specifier || !ts.isStringLiteral(specifier)) found.push(specifier ? specifier.getText(source) : "");
     }
@@ -43,11 +46,23 @@ test("the check finds a specifier worked out at run time, wherever it hides", ()
   // Strings that look like comments don't hide what follows them.
   assert.deepEqual(nonLiteralImports('const sep = "a//b"; await import(name);'), ["name"]);
   assert.deepEqual(nonLiteralImports('const a = "/*"; await import(name); const b = "*/";'), ["name"]);
+  // The newer forms of import(...) are held to the same rule.
+  assert.deepEqual(nonLiteralImports("await import.defer(name); await import.source(name);"), ["name", "name"]);
+  assert.deepEqual(nonLiteralImports('await import.defer("./a.ts"); const u = import.meta.url;'), []);
 });
 
 test("backend functions import only literal specifiers, which Base44 can deploy", () => {
   const found = sourceFiles(ROOT).flatMap((file) => nonLiteralImports(fs.readFileSync(file, "utf8"), file).map((arg) => `${path.relative(ROOT, file)}: import(${arg})`));
   assert.deepEqual(found, []);
+});
+
+test("every function and actor names the same shared code revision", () => {
+  // Base44 redeploys a function or actor only when its own entry changes, so a change to
+  // base44/shared bumps this line in all of them at once (AGENTS.md); one left behind keeps old code.
+  const entries = ["functions", "actors"].flatMap((kind) => fs.readdirSync(path.join(ROOT, kind)).map((name) => path.join(ROOT, kind, name, "entry.ts")));
+  const revisions = new Map(entries.map((file) => [path.relative(ROOT, file), /^\/\/ Shared code revision: (\S+?)\./.exec(fs.readFileSync(file, "utf8"))?.[1] || "none"]));
+  assert.ok(revisions.size >= 26, "functions and actors found");
+  assert.equal(new Set(revisions.values()).size, 1, JSON.stringify(Object.fromEntries(revisions)));
 });
 
 test("the post-quantum library the functions load is the version the tests hand in", () => {

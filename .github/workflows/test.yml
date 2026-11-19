@@ -1,5 +1,6 @@
 # Every pull request and every push to main runs the full checks: the site (built with Node.js:
-# 26, as the Docker image does, and 24), the Rust server and updater, and both Docker images.
+# 26, as the Docker image does, and 24), the Rust server, updater and client core, the client core
+# as WebAssembly, and both Docker images.
 name: Test
 on:
   pull_request:
@@ -42,6 +43,47 @@ jobs:
       - name: Lints (warnings are errors)
         working-directory: rust
         run: cargo clippy --locked --all-targets -- -D warnings
+  wasm:
+    # The client core (rust/commonveil-client) as WebAssembly, as the browser app will load it:
+    # built, measured, checked against the JavaScript copy of Secure Net the app uses today
+    # (tests/wasmClient.test.mjs), and kept as an artifact. (Base44's backend functions can't load
+    # WebAssembly at all: see rust/README.md, "The client core".)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - run: npm ci --no-audit --no-fund
+      - run: rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown && rustup default stable
+      - name: wasm-bindgen (the command-line tool matching Cargo.lock)
+        run: |
+          version=$(awk '/name = "wasm-bindgen"/{getline; print $3}' rust/Cargo.lock | tr -d '"')
+          cargo install --locked wasm-bindgen-cli --version "$version"
+      - name: Build
+        working-directory: rust
+        run: |
+          cargo build --locked --profile wasm --target wasm32-unknown-unknown -p commonveil-client
+          for target in web nodejs; do
+            wasm-bindgen --target "$target" --out-dir "../wasm-pkg/$target" target/wasm32-unknown-unknown/wasm/commonveil_client.wasm
+          done
+          # The Node.js build is CommonJS, and the repository's package.json says "module".
+          echo '{ "type": "commonjs" }' > ../wasm-pkg/nodejs/package.json
+      - name: Size
+        run: |
+          {
+            echo "### Client core WebAssembly"
+            echo "| Build | Bytes | Gzipped |"
+            echo "| --- | --- | --- |"
+            for f in wasm-pkg/*/*.wasm; do echo "| $f | $(wc -c < "$f") | $(gzip -9 -c "$f" | wc -c) |"; done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: The same answers as the JavaScript copy
+        run: WASM_REQUIRED=1 node --test tests/wasmClient.test.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: commonveil-client-wasm
+          path: wasm-pkg
+          retention-days: 30
   images:
     runs-on: ubuntu-latest
     steps:

@@ -5,12 +5,22 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.3](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.3): Getting the app's encryption code ready to move to Rust
+
+_2026-11-19_
+
+- Behind the scenes, Commonveil now builds the encryption code for your browser from Rust, as WebAssembly. Your browser still runs today's code: this release adds the Rust build and checks it.
+- Every change to Commonveil now checks that the Rust build and today's code agree on the building blocks of its encryption (keys, signatures and sealing), so the later move can be checked step by step.
+- Base44 updated the library the hosted site's app uses to talk to it (Base44's SDK, version 0.8.63), and this release includes that update.
+- Nothing changes for people using Commonveil.
+- For people who run a site: there's nothing to do, and the updater offers 0.24.3 as usual.
+
 ## [0.24.2](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.2): Keeping the hosted site's server code deployable on Base44
 
 _2026-11-19_
 
 - Base44, which runs the hosted site's server code, now refuses code that works out the name of a library while it runs. One part of the hosted site did that, as a fallback used only by our tests, so Base44 would have refused the hosted site's next update. That part now names its library directly, and a new check stops this from coming back.
-- This release also redeploys all of the hosted site's server code, so every earlier server fix is sure to be in place there.
+- This release also redeploys all of the hosted site's server functions, so every earlier fix to them is sure to be in place there.
 - Nothing changes in how Commonveil works or what it keeps: sealing between sites works exactly as before, and the hosted site still won't talk in the clear to a site that expects sealing.
 - For people who run a site: there's nothing to do. Self-hosted sites run the Rust server, which this doesn't touch, and the updater offers 0.24.2 as usual.
 

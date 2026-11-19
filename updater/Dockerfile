@@ -12,14 +12,15 @@ FROM ${DOCKER_IMAGE} AS docker
 FROM ${RUST_IMAGE} AS build
 RUN apk add --no-cache musl-dev gcc
 WORKDIR /build/rust
-# Dependencies first (their sources, exactly as locked); the workspace's other member (the
-# server) needs its manifest.
+# Dependencies first (their sources, exactly as locked); the workspace's other members (the
+# server and the client core) need their manifests.
 COPY rust/Cargo.toml rust/Cargo.lock ./
 COPY rust/commonveil-server/Cargo.toml ./commonveil-server/
 COPY rust/commonveil-updater/Cargo.toml ./commonveil-updater/
-RUN mkdir -p commonveil-server/src commonveil-updater/src \
+COPY rust/commonveil-client/Cargo.toml ./commonveil-client/
+RUN mkdir -p commonveil-server/src commonveil-updater/src commonveil-client/src \
  && echo 'fn main() {}' > commonveil-server/src/main.rs && touch commonveil-server/src/lib.rs \
- && echo 'fn main() {}' > commonveil-updater/src/main.rs \
+ && echo 'fn main() {}' > commonveil-updater/src/main.rs && touch commonveil-client/src/lib.rs \
  && cargo fetch --locked
 COPY rust/commonveil-updater ./commonveil-updater
 RUN cargo build --release --locked -p commonveil-updater \

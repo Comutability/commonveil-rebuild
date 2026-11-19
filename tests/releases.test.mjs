@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { checkReleases, compareVersions, isNewer, releasedUpTo } from "../src/lib/site/releases.js";
 import { changelogText, packageVersion, releases } from "../scripts/release.mjs";
+import { BASE44_NAMES } from "../scripts/base44-names.mjs";
 
 test("versions compare as numbers, not text", () => {
   assert.ok(compareVersions("0.10.0", "0.9.0") > 0);
@@ -12,6 +13,12 @@ test("versions compare as numbers, not text", () => {
   assert.ok(isNewer("0.16.0", "0.15.0"));
   assert.ok(!isNewer("0.15.0", "0.15.0"));
   assert.ok(!isNewer("not-a-version", "0.1.0"), "nothing malformed is ever offered as an update");
+});
+
+test("the release notes don't name Base44's hosts or packages, which the self-hosted build refuses", () => {
+  // The site bundles the whole file, so the whole file is held to scripts/check-independent.mjs's rule.
+  const text = readFileSync(new URL("../src/content/releases.json", import.meta.url), "utf8");
+  assert.equal(BASE44_NAMES.exec(text)?.[0] ?? null, null);
 });
 
 test("every release has a unique version, a date, notes, and a full commit hash once released", () => {

@@ -1,3 +1,4 @@
+// Shared code revision: 2026-11-19a. Bump this line when files in base44/shared change, so the platform redeploys this actor with them.
 // One voice channel's call. This room only passes connection set-up (WebRTC offers, answers
 // and network candidates) between the devices in the call, plus who's muted. Audio never comes
 // here: it goes directly between devices, encrypted twice, and each device checks that the

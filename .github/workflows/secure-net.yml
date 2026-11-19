@@ -1,7 +1,7 @@
 # Keeps Commonveil in step with Secure Net (https://github.com/Comutability/secure-net).
 #
-# Secure Net is Rust only from 0.7.0. The Rust server and updater use its crates, pinned to one
-# Secure Net commit in rust/Cargo.toml and rust/commonveil-server/Cargo.toml. Daily, or when run
+# Secure Net is Rust only from 0.7.0. The Rust server and the client core use its crates, pinned to
+# one Secure Net commit in rust/Cargo.toml (secure-net-core and the OpenMLS copies). Daily, or when run
 # by hand, this looks at Secure Net's main branch: if its version is newer than the pinned one, it
 # moves the pin there, runs the Rust tests and lints, and opens a pull request for review. A
 # commit that doesn't change Secure Net's version (docs, tooling) isn't followed on its own.
@@ -32,9 +32,9 @@ jobs:
       - name: Is Secure Net's version newer than the pinned one?
         id: check
         run: |
-          pinned=$(sed -n 's/^secure-net-core = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' rust/commonveil-server/Cargo.toml)
+          pinned=$(sed -n 's/^secure-net-core = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' rust/Cargo.toml)
           latest=$(git -C .secure-net rev-parse HEAD)
-          if [ -z "$pinned" ]; then echo "::error::No secure-net-core rev found in rust/commonveil-server/Cargo.toml"; exit 1; fi
+          if [ -z "$pinned" ]; then echo "::error::No secure-net-core rev found in rust/Cargo.toml"; exit 1; fi
           version_at() { git -C .secure-net show "$1:secure-net.manifest.json" | jq -r .version; }
           from=$(version_at "$pinned"); to=$(version_at "$latest")
           echo "Pinned: $from ($pinned). Secure Net's main: $to ($latest)."
@@ -53,7 +53,7 @@ jobs:
         name: Move the pin
         run: |
           rm -rf .secure-net
-          sed -i "s/${{ steps.check.outputs.pinned }}/${{ steps.check.outputs.latest }}/g" rust/Cargo.toml rust/commonveil-server/Cargo.toml
+          sed -i "s/${{ steps.check.outputs.pinned }}/${{ steps.check.outputs.latest }}/g" rust/Cargo.toml
           cd rust && cargo update -p secure-net-core -p openmls_traits -p openmls_rust_crypto
       - if: steps.check.outputs.new == 'true'
         uses: actions/setup-node@v4
@@ -84,9 +84,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"
-          git add rust/Cargo.toml rust/commonveil-server/Cargo.toml rust/Cargo.lock
+          git add rust/Cargo.toml rust/Cargo.lock
           git commit -m "Follow Secure Net $TO"
           git push origin "$BRANCH"
-          gh pr create --title "Follow Secure Net $TO" --body "Moves the Rust server's Secure Net pin from $FROM (\`$PINNED\`) to $TO (\`$LATEST\`). The Rust tests, with the comparison against the Node.js reference, and the lints passed in the Secure Net workflow.
+          gh pr create --title "Follow Secure Net $TO" --body "Moves the Rust server's Secure Net pin from $FROM (\`$PINNED\`) to $TO (\`$LATEST\`). The Rust tests, with the comparison against the Node.js reference, and the lints passed in the Secure Net workflow. GitHub doesn't start other workflows for a pull request opened with a workflow's own token, so the Test workflow, including the client core's WebAssembly build and its comparison with the JavaScript copy (its \`wasm\` job), runs only once a maintainer starts it on this branch.
 
           Before merging, read what changed in Secure Net (its \`snips/\`, \`spec/registry.json\` and each part's \"Changes\" table) and bring Commonveil up to it in the same pull request, as AGENTS.md (\"Keeping up with the protocol\") says. The browser app and the Base44 functions still use the JavaScript copy of Secure Net 0.5.0, so a change they must follow has to be carried into their code too."
