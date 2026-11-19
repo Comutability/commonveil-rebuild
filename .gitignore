@@ -42,3 +42,6 @@ base44/.app.jsonc
 dist-selfhost/
 
 rust/target/
+
+# The client core built as WebAssembly (CI's wasm job): see rust/commonveil-client.
+wasm-pkg/
