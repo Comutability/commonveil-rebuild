@@ -68,9 +68,10 @@ WebCrypto keys, because WebAssembly memory can't hide a key from page script. So
 the operations that would need those keys as raw bytes (`REFUSED_OPS`).
 
 The Base44 site can't use the client core on its server side. A trial on 19 November 2026 tried
-three ways to load it in a Base44 backend function, and all failed. Base44 runs functions on
-Cloudflare Workers, which refuse WebAssembly compiled at run time ("Wasm code generation
-disallowed by embedder"). Its bundler won't take a `.wasm` file beside a function. And an npm
+three ways to load it in a Base44 backend function, and all failed. Base44's guidance for coding
+agents says its functions run on Cloudflare Workers, and the errors matched Workers' rules: code
+compiled at run time is refused ("Wasm code generation disallowed by embedder"). Its bundler
+won't take a `.wasm` file beside a function. And an npm
 package's WebAssembly arrives as something other than a compiled module. So the Base44 functions
 keep the JavaScript copy for as long as the Base44 site runs.
 

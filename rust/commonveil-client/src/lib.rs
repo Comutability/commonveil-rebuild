@@ -17,30 +17,43 @@ use wasm_bindgen::prelude::*;
 
 /// Operations this build refuses: each needs a device's signing or box key, or the passcode
 /// lock's key, as raw bytes, or makes one that way. A browser keeps those as non-extractable
-/// WebCrypto keys instead, which neither page script nor this WebAssembly can read.
-pub const REFUSED_OPS: [&str; 7] = [
+/// WebCrypto keys instead, which neither page script nor this WebAssembly can read. When the
+/// browser app starts calling the client core, this becomes a list of the operations it uses.
+pub const REFUSED_OPS: [&str; 12] = [
     "cv.createDeviceKeys",
     "cv.makeDeviceProof",
     "cv.signDeviceKem",
     "cv.signItem",
+    "cv.signServerItem",
+    "cv.makeGeneration",
+    "cv.makeGrant",
     "cv.openKeyringFromDevice",
     "cv.createLock",
     "cv.unlock",
+    "cv.sealKeyringText",
+    "cv.openKeyringText",
 ];
 
 /// Run one request: `{ "op": ..., ... }` in, `{ "ok": ... }` or `{ "error": { code, message } }` out,
 /// exactly as `secure_net_core::api` describes, except that `REFUSED_OPS` answer NOT_IN_BROWSER.
 #[wasm_bindgen]
 pub fn call(request: &str) -> String {
-    // Most requests name no refused operation anywhere, so they're parsed only once, by Secure Net.
-    if REFUSED_OPS.iter().any(|op| request.contains(op)) {
-        let op = serde_json::from_str::<serde_json::Value>(request).ok().and_then(|v| v.get("op").and_then(|o| o.as_str()).map(str::to_owned));
-        if let Some(op) = op.filter(|op| REFUSED_OPS.contains(&op.as_str())) {
-            let message = format!("{op} needs a device or lock key as raw bytes; the browser keeps those in WebCrypto.");
-            return serde_json::json!({ "error": { "code": "NOT_IN_BROWSER", "message": message } }).to_string();
-        }
-    }
-    secure_net_core::api::call_text(request)
+    // Parsed once, and the refusal checks the very value Secure Net then runs, so no spelling of
+    // the request (an escaped letter in "op", say) can get past it.
+    let reply = match serde_json::from_str::<serde_json::Value>(request) {
+        Err(e) => serde_json::json!({ "error": { "code": "BAD_INPUT", "message": e.to_string() } }),
+        Ok(req) => match req.get("op").and_then(|op| op.as_str()) {
+            Some(op) if REFUSED_OPS.contains(&op) => {
+                let message = format!("{op} needs a device or lock key as raw bytes; the browser keeps those in WebCrypto.");
+                serde_json::json!({ "error": { "code": "NOT_IN_BROWSER", "message": message } })
+            }
+            _ => match secure_net_core::api::call(&req) {
+                Ok(value) => serde_json::json!({ "ok": value }),
+                Err(e) => serde_json::json!({ "error": { "code": e.code, "message": e.message } }),
+            },
+        },
+    };
+    reply.to_string()
 }
 
 /// The Secure Net release this build carries.
@@ -90,6 +103,9 @@ mod tests {
         // Naming one inside the data refuses nothing.
         let text = ok(json!({ "op": "cv.canonical", "context": "test/v1", "fields": ["cv.unlock"] }));
         assert_eq!(text, json!("commonveil/test/v1\n1\ncv.unlock"));
+        // Nor does spelling the operation with JSON escapes get past the refusal.
+        let reply: Value = serde_json::from_str(&call(r#"{"op":"cv.create\u0044eviceKeys"}"#)).unwrap();
+        assert_eq!(reply["error"]["code"], "NOT_IN_BROWSER");
     }
 
     #[test]

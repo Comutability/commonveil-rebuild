@@ -135,7 +135,10 @@ test("server chain keys step and ratchet alike", { skip }, () => {
 });
 
 test("operations that need raw device or lock keys are refused", { skip }, () => {
-  for (const op of ["cv.createDeviceKeys", "cv.makeDeviceProof", "cv.signDeviceKem", "cv.signItem", "cv.openKeyringFromDevice", "cv.createLock", "cv.unlock"]) {
+  for (const op of ["cv.createDeviceKeys", "cv.makeDeviceProof", "cv.signDeviceKem", "cv.signItem", "cv.signServerItem", "cv.makeGeneration", "cv.makeGrant", "cv.openKeyringFromDevice", "cv.createLock", "cv.unlock", "cv.sealKeyringText", "cv.openKeyringText"]) {
     assert.throws(() => call(op, { device: {}, passcode: "x" }), { code: "NOT_IN_BROWSER" }, op);
   }
+  // However the request spells it.
+  const reply = JSON.parse(wasm.call('{"op":"cv.create\\u0044eviceKeys"}'));
+  assert.equal(reply.error?.code, "NOT_IN_BROWSER");
 });
