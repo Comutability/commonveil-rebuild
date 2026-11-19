@@ -37,8 +37,8 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "0.26"
 
-# Secure Net (the protocol and Commonveil's cryptography), pinned to its 0.7.0 release.
-secure-net-core = { git = "https://github.com/Comutability/secure-net", rev = "e3b1450d02a7ccfcf0a20f906afbcbdd7109f54a" }
+# Secure Net (the protocol and Commonveil's cryptography), pinned once for the workspace in ../Cargo.toml.
+secure-net-core.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
