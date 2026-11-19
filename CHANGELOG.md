@@ -5,6 +5,16 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.1](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.1): Fix: files from conversations and servers on other sites wouldn't open
+
+_2026-11-19_
+
+- Pictures, voice messages and other files sent in a conversation or server hosted on another Commonveil site now open and download as they should. Before, they showed as no longer available, because the app asked your site for a file without saying where it was posted, and your site couldn't tell which other site held it.
+- The app now names the conversation or channel when it asks for a file, so your site passes the request to the right place. Files stay encrypted end to end throughout: neither site can read them.
+- Forwarding a file that came from another site works now too, for the same reason.
+- The Base44-hosted site doesn't offer files from other sites yet, so nothing changes there.
+- For people who run a site: update as usual (the updater offers 0.24.1); there's nothing to change in your settings.
+
 ## [0.24.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.0): Self-hosted sites now run on a server written in Rust
 
 _2026-11-19_

@@ -37,6 +37,21 @@ export const isShowing = (m, result, now) => {
   return t === null || t > now;
 };
 
+/**
+ * Where a message was posted, as the ids its site is found by. Its files are fetched by naming
+ * this place too: a file id alone tells this site nothing about which site holds the file.
+ */
+export function placeOf(m) {
+  if (typeof m?.server_id === "string" && m.server_id) return { server_id: m.server_id, ...(typeof m.channel_id === "string" && m.channel_id ? { channel_id: m.channel_id } : {}) };
+  if (typeof m?.conversation_id === "string" && m.conversation_id) return { conversation_id: m.conversation_id };
+  return null;
+}
+
+const withPlace = (list, m) => {
+  const place = placeOf(m);
+  return place ? list.map((a) => ({ ...a, place })) : list;
+};
+
 const readable = (r) => r && (r.status === "ok" || r.status === "unverified");
 
 /**
@@ -54,7 +69,7 @@ export function buildThread(list, opened, { userId, now = Date.now() } = {}) {
     const result = opened[m.id];
     const type = result?.content?.type;
     if (type === "reaction" || type === "edit" || type === "vote") continue;
-    const row = { m, result, text: readable(result) ? result.text : "", attachments: readable(result) && type === "text" && !m.deleted ? result.content.attachments || [] : [], edited: false, editedAt: null, reactions: [], replyTo: null, canEdit: false, poll: null };
+    const row = { m, result, text: readable(result) ? result.text : "", attachments: readable(result) && type === "text" && !m.deleted ? withPlace(result.content.attachments || [], m) : [], edited: false, editedAt: null, reactions: [], replyTo: null, canEdit: false, poll: null };
     rows.push(row);
     if (m.msg_id) byMsgId.set(m.msg_id, row);
   }

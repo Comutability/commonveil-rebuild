@@ -231,7 +231,7 @@ export function MessagePane({ serverId, channel, threadId = "", rows, top = null
               }}
               onReact={(emoji, already) => act(() => react(serverId, channel, row, emoji, already))}
               onVote={(choices) => s.vote(serverId, channel, row, choices)}
-              onForward={row.result?.content?.type === "text" ? () => setForwarding({ text: row.text, attachments: row.result.content.attachments || [] }) : undefined}
+              onForward={row.result?.content?.type === "text" ? () => setForwarding({ text: row.text, attachments: row.attachments }) : undefined}
               onSave={() => s.toggleSaved({ serverId, channelId: channel.id, threadId: row.m.thread_id || "", msgId: row.m.msg_id })}
               saved={s.isSaved(row.m.msg_id)}
               hiddenReason={hiddenBy(row)}

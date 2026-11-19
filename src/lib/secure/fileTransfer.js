@@ -62,25 +62,36 @@ export async function copyAttachments({ userId, device, place, msgId, attachment
   for (const a of attachments) {
     const parts = await fetchParts(a);
     const ids = await uploadParts({ userId, device, place, msgId, parts });
-    out.push({ ...a, ids });
+    // Where the original was posted (see thread.js) isn't part of the new message.
+    const meta = { ...a, ids };
+    delete meta.place;
+    out.push(meta);
   }
+  return out;
+}
+
+// The ids that say where a file was posted, so the request reaches the site that holds it.
+const PLACE_KEYS = ["conversation_id", "server_id", "channel_id"];
+function placeFields(place) {
+  const out = {};
+  for (const k of PLACE_KEYS) if (typeof place?.[k] === "string" && place[k]) out[k] = place[k];
   return out;
 }
 
 // Download links last a few minutes, so they're asked for when needed, in batches.
 const linkCache = new Map(); // file id -> { url, until }
-async function linksFor(ids) {
+async function linksFor(ids, place) {
   const now = Date.now();
   const missing = ids.filter((id) => !(linkCache.get(id)?.until > now));
   for (let i = 0; i < missing.length; i += 60) {
-    const { links } = await retry(() => callFn("files", { action: "download_links", file_ids: missing.slice(i, i + 60) }));
+    const { links } = await retry(() => callFn("files", { action: "download_links", file_ids: missing.slice(i, i + 60), ...placeFields(place) }));
     for (const [id, url] of Object.entries(links || {})) linkCache.set(id, { url, until: now + 240_000 });
   }
   return ids.map((id) => linkCache.get(id)?.url || null);
 }
 
 async function fetchParts(meta) {
-  const urls = await linksFor(meta.ids);
+  const urls = await linksFor(meta.ids, meta.place);
   if (urls.some((u) => !u)) throw new Error("This file is no longer available.");
   const parts = [];
   for (const url of urls) {

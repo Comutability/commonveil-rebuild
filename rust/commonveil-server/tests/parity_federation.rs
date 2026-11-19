@@ -369,6 +369,9 @@ fn script(net: &mut Net, kits: &[Kit]) -> Vec<Value> {
     net.call(a, "channels", "and sends its message", alice, alice.message(&sid, &general, &rid(12), &l, &keys, "message", ""));
     net.call(a, "files", "links by id alone (the route isn't known)", alice, json!({ "action": "download_links", "file_ids": [file["file_id"]] }));
     let links = net.call(a, "files", "links, naming beta", alice, json!({ "action": "download_links", "file_ids": [file["file_id"]], "_site": b }));
+    // What the app sends: the place the file was posted, whose site alpha already knows.
+    let by_place = net.call(a, "files", "links, naming the channel", alice, json!({ "action": "download_links", "file_ids": [file["file_id"]], "server_id": sid, "channel_id": general }));
+    assert_eq!(by_place["links"].as_object().map_or(0, |m| m.len()), 1, "naming the channel finds the file's site: {by_place}");
     let link = links["links"].as_object().and_then(|m| m.values().next()).and_then(Value::as_str).unwrap_or("/api/fed/files/none/x").to_string();
     let got = http(net.port(a), "GET", &link, a, "", "", &[]);
     net.record(format!("{a}: the file, through alpha"), got.status, &json!({ "same": got.body == bytes }));
