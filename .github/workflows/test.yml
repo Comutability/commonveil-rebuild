@@ -77,9 +77,7 @@ jobs:
             for f in wasm-pkg/*/*.wasm; do echo "| $f | $(wc -c < "$f") | $(gzip -9 -c "$f" | wc -c) |"; done
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: The same answers as the JavaScript copy
-        run: node --test tests/wasmClient.test.mjs
-      - name: Nothing was skipped
-        run: node --test tests/wasmClient.test.mjs 2>&1 | grep -q '^# skipped 0$'
+        run: WASM_REQUIRED=1 node --test tests/wasmClient.test.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: commonveil-client-wasm

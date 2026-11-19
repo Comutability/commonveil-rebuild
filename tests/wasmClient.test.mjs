@@ -4,7 +4,7 @@
 // this is the check that the move changes no format.
 //
 // The WebAssembly is built in CI (the `wasm` job); without a build in wasm-pkg/nodejs these tests
-// are skipped. To run them locally, build it as that job does.
+// are skipped, unless WASM_REQUIRED is set, as CI sets it. To run them locally, build it as that job does.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -21,6 +21,8 @@ import { generationCommit, ratchetTo, stepAt } from "../packages/secure-net/src/
 
 const PKG = path.resolve(import.meta.dirname, "../wasm-pkg/nodejs/commonveil_client.js");
 const built = fs.existsSync(PKG);
+// CI sets WASM_REQUIRED, so a missing build fails there instead of skipping.
+if (!built && process.env.WASM_REQUIRED) throw new Error(`The WebAssembly build is missing: ${PKG}`);
 const wasm = built ? createRequire(import.meta.url)(PKG) : null;
 const skip = built ? false : "the WebAssembly isn't built here (CI's wasm job builds it)";
 
