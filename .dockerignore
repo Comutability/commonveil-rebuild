@@ -10,3 +10,4 @@ tests/e2e/screenshots
 .env
 .env.*
 rust/target
+wasm-pkg

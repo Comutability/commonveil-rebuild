@@ -1,12 +1,26 @@
 [workspace]
 resolver = "2"
-members = ["commonveil-server", "commonveil-updater"]
+members = ["commonveil-server", "commonveil-updater", "commonveil-client"]
 
 [workspace.package]
 edition = "2021"
 license = "AGPL-3.0-only"
 repository = "https://github.com/Comutability/commonveil-rebuild"
 rust-version = "1.88"
+
+# Secure Net (the protocol and Commonveil's cryptography), pinned to one commit: its 0.7.0 release.
+# The server and the client core both use it from here, and the OpenMLS copies below come from the
+# same commit, always. The Secure Net workflow (.github/workflows/secure-net.yml) moves them together.
+[workspace.dependencies]
+secure-net-core = { git = "https://github.com/Comutability/secure-net", rev = "e3b1450d02a7ccfcf0a20f906afbcbdd7109f54a" }
+
+# The client core as WebAssembly: small rather than fast to build. The server keeps the release profile.
+[profile.wasm]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
 
 # Secure Net's OpenMLS copies (one added ciphersuite; see its rust/vendor/*/SECURE_NET_PATCH.md),
 # from the same release: a dependency's own [patch] doesn't carry over.

@@ -34,13 +34,15 @@ FROM ${RUST_IMAGE} AS server
 RUN apk add --no-cache musl-dev gcc
 WORKDIR /build/rust
 # Dependencies first (their sources, exactly as locked), so builds that only change Commonveil's
-# own code don't fetch them again. The workspace's other member (the updater) needs its manifest.
+# own code don't fetch them again. The workspace's other members (the updater and the client
+# core) need their manifests.
 COPY rust/Cargo.toml rust/Cargo.lock ./
 COPY rust/commonveil-server/Cargo.toml ./commonveil-server/
 COPY rust/commonveil-updater/Cargo.toml ./commonveil-updater/
-RUN mkdir -p commonveil-server/src commonveil-updater/src \
+COPY rust/commonveil-client/Cargo.toml ./commonveil-client/
+RUN mkdir -p commonveil-server/src commonveil-updater/src commonveil-client/src \
  && echo 'fn main() {}' > commonveil-server/src/main.rs && touch commonveil-server/src/lib.rs \
- && echo 'fn main() {}' > commonveil-updater/src/main.rs \
+ && echo 'fn main() {}' > commonveil-updater/src/main.rs && touch commonveil-client/src/lib.rs \
  && cargo fetch --locked
 COPY rust/commonveil-server ./commonveil-server
 RUN cargo build --release --locked -p commonveil-server \

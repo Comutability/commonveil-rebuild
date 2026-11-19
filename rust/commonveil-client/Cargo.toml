@@ -1,0 +1,17 @@
+[package]
+name = "commonveil-client"
+version = "0.24.1"
+description = "Commonveil's client core: Secure Net's Rust, compiled to WebAssembly for the browser app and the Base44 functions."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+secure-net-core.workspace = true
+wasm-bindgen = "0.2"
+serde_json = "1"
