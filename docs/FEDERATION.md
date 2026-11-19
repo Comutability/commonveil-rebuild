@@ -204,6 +204,13 @@ Attachments are encrypted on the sender's device before upload, and live on the 
 download links are short-lived and signed by it; apps fetch other sites' files through their home
 (`/api/fed/files/<site>/<file>`), so an app only ever connects to its own site.
 
+A file id alone doesn't say which site holds the file (the list of a message's files travels inside
+its encryption), so an app asking for links (`files`, `download_links`) also names where the
+message was posted: `conversation_id`, or `server_id` and `channel_id`. The home routes the request
+by those, like any other. The app keeps a link only for an id it asked for, and only for the place
+it asked about, so a host can't hand out links for files posted elsewhere and learn when they're
+opened. The Base44 site doesn't offer files to other sites yet.
+
 ## When a site can't be reached
 
 A home that can't reach a host holds message sends (and only those: other requests fail with
