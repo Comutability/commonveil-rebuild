@@ -76,9 +76,14 @@ fn require_self_ready(sr: &Db, user_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Exact usernames to user ids. Missing and blocked look the same. (People on other sites are
-/// reached through federation, which this server doesn't run yet: their addresses are refused.)
-fn resolve_usernames(sr: &Db, me: &str, usernames: &Value, max: usize) -> Result<Vec<String>> {
+/// The protocol, when this site talks to other sites (for finding people by their handle).
+pub fn federation_of(ctx: &Ctx) -> Option<std::sync::Arc<crate::federation::Federation>> {
+    ctx.app.federation.enabled.then(|| ctx.app.federation.clone())
+}
+
+/// Exact usernames to user ids. Missing and blocked look the same. People on other sites are
+/// named by their handle (alice.example.com) and found through their own site.
+fn resolve_usernames(sr: &Db, me: &str, usernames: &Value, max: usize, fed: Option<&std::sync::Arc<crate::federation::Federation>>) -> Result<Vec<String>> {
     let Some(list) = usernames.as_array().filter(|a| !a.is_empty() && a.len() <= max) else {
         return Err(deny(400, "BAD_FIELD", &format!("Add between 1 and {max} people.")));
     };
@@ -86,11 +91,19 @@ fn resolve_usernames(sr: &Db, me: &str, usernames: &Value, max: usize) -> Result
     for u in list {
         let v = u.as_str().map(crate::js::trim).unwrap_or_default();
         let v = v.strip_prefix('@').unwrap_or(&v).to_lowercase();
-        if !username_ok(&v) {
+        if !username_ok(&v) && !(fed.is_some() && crate::federation::handle_ok(&v)) {
             return Err(deny(400, "BAD_USERNAME", "One of those usernames isn't valid."));
         }
         if !keys.contains(&v) {
             keys.push(v);
+        }
+    }
+    // People on other sites: found through their own site, which checks they accept a conversation.
+    if let Some(fed) = fed {
+        for key in keys.iter().filter(|k| k.contains('.')) {
+            if fed.resolve_for_handler(key, me)?.is_none() {
+                return Err(deny(404, "NOT_FOUND", &format!("Nobody can be reached at \"{key}\".")));
+            }
         }
     }
     let rows = sr.filter("Profile", json!({ "username_key": { "$in": keys } }), "created_date", 200)?;
@@ -127,7 +140,7 @@ fn create_dm(ctx: &mut Ctx) -> Result<Value> {
     let (_, data) = signed_by_active_device(ctx, "create_dm", Limits::MAX_BODY_BYTES)?;
     let (sr, own, uid, now) = (ctx.sr(), ctx.own(), ctx.user_id().to_string(), ctx.now);
     require_self_ready(&sr, &uid)?;
-    let found = resolve_usernames(&sr, &uid, &json!([data.get("username").cloned().unwrap_or(Value::Null)]), 1)?;
+    let found = resolve_usernames(&sr, &uid, &json!([data.get("username").cloned().unwrap_or(Value::Null)]), 1, federation_of(ctx).as_ref())?;
     let Some(other) = found.first().cloned() else { return Err(deny(400, "BAD_FIELD", "That's your own username.")) };
     let mut pair = [uid.clone(), other.clone()];
     pair.sort();
@@ -156,7 +169,7 @@ fn create_group(ctx: &mut Ctx) -> Result<Value> {
     let (_, data) = signed_by_active_device(ctx, "create_group", Limits::MAX_BODY_BYTES)?;
     let (sr, own, uid, now) = (ctx.sr(), ctx.own(), ctx.user_id().to_string(), ctx.now);
     require_self_ready(&sr, &uid)?;
-    let others = resolve_usernames(&sr, &uid, &data["usernames"], MAX_GROUP_MEMBERS - 1)?;
+    let others = resolve_usernames(&sr, &uid, &data["usernames"], MAX_GROUP_MEMBERS - 1, federation_of(ctx).as_ref())?;
     if others.is_empty() {
         return Err(deny(400, "BAD_FIELD", "Add at least one other person."));
     }
@@ -180,7 +193,7 @@ fn add_members(ctx: &mut Ctx) -> Result<Value> {
         return Err(deny(400, "NOT_GROUP", "You can only add people to a group."));
     }
     require_group_admin(&conv, &uid, "add people")?;
-    let ids = resolve_usernames(&sr, &uid, &data["usernames"], MAX_GROUP_MEMBERS)?;
+    let ids = resolve_usernames(&sr, &uid, &data["usernames"], MAX_GROUP_MEMBERS, federation_of(ctx).as_ref())?;
     let members = ids_of(&conv["member_ids"]);
     let new: Vec<String> = ids.iter().filter(|i| !members.contains(i)).cloned().collect();
     require_accepts(&sr, &own, &uid, &new)?;

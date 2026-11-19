@@ -280,8 +280,19 @@ fn update(ctx: &mut Ctx) -> Result<Value> {
 
 fn find(ctx: &mut Ctx) -> Result<Value> {
     let (sr, own, uid) = (ctx.sr(), ctx.own(), ctx.user_id().to_string());
-    // People on other sites are found through federation, which this server doesn't run yet.
-    let (_, key) = normalise_username(&ctx.body["username"])?;
+    let raw = ctx.body["username"].as_str().map(crate::js::trim).unwrap_or_default();
+    let raw = raw.strip_prefix('@').unwrap_or(&raw).to_lowercase();
+    let fed = crate::conversations::federation_of(ctx);
+    let key = match fed {
+        // Someone on another site, found through their site (which checks they accept contact).
+        Some(fed) if crate::federation::handle_ok(&raw) => {
+            if fed.resolve_for_handler(&raw, &uid)?.is_none() {
+                return Err(deny(404, "NOT_FOUND", "Nobody can be reached at that address."));
+            }
+            raw
+        }
+        _ => normalise_username(&ctx.body["username"])?.1,
+    };
     let target = sr.first("Profile", json!({ "username_key": key }), "created_date")?;
     let blocked = match &target {
         Some(t) if t["user_id"] != uid.as_str() => blocked_either_way(&sr, &uid, &to_js_string(t.get("user_id")))?,

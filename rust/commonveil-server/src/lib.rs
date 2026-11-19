@@ -26,6 +26,8 @@ pub mod file_store;
 pub mod actors;
 pub mod rooms;
 pub mod cli;
+pub mod fed_net;
+pub mod federation;
 pub mod files;
 pub mod updates;
 pub mod maintenance;
@@ -71,23 +73,78 @@ pub struct App {
     pub bootstrap: bootstrap::Bootstrap,
     pub files: file_store::FileStore,
     pub actors: Arc<actors::Host>,
+    pub federation: Arc<federation::Federation>,
     functions: std::collections::BTreeMap<&'static str, api::Actions>,
 }
 
 impl App {
-    pub fn new(config: Config, entities_dir: &Path) -> rusqlite::Result<Arc<Self>> {
-        let mut store = Store::open(config.db_file.to_str().unwrap_or(":memory:"), store::load_schemas(entities_dir))?;
+    pub fn new(config: Config, entities_dir: &Path) -> Result<Arc<Self>, String> {
+        Self::with_transport(config, entities_dir, None)
+    }
+
+    /// As `new`, reaching other sites through this transport (tests map site names to ports).
+    pub fn with_transport(config: Config, entities_dir: &Path, transport: Option<fed_net::Transport>) -> Result<Arc<Self>, String> {
+        let mut store = Store::open(config.db_file.to_str().unwrap_or(":memory:"), store::load_schemas(entities_dir)).map_err(|e| e.to_string())?;
         let files = file_store::FileStore::new(&config.files_dir, &config.secret, &config.site_url);
+        // Watchers: federation tells other sites when one of their people joins or leaves something
+        // hosted here, and about keys and blocks. They only hand the work on: the store is locked
+        // while they run.
+        let (jobs_tx, jobs_rx) = std::sync::mpsc::channel::<federation::Job>();
+        let federating = config.federation;
+        let on_write_tx = std::sync::Mutex::new(jobs_tx.clone());
+        store.on_write = Some(Box::new(move |entity: &str, row: &serde_json::Value, old: Option<&serde_json::Value>| {
+            if federating && matches!(entity, "Conversation" | "ServerMember" | "AccountKey" | "Device" | "Block") {
+                if let Ok(tx) = on_write_tx.lock() {
+                    let _ = tx.send(federation::Job::Write(entity.to_string(), row.clone(), old.cloned()));
+                }
+            }
+        }));
         // Deleting a file's row removes the file.
         let on_files = files.clone();
+        let on_remove_tx = std::sync::Mutex::new(jobs_tx);
         store.on_remove = Some(Box::new(move |entity: &str, _id: &str, row: &serde_json::Value| {
             if entity == "Attachment" && crate::js::truthy(row.get("file_uri")) {
                 on_files.remove(row["file_uri"].as_str().unwrap_or(""));
             }
+            if federating && entity == "Block" {
+                if let Ok(tx) = on_remove_tx.lock() {
+                    let _ = tx.send(federation::Job::Remove(entity.to_string(), row.clone()));
+                }
+            }
         }));
         let bootstrap = bootstrap::Bootstrap::new(&config.data_dir);
         bootstrap.prepare(&store);
-        Ok(Arc::new_cyclic(|me| Self { config, store, keys: sessions::Keys::default(), bootstrap, files, actors: actors::Host::new(me.clone()), functions: [("identity", identity::actions()), ("profile", profile::actions()), ("keys", keys::actions()), ("conversations", conversations::actions()), ("messages", messages::actions()), ("notifications", notifications::actions()), ("safety", safety::safety_actions()), ("admin", safety::admin_actions()), ("disclose", safety::disclosure_actions()), ("invite", servers::invite_actions()), ("servers", servers::actions()), ("channels", server_messages::actions()), ("voice", voice_events::voice_actions()), ("events", voice_events::event_actions()), ("files", files::actions()), ("moderation", moderation::actions()), ("protocol", protocol::actions()), ("snips", snips::actions())].into_iter().collect() }))
+        let (host, signer) = federation::Federation::prepare(&config, &store, transport)?;
+        let functions = [("identity", identity::actions()), ("profile", profile::actions()), ("keys", keys::actions()), ("conversations", conversations::actions()), ("messages", messages::actions()), ("notifications", notifications::actions()), ("safety", safety::safety_actions()), ("admin", safety::admin_actions()), ("disclose", safety::disclosure_actions()), ("invite", servers::invite_actions()), ("servers", servers::actions()), ("channels", server_messages::actions()), ("voice", voice_events::voice_actions()), ("events", voice_events::event_actions()), ("files", files::actions()), ("moderation", moderation::actions()), ("protocol", protocol::actions()), ("snips", snips::actions())].into_iter().collect();
+        Ok(Arc::new_cyclic(|me| Self {
+            federation: Arc::new(federation::Federation::new(me.clone(), config.federation, host, signer, jobs_rx)),
+            config,
+            store,
+            keys: sessions::Keys::default(),
+            bootstrap,
+            files,
+            actors: actors::Host::new(me.clone()),
+            functions,
+        }))
+    }
+
+    pub fn has_function(&self, name: &str) -> bool {
+        self.functions.contains_key(name)
+    }
+
+    /// How a function is run: who may call it without signing in, and how big its requests may be.
+    pub fn options_for(name: &str) -> api::RunOptions {
+        api::RunOptions {
+            allow_anonymous: name == "identity" || name == "disclose" || name == "invite",
+            max_body_bytes: if name == "files" { files::FILES_MAX_BODY } else { api::Limits::MAX_BODY_BYTES },
+        }
+    }
+
+    /// Run one function's action here, as this person: (status, reply), or None if there's no
+    /// such function.
+    pub fn run_function(&self, name: &str, user: Option<serde_json::Value>, session: Option<sessions::Session>, raw: &str) -> Option<(u16, serde_json::Value)> {
+        let actions = self.functions.get(name)?;
+        Some(api::run_action(self, user, session, raw, actions, &Self::options_for(name)))
     }
 
     /// Who's calling: Commonveil sign-in's access token, sent as the bearer token. The user is
@@ -166,10 +223,7 @@ async fn function(app: Arc<App>, req: Request, name: &str) -> Response<Body> {
     if req.method() != Method::POST || !app.functions.contains_key(name) {
         return http::json(404, &json!({ "error": "Unknown function.", "code": "NOT_FOUND" }));
     }
-    let options = api::RunOptions {
-        allow_anonymous: name == "identity" || name == "disclose" || name == "invite",
-        max_body_bytes: if name == "files" { files::FILES_MAX_BODY } else { api::Limits::MAX_BODY_BYTES },
-    };
+    let options = App::options_for(name);
     let token = bearer(&req);
     let Ok(bytes) = axum::body::to_bytes(req.into_body(), options.max_body_bytes + 1024).await else {
         return http::json(413, &json!({ "error": "That request is too large.", "code": "TOO_LARGE" }));
@@ -183,6 +237,13 @@ async fn function(app: Arc<App>, req: Request, name: &str) -> Response<Body> {
             None => (None, None),
         };
         let Some(actions) = app.functions.get(name.as_str()) else { return (404, json!({ "error": "Unknown function.", "code": "NOT_FOUND" })) };
+        // Something on another site, or "all of mine" across sites: the protocol relays it.
+        if let Some(u) = &user {
+            let run_local = |text: &str| api::run_action(&app, user.clone(), session.clone(), text, actions, &options);
+            if let Some(relayed) = app.federation.relay_function(&name, &raw, u, &run_local) {
+                return relayed;
+            }
+        }
         api::run_action(&app, user, session, &raw, actions, &options)
     })
     .await;
@@ -211,7 +272,23 @@ fn file_link(app: &App, head: bool, name: &str, query: &str) -> Response<Body> {
     http::response(200, if head { Vec::new() } else { bytes }, &headers)
 }
 
+fn is_websocket(req: &Request) -> bool {
+    req.headers().get("upgrade").and_then(|v| v.to_str().ok()).is_some_and(|v| v.eq_ignore_ascii_case("websocket"))
+}
+
 async fn handle(State(app): State<Arc<App>>, req: Request) -> Response<Body> {
+    if is_websocket(&req) {
+        if federation::is_actor_path(&app.config, req.uri().path()) {
+            return federation::accept_actor(app.clone(), req).await;
+        }
+        if req.uri().path().starts_with("/api/actors/") {
+            return actors::upgrade(app.clone(), req).await;
+        }
+    }
+    let req = match federation::route(app.clone(), req).await {
+        federation::Routed::Done(r) => return r,
+        federation::Routed::Pass(r) => r,
+    };
     let path = req.uri().path().to_string();
     let pq = req.uri().path_and_query().map_or(path.clone(), |p| p.as_str().to_string());
     let c = &app.config;
@@ -224,9 +301,6 @@ async fn handle(State(app): State<Arc<App>>, req: Request) -> Response<Body> {
             "public_settings": { "auth_config": { "enable_username_password": true, "mfa_policy": "off" } },
             "site": { "name": c.site_name, "version": c.version, "federation": c.federation, "handle_domain": c.handle_domain, "email": false },
         }));
-    }
-    if path.starts_with("/api/actors/") && req.headers().get("upgrade").and_then(|v| v.to_str().ok()).is_some_and(|v| v.eq_ignore_ascii_case("websocket")) {
-        return actors::upgrade(app.clone(), req).await;
     }
     if path.starts_with("/api/entities/") {
         return entities(app.clone(), req, &path).await;

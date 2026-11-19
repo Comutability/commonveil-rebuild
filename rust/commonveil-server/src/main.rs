@@ -21,6 +21,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Scheduled tasks (on Base44 these are workflows).
     commonveil_server::maintenance::start(&app);
     commonveil_server::updates::start(&app);
+    // Talking to other sites: watchers, and messages held for sites that were away.
+    app.federation.start();
     let listener = tokio::net::TcpListener::bind((bind.as_str(), port)).await?;
     println!("Commonveil {version} (Rust server) is running at {url} (listening on {bind}:{port})");
     axum::serve(listener, app.router())

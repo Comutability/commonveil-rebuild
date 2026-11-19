@@ -369,6 +369,14 @@ impl Store {
         Ok(Self { schemas, inner: Mutex::new(Inner { db, seq, micros: 0, tables: HashMap::new() }), on_write: None, on_remove: None })
     }
 
+    /// Raw access to the database, for the federation tables kept beside the records
+    /// (server/federation). Never call this from a write or remove hook: those run while the
+    /// store is locked.
+    pub fn with_db<R>(&self, f: impl FnOnce(&Connection) -> R) -> R {
+        let inner = self.inner.lock().unwrap();
+        f(&inner.db)
+    }
+
     /// A consistent copy of the whole database in a new file (SQLite's `VACUUM INTO`).
     pub fn vacuum_into(&self, file: &std::path::Path) -> rusqlite::Result<()> {
         let inner = self.inner.lock().unwrap();
