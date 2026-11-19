@@ -24,7 +24,9 @@ import { DEFAULT_ENDPOINTS } from "../../packages/secure-net/src/wire/federation
 
 const ID24 = /^[0-9a-f]{24}$/;
 const ID_KEYS = new Set(["conversation_id", "server_id", "channel_id", "event_id", "report_id", "case_id", "message_id", "thread_id", "ticket_id", "invite_id", "role_id", "id", "parent_id"]);
-const ID_LIST_KEYS = new Set(["conversation_ids", "server_ids", "channel_ids", "file_ids", "message_ids"]);
+// Not file ids: a message's list of file parts is chosen by its sender, so a request routed by them
+// could be steered to the sender's site. A file is found by where it was posted (docs/FEDERATION.md).
+const ID_LIST_KEYS = new Set(["conversation_ids", "server_ids", "channel_ids", "message_ids"]);
 const MAX_ACT_BODY = 9 * 1024 * 1024;
 // Held messages (docs/OFFLINE.md): tried again after 30 seconds, then less and less often (at
 // most every 30 minutes), for up to a week; the same week a message written offline may wait.

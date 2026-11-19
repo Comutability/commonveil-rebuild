@@ -62,25 +62,59 @@ export async function copyAttachments({ userId, device, place, msgId, attachment
   for (const a of attachments) {
     const parts = await fetchParts(a);
     const ids = await uploadParts({ userId, device, place, msgId, parts });
-    out.push({ ...a, ids });
+    out.push(forwardedCopy(a, ids));
   }
   return out;
 }
 
-// Download links last a few minutes, so they're asked for when needed, in batches.
-const linkCache = new Map(); // file id -> { url, until }
-async function linksFor(ids) {
+/** An attachment as it goes into a new message: where the original was posted (see thread.js) isn't part of it. */
+export function forwardedCopy(meta, ids) {
+  const out = { ...meta, ids };
+  delete out.place;
+  return out;
+}
+
+// The ids that say where a file was posted, so the request reaches the site that holds it.
+const PLACE_KEYS = ["conversation_id", "server_id", "channel_id"];
+function placeFields(place) {
+  const out = {};
+  for (const k of PLACE_KEYS) if (typeof place?.[k] === "string" && place[k]) out[k] = place[k];
+  return out;
+}
+
+// Download links last a few minutes, so they're asked for when needed, in batches. A request about
+// a place hosted on another site is answered by that site, so a link is kept only for an id that
+// was asked for, and only for the place it was asked about: no site can hand out links for files
+// posted somewhere else, and so learn when they're opened.
+const linkCache = new Map(); // place + file id -> { url, until }
+const cacheKey = (place, id) => `${JSON.stringify(placeFields(place))}|${id}`;
+
+/** Download links for a file's parts, in order (null where there's none). */
+export async function linksFor(ids, place) {
   const now = Date.now();
-  const missing = ids.filter((id) => !(linkCache.get(id)?.until > now));
+  const missing = ids.filter((id) => !(linkCache.get(cacheKey(place, id))?.until > now));
   for (let i = 0; i < missing.length; i += 60) {
-    const { links } = await retry(() => callFn("files", { action: "download_links", file_ids: missing.slice(i, i + 60) }));
-    for (const [id, url] of Object.entries(links || {})) linkCache.set(id, { url, until: now + 240_000 });
+    const batch = missing.slice(i, i + 60);
+    let links;
+    try {
+      ({ links } = await retry(() => callFn("files", { action: "download_links", file_ids: batch, ...placeFields(place) })));
+    } catch (err) {
+      // Only another site answers "not found" here: one that doesn't share files across sites.
+      if (err instanceof ApiError && err.status === 404) throw new Error("This file is on a site that doesn't share files with other sites yet.");
+      throw err;
+    }
+    for (const id of batch) if (typeof links?.[id] === "string") linkCache.set(cacheKey(place, id), { url: links[id], until: now + 240_000 });
   }
-  return ids.map((id) => linkCache.get(id)?.url || null);
+  return ids.map((id) => linkCache.get(cacheKey(place, id))?.url || null);
+}
+
+/** For tests: forget every link. */
+export function clearLinks() {
+  linkCache.clear();
 }
 
 async function fetchParts(meta) {
-  const urls = await linksFor(meta.ids);
+  const urls = await linksFor(meta.ids, meta.place);
   if (urls.some((u) => !u)) throw new Error("This file is no longer available.");
   const parts = [];
   for (const url of urls) {
@@ -96,12 +130,15 @@ async function fetchParts(meta) {
 }
 
 // Opened files stay in memory for this tab only, as blob URLs, a limited number at a time.
-const opened = new Map(); // first part id -> Promise<{ blob, url }>
+const opened = new Map(); // what the file is -> Promise<{ blob, url }>
 const MAX_OPEN = 40;
+// Everything that decides what a file opens to, so a message that names another file's parts
+// can't show that file's decrypted copy as its own.
+const openedKey = (meta) => JSON.stringify([placeFields(meta.place), meta.ids, meta.key, meta.ivp, meta.type || ""]);
 
 /** The decrypted file as { blob, url }. Throws with a message for people if it can't be had. */
 export function openAttachment(meta) {
-  const key = meta.ids[0];
+  const key = openedKey(meta);
   if (opened.has(key)) {
     const p = opened.get(key);
     opened.delete(key);

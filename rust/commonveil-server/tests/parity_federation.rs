@@ -331,6 +331,14 @@ fn script(net: &mut Net, kits: &[Kit]) -> Vec<Value> {
     net.call(b, "messages", "bob reads through his site", bob, json!({ "action": "list", "conversation_id": dm_id }));
     send(net, b, "bob answers through his site", bob, 2, &[alice, bob]);
     net.call(a, "messages", "alice reads both", alice, json!({ "action": "list", "conversation_id": dm_id }));
+    // A file in the conversation, posted on alpha: bob asks for it through beta by naming the
+    // conversation, as the app does, and beta finds the site that holds it.
+    let dm_bytes: Vec<u8> = (0..200u32).map(|i| (i * 7 % 251) as u8).collect();
+    let dm_up = json!({ "scope": "conversation", "conversation_id": dm_id, "msg_id": rid(3), "part": 0, "parts": 1, "data": STANDARD.encode(&dm_bytes) });
+    let dm_file = net.call(a, "files", "alice attaches a file to the conversation", alice, alice.signed("upload_part", dm_up));
+    send(net, a, "and sends the message it's in", alice, 3, &[alice, bob]);
+    let dm_links = net.call(b, "files", "bob's links, naming the conversation", bob, json!({ "action": "download_links", "file_ids": [dm_file["file_id"]], "conversation_id": dm_id }));
+    assert_eq!(dm_links["links"].as_object().map_or(0, |m| m.len()), 1, "naming the conversation finds the file's site: {dm_links}");
     net.call(a, "keys", "alice's site has bob's keys", alice, json!({ "action": "peer_keys", "user_ids": [bob.id] }));
     net.call(b, "profile", "bob's site gets alice's profile", bob, json!({ "action": "get_many", "user_ids": [alice.id] }));
 
@@ -367,8 +375,16 @@ fn script(net: &mut Net, kits: &[Kit]) -> Vec<Value> {
     let up = json!({ "scope": "server", "server_id": sid, "channel_id": general, "msg_id": rid(12), "part": 0, "parts": 1, "data": STANDARD.encode(&bytes) });
     let file = net.call(a, "files", "alice uploads to beta, through alpha", alice, alice.signed("upload_part", up));
     net.call(a, "channels", "and sends its message", alice, alice.message(&sid, &general, &rid(12), &l, &keys, "message", ""));
-    net.call(a, "files", "links by id alone (the route isn't known)", alice, json!({ "action": "download_links", "file_ids": [file["file_id"]] }));
+    let alone = net.call(a, "files", "links by id alone (the route isn't known)", alice, json!({ "action": "download_links", "file_ids": [file["file_id"]] }));
+    assert_eq!(alone["links"].as_object().map_or(1, |m| m.len()), 0, "a file id alone doesn't route: {alone}");
     let links = net.call(a, "files", "links, naming beta", alice, json!({ "action": "download_links", "file_ids": [file["file_id"]], "_site": b }));
+    // What the app sends: the place the file was posted, whose site alpha already knows.
+    let by_place = net.call(a, "files", "links, naming the channel", alice, json!({ "action": "download_links", "file_ids": [file["file_id"]], "server_id": sid, "channel_id": general }));
+    assert_eq!(by_place["links"].as_object().map_or(0, |m| m.len()), 1, "naming the channel finds the file's site: {by_place}");
+    // A sender can't steer a request by listing another site's id among a file's parts: alpha's own
+    // conversation is named, so it stays on alpha, whatever else the part ids say.
+    let steer = net.call(a, "files", "links, with another site's id among the parts", alice, json!({ "action": "download_links", "file_ids": [sid, dm_file["file_id"]], "conversation_id": dm_id }));
+    assert_eq!(steer["links"].as_object().map(|m| m.contains_key(s(&dm_file["file_id"]).as_str())), Some(true), "the request stayed on alpha: {steer}");
     let link = links["links"].as_object().and_then(|m| m.values().next()).and_then(Value::as_str).unwrap_or("/api/fed/files/none/x").to_string();
     let got = http(net.port(a), "GET", &link, a, "", "", &[]);
     net.record(format!("{a}: the file, through alpha"), got.status, &json!({ "same": got.body == bytes }));

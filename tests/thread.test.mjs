@@ -126,3 +126,17 @@ test("timer labels", () => {
   assert.equal(timerLabel(604_800), "1 week");
   assert.equal(timerLabel(2_419_200), "4 weeks");
 });
+
+test("a message's files say where it was posted, so their site can be found", () => {
+  const file = { name: "a.txt", size: 3, ids: ["part1"] };
+  const inDm = msg("bob", text("here", { attachments: [file] }));
+  inDm.m.conversation_id = "c".repeat(24);
+  const inChannel = msg("bob", text("there", { attachments: [file] }));
+  Object.assign(inChannel.m, { server_id: "s".repeat(24), channel_id: "h".repeat(24) });
+  const rows = thread([inDm, inChannel]);
+  assert.deepEqual(rows[0].attachments, [{ ...file, place: { conversation_id: "c".repeat(24) } }]);
+  assert.deepEqual(rows[1].attachments, [{ ...file, place: { server_id: "s".repeat(24), channel_id: "h".repeat(24) } }]);
+  assert.deepEqual(file, { name: "a.txt", size: 3, ids: ["part1"] }, "the opened message itself is left as it was");
+  const nowhere = msg("bob", text("?", { attachments: [file] }));
+  assert.deepEqual(thread([nowhere])[0].attachments, [file], "no place known: the files are shown as they are");
+});

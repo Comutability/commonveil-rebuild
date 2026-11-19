@@ -2,10 +2,24 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.24.1",
+      "date": "2026-11-19",
+      "title": "Fix: files from conversations and servers on other sites wouldn't open",
+      "commit": null,
+      "notes": [
+        "Pictures, voice messages and other files sent in a conversation or server hosted on another self-hosted Commonveil site now open and download as they should. Before, they showed as no longer available, because the app asked your site for a file without saying where it was posted, and your site couldn't tell which other site held it.",
+        "The app now names the conversation or channel when it asks for a file, so your site passes the request to the right place. Files stay encrypted end to end throughout: neither site can read them.",
+        "Forwarding a file that came from another site works now too, for the same reason.",
+        "A site answering for its own conversations can't hand your app links for files posted anywhere else, and a file can't be made to appear under someone else's message, even by a message that names its parts.",
+        "Conversations and servers hosted on the Base44 site don't share files with other sites yet, so those files still can't be opened from a self-hosted site; the app now says so plainly.",
+        "For people who run a site: update as usual (the updater offers 0.24.1); there's nothing to change in your settings."
+      ]
+    },
+    {
       "version": "0.24.0",
       "date": "2026-11-19",
       "title": "Self-hosted sites now run on a server written in Rust",
-      "commit": null,
+      "commit": "f91857ba2f0d83c69896ac68395ee69dc6517524",
       "notes": [
         "Self-hosted Commonveil sites now run on a new server written in Rust, in place of the Node.js one. It does what the old server did: the same features, the same answers to the app, and the same end-to-end encryption, which still happens on your devices.",
         "Nothing changes for people using a site. You stay signed in, your conversations, servers, files and settings are where they were, and other sites still recognise yours.",
