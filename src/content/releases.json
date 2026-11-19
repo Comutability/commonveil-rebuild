@@ -2,10 +2,22 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.24.3",
+      "date": "2026-11-19",
+      "title": "Getting the app's encryption code ready to move to Rust",
+      "commit": null,
+      "notes": [
+        "Behind the scenes, Commonveil now builds the encryption code that runs in your browser from Rust, as WebAssembly. The app doesn't use it yet: this release adds the build and checks it.",
+        "Every change to Commonveil is now checked so that the Rust build and today's code produce and read the same encrypted data. Moving to it later can't change how your messages are stored or read.",
+        "Nothing changes for people using Commonveil.",
+        "For people who run a site: there's nothing to do, and the updater offers 0.24.3 as usual."
+      ]
+    },
+    {
       "version": "0.24.2",
       "date": "2026-11-19",
       "title": "Keeping the hosted site's server code deployable on Base44",
-      "commit": null,
+      "commit": "1a37e1256471ed116efd079ee3c227ae6f333b20",
       "notes": [
         "Base44, which runs the hosted site's server code, now refuses code that works out the name of a library while it runs. One part of the hosted site did that, as a fallback used only by our tests, so Base44 would have refused the hosted site's next update. That part now names its library directly, and a new check stops this from coming back.",
         "This release also redeploys all of the hosted site's server code, so every earlier server fix is sure to be in place there.",

@@ -5,6 +5,15 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.3](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.3): Getting the app's encryption code ready to move to Rust
+
+_2026-11-19_
+
+- Behind the scenes, Commonveil now builds the encryption code that runs in your browser from Rust, as WebAssembly. The app doesn't use it yet: this release adds the build and checks it.
+- Every change to Commonveil is now checked so that the Rust build and today's code produce and read the same encrypted data. Moving to it later can't change how your messages are stored or read.
+- Nothing changes for people using Commonveil.
+- For people who run a site: there's nothing to do, and the updater offers 0.24.3 as usual.
+
 ## [0.24.2](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.2): Keeping the hosted site's server code deployable on Base44
 
 _2026-11-19_
