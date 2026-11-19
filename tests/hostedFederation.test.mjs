@@ -8,7 +8,9 @@ import crypto from "node:crypto";
 import { startSites } from "./support/selfhost.mjs";
 import { Person } from "./support/person.mjs";
 import { FakeWorld, Member, FUNCTIONS, addFunctions, signed } from "./support/harness.mjs";
-import { HostedFederation, forgetMemo } from "../base44/shared/federation/hosted.ts";
+import { ml_kem768 } from "@noble/post-quantum/ml-kem.js";
+import { ml_dsa65 } from "@noble/post-quantum/ml-dsa.js";
+import { HostedFederation, forgetMemo, useRelayLibrary } from "../base44/shared/federation/hosted.ts";
 import { serveFederation } from "../base44/shared/federation/inbound.ts";
 import { serve } from "../base44/shared/http.ts";
 import { SITE, HOSTED_ENDPOINTS, siteDocument } from "../base44/shared/federation/site.ts";
@@ -19,6 +21,8 @@ const HOSTED = "hosted.test";
 let net, world, fed, server, alpha, site;
 
 before(async () => {
+  // On Base44 the functions load the post-quantum library by its npm: name, which Node can't.
+  useRelayLibrary({ ml_kem768, ml_dsa65 });
   net = await startSites(["alpha.test"]);
   alpha = net.sites["alpha.test"];
   world = new FakeWorld();
