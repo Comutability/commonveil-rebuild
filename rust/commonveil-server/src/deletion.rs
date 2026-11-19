@@ -49,6 +49,15 @@ fn blank_and_delete_all(sr: &Db, entity: &str, query: Value, blank: Value, deadl
     }
 }
 
+/// Blank and delete every record matching the query: how many, or None if the deadline passed first.
+pub fn blank_and_delete_until(sr: &Db, entity: &str, query: Value, blank: Value, deadline: i64) -> Result<Option<usize>> {
+    match blank_and_delete_all(sr, entity, query, blank, deadline) {
+        Ok(n) => Ok(Some(n)),
+        Err(Stop::Time) => Ok(None),
+        Err(Stop::Error(e)) => Err(e),
+    }
+}
+
 pub fn blank(entity: &str) -> Value {
     match entity {
         "Message" => json!({ "conversation_id": "", "msg_id": "", "sender_id": "", "device_id": "", "envelope": "", "signature": "", "sent_at": "", "recipient_ids": [], "deleted": true, "expires_at": "" }),

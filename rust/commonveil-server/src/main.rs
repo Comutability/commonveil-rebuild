@@ -10,9 +10,17 @@ use commonveil_server::App;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
+    // Admin commands, for example: commonveil-server reset-password someone
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if !args.is_empty() {
+        std::process::exit(commonveil_server::cli::run(&config, &args));
+    }
     let entities = std::env::var("ENTITIES_DIR").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../base44/entities"));
     let (bind, port, url, version) = (config.bind.clone(), config.port, config.site_url.clone(), config.version.clone());
     let app = App::new(config, &entities)?;
+    // Scheduled tasks (on Base44 these are workflows).
+    commonveil_server::maintenance::start(&app);
+    commonveil_server::updates::start(&app);
     let listener = tokio::net::TcpListener::bind((bind.as_str(), port)).await?;
     println!("Commonveil {version} (Rust server) is running at {url} (listening on {bind}:{port})");
     axum::serve(listener, app.router())

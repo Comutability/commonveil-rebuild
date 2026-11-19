@@ -27,6 +27,11 @@ impl Drop for Server {
 }
 
 pub fn start(node: bool, data: &Path) -> Server {
+    start_with(node, data, &[])
+}
+
+/// Start a server with extra settings.
+pub fn start_with(node: bool, data: &Path, extra: &[(&str, String)]) -> Server {
     let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     let mut cmd = if node {
         let mut c = Command::new("node");
@@ -36,6 +41,9 @@ pub fn start(node: bool, data: &Path) -> Server {
         Command::new(env!("CARGO_BIN_EXE_commonveil-server"))
     };
     cmd.env("PORT", port.to_string()).env("BIND", "127.0.0.1").env("DATA_DIR", data).env("DIST_DIR", repo().join("dist-selfhost")).env("SITE_URL", "https://cv.example").env("UPDATE_CHECK_HOURS", "1000").env("FEDERATION", "off").env("COMMONVEIL_VERSION", "9.9.9").env("PASSWORD_ROUNDS", "1000").env("ENTITIES_DIR", repo().join("base44/entities"));
+    for (k, v) in extra {
+        cmd.env(k, v);
+    }
     let server = Server(cmd.stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap(), port);
     for _ in 0..100 {
         if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {

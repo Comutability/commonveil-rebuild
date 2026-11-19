@@ -23,7 +23,12 @@ pub mod safety;
 pub mod seo;
 pub mod server_messages;
 pub mod file_store;
+pub mod actors;
+pub mod rooms;
+pub mod cli;
 pub mod files;
+pub mod updates;
+pub mod maintenance;
 pub mod moderation;
 pub mod protocol;
 pub mod snips;
@@ -54,7 +59,6 @@ use crate::store::Store;
 
 /// What the Node.js server answers that this one doesn't do yet (so a half-ported server can't be
 /// mistaken for a working one).
-const NOT_YET: [&str; 1] = ["/api/admin/updates"];
 const ENTITY_OPS: [&str; 6] = ["filter", "list", "get", "create", "update", "delete"];
 /// Tables the app only ever reads through the backend functions (CV-06): direct reads are refused.
 const FUNCTIONS_ONLY: [&str; 1] = ["ServerMessage"];
@@ -66,6 +70,7 @@ pub struct App {
     pub keys: sessions::Keys,
     pub bootstrap: bootstrap::Bootstrap,
     pub files: file_store::FileStore,
+    pub actors: Arc<actors::Host>,
     functions: std::collections::BTreeMap<&'static str, api::Actions>,
 }
 
@@ -82,7 +87,7 @@ impl App {
         }));
         let bootstrap = bootstrap::Bootstrap::new(&config.data_dir);
         bootstrap.prepare(&store);
-        Ok(Arc::new(Self { config, store, keys: sessions::Keys::default(), bootstrap, files, functions: [("identity", identity::actions()), ("profile", profile::actions()), ("keys", keys::actions()), ("conversations", conversations::actions()), ("messages", messages::actions()), ("notifications", notifications::actions()), ("safety", safety::safety_actions()), ("admin", safety::admin_actions()), ("disclose", safety::disclosure_actions()), ("invite", servers::invite_actions()), ("servers", servers::actions()), ("channels", server_messages::actions()), ("voice", voice_events::voice_actions()), ("events", voice_events::event_actions()), ("files", files::actions()), ("moderation", moderation::actions()), ("protocol", protocol::actions()), ("snips", snips::actions())].into_iter().collect() }))
+        Ok(Arc::new_cyclic(|me| Self { config, store, keys: sessions::Keys::default(), bootstrap, files, actors: actors::Host::new(me.clone()), functions: [("identity", identity::actions()), ("profile", profile::actions()), ("keys", keys::actions()), ("conversations", conversations::actions()), ("messages", messages::actions()), ("notifications", notifications::actions()), ("safety", safety::safety_actions()), ("admin", safety::admin_actions()), ("disclose", safety::disclosure_actions()), ("invite", servers::invite_actions()), ("servers", servers::actions()), ("channels", server_messages::actions()), ("voice", voice_events::voice_actions()), ("events", voice_events::event_actions()), ("files", files::actions()), ("moderation", moderation::actions()), ("protocol", protocol::actions()), ("snips", snips::actions())].into_iter().collect() }))
     }
 
     /// Who's calling: Commonveil sign-in's access token, sent as the bearer token. The user is
@@ -220,6 +225,9 @@ async fn handle(State(app): State<Arc<App>>, req: Request) -> Response<Body> {
             "site": { "name": c.site_name, "version": c.version, "federation": c.federation, "handle_domain": c.handle_domain, "email": false },
         }));
     }
+    if path.starts_with("/api/actors/") && req.headers().get("upgrade").and_then(|v| v.to_str().ok()).is_some_and(|v| v.eq_ignore_ascii_case("websocket")) {
+        return actors::upgrade(app.clone(), req).await;
+    }
     if path.starts_with("/api/entities/") {
         return entities(app.clone(), req, &path).await;
     }
@@ -230,8 +238,20 @@ async fn handle(State(app): State<Arc<App>>, req: Request) -> Response<Body> {
     if let Some(name) = path.strip_prefix("/api/files/").filter(|_| req.method() == Method::GET || req.method() == Method::HEAD) {
         return file_link(&app, req.method() == Method::HEAD, name, req.uri().query().unwrap_or(""));
     }
-    if NOT_YET.iter().any(|p| path.starts_with(p)) {
-        return http::json(501, &json!({ "error": "This part of the server hasn't moved to Rust yet.", "code": "NOT_YET" }));
+    if path.starts_with("/api/admin/updates") {
+        let method = req.method().as_str().to_string();
+        let token = bearer(&req);
+        let body = axum::body::to_bytes(req.into_body(), 4096).await.unwrap_or_default();
+        let app = app.clone();
+        let out = tokio::task::spawn_blocking(move || {
+            let user = app.session_for(&token).map(|(u, _)| u);
+            updates::route(&app, &method, user.as_ref(), &body)
+        })
+        .await;
+        return match out {
+            Ok((status, v)) => http::json(status, &v),
+            Err(_) => http::json(500, &json!({ "error": "Something went wrong.", "code": "INTERNAL" })),
+        };
     }
     if path.starts_with("/api/") {
         return http::json(404, &json!({ "error": "Not found", "code": "NOT_FOUND" }));
