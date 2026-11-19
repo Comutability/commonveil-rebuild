@@ -2,10 +2,21 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.24.2",
+      "date": "2026-11-19",
+      "title": "Keeping the hosted site's server code deployable on Base44",
+      "commit": null,
+      "notes": [
+        "Base44, which runs the hosted site's server code, now refuses code that works out the name of a library while it runs. One part of the hosted site did that, as a fallback used only by our tests, so Base44 would have refused the hosted site's next update. That part now names its library directly, and a new check stops this from coming back.",
+        "Nothing changes in how Commonveil works or what it keeps. Messages between sites are still sealed with quantum-resistant encryption, and the hosted site still won't talk in the clear to a site that expects sealing.",
+        "For people who run a site: there's nothing to do. Self-hosted sites run the Rust server, which this doesn't touch, and the updater offers 0.24.2 as usual."
+      ]
+    },
+    {
       "version": "0.24.1",
       "date": "2026-11-19",
       "title": "Fix: files from conversations and servers on other sites wouldn't open",
-      "commit": null,
+      "commit": "7ddd9f91d435c1cea8a7b885511b6bef9822f36b",
       "notes": [
         "Pictures, voice messages and other files sent in a conversation or server hosted on another self-hosted Commonveil site now open and download as they should. Before, they showed as no longer available, because the app asked your site for a file without saying where it was posted, and your site couldn't tell which other site held it.",
         "The app now names the conversation or channel when it asks for a file, so your site passes the request to the right place. Files stay encrypted end to end throughout: neither site can read them.",

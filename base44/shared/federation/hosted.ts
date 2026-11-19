@@ -19,27 +19,26 @@ import { relaySuite, relayContext, relayKeysOf, relayKeysAcceptable } from "./se
  * The sealed relay's algorithms (packages/secure-net/spec/CVP-015). The post-quantum library is
  * loaded only when first needed, and if it can't be, this site neither publishes relay keys nor
  * talks to sites that require them: it never quietly sends in the clear to a site that seals.
+ * Base44 refuses backend functions that import anything but a literal specifier, so the library
+ * is named only as the functions' runtime knows it; Node (the tests) hands it in with useRelayLibrary.
  */
 let suiteLoading: Promise<any> | null = null;
 export function relayAlgorithms(): Promise<any> {
   suiteLoading ||= (async () => {
-    let kem: any;
-    let dsa: any;
     try {
       // @ts-ignore: an npm specifier, resolved by the functions' runtime
-      [kem, dsa] = await Promise.all([import("npm:@noble/post-quantum@0.7.1/ml-kem.js"), import("npm:@noble/post-quantum@0.7.1/ml-dsa.js")]);
+      const [kem, dsa] = await Promise.all([import("npm:@noble/post-quantum@0.7.1/ml-kem.js"), import("npm:@noble/post-quantum@0.7.1/ml-dsa.js")]);
+      return relaySuite({ ml_kem768: kem.ml_kem768, ml_dsa65: dsa.ml_dsa65 });
     } catch {
-      try {
-        // Under Node (tests), the same package by its plain name.
-        const plain = "@noble/post-quantum/";
-        [kem, dsa] = await Promise.all([import(`${plain}ml-kem.js`), import(`${plain}ml-dsa.js`)]);
-      } catch {
-        return null;
-      }
+      return null;
     }
-    return relaySuite({ ml_kem768: kem.ml_kem768, ml_dsa65: dsa.ml_dsa65 });
   })();
   return suiteLoading;
+}
+
+/** Under Node (the tests), which can't load npm: specifiers: the same library, loaded by the caller. */
+export function useRelayLibrary(lib: { ml_kem768: unknown; ml_dsa65: unknown }): void {
+  suiteLoading = Promise.resolve(relaySuite(lib));
 }
 
 const ID24 = /^[a-f0-9]{24}$/;
