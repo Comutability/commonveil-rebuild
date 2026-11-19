@@ -7,6 +7,7 @@ updater stay in the repository only as the reference these tests compare against
 
 - `commonveil-server`: the server (the site, its backend, realtime rooms, federation, admin commands).
 - `commonveil-updater`: the updater container's program (it replaces `updater/updater.mjs`).
+- `commonveil-client`: the client core, which CI builds as WebAssembly for the browser app (below).
 
 ## What's here
 
@@ -52,6 +53,26 @@ ordering when a field mixes types, so the order of such a sort is up to the engi
 26 give different orders for the same rows. Real fields hold one type each (their schemas say
 which), so the comparison sorts only on such fields. The store sorts with a TimSort (`timsort.rs`)
 because, unlike the standard library's sort, it never panics on an inconsistent comparison.
+
+## The client core
+
+`commonveil-client` is Secure Net's JSON API as one entry point, `call`, built from the same Secure
+Net commit as the server and compiled to WebAssembly. The browser app still runs the JavaScript
+copy of Secure Net (`packages/secure-net`); it moves onto the client core one step at a time, and
+each step adds its checks to `tests/wasmClient.test.mjs`, which CI's `wasm` job runs against the
+build. So far that test covers the building blocks: canonical text, safety numbers and link codes,
+post-quantum and P-256 sealing, signatures, recovery phrases and server chain keys.
+
+A browser keeps its device signing and box keys, and its passcode lock's key, as non-extractable
+WebCrypto keys, because WebAssembly memory can't hide a key from page script. So `call` refuses
+the operations that would need those keys as raw bytes (`REFUSED_OPS`).
+
+The Base44 site can't use the client core on its server side. A trial on 19 November 2026 tried
+three ways to load it in a Base44 backend function, and all failed. Base44 runs functions on
+Cloudflare Workers, which refuse WebAssembly compiled at run time ("Wasm code generation
+disallowed by embedder"). Its bundler won't take a `.wasm` file beside a function. And an npm
+package's WebAssembly arrives as something other than a compiled module. So the Base44 functions
+keep the JavaScript copy for as long as the Base44 site runs.
 
 ## Working on it
 

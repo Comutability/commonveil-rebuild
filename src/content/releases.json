@@ -7,8 +7,8 @@
       "title": "Getting the app's encryption code ready to move to Rust",
       "commit": null,
       "notes": [
-        "Behind the scenes, Commonveil now builds the encryption code that runs in your browser from Rust, as WebAssembly. The app doesn't use it yet: this release adds the build and checks it.",
-        "Every change to Commonveil is now checked so that the Rust build and today's code produce and read the same encrypted data. Moving to it later can't change how your messages are stored or read.",
+        "Behind the scenes, Commonveil now builds the encryption code for your browser from Rust, as WebAssembly. Your browser still runs today's code: this release adds the Rust build and checks it.",
+        "Every change to Commonveil now checks that the Rust build and today's code agree on the building blocks of its encryption (keys, signatures and sealing), so the later move can be checked step by step.",
         "Base44 updated the library the hosted site's app uses to talk to it (Base44's SDK, version 0.8.63), and this release includes that update.",
         "Nothing changes for people using Commonveil.",
         "For people who run a site: there's nothing to do, and the updater offers 0.24.3 as usual."

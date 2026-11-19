@@ -47,7 +47,7 @@ jobs:
     # The client core (rust/commonveil-client) as WebAssembly, as the browser app will load it:
     # built, measured, checked against the JavaScript copy of Secure Net the app uses today
     # (tests/wasmClient.test.mjs), and kept as an artifact. (Base44's backend functions can't load
-    # WebAssembly at all: see the Stage 0 trial in the implementation plan.)
+    # WebAssembly at all: see rust/README.md, "The client core".)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

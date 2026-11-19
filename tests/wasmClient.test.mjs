@@ -1,7 +1,7 @@
 // The client core (rust/commonveil-client) as WebAssembly gives the same answers as the
 // JavaScript copy of Secure Net the app uses today (packages/secure-net), and each reads what
-// the other writes. Stage 0 of the implementation plan moves the app onto the WebAssembly, so
-// this is the check that the move changes no format.
+// the other writes, for the building blocks it covers so far (rust/README.md, "The client core").
+// The app moves onto the WebAssembly step by step, and each step adds its checks here.
 //
 // The WebAssembly is built in CI (the `wasm` job); without a build in wasm-pkg/nodejs these tests
 // are skipped, unless WASM_REQUIRED is set, as CI sets it. To run them locally, build it as that job does.
@@ -34,9 +34,18 @@ function call(op, request = {}) {
 }
 
 const bytes = (n, start = 1) => Uint8Array.from({ length: n }, (_, i) => (start + i * 7) % 256);
+/** A sealed object with one bit of its ciphertext flipped. */
+const tampered = (sealed) => {
+  const ct = fromB64(sealed.ct);
+  ct[ct.length - 1] ^= 1;
+  return { ...sealed, ct: toB64(ct) };
+};
+/** The Secure Net release rust/Cargo.lock pins, which the build must carry. */
+const lockedSecureNet = /name = "secure-net-core"\nversion = "([^"]+)"/.exec(fs.readFileSync(path.resolve(import.meta.dirname, "../rust/Cargo.lock"), "utf8"))?.[1];
 
 test("it says which Secure Net it carries", { skip }, () => {
-  assert.equal(wasm.secureNetVersion(), "0.7.0");
+  assert.ok(lockedSecureNet, "rust/Cargo.lock pins secure-net-core");
+  assert.equal(wasm.secureNetVersion(), lockedSecureNet);
   assert.equal(wasm.version(), JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, "../package.json"), "utf8")).version);
 });
 
@@ -73,6 +82,9 @@ test("post-quantum keys: the same pair from a seed, and each opens what the othe
   const fromRust = call("cv.kemSeal", { pub: js.kem_pub, plaintext: toB64(plaintext), context: "test/v1" });
   assert.deepEqual(await kemOpen(js.kem_priv, fromRust, "test/v1"), plaintext);
   await assert.rejects(kemOpen(js.kem_priv, fromRust, "other/v1"), "bound to its context");
+  // The WebAssembly refuses as the JavaScript does: another context, or a flipped bit.
+  assert.throws(() => call("cv.kemOpen", { priv: js.kem_priv, sealed: fromJs, context: "other/v1" }));
+  assert.throws(() => call("cv.kemOpen", { priv: js.kem_priv, sealed: tampered(fromJs), context: "test/v1" }));
 });
 
 test("P-256 signatures verify across the two", { skip }, async () => {
@@ -95,12 +107,16 @@ test("sealing to a P-256 key opens across the two", { skip }, async () => {
   assert.equal(call("cv.openSealed", { priv: pkcs8, pub, sealed: fromJs, context: "test/v1" }), toB64(plaintext));
   const fromRust = call("cv.sealTo", { pub, plaintext: toB64(plaintext), context: "test/v1" });
   assert.deepEqual(await openSealed(await importEcdhPrivate(pkcs8), pub, fromRust, "test/v1"), plaintext);
+  assert.throws(() => call("cv.openSealed", { priv: pkcs8, pub, sealed: fromJs, context: "other/v1" }));
+  assert.throws(() => call("cv.openSealed", { priv: pkcs8, pub, sealed: tampered(fromJs), context: "test/v1" }));
 });
 
 test("recovery phrases and owner keys", { skip }, () => {
   const phrase = generateRecoveryPhrase();
-  assert.equal(call("cv.isValidPhrase", { phrase }), isValidPhrase(phrase));
-  assert.equal(call("cv.isValidPhrase", { phrase: `${phrase} extra` }), isValidPhrase(`${phrase} extra`));
+  assert.equal(isValidPhrase(phrase), true);
+  assert.equal(call("cv.isValidPhrase", { phrase }), true);
+  assert.equal(isValidPhrase(`${phrase} extra`), false);
+  assert.equal(call("cv.isValidPhrase", { phrase: `${phrase} extra` }), false);
   const key = privateKeyFromPhrase(phrase);
   assert.equal(call("cv.privateKeyFromPhrase", { phrase }), key);
   assert.equal(call("cv.phraseFromPrivateKey", { key }), phraseFromPrivateKey(key));
@@ -116,5 +132,10 @@ test("server chain keys step and ratchet alike", { skip }, () => {
   const key = bytes(32, 5);
   assert.equal(call("cv.ratchetTo", { key: toB64(key), chainId, generation: 2, fromStep: 0, toStep: 3 }), toB64(ratchetTo(key, chainId, 2, 0, 3)));
   assert.equal(call("cv.generationCommit", { chainId, generation: 2, key: toB64(key) }), generationCommit(chainId, 2, key));
-  assert.deepEqual(fromB64(toB64(key)), key);
+});
+
+test("operations that need raw device or lock keys are refused", { skip }, () => {
+  for (const op of ["cv.createDeviceKeys", "cv.makeDeviceProof", "cv.signDeviceKem", "cv.signItem", "cv.openKeyringFromDevice", "cv.createLock", "cv.unlock"]) {
+    assert.throws(() => call(op, { device: {}, passcode: "x" }), { code: "NOT_IN_BROWSER" }, op);
+  }
 });

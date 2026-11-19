@@ -87,6 +87,6 @@ jobs:
           git add rust/Cargo.toml rust/Cargo.lock
           git commit -m "Follow Secure Net $TO"
           git push origin "$BRANCH"
-          gh pr create --title "Follow Secure Net $TO" --body "Moves the Rust server's Secure Net pin from $FROM (\`$PINNED\`) to $TO (\`$LATEST\`). The Rust tests, with the comparison against the Node.js reference, and the lints passed in the Secure Net workflow.
+          gh pr create --title "Follow Secure Net $TO" --body "Moves the Rust server's Secure Net pin from $FROM (\`$PINNED\`) to $TO (\`$LATEST\`). The Rust tests, with the comparison against the Node.js reference, and the lints passed in the Secure Net workflow. GitHub doesn't start other workflows for a pull request opened with a workflow's own token, so the Test workflow, including the client core's WebAssembly build and its comparison with the JavaScript copy (its \`wasm\` job), runs only once a maintainer starts it on this branch.
 
           Before merging, read what changed in Secure Net (its \`snips/\`, \`spec/registry.json\` and each part's \"Changes\" table) and bring Commonveil up to it in the same pull request, as AGENTS.md (\"Keeping up with the protocol\") says. The browser app and the Base44 functions still use the JavaScript copy of Secure Net 0.5.0, so a change they must follow has to be carried into their code too."
