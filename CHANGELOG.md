@@ -13,7 +13,7 @@ _2026-11-19_
 - The app now names the conversation or channel when it asks for a file, so your site passes the request to the right place. Files stay encrypted end to end throughout: neither site can read them.
 - Forwarding a file that came from another site works now too, for the same reason.
 - A site answering for its own conversations can't hand your app links for files posted anywhere else, and a file can't be made to appear under someone else's message, even by a message that names its parts.
-- Conversations and servers hosted on the Base44 site don't share files with other sites yet, so those files still can't be opened from a self-hosted site; the app now says so plainly. Nothing changes for people using the Base44 site.
+- Conversations and servers hosted on the Base44 site don't share files with other sites yet, so those files still can't be opened from a self-hosted site; the app now says so plainly.
 - For people who run a site: update as usual (the updater offers 0.24.1); there's nothing to change in your settings.
 
 ## [0.24.0](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.0): Self-hosted sites now run on a server written in Rust

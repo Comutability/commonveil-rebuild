@@ -207,9 +207,10 @@ download links are short-lived and signed by it; apps fetch other sites' files t
 A file id alone doesn't say which site holds the file (the list of a message's files travels inside
 its encryption), so an app asking for links (`files`, `download_links`) also names where the
 message was posted: `conversation_id`, or `server_id` and `channel_id`. The home routes the request
-by those, like any other. The app keeps a link only for an id it asked for, and only for the place
-it asked about, so a host can't hand out links for files posted elsewhere and learn when they're
-opened. The Base44 site doesn't offer files to other sites yet.
+by those, like any other, and never by file ids, which a message's sender chooses. The app keeps a
+link only for an id it asked for, and only for the place it asked about, so a host can't hand out
+links for files posted elsewhere and learn when they're opened. The Base44 site doesn't offer files
+to other sites yet.
 
 ## When a site can't be reached
 

@@ -381,6 +381,10 @@ fn script(net: &mut Net, kits: &[Kit]) -> Vec<Value> {
     // What the app sends: the place the file was posted, whose site alpha already knows.
     let by_place = net.call(a, "files", "links, naming the channel", alice, json!({ "action": "download_links", "file_ids": [file["file_id"]], "server_id": sid, "channel_id": general }));
     assert_eq!(by_place["links"].as_object().map_or(0, |m| m.len()), 1, "naming the channel finds the file's site: {by_place}");
+    // A sender can't steer a request by listing another site's id among a file's parts: alpha's own
+    // conversation is named, so it stays on alpha, whatever else the part ids say.
+    let steer = net.call(a, "files", "links, with another site's id among the parts", alice, json!({ "action": "download_links", "file_ids": [sid, dm_file["file_id"]], "conversation_id": dm_id }));
+    assert_eq!(steer["links"].as_object().map(|m| m.contains_key(s(&dm_file["file_id"]).as_str())), Some(true), "the request stayed on alpha: {steer}");
     let link = links["links"].as_object().and_then(|m| m.values().next()).and_then(Value::as_str).unwrap_or("/api/fed/files/none/x").to_string();
     let got = http(net.port(a), "GET", &link, a, "", "", &[]);
     net.record(format!("{a}: the file, through alpha"), got.status, &json!({ "same": got.body == bytes }));

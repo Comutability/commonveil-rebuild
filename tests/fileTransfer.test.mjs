@@ -38,9 +38,9 @@ test("links are kept only for the ids asked for, and only for the place asked ab
   // A site answering about its own conversation adds a link for a file posted elsewhere.
   const sent = server((b) => ({ links: { elsewhere1: "/planted", ...Object.fromEntries(b.file_ids.map((id) => [id, `/from-answer/${id}`])) } }));
   await linksFor(["mine1"], { conversation_id: C });
-  assert.deepEqual(await linksFor(["elsewhere1"], { server_id: S, channel_id: H }), ["/from-answer/elsewhere1"], "the planted link wasn't kept");
+  assert.deepEqual(await linksFor(["elsewhere1"], { conversation_id: C }), ["/from-answer/elsewhere1"], "the planted link wasn't kept, even for the same place");
   assert.equal(sent.length, 2);
-  // The same part ids named under another place are asked about again, not taken from the first answer.
+  // The same part ids named under another place are asked about again, not taken from an earlier answer.
   assert.deepEqual(await linksFor(["mine1"], { server_id: S, channel_id: H }), ["/from-answer/mine1"]);
   assert.equal(sent.length, 3);
   assert.deepEqual(sent[2], { action: "download_links", file_ids: ["mine1"], server_id: S, channel_id: H });
@@ -64,4 +64,24 @@ test("a forwarded copy leaves where the original was posted behind", () => {
   const original = { name: "a.txt", size: 3, key: "k", ivp: "i", ids: ["old"], place: { conversation_id: C } };
   assert.deepEqual(forwardedCopy(original, ["new"]), { name: "a.txt", size: 3, key: "k", ivp: "i", ids: ["new"] });
   assert.deepEqual(original.place, { conversation_id: C }, "the original is left as it was");
+});
+
+test("a message that names another file's parts can't show that file as its own", async () => {
+  clearLinks();
+  const { sealFile } = await import("../src/lib/secure/attachments.js");
+  const { openAttachment } = await import("../src/lib/secure/fileTransfer.js");
+  const { meta, parts } = await sealFile(new File(["the real file"], "real.txt", { type: "text/plain" }));
+  const real = { ...meta, ids: ["part-real"], place: { conversation_id: C } };
+  server((b) => ({ links: Object.fromEntries(b.file_ids.map((id) => [id, `https://site.test/${id}`])) }));
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(parts[0], { headers: { "content-length": String(parts[0].length) } });
+  try {
+    const opened = await openAttachment(real);
+    assert.equal(await opened.blob.text(), "the real file");
+    // Another message lists the same parts, with a key of its own: it gets no copy of the real file.
+    const { meta: other } = await sealFile(new File(["something else"], "fake.txt", { type: "text/plain" }));
+    await assert.rejects(openAttachment({ ...real, key: other.key, ivp: other.ivp }));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
