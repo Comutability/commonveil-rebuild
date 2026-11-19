@@ -14,6 +14,14 @@ test("versions compare as numbers, not text", () => {
   assert.ok(!isNewer("not-a-version", "0.1.0"), "nothing malformed is ever offered as an update");
 });
 
+test("release notes don't name Base44's hosts or packages, which the self-hosted build refuses", () => {
+  // The same rule as scripts/check-independent.mjs: the notes are part of the site, so a note
+  // naming one fails the Docker build's check.
+  const FORBIDDEN = /base44\.(app|com|dev)|base44-realtime|@base44\/(sdk|vite-plugin)/;
+  const named = releases.flatMap((r) => [r.title, ...r.notes].filter((text) => FORBIDDEN.test(text)).map((text) => `${r.version}: ${text}`));
+  assert.deepEqual(named, []);
+});
+
 test("every release has a unique version, a date, notes, and a full commit hash once released", () => {
   assert.equal(releases.at(-1).version, "0.1.0", "the first release is 0.1.0");
   assert.ok(releases.some((r) => r.version === packageVersion), "package.json's version has release notes");
