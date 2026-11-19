@@ -17,10 +17,11 @@ secure-net-core = { git = "https://github.com/Comutability/secure-net", rev = "e
 # The client core as WebAssembly: small rather than fast to build. The server keeps the release profile.
 [profile.wasm]
 inherits = "release"
-opt-level = "s"
+opt-level = "z"
 lto = true
 codegen-units = 1
 panic = "abort"
+strip = true
 
 # Secure Net's OpenMLS copies (one added ciphersuite; see its rust/vendor/*/SECURE_NET_PATCH.md),
 # from the same release: a dependency's own [patch] doesn't carry over.
