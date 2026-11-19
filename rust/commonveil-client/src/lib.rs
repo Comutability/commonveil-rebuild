@@ -1,4 +1,4 @@
-//! Commonveil's client core, compiled to WebAssembly for the browser app and the Base44 functions.
+//! Commonveil's client core, compiled to WebAssembly for the browser app.
 //!
 //! Today it is Secure Net's JSON API as one entry point, built from the same pinned Secure Net
 //! commit as the self-hosted server, so every part of Commonveil runs the same Rust. Commonveil's
