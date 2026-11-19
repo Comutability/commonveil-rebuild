@@ -2,8 +2,7 @@
 
 How Commonveil sites talk to each other: how people are found by their address, how a
 conversation or a server on one site is used by people from others, and what each site learns.
-This is the specification. The wire format (what's signed, digests, address rules) and all the end-to-end crypto live in **Secure Net** (`packages/secure-net`, a copy of [Comutability/secure-net](https://github.com/Comutability/secure-net), which other apps can use too); `server/federation/` is the implementation, and
-`tests/federation.test.mjs` runs two real sites against each other.
+This is the specification. The wire format (what's signed, digests, address rules) and all the end-to-end crypto live in **Secure Net** ([Comutability/secure-net](https://github.com/Comutability/secure-net), which other apps can use too): its Rust crates in the self-hosted server, and its JavaScript copy in `packages/secure-net` for the browser app and the Base44 site. The self-hosted implementation is the Rust server (`rust/commonveil-server/src/federation.rs` and `fed_net.rs`) and the Base44 site's is `base44/shared/federation/`. The Node.js `server/federation/` stays as the reference the Rust tests compare against: `tests/federation.test.mjs` runs two real Node.js sites against each other, and `rust/commonveil-server/tests/parity_federation.rs` runs the same exchange through both servers.
 
 It's our own protocol, written for end-to-end encrypted chat. It borrows from three others:
 
@@ -284,7 +283,8 @@ into `federation/site.ts`, set `enabled: true`, and publish.
 ## The sealed relay (quantum-resistant)
 
 What one site sends another is sealed for that site and signed twice
-(`packages/secure-net/spec/CVP-015-quantum-resistance.md`, `wire/sealed.js`):
+(`packages/secure-net/spec/CVP-015-quantum-resistance.md`; the code is Secure Net's `wire/sealed`,
+`sealed.rs` in its Rust crate and `sealed.js` in the JavaScript copy):
 
 - **Sealed**: the request body is encrypted from site to site with an ephemeral P-256 exchange
   and ML-KEM-768 together, then AES-256-GCM, and bound to the two sites and the endpoint. The

@@ -1,11 +1,13 @@
-// Commonveil's copy of Secure Net (packages/secure-net), the protocol library it's built on
-// (https://github.com/Comutability/secure-net).
+// Commonveil's JavaScript copy of Secure Net (packages/secure-net), the protocol library it's
+// built on (https://github.com/Comutability/secure-net).
 //
 //   npm run secure-net:sync [-- path/to/secure-net]   copy a Secure Net checkout in (default ../secure-net)
 //   npm run secure-net:check                         fail if the copy differs from its manifest
 //
 // The copy is checked on every verify, so a change made here by mistake (instead of in Secure
-// Net) is caught: change Secure Net, then sync.
+// Net) is caught. Secure Net is Rust only from 0.7.0, so the copy stays at 0.5.0, the last
+// version with JavaScript, for the browser app and the Base44 functions; the Rust server follows
+// Secure Net through its crates instead (see AGENTS.md, "Keeping up with the protocol").
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -52,6 +54,10 @@ if (process.argv.includes("--check")) {
 } else {
   const src = path.resolve(process.argv[2] || path.join(root, "../secure-net"));
   const manifest = JSON.parse(fs.readFileSync(path.join(src, MANIFEST), "utf8"));
+  if (!manifest.files["src/wire/sealed.js"]) {
+    console.error(`Secure Net ${manifest.version} has no JavaScript (it's Rust only from 0.7.0), so there's nothing to copy into packages/secure-net.\nThe Rust server follows Secure Net through rust/Cargo.toml instead: see AGENTS.md, "Keeping up with the protocol".`);
+    process.exit(1);
+  }
   for (const rel of Object.keys(manifest.files)) if (hash(path.join(src, rel)) !== manifest.files[rel]) throw new Error(`${rel} in ${src} doesn't match its manifest: run node scripts/manifest.mjs there first`);
   fs.rmSync(dest, { recursive: true, force: true });
   for (const rel of [...Object.keys(manifest.files), MANIFEST]) {
