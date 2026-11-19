@@ -66,6 +66,8 @@ jobs:
           for target in web nodejs deno; do
             wasm-bindgen --target "$target" --out-dir "../wasm-pkg/$target" target/wasm32-unknown-unknown/wasm/commonveil_client.wasm
           done
+          # The Node.js build is CommonJS, and the repository's package.json says "module".
+          echo '{ "type": "commonjs" }' > ../wasm-pkg/nodejs/package.json
       - name: Size
         run: |
           {
