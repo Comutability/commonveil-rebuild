@@ -105,7 +105,35 @@ export type Subscription = { endpoint: string; p256dh: string; auth: string };
  * topic: pushes with the same topic replace each other while waiting at the push service, so a
  * device that's been off gets one notification, not a pile.
  */
-export type PushDelivery = { state: "sent" | "gone" | "rejected" | "failed"; status?: number; reason?: "endpoint" | "keys" | "network" | "timeout" };
+export type PushErrorCategory = "permission" | "dns" | "tls" | "connection" | "invalid_request" | "unclassified";
+export type PushDelivery = { state: "sent" | "gone" | "rejected" | "failed"; status?: number; reason?: "endpoint" | "keys" | "network" | "timeout"; error_category?: PushErrorCategory };
+
+/** Do not include an exception message or cause in a response or log: either can include a push URL. */
+export function classifyPushFetchError(err: unknown): { reason: "network" | "timeout"; error_category: PushErrorCategory } {
+  const e = err && typeof err === "object" ? err as { name?: string; message?: string; cause?: { name?: string; code?: string; message?: string } } : {};
+  const name = typeof e.name === "string" ? e.name : "";
+  const code = typeof e.cause?.code === "string" ? e.cause.code : "";
+  // Messages are consulted only to choose a fixed safe category, never logged or returned.
+  const lower = `${typeof e.message === "string" ? e.message : ""} ${typeof e.cause?.message === "string" ? e.cause.message : ""}`.toLowerCase();
+  if (name === "TimeoutError" || name === "AbortError" || code === "ETIMEDOUT" || /timed? out/.test(lower)) return { reason: "timeout", error_category: "connection" };
+  if (name === "NotCapable" || name === "PermissionDenied" || code === "EACCES" || /notcapable|permission denied|not permitted|allow-net|network access denied/.test(lower)) return { reason: "network", error_category: "permission" };
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN" || /dns|name resolution|lookup failed/.test(lower)) return { reason: "network", error_category: "dns" };
+  if (/certificate|tls handshake|ssl handshake|cert verify/.test(lower)) return { reason: "network", error_category: "tls" };
+  if (/invalid header|invalid request init|unsupported header|abortsignal.timeout is not a function|bad request init/.test(lower)) return { reason: "network", error_category: "invalid_request" };
+  if (["ECONNREFUSED", "ECONNRESET", "ENETUNREACH", "EHOSTUNREACH"].includes(code) || /connection refused|connection reset|connect error|network unreachable/.test(lower)) return { reason: "network", error_category: "connection" };
+  return { reason: "network", error_category: "unclassified" };
+}
+
+/** Safe, fixed-host connectivity probe, used only if a device-specific test fails. */
+export async function probeFcmConnection(fetchImpl: typeof fetch = fetch): Promise<{ state: "reachable" | "unreachable" | "timeout"; status?: number; category?: PushErrorCategory }> {
+  try {
+    const res = await fetchImpl("https://fcm.googleapis.com/", { method: "HEAD", redirect: "error", signal: AbortSignal.timeout(3500) });
+    return { state: "reachable", status: res.status }; // 404 still proves the host answered.
+  } catch (err) {
+    const info = classifyPushFetchError(err);
+    return { state: info.reason === "timeout" ? "timeout" : "unreachable", category: info.error_category };
+  }
+}
 
 /** A push service accepting a request does not prove the device displayed it. Never return or log endpoints or keys. */
 export async function sendPush(sub: Subscription, payload: unknown, { keys, subject, topic = "commonveil", ttl = 24 * 3600, urgency = "normal", fetchImpl = fetch }: { keys: VapidKeys; subject: string; topic?: string; ttl?: number; urgency?: "high" | "normal" | "low"; fetchImpl?: typeof fetch }): Promise<PushDelivery> {
@@ -136,9 +164,6 @@ export async function sendPush(sub: Subscription, payload: unknown, { keys, subj
     if (res.status === 404 || res.status === 410) return { state: "gone", status: res.status };
     return { state: res.ok ? "sent" : "rejected", status: res.status };
   } catch (err) {
-    // A timeout and a failed connection need different remedies. Never return the exception,
-    // which can embed the private push URL in the error message.
-    const name = err instanceof Error ? err.name : "";
-    return { state: "failed", reason: name === "TimeoutError" || name === "AbortError" ? "timeout" : "network" };
+    return { state: "failed", ...classifyPushFetchError(err) };
   }
 }

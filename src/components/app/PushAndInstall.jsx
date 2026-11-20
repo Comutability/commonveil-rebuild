@@ -9,7 +9,7 @@ import { pushHint } from "@/lib/pwa/browser";
 
 /** What to say about a test push: that it worked, or which of the two links broke. */
 async function check(pending) {
-  const { state, status, reason, attempted } = (await pending) || {};
+  const { state, status, reason, attempted, category, probe } = (await pending) || {};
   if (state === "shown") return { note: "It arrived: this device is receiving notifications." };
   if (state === "received")
     return { error: `The push reached this browser, but no visible notification was detected. Check Commonveil's quiet hours and focus settings, and your device's notification permissions. ${pushHint()}` };
@@ -29,7 +29,8 @@ async function check(pending) {
       no_subscription: "This browser has no matching push subscription on Commonveil's server.",
       no_attempt: "The test didn't start a push delivery attempt.",
     };
-    return { error: `${causes[reason] || "Commonveil couldn't deliver the test notification."} Diagnostic: ${reason || "unknown"}${status && reason !== "http_rejected" && reason !== "expired" ? `, HTTP ${status}` : ""}, ${attempted || 0} attempt(s). Browser notification permissions alone won't resolve server delivery failures.` };
+    const probeDetails = probe?.state === "reachable" ? ` Google's push-service host is reachable from the backend (HTTP ${probe.status}). The signed Web Push request failed.` : probe?.state === "unreachable" ? ` The backend also failed to reach Google's public push-service host (${probe.category || "unknown"}).` : probe?.state === "timeout" ? " The backend also timed out connecting to Google's public push-service host." : "";
+    return { error: `${causes[reason] || "Commonveil couldn't deliver the test notification."} Diagnostic: ${reason || "unknown"}${category ? `/${category}` : ""}${status && reason !== "http_rejected" && reason !== "expired" ? `, HTTP ${status}` : ""}, ${attempted || 0} attempt(s).${probeDetails}` };
   }
   return { note: "Sent. A notification should arrive in a few seconds." };
 }

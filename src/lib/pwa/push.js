@@ -152,6 +152,8 @@ export async function sendTestPush(waitMs = 12_000) {
       status: Number(reply?.status_code) || null,
       reason: reply?.failure_reason || (reply?.rejected ? "http_rejected" : reply?.failed ? "internal_error" : reply?.gone ? "expired" : "no_attempt"),
       attempted: Number(reply?.attempted) || 0,
+      category: typeof reply?.error_category === "string" ? reply.error_category : null,
+      probe: reply?.fcm_probe || null,
     };
     // If the push failed before acceptance, the worker cannot receive it: report immediately.
     if (!sent) return answer("refused", sent, details);

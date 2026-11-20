@@ -11,7 +11,7 @@
 // device stay silent for conversations muted on it, without the push naming the conversation.
 import { ApiError, id, type Actions } from "../http.ts";
 import { hmac, randomToken, sha256Hex } from "../identity/crypto.ts";
-import { makeVapidKeys, pushEndpointOk, sendPush, type VapidKeys } from "../push/webpush.ts";
+import { makeVapidKeys, probeFcmConnection, pushEndpointOk, sendPush, type PushErrorCategory, type VapidKeys } from "../push/webpush.ts";
 
 const MAX_SUBSCRIPTIONS = 10;
 const CODE_DAYS = 7;
@@ -60,7 +60,7 @@ export const muteKey = async (secret: string, placeId: string) => (await hmac(se
  * (a server), "conversation" (someone started one with you). Never throws: notifications are a
  * nicety, and a send mustn't fail because of one.
  */
-export type PushTally = { attempted: number; sent: number; rejected: number; failed: number; gone: number; skipped: number; status_code?: number; failure_reason?: "endpoint" | "keys" | "timeout" | "network" | "http_rejected" | "preparation_failed" | "internal_error" | "expired" | "no_subscription" };
+export type PushTally = { attempted: number; sent: number; rejected: number; failed: number; gone: number; skipped: number; status_code?: number; failure_reason?: "endpoint" | "keys" | "timeout" | "network" | "http_rejected" | "preparation_failed" | "internal_error" | "expired" | "no_subscription"; error_category?: PushErrorCategory };
 
 /** Messages must never fail when a push fails. Diagnostics only contain outcomes, counts and HTTP status codes. */
 export async function notifyPeople(sr: any, push: PushConfig | undefined, userIds: string[], { kind, path, placeId, onlyEndpoint, bypassQuiet = false }: { kind: string; path: string; placeId: string; onlyEndpoint?: string; bypassQuiet?: boolean }): Promise<PushTally> {
@@ -92,9 +92,12 @@ export async function notifyPeople(sr: any, push: PushConfig | undefined, userId
           if (result.status) tally.status_code = result.status;
           if (result.state === "rejected") tally.failure_reason = "http_rejected";
           else if (result.state === "gone") tally.failure_reason = "expired";
-          else if (result.state === "failed") tally.failure_reason = result.reason === "timeout" ? "timeout" : result.reason === "keys" ? "keys" : result.reason === "endpoint" ? "endpoint" : "network";
+          else if (result.state === "failed") {
+            tally.failure_reason = result.reason === "timeout" ? "timeout" : result.reason === "keys" ? "keys" : result.reason === "endpoint" ? "endpoint" : "network";
+            if (result.error_category) tally.error_category = result.error_category;
+          }
         }
-        console.info("commonveil push: delivery", { kind, outcome: result.state, ...(result.status ? { status: result.status } : {}), ...(result.reason ? { reason: result.reason } : {}) });
+        console.info("commonveil push: delivery", { kind, outcome: result.state, ...(result.status ? { status: result.status } : {}), ...(result.reason ? { reason: result.reason } : {}), ...(result.error_category ? { error_category: result.error_category } : {}) });
         if (result.state === "gone") {
           tally.gone += 1;
           await sr.entities.PushSubscription.delete(s.id).catch(() => null);
@@ -163,7 +166,10 @@ export const notificationActions: Actions = {
     const subs = await ctx.sr.entities.PushSubscription.filter({ user_id: ctx.user.id }, "created_date", MAX_SUBSCRIPTIONS + 5);
     if (!subs.some((s: any) => s.endpoint === endpoint)) throw new ApiError(409, "PUSH_NOT_REGISTERED", "This browser's subscription isn't registered. Turn push off and on here.");
     const tally = await notifyPeople(ctx.sr, ctx.push, [ctx.user.id], { kind: "test", path: "/app/settings/notifications", placeId: "test", onlyEndpoint: endpoint, bypassQuiet: true });
-    return { ok: true, ...tally };
+    // A public fixed-host probe makes a blocked egress route distinguishable from a problem
+    // with the signed Web Push POST. It uses no subscription, identifiers, keys or private URL.
+    const fcm_probe = tally.failure_reason === "network" || tally.failure_reason === "timeout" ? await probeFcmConnection() : undefined;
+    return { ok: true, ...tally, ...(fcm_probe ? { fcm_probe } : {}) };
   },
 };
 
