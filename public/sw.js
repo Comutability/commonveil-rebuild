@@ -139,11 +139,14 @@ self.addEventListener("push", (event) => {
       const muted = Boolean(p.m && Array.isArray(prefs.muted) && prefs.muted.includes(p.m));
       const silent = muted || quietNow(prefs);
       const body = WORDS[p.k] || "New activity";
+      // A test gets its own tag: one still sitting in the shade would be replaced by the new one
+      // instead of alerting, which looks exactly like the test not working.
+      const tag = p.k === "test" ? "commonveil-test" : "commonveil";
       // One notification at a time, replaced by the next: fewer records left on the device.
       try {
         await self.registration.showNotification("Commonveil", {
           body,
-          tag: "commonveil",
+          tag,
           renotify: !silent,
           silent,
           icon: "/icons/icon-192.png",
@@ -153,12 +156,12 @@ self.addEventListener("push", (event) => {
       } catch {
         // The phone refused those options: the plainest notification there is beats none.
         try {
-          await self.registration.showNotification("Commonveil", { body, tag: "commonveil", data: { c: typeof p.c === "string" ? p.c : "" } });
+          await self.registration.showNotification("Commonveil", { body, tag, data: { c: typeof p.c === "string" ? p.c : "" } });
         } catch {
           // Nothing left to try on this device.
         }
       }
-      if (muted) for (const n of await self.registration.getNotifications({ tag: "commonveil" })) n.close();
+      if (muted) for (const n of await self.registration.getNotifications({ tag })) n.close();
       if (!muted && navigator.setAppBadge) navigator.setAppBadge().catch(() => {});
     })(),
   );

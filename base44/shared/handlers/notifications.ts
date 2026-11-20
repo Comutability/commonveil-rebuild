@@ -61,13 +61,15 @@ export const muteKey = async (secret: string, placeId: string) => (await hmac(se
  * nicety, and a send mustn't fail because of one.
  */
 export async function notifyPeople(sr: any, push: PushConfig | undefined, userIds: string[], { kind, path, placeId }: { kind: string; path: string; placeId: string }) {
+  // How the push services answered, so a test can say which end is quiet.
+  const tally = { sent: 0, failed: 0, gone: 0 };
   try {
     const people = [...new Set(userIds)].filter((u) => typeof u === "string").slice(0, MAX_PER_SEND);
-    if (!people.length) return;
+    if (!people.length) return tally;
     const subs = await sr.entities.PushSubscription.filter({ user_id: { $in: people } }, "created_date", MAX_PER_SEND * 2);
     const now = Date.now();
     const due = subs.filter((s: any) => !s.last_push_at || now - Date.parse(s.last_push_at) > QUIET_MS);
-    if (!due.length) return;
+    if (!due.length) return tally;
     const keys = await pushKeys(sr);
     const codes = new Map<string, string>();
     for (const userId of new Set(due.map((s: any) => s.user_id))) {
@@ -79,13 +81,20 @@ export async function notifyPeople(sr: any, push: PushConfig | undefined, userId
       due.map(async (s: any) => {
         const payload = { v: 1, k: kind, c: codes.get(s.user_id), m: s.mute_secret ? await muteKey(s.mute_secret, placeId) : "" };
         const result = await sendPush({ endpoint: s.endpoint, p256dh: s.p256dh, auth: s.auth }, payload, { keys, subject: (push || BASE44_PUSH).subject, urgency: kind === "message" || kind === "conversation" ? "high" : "normal" });
-        if (result === "gone") await sr.entities.PushSubscription.delete(s.id).catch(() => null);
-        else await sr.entities.PushSubscription.update(s.id, { last_push_at: new Date().toISOString() }).catch(() => null);
+        if (result === "gone") {
+          tally.gone += 1;
+          await sr.entities.PushSubscription.delete(s.id).catch(() => null);
+        } else {
+          if (result === "sent") tally.sent += 1;
+          else tally.failed += 1;
+          await sr.entities.PushSubscription.update(s.id, { last_push_at: new Date().toISOString() }).catch(() => null);
+        }
       }),
     );
   } catch {
     // Never let a notification break what caused it.
   }
+  return tally;
 }
 
 export const notificationActions: Actions = {
@@ -130,8 +139,9 @@ export const notificationActions: Actions = {
   /** A test notification to this account's devices. */
   async test(ctx: any) {
     await ctx.sr.entities.PushSubscription.filter({ user_id: ctx.user.id }, "created_date", 20).then((subs: any[]) => Promise.all(subs.map((s) => ctx.sr.entities.PushSubscription.update(s.id, { last_push_at: "" }))));
-    await notifyPeople(ctx.sr, ctx.push, [ctx.user.id], { kind: "test", path: "/app/settings/notifications", placeId: "test" });
-    return { ok: true };
+    const tally = await notifyPeople(ctx.sr, ctx.push, [ctx.user.id], { kind: "test", path: "/app/settings/notifications", placeId: "test" });
+    // What the push services said, so the app can tell a device that's blocking from a send that failed.
+    return { ok: true, ...tally };
   },
 };
 

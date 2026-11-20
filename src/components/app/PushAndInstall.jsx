@@ -9,11 +9,13 @@ import { pushHint } from "@/lib/pwa/browser";
 
 /** What to say about a test push: that it worked, or which of the two links broke. */
 async function check(pending) {
-  const result = await pending;
-  if (result === "shown") return { note: "It arrived: this device is receiving notifications." };
-  if (result === "received")
+  const { state } = (await pending) || {};
+  if (state === "shown") return { note: "It arrived: this device is receiving notifications." };
+  if (state === "received")
     return { error: `The push reached Commonveil on this device, but your phone didn't show it: notifications for this browser are switched off in your phone's settings. ${pushHint()}` };
-  if (result === false) return { error: `The push service accepted it, but nothing reached this device. ${pushHint()}` };
+  if (state === "blocked")
+    return { error: `Your browser's push service accepted it for this device, but nothing arrived, so this device is blocking Commonveil's notifications. ${pushHint()}` };
+  if (state === "refused") return { error: "The push service turned the send down, so nothing went out. That's the site's side to sort, not yours." };
   return { note: "Sent. A notification should arrive in a few seconds." };
 }
 

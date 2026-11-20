@@ -114,26 +114,28 @@ export async function turnOffPush() {
 }
 
 /**
- * Send the site's test push and then watch this device for it. Answers:
+ * Send the site's test push and watch this device for it. Answers { state }:
  *   "shown"    the notification is on this device: it works;
  *   "received" the push reached Commonveil here, but the phone didn't show it (its own settings
  *              for this browser are off: nothing a site can override);
- *   false      it never reached this device at all;
- *   null       this browser can't be asked.
- * Two answers make that possible, and both are the device's own: the service worker says when it
- * receives a push, and the list of showing notifications says when one was actually displayed.
+ *   "blocked"  the push service accepted it for this device, and nothing arrived at all;
+ *   "refused"  the push service turned the send down, so nothing went out;
+ *   "unknown"  this browser can't be asked, so only the service's answer is known.
+ * Both ends have a say: the service says whether it took the send, the worker says when it receives
+ * a push, and the list of showing notifications says when one was actually displayed.
  */
 export async function sendTestPush(waitMs = 12_000) {
   const reg = await registration().catch(() => null);
   if (!reg) return null;
   const look = async () => {
     try {
-      return await reg.getNotifications({ tag: "commonveil" });
+      return await reg.getNotifications({ tag: "commonveil-test" });
     } catch {
       return null;
     }
   };
   let received = false;
+  const answer = (state, sent) => ({ state, sent });
   const heard = (event) => {
     if (event.data?.type === "push-received") received = true;
   };
@@ -141,7 +143,7 @@ export async function sendTestPush(waitMs = 12_000) {
   try {
     // Clear any earlier one, so only something new counts as an arrival.
     for (const old of (await look()) || []) old.close();
-    await callFn("notifications", { action: "test" });
+    const sent = Number((await callFn("notifications", { action: "test" }))?.sent) || 0;
     let countable = typeof reg.getNotifications === "function";
     const until = Date.now() + waitMs;
     while (Date.now() < until) {
@@ -149,12 +151,13 @@ export async function sendTestPush(waitMs = 12_000) {
       if (countable) {
         const seen = await look();
         if (seen === null) countable = false;
-        else if (seen.length) return "shown";
+        else if (seen.length) return answer("shown", sent);
       }
-      if (received && !countable) return "received";
+      if (received && !countable) return answer("received", sent);
     }
-    if (received) return "received";
-    return countable ? false : null;
+    if (received) return answer("received", sent);
+    if (!sent) return answer("refused", sent);
+    return answer(countable ? "blocked" : "unknown", sent);
   } finally {
     navigator.serviceWorker.removeEventListener("message", heard);
   }
