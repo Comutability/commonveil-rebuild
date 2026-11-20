@@ -2,10 +2,23 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.24.5",
+      "date": "2026-11-20",
+      "title": "Push tests now explain why they fail",
+      "commit": null,
+      "notes": [
+        "The test notification screen now reports whether the push service rejected the request (including its safe HTTP status code), a network request timed out, encryption could not be prepared, or the server could not connect. Before, every failure looked the same.",
+        "A failed test now reports the actual result straight away rather than leaving you checking for a notification that the server never sent successfully.",
+        "If the push service accepts a test but your browser does not show it, Commonveil no longer assumes the browser is blocking it. It explains that the failure could be anywhere between the push service and the device.",
+        "The diagnostics are specific to the device that requested the test and contain no browser push address, keys, message contents or identifiable notification metadata.",
+        "For people who self-host Commonveil, the Rust backend returns the same safe diagnostic categories. No additional configuration is required."
+      ]
+    },
+    {
       "version": "0.24.4",
       "date": "2026-11-20",
       "title": "Fix: push notification tests, delivery diagnostics, and server alerts",
-      "commit": null,
+      "commit": "8aa916c0949795434511d8b435759a650e8439ae",
       "notes": [
         "Push notification tests now target the browser you are using, rather than all your devices. If the push service rejects a test, Commonveil reports the safe HTTP status code so the problem can be investigated.",
         "When a push service fails or rejects a notification, Commonveil records only safe delivery outcomes, counts and HTTP status codes. It never logs message contents, browser push addresses or private keys, and a failed delivery does not start the usual 20-second cooldown.",

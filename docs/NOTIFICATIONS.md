@@ -76,7 +76,10 @@ public half is what browsers subscribe with; the private half never leaves the s
   (`All messages`, `Only @mentions` or `Nothing`) using an opaque local HMAC token.
 - Channel notification fanout currently covers the first 200 server members per message; larger
   communities need a paginated queue before every member can be guaranteed a push.
-- `Send a test` targets only the requesting browser, not the account's other devices.
+- `Send a test` targets only the requesting browser, not the account's other devices. Its
+  result says whether the request was accepted, rejected (including safe HTTP status), timed out,
+  could not connect or could not be prepared. The test does not pretend that an accepted request
+  proves the browser displayed a notification.
 - A failed or rejected push does not start the 20-second cooldown, and a server-side diagnostic
   records only the outcome, counts and safe HTTP status code, never addresses, keys or contents.
 - Pushes are sent only to the browsers' real push services (an allowlist of their hostnames over HTTPS

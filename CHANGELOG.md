@@ -5,6 +5,16 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.5](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.5): Push tests now explain why they fail
+
+_2026-11-20_
+
+- The test notification screen now reports whether the push service rejected the request (including its safe HTTP status code), a network request timed out, encryption could not be prepared, or the server could not connect. Before, every failure looked the same.
+- A failed test now reports the actual result straight away rather than leaving you checking for a notification that the server never sent successfully.
+- If the push service accepts a test but your browser does not show it, Commonveil no longer assumes the browser is blocking it. It explains that the failure could be anywhere between the push service and the device.
+- The diagnostics are specific to the device that requested the test and contain no browser push address, keys, message contents or identifiable notification metadata.
+- For people who self-host Commonveil, the Rust backend returns the same safe diagnostic categories. No additional configuration is required.
+
 ## [0.24.4](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.4): Fix: push notification tests, delivery diagnostics, and server alerts
 
 _2026-11-20_
