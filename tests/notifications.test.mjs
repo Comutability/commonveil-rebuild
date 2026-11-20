@@ -5,7 +5,7 @@ import test, { afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { FakeWorld } from "./support/fakeBase44.mjs";
 import { Member } from "./support/harness.mjs";
-import { classifyPushFetchError, encryptPayload, probeFcmConnection, pushEndpointOk } from "../base44/shared/push/webpush.ts";
+import { classifyPushFetchError, encryptPayload, makeVapidKeys, probeFcmConnection, pushEndpointOk, sendPush } from "../base44/shared/push/webpush.ts";
 import { forgetPushKeys, muteKey } from "../base44/shared/handlers/notifications.ts";
 import { b64url, fromB64url } from "../base44/shared/identity/crypto.ts";
 import { muteToken } from "../src/lib/pwa/mute.js";
@@ -263,4 +263,46 @@ test("an actual failed test push probes only the public FCM host and returns no 
   assert.equal(calls[1].url, "https://fcm.googleapis.com/");
   assert.equal(calls[1].method, "HEAD");
   assert.ok(!JSON.stringify(reply).includes(target));
+});
+
+
+test("Web Push works in edge runtimes that forbid redirect:error and refuses all redirect responses", async () => {
+  const b = await browser();
+  const keys = await makeVapidKeys();
+  const endpoint = "https://fcm.googleapis.com/fcm/send/browser-test";
+  const requests = [];
+  const props = { keys, subject: "https://commonveil.online", fetchImpl: async (url, init) => {
+    requests.push({ url, init });
+    if (init.redirect !== "manual") throw new TypeError('Invalid redirect value, must be "follow" or "manual"');
+    return new Response(null, { status: 201 });
+  } };
+  const delivered = await sendPush({ endpoint, ...b.keys }, { v: 1, k: "test" }, props);
+  assert.equal(delivered.state, "sent");
+  assert.equal(delivered.status, 201);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, endpoint);
+  assert.equal(requests[0].init.redirect, "manual");
+  assert.equal(requests[0].init.method, "POST");
+  // A push service is never allowed to redirect the signed request to another host.
+  let called = 0;
+  const bounced = await sendPush({ endpoint, ...b.keys }, { v: 1, k: "test" }, { ...props, fetchImpl: async (_, init) => {
+    called += 1;
+    assert.equal(init.redirect, "manual");
+    return new Response(null, { status: 307, headers: { Location: "https://evil.invalid/push" } });
+  } });
+  assert.equal(bounced.state, "rejected");
+  assert.equal(bounced.status, 307);
+  assert.equal(called, 1);
+});
+
+test("the fixed-host push probe also uses edge-supported manual redirect handling", async () => {
+  const requests = [];
+  const result = await probeFcmConnection(async (url, init) => {
+    requests.push({ url, redirect: init.redirect });
+    if (init.redirect !== "manual") throw new TypeError('Invalid redirect value');
+    return new Response(null, { status: 404 });
+  });
+  assert.equal(result.state, "reachable");
+  assert.equal(result.status, 404);
+  assert.deepEqual(requests, [{ url: "https://fcm.googleapis.com/", redirect: "manual" }]);
 });
