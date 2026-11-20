@@ -136,6 +136,54 @@ async function serverWith(owner, ...others) {
   return sid;
 }
 
+test("channel pushes distinguish mentions from activity and never reach private-channel outsiders", async () => {
+  const { w, members: [alice, bob, carol] } = await world("alice", "bobby", "carol");
+  const sid = await serverWith(alice, bob, carol);
+  const general = await alice.channelNamed(sid, "general");
+  const addPush = async (member) => {
+    const pair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+    const endpoint = `https://fcm.googleapis.com/fcm/send/${member.name}-phone`;
+    const p256dh = Buffer.from(await crypto.subtle.exportKey("raw", pair.publicKey)).toString("base64url");
+    const auth = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64url");
+    await member.ok("notifications", { action: "subscribe", endpoint, p256dh, auth, mute_secret: "local-only" });
+    return endpoint;
+  };
+  const bobEndpoint = await addPush(bob);
+  const carolEndpoint = await addPush(carol);
+  const outgoing = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    outgoing.push({ url: String(url), headers: init.headers, body: new Uint8Array(init.body) });
+    return new Response(null, { status: 201 });
+  };
+  try {
+    const state = await alice.server(sid);
+    const { keys } = await alice.keysOf(state);
+    const mentions = { users: [bob.id], roles: [], everyone: false };
+    const body = await buildChannelMessage({ serverId: sid, channel: general, generations: state.generations, keys, userId: alice.id, device: alice.device, payload: textPayload("Hello @bobby", { mentions }) });
+    body.notification_hint = mentions;
+    assert.equal((await alice.call("channels", body)).status, 200);
+    assert.deepEqual(outgoing.map((p) => p.url).sort(), [bobEndpoint, carolEndpoint].sort());
+    assert.equal(outgoing.find((p) => p.url === bobEndpoint).headers.Urgency, "high", "a direct mention is prioritised");
+    assert.equal(outgoing.find((p) => p.url === carolEndpoint).headers.Urgency, "normal", "other activity is less urgent");
+    assert.ok(outgoing.every((p) => !Buffer.from(p.body).toString("latin1").includes("Hello")), "pushes never carry plaintext");
+    // The backend's privacy rule prevents a user with no access getting a push, even when named.
+    const other = await alice.create("community");
+    const { code } = await alice.invite(other);
+    await bob.join(code);
+    await alice.fulfil(other);
+    const staff = (await alice.server(other)).channels.find((c) => c.template_key === "staff-chat");
+    outgoing.length = 0;
+    const staffState = await alice.server(other);
+    const staffKeys = (await alice.keysOf(staffState)).keys;
+    const hidden = await buildChannelMessage({ serverId: other, channel: staff, generations: staffState.generations, keys: staffKeys, userId: alice.id, device: alice.device, payload: textPayload("Confidential", { mentions: { users: [bob.id] } }) });
+    hidden.notification_hint = { users: [bob.id] };
+    assert.equal((await alice.call("channels", hidden)).status, 200);
+    assert.equal(outgoing.length, 0, "a private channel cannot notify an excluded member");
+    void w;
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 // ---------- crypto ----------
 
 test("permissions: the app's copy agrees with the server's", () => {
