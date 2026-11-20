@@ -53,7 +53,21 @@ export function PushSection() {
           <p className="mr-2 text-sm font-medium" role="status">{state === "on" ? "On for this device" : state === "checking" ? "Checking…" : "Off for this device"}</p>
           {state === "on" ? (
             <>
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => run(sendTestPush, "Sent. It should arrive in a few seconds.")}>Send a test</Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() =>
+                  run(async () => {
+                    setNote("Sent. Watching this device for it…");
+                    const arrived = await sendTestPush();
+                    if (arrived === false) throw new Error("Sent, but nothing appeared on this device within 12 seconds. Your phone or browser is holding it back: allow notifications for Commonveil in the phone's own settings, then try again.");
+                    setNote(arrived === true ? "It arrived: this device is receiving notifications." : "Sent. A notification should arrive in a few seconds.");
+                  })
+                }
+              >
+                Send a test
+              </Button>
               <Button size="sm" variant="outline" disabled={busy} onClick={() => run(turnOffPush)}>Turn off</Button>
             </>
           ) : (

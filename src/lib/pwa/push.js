@@ -102,7 +102,33 @@ export async function turnOffPush() {
   }
 }
 
-export const sendTestPush = () => callFn("notifications", { action: "test" });
+/**
+ * Send the site's test push and then watch this device for it: true if it turned up, false if it
+ * didn't within the wait, null if this browser can't be asked. The device's own list of showing
+ * notifications is the only honest answer to "is it working here?".
+ */
+export async function sendTestPush(waitMs = 12_000) {
+  const reg = await registration().catch(() => null);
+  const look = async () => {
+    try {
+      return await reg.getNotifications({ tag: "commonveil" });
+    } catch {
+      return null;
+    }
+  };
+  if (!reg || typeof reg.getNotifications !== "function") return null;
+  // Clear any earlier one, so only something new counts as an arrival.
+  for (const old of (await look()) || []) old.close();
+  await callFn("notifications", { action: "test" });
+  const until = Date.now() + waitMs;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 500));
+    const seen = await look();
+    if (seen === null) return null;
+    if (seen.length) return true;
+  }
+  return false;
+}
 
 /** Mirror quiet hours and focus for the service worker, which can't read the app's storage. */
 export function mirrorPushPrefs(alerts) {
