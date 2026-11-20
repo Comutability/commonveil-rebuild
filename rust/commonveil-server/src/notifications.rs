@@ -42,13 +42,22 @@ pub fn conversation_path(conversation_id: &str) -> String {
 
 /// Tell these people's devices there's something new. Never fails: notifications are a nicety.
 pub fn notify_people(sr: &Db, subject: &str, user_ids: &[String], kind: &str, path: &str, place_id: &str) {
-    if notify(sr, subject, user_ids, kind, path, place_id, None, false).is_err() {
+    if notify(sr, subject, user_ids, NotifyRequest { kind, path, place_id, only_endpoint: None, bypass_quiet: false }).is_err() {
         eprintln!("commonveil push: preparation_failed kind={kind}");
     }
 }
 
 /// Return only safe aggregate outcomes: no endpoints, identifiers, keys or payloads in diagnostics.
-fn notify(sr: &Db, subject: &str, user_ids: &[String], kind: &str, path: &str, place_id: &str, only_endpoint: Option<&str>, bypass_quiet: bool) -> Result<Value> {
+struct NotifyRequest<'a> {
+    kind: &'a str,
+    path: &'a str,
+    place_id: &'a str,
+    only_endpoint: Option<&'a str>,
+    bypass_quiet: bool,
+}
+
+fn notify(sr: &Db, subject: &str, user_ids: &[String], req: NotifyRequest<'_>) -> Result<Value> {
+    let NotifyRequest { kind, path, place_id, only_endpoint, bypass_quiet } = req;
     let mut tally = json!({ "attempted": 0, "sent": 0, "rejected": 0, "failed": 0, "gone": 0, "skipped": 0 });
     let mut people: Vec<String> = Vec::new();
     for u in user_ids {
@@ -90,7 +99,7 @@ fn notify(sr: &Db, subject: &str, user_ids: &[String], kind: &str, path: &str, p
             crate::webpush::Sent::Gone(code) => {
                 increment(&mut tally, "gone");
                 if only_endpoint.is_some() { tally["failure_reason"] = json!("expired"); }
-                if code > 0 { if only_endpoint.is_some() { tally["status_code"] = json!(code); } }
+                if code > 0 && only_endpoint.is_some() { tally["status_code"] = json!(code); }
                 eprintln!("commonveil push: delivery kind={kind} outcome=gone status={code}");
                 let _ = sr.delete("PushSubscription", id_of(s));
             }
@@ -173,7 +182,7 @@ fn test(ctx: &mut Ctx) -> Result<Value> {
     if !subs.iter().any(|s| s["endpoint"] == endpoint) {
         return Err(ApiError::new(409, "PUSH_NOT_REGISTERED", "This browser's subscription isn't registered. Turn push off and on here."));
     }
-    let tally = notify(&sr, &subject(ctx), &[uid], "test", "/app/settings/notifications", "test", Some(endpoint), true)?;
+    let tally = notify(&sr, &subject(ctx), &[uid], NotifyRequest { kind: "test", path: "/app/settings/notifications", place_id: "test", only_endpoint: Some(endpoint), bypass_quiet: true })?;
     let mut response = tally;
     response["ok"] = json!(true);
     Ok(response)

@@ -49,7 +49,8 @@ fn channel_view(own: &Db, server_id: &str, channel_id: &str, user_id: &str) -> R
 
 /// Bounded push fanout. Only readable members are eligible; no message text or encrypted
 /// content leaves the server. Mention-routing hints are ephemeral metadata from the sender.
-fn notify_channel(sr: &Db, push_subject: &str, server: &Value, roles: &[Value], channel: &Value, sender_id: &str, sender_perms: i64, body: &Value) -> Result<()> {
+fn notify_channel(sr: &Db, push_subject: &str, view: &View, sender_id: &str, body: &Value) -> Result<()> {
+    let View { server, roles, channel, perms: sender_perms, .. } = view;
     let members = sr.filter("ServerMember", json!({ "server_id": server["id"] }), "joined_at", CHANNEL_PUSH_BATCH + 1)?;
     if members.len() > CHANNEL_PUSH_BATCH { eprintln!("commonveil push: channel_fanout_limited count={CHANNEL_PUSH_BATCH}"); }
     let hint = &body["notification_hint"];
@@ -57,7 +58,7 @@ fn notify_channel(sr: &Db, push_subject: &str, server: &Value, roles: &[Value], 
     let mentioned_roles: Vec<&str> = hint["roles"].as_array().into_iter().flatten().filter_map(Value::as_str)
         .filter(|role| roles.iter().any(|r| r["id"] == *role && truthy(r.get("mentionable")) && !truthy(r.get("is_everyone"))))
         .take(20).collect();
-    let everyone = hint["everyone"] == true && has(sender_perms, p::MENTION_EVERYONE);
+    let everyone = hint["everyone"] == true && has(*sender_perms, p::MENTION_EVERYONE);
     let mut mention_targets = Vec::new();
     let mut activity_targets = Vec::new();
     for member in members.iter().take(CHANNEL_PUSH_BATCH) {
@@ -138,7 +139,8 @@ fn readable_now(own: &Db, user_id: &str, rows: Vec<Value>) -> Result<Vec<Value>>
 fn send(ctx: &mut Ctx) -> Result<Value> {
     let (sr, own, uid, now, body) = (ctx.sr(), ctx.own(), ctx.user_id().to_string(), ctx.now, &ctx.body);
     let server_id = id(&body["server_id"], "server")?;
-    let View { member, server, channel, roles, perms } = channel_view(&own, &server_id, &id(&body["channel_id"], "channel")?, &uid)?;
+    let view = channel_view(&own, &server_id, &id(&body["channel_id"], "channel")?, &uid)?;
+    let View { ref member, ref server, ref channel, perms, .. } = view;
     if !channel["kind"].as_str().is_some_and(|k| MESSAGE_KINDS.contains(&k)) {
         return Err(deny(400, "BAD_FIELD", "You can't post in this kind of channel."));
     }
@@ -274,7 +276,7 @@ fn send(ctx: &mut Ctx) -> Result<Value> {
         let count = { let x = to_number(r.get("reply_count")); if x.is_nan() { 0.0 } else { x } };
         sr.update("ServerMessage", id_of(r), json!({ "last_reply_at": at, "reply_count": crate::js::number_value(count + 1.0) }))?;
     }
-    if posting && notify_channel(&sr, &subject(ctx), &server, &roles, &channel, &uid, perms, body).is_err() {
+    if posting && notify_channel(&sr, &subject(ctx), &view, &uid, body).is_err() {
         eprintln!("commonveil push: channel_preparation_failed");
     }
     Ok(json!({ "message": server_message_out(&message) }))
