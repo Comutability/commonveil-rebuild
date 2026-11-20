@@ -12,9 +12,10 @@ async function check(pending) {
   const { state, status, reason, attempted } = (await pending) || {};
   if (state === "shown") return { note: "It arrived: this device is receiving notifications." };
   if (state === "received")
-    return { error: `The push reached Commonveil on this device, but your phone didn't show it: notifications for this browser are switched off in your phone's settings. ${pushHint()}` };
+    return { error: `The push reached this browser, but no visible notification was detected. Check Commonveil's quiet hours and focus settings, and your device's notification permissions. ${pushHint()}` };
   if (state === "blocked")
-    return { error: `Your browser's push service accepted it for this device, but nothing arrived, so this device is blocking Commonveil's notifications. ${pushHint()}` };
+    return { error: `The push service accepted the request, but this browser did not detect a notification. That can happen during push delivery, service-worker processing or system notification display. ${pushHint()}` };
+  if (state === "unavailable") return { error: "Commonveil couldn't start this browser's notification service worker. Try reopening the app and testing again." };
   if (state === "refused") {
     const causes = {
       http_rejected: `The browser push service rejected this test${status ? ` (HTTP ${status})` : ""}.`,

@@ -127,7 +127,7 @@ export async function turnOffPush() {
  */
 export async function sendTestPush(waitMs = 12_000) {
   const reg = await registration().catch(() => null);
-  if (!reg) return null;
+  if (!reg) return { state: "unavailable" };
   const look = async () => {
     try {
       return await reg.getNotifications({ tag: "commonveil-test" });
