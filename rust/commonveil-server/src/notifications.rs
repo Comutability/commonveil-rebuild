@@ -61,6 +61,7 @@ fn notify(sr: &Db, subject: &str, user_ids: &[String], kind: &str, path: &str, p
     let subs = sr.filter("PushSubscription", json!({ "user_id": { "$in": people } }), "created_date", MAX_PER_SEND * 2)?;
     let now = crate::sessions::now_ms();
     let scoped: Vec<Value> = subs.into_iter().filter(|s| only_endpoint.is_none_or(|e| s["endpoint"] == e)).collect();
+    if only_endpoint.is_some() && scoped.is_empty() { tally["failure_reason"] = json!("no_subscription"); }
     let due: Vec<Value> = scoped.iter().filter(|s| bypass_quiet || !truthy(s.get("last_push_at")) || now as f64 - platform_ms(&s["last_push_at"]) > QUIET_MS).cloned().collect();
     tally["skipped"] = json!(scoped.len() - due.len());
     if scoped.len() != due.len() { eprintln!("commonveil push: rate_limited kind={kind} count={}", scoped.len() - due.len()); }
@@ -85,9 +86,10 @@ fn notify(sr: &Db, subject: &str, user_ids: &[String], kind: &str, path: &str, p
         let result = crate::webpush::send_push(&text("endpoint"), &text("p256dh"), &text("auth"), &payload, &keys, subject, urgency);
         let increment = |tally: &mut Value, field: &str| { tally[field] = json!(tally[field].as_u64().unwrap_or(0) + 1); };
         match result {
-            crate::webpush::Sent::Unsendable => { increment(&mut tally, "failed"); eprintln!("commonveil push: delivery kind={kind} outcome=failed reason=keys"); },
+            crate::webpush::Sent::Unsendable => { increment(&mut tally, "failed"); if only_endpoint.is_some() { tally["failure_reason"] = json!("keys"); } eprintln!("commonveil push: delivery kind={kind} outcome=failed reason=keys"); },
             crate::webpush::Sent::Gone(code) => {
                 increment(&mut tally, "gone");
+                if only_endpoint.is_some() { tally["failure_reason"] = json!("expired"); }
                 if code > 0 { if only_endpoint.is_some() { tally["status_code"] = json!(code); } }
                 eprintln!("commonveil push: delivery kind={kind} outcome=gone status={code}");
                 let _ = sr.delete("PushSubscription", id_of(s));
@@ -100,10 +102,11 @@ fn notify(sr: &Db, subject: &str, user_ids: &[String], kind: &str, path: &str, p
             }
             crate::webpush::Sent::Rejected(code) => {
                 increment(&mut tally, "rejected");
+                if only_endpoint.is_some() { tally["failure_reason"] = json!("http_rejected"); }
                 if only_endpoint.is_some() { tally["status_code"] = json!(code); }
                 eprintln!("commonveil push: delivery kind={kind} outcome=rejected status={code}");
             }
-            crate::webpush::Sent::Failed => { increment(&mut tally, "failed"); eprintln!("commonveil push: delivery kind={kind} outcome=failed reason=network"); }
+            crate::webpush::Sent::Failed => { increment(&mut tally, "failed"); if only_endpoint.is_some() { tally["failure_reason"] = json!("network"); } eprintln!("commonveil push: delivery kind={kind} outcome=failed reason=network"); }
         }
     }
     Ok(tally)
