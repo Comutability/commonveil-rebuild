@@ -942,7 +942,7 @@ Open **Settings → Notifications → Push notifications** and choose **Turn on*
 - Direct messages, groups, server channel messages and @mentions can send pushes. Your channel choices decide which server alerts appear on this device.
 - A sender's device supplies only mention-recipient and role IDs as routing metadata, not the message text. This allows @mention alerts when the app is closed, but means the server can learn who was targeted by a mention.
 - Channel pushes currently cover up to 200 members per message; larger servers need a notification queue for complete coverage.
-- **Send a test** checks this device only, not every device in your account. If it fails, you now see whether the push service rejected the request, the connection timed out, or the server could not prepare it. An accepted request does not necessarily mean the browser displayed it.
+- **Send a test** checks this device only, not every device in your account. If it fails, you now see whether the push service rejected the request, the connection timed out, or the server could not prepare it. An accepted request does not necessarily mean the browser displayed it. For failed network requests, Commonveil also checks that the server can reach Google's public push-service host, without sharing any subscription or private information.
 - Quiet hours and focus (below) make them silent.
 - **Send a test** checks they're working. **Turn off**, or signing out, stops them on that device.
 

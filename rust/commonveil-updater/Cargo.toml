@@ -1,6 +1,6 @@
 [package]
 name = "commonveil-updater"
-version = "0.24.5"
+version = "0.24.6"
 description = "The Commonveil updater, in Rust (it replaces updater/updater.mjs): installs a new release when a self-hosted site asks."
 edition.workspace = true
 license.workspace = true

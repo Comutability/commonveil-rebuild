@@ -5,6 +5,16 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.6](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.6): Trace failed push connections safely
+
+_2026-11-20_
+
+- Test notifications now distinguish a failure specific to the signed Web Push request from a failure to contact Google’s public push host at all. If a test fails with a network error, Commonveil checks the public Firebase Cloud Messaging host without transmitting the browser’s subscription, identifiers or keys.
+- New safe diagnostic categories distinguish network permissions, DNS, TLS, connection failure, invalid request setup and unclassified errors. They do not expose private URLs or raw exception messages.
+- These diagnostics help establish whether the hosted server’s outgoing network access must be fixed or whether the Web Push request itself needs repair. They do not claim a notification was received just because the server attempted to send it.
+- Fixed strict Rust lint warnings introduced by earlier push-notification changes. The Rust build and parity checks are also run by GitHub CI before a self-hosted release is considered fully verified.
+- No accounts, encryption keys, Web Push subscriptions or local notification preferences are reset by this update.
+
 ## [0.24.5](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.5): Push tests now explain why they fail
 
 _2026-11-20_

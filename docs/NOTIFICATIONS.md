@@ -82,6 +82,11 @@ public half is what browsers subscribe with; the private half never leaves the s
   proves the browser displayed a notification.
 - A failed or rejected push does not start the 20-second cooldown, and a server-side diagnostic
   records only the outcome, counts and safe HTTP status code, never addresses, keys or contents.
+- If a device-specific test reports a transport failure, the server makes one **fixed-host** HEAD
+  request to `https://fcm.googleapis.com/` without any subscription information or credentials.
+  Its result distinguishes general Google push-service reachability from a failed signed Web Push
+  request. The failure category is a fixed safe label (permissions, DNS, TLS, connection, invalid
+  request or unclassified), never an exception message or a browser push address.
 - Pushes are sent only to the browsers' real push services (an allowlist of their hostnames over HTTPS
   on the standard port), so the server can't be made to post anywhere else.
 - A push service that's down, slow or refusing never delays or fails the message itself.
