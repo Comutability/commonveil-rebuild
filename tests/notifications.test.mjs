@@ -5,7 +5,7 @@ import test, { afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { FakeWorld } from "./support/fakeBase44.mjs";
 import { Member } from "./support/harness.mjs";
-import { encryptPayload, pushEndpointOk } from "../base44/shared/push/webpush.ts";
+import { classifyPushFetchError, encryptPayload, probeFcmConnection, pushEndpointOk } from "../base44/shared/push/webpush.ts";
 import { forgetPushKeys, muteKey } from "../base44/shared/handlers/notifications.ts";
 import { b64url, fromB64url } from "../base44/shared/identity/crypto.ts";
 import { muteToken } from "../src/lib/pwa/mute.js";
@@ -211,4 +211,36 @@ test("browser-local notification preferences use the exact same opaque channel t
     assert.equal(await muteToken(secret, channel), await muteKey(secret, channel));
   }
   assert.notEqual(await muteToken(secret, "a"), await muteToken(secret, "b"));
+});
+
+
+test("safe exception categories identify network policy, DNS, TLS and invalid request without leaking private URLs", async () => {
+  const privateUrl = "https://fcm.googleapis.com/fcm/send/private-browser-token";
+  const samples = [
+    [new Error(`Permission denied: ${privateUrl}`), "permission"],
+    [new Error(`DNS lookup failed for ${privateUrl}`), "dns"],
+    [new Error(`TLS certificate verify failed for ${privateUrl}`), "tls"],
+    [new TypeError(`Invalid header value for ${privateUrl}`), "invalid_request"],
+    [new TypeError(`Connection reset while calling ${privateUrl}`), "connection"],
+    [new TypeError(`fetch failed for ${privateUrl}`), "unclassified"],
+  ];
+  for (const [error, category] of samples) {
+    const result = classifyPushFetchError(error);
+    assert.equal(result.error_category, category);
+    assert.equal(result.reason, "network");
+    assert.ok(!JSON.stringify(result).includes(privateUrl));
+  }
+  assert.equal(classifyPushFetchError(new DOMException("timed out", "TimeoutError")).reason, "timeout");
+});
+
+test("a fixed-host probe tells whether Google was reachable without using the user's subscription", async () => {
+  const requested = [];
+  const reply = await probeFcmConnection(async (url, opts) => {
+    requested.push({ url, method: opts.method });
+    return new Response(null, { status: 404 });
+  });
+  assert.deepEqual(requested, [{ url: "https://fcm.googleapis.com/", method: "HEAD" }]);
+  assert.deepEqual(reply, { state: "reachable", status: 404 });
+  const blocked = await probeFcmConnection(async () => { throw new Error("Network access denied for private token"); });
+  assert.deepEqual(blocked, { state: "unreachable", category: "permission" });
 });
