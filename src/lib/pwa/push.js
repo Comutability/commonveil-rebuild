@@ -98,6 +98,10 @@ export async function turnOnPush() {
     await sub.unsubscribe().catch(() => {});
     throw err;
   }
+  // Straight away, prove it: a browser can hold notifications back without telling the site
+  // (Brave's own push setting, a phone that won't let this browser post them). Better to find out
+  // here, while the person is looking, than for them to wonder why nothing ever arrives.
+  return sendTestPush();
 }
 
 export async function turnOffPush() {

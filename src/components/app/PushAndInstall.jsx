@@ -72,7 +72,18 @@ export function PushSection() {
               <Button size="sm" variant="outline" disabled={busy} onClick={() => run(turnOffPush)}>Turn off</Button>
             </>
           ) : (
-            <Button size="sm" disabled={busy || state === "checking"} onClick={() => run(turnOnPush, "On. You'll be told about new messages.")}>
+            <Button
+              size="sm"
+              disabled={busy || state === "checking"}
+              onClick={() =>
+                run(async () => {
+                  setNote("On. Sending one straight away, to check it reaches this device…");
+                  const arrived = await turnOnPush();
+                  if (arrived === false) throw new Error(`Notifications are on for this browser, but nothing reached this device. ${pushHint()}`);
+                  setNote(arrived === true ? "On. A notification just arrived on this device: it works." : "On. You'll be told about new messages.");
+                })
+              }
+            >
               <BellRing className="mr-1.5 h-4 w-4" aria-hidden="true" />Turn on
             </Button>
           )}
