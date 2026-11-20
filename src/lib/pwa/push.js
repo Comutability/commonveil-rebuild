@@ -143,7 +143,10 @@ export async function sendTestPush(waitMs = 12_000) {
   try {
     // Clear any earlier one, so only something new counts as an arrival.
     for (const old of (await look()) || []) old.close();
-    const sent = Number((await callFn("notifications", { action: "test" }))?.sent) || 0;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) throw new Error("This browser is not subscribed. Turn push off and on again.");
+    const reply = await callFn("notifications", { action: "test", endpoint: sub.endpoint });
+    const sent = Number(reply?.sent) || 0;
     let countable = typeof reg.getNotifications === "function";
     const until = Date.now() + waitMs;
     while (Date.now() < until) {

@@ -105,14 +105,24 @@ export type Subscription = { endpoint: string; p256dh: string; auth: string };
  * topic: pushes with the same topic replace each other while waiting at the push service, so a
  * device that's been off gets one notification, not a pile.
  */
-export async function sendPush(sub: Subscription, payload: unknown, { keys, subject, topic = "commonveil", ttl = 24 * 3600, urgency = "normal", fetchImpl = fetch }: { keys: VapidKeys; subject: string; topic?: string; ttl?: number; urgency?: "high" | "normal" | "low"; fetchImpl?: typeof fetch }) {
-  if (!pushEndpointOk(sub.endpoint)) return "gone";
-  const body = await encryptPayload(utf8(JSON.stringify(payload)), sub);
+export type PushDelivery = { state: "sent" | "gone" | "rejected" | "failed"; status?: number; reason?: "endpoint" | "keys" | "network" };
+
+/** A push service accepting a request does not prove the device displayed it. Never return or log endpoints or keys. */
+export async function sendPush(sub: Subscription, payload: unknown, { keys, subject, topic = "commonveil", ttl = 24 * 3600, urgency = "normal", fetchImpl = fetch }: { keys: VapidKeys; subject: string; topic?: string; ttl?: number; urgency?: "high" | "normal" | "low"; fetchImpl?: typeof fetch }): Promise<PushDelivery> {
+  if (!pushEndpointOk(sub.endpoint)) return { state: "gone", reason: "endpoint" };
+  let body: Uint8Array;
+  let authorization: string;
+  try {
+    body = await encryptPayload(utf8(JSON.stringify(payload)), sub);
+    authorization = await vapidHeader(sub.endpoint, keys, subject);
+  } catch {
+    return { state: "failed", reason: "keys" };
+  }
   try {
     const res = await fetchImpl(sub.endpoint, {
       method: "POST",
       headers: {
-        Authorization: await vapidHeader(sub.endpoint, keys, subject),
+        Authorization: authorization,
         "Content-Encoding": "aes128gcm",
         "Content-Type": "application/octet-stream",
         TTL: String(ttl),
@@ -123,9 +133,9 @@ export async function sendPush(sub: Subscription, payload: unknown, { keys, subj
       redirect: "error",
       signal: AbortSignal.timeout(5000),
     });
-    if (res.status === 404 || res.status === 410) return "gone";
-    return res.ok ? "sent" : "failed";
+    if (res.status === 404 || res.status === 410) return { state: "gone", status: res.status };
+    return { state: res.ok ? "sent" : "rejected", status: res.status };
   } catch {
-    return "failed";
+    return { state: "failed", reason: "network" };
   }
 }

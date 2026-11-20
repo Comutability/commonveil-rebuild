@@ -60,15 +60,20 @@ export const muteKey = async (secret: string, placeId: string) => (await hmac(se
  * (a server), "conversation" (someone started one with you). Never throws: notifications are a
  * nicety, and a send mustn't fail because of one.
  */
-export async function notifyPeople(sr: any, push: PushConfig | undefined, userIds: string[], { kind, path, placeId }: { kind: string; path: string; placeId: string }) {
-  // How the push services answered, so a test can say which end is quiet.
-  const tally = { sent: 0, failed: 0, gone: 0 };
+export type PushTally = { attempted: number; sent: number; rejected: number; failed: number; gone: number; skipped: number; status_code?: number };
+
+/** Messages must never fail when a push fails. Diagnostics only contain outcomes, counts and HTTP status codes. */
+export async function notifyPeople(sr: any, push: PushConfig | undefined, userIds: string[], { kind, path, placeId, onlyEndpoint, bypassQuiet = false }: { kind: string; path: string; placeId: string; onlyEndpoint?: string; bypassQuiet?: boolean }): Promise<PushTally> {
+  const tally: PushTally = { attempted: 0, sent: 0, rejected: 0, failed: 0, gone: 0, skipped: 0 };
   try {
     const people = [...new Set(userIds)].filter((u) => typeof u === "string").slice(0, MAX_PER_SEND);
     if (!people.length) return tally;
     const subs = await sr.entities.PushSubscription.filter({ user_id: { $in: people } }, "created_date", MAX_PER_SEND * 2);
+    const scoped = onlyEndpoint ? subs.filter((s: any) => s.endpoint === onlyEndpoint) : subs;
     const now = Date.now();
-    const due = subs.filter((s: any) => !s.last_push_at || now - Date.parse(s.last_push_at) > QUIET_MS);
+    const due = scoped.filter((s: any) => bypassQuiet || !s.last_push_at || now - Date.parse(s.last_push_at) > QUIET_MS);
+    tally.skipped = scoped.length - due.length;
+    if (tally.skipped) console.info("commonveil push: rate_limited", { kind, count: tally.skipped });
     if (!due.length) return tally;
     const keys = await pushKeys(sr);
     const codes = new Map<string, string>();
@@ -77,22 +82,29 @@ export async function notifyPeople(sr: any, push: PushConfig | undefined, userId
       await sr.entities.PushCode.create({ user_id: userId, code_hash: await sha256Hex(code), path, expires_at: new Date(now + CODE_DAYS * 86_400_000).toISOString() });
       codes.set(userId as string, code);
     }
-    await Promise.allSettled(
-      due.map(async (s: any) => {
+    await Promise.all(due.map(async (s: any) => {
+      tally.attempted += 1;
+      try {
         const payload = { v: 1, k: kind, c: codes.get(s.user_id), m: s.mute_secret ? await muteKey(s.mute_secret, placeId) : "" };
         const result = await sendPush({ endpoint: s.endpoint, p256dh: s.p256dh, auth: s.auth }, payload, { keys, subject: (push || BASE44_PUSH).subject, urgency: kind === "message" || kind === "conversation" ? "high" : "normal" });
-        if (result === "gone") {
+        if (onlyEndpoint && result.status) tally.status_code = result.status;
+        console.info("commonveil push: delivery", { kind, outcome: result.state, ...(result.status ? { status: result.status } : {}), ...(result.reason ? { reason: result.reason } : {}) });
+        if (result.state === "gone") {
           tally.gone += 1;
           await sr.entities.PushSubscription.delete(s.id).catch(() => null);
-        } else {
-          if (result === "sent") tally.sent += 1;
-          else tally.failed += 1;
+        } else if (result.state === "sent") {
+          tally.sent += 1;
           await sr.entities.PushSubscription.update(s.id, { last_push_at: new Date().toISOString() }).catch(() => null);
-        }
-      }),
-    );
+        } else if (result.state === "rejected") tally.rejected += 1;
+        else tally.failed += 1;
+      } catch {
+        tally.failed += 1;
+        console.warn("commonveil push: delivery", { kind, outcome: "internal_error" });
+      }
+    }));
   } catch {
-    // Never let a notification break what caused it.
+    tally.failed += 1;
+    console.warn("commonveil push: preparation_failed", { kind });
   }
   return tally;
 }
@@ -136,11 +148,13 @@ export const notificationActions: Actions = {
     return { path: typeof row.path === "string" && row.path.startsWith("/app") ? row.path : "/app" };
   },
 
-  /** A test notification to this account's devices. */
+  /** Test only the requesting browser, not every device linked to this account. */
   async test(ctx: any) {
-    await ctx.sr.entities.PushSubscription.filter({ user_id: ctx.user.id }, "created_date", 20).then((subs: any[]) => Promise.all(subs.map((s) => ctx.sr.entities.PushSubscription.update(s.id, { last_push_at: "" }))));
-    const tally = await notifyPeople(ctx.sr, ctx.push, [ctx.user.id], { kind: "test", path: "/app/settings/notifications", placeId: "test" });
-    // What the push services said, so the app can tell a device that's blocking from a send that failed.
+    const endpoint = ctx.body.endpoint;
+    if (!pushEndpointOk(endpoint)) throw new ApiError(400, "BAD_ENDPOINT", "This browser has no valid push subscription.");
+    const subs = await ctx.sr.entities.PushSubscription.filter({ user_id: ctx.user.id }, "created_date", MAX_SUBSCRIPTIONS + 5);
+    if (!subs.some((s: any) => s.endpoint === endpoint)) throw new ApiError(409, "PUSH_NOT_REGISTERED", "This browser's subscription isn't registered. Turn push off and on here.");
+    const tally = await notifyPeople(ctx.sr, ctx.push, [ctx.user.id], { kind: "test", path: "/app/settings/notifications", placeId: "test", onlyEndpoint: endpoint, bypassQuiet: true });
     return { ok: true, ...tally };
   },
 };
