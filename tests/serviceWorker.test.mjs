@@ -25,8 +25,8 @@ function worker({ prefs = {}, windows = [] } = {}) {
     location: { origin: "https://commonveil.online" },
     addEventListener: (type, fn) => (handlers[type] = fn),
     registration: {
-      showNotification: async (title, options) => shown.push({ title, ...options }),
-      getNotifications: async () => [],
+      showNotification: async (title, options) => shown.push({ title, ...options, closed: false, close() { this.closed = true; } }),
+      getNotifications: async ({ tag } = {}) => shown.filter((n) => !n.closed && (!tag || n.tag === tag)),
     },
     clients: { matchAll: async () => windows, openWindow: async (url) => opened.push(url), claim: async () => {} },
     skipWaiting() {},
@@ -98,4 +98,20 @@ test("the worker never handles anything from the backend", () => {
   const asset = { request: { method: "GET", url: "https://commonveil.online/assets/index-abc.js", mode: "cors" } };
   w.handlers.fetch({ ...asset, respondWith: () => (asset.responded = true) });
   assert.equal(asset.responded, true, "the app's own files are kept");
+});
+
+
+test("server activity obeys this browser's opaque channel levels without exposing message contents", async () => {
+  const w = worker({ prefs: { pushLevels: { quietChannel: "mentions", ignoredChannel: "none", allChannel: "all" } } });
+  await w.fire("push", pushOf({ k: "activity", m: "quietChannel", c: "one" }));
+  assert.equal(w.shown[0].closed, true, "ordinary messages are hidden in mention-only channels");
+  await w.fire("push", pushOf({ k: "mention", m: "quietChannel", c: "two" }));
+  assert.equal(w.shown[1].closed, false, "an actual mention is visible in a mention-only channel");
+  assert.equal(w.shown[1].body, "New activity", "the notification cannot expose the decrypted message");
+  await w.fire("push", pushOf({ k: "mention", m: "ignoredChannel", c: "three" }));
+  assert.equal(w.shown[2].closed, true, "muted channels hide even mention pushes");
+  await w.fire("push", pushOf({ k: "activity", m: "allChannel", c: "four" }));
+  assert.equal(w.shown[3].closed, false, "all-messages channels receive activity pushes");
+  await w.fire("push", pushOf({ k: "mention", m: "unknownChannel", c: "five" }));
+  assert.equal(w.shown[4].closed, true, "unknown channels default to quiet");
 });
