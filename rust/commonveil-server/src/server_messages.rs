@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use crate::api::{id, int, random_id_field, str_field, Actions, ApiError, Ctx, Limits, Result};
 use crate::db::{id_of, Db};
 use crate::js::{to_js_string, to_number, truthy};
+use crate::notifications::{notify_people, subject};
 use crate::permissions::{channel_permissions, has, p};
 use crate::servers_build::{flooded_by, log_case};
 use crate::servers_core::*;
@@ -16,6 +17,7 @@ use crate::verify::{check_sent_at, iso_time, signed_by_active_device};
 type Seen = Option<(Value, Value, i64)>;
 
 const KINDS: [&str; 4] = ["message", "reaction", "edit", "post"];
+const CHANNEL_PUSH_BATCH: usize = 200;
 
 fn deny(status: u16, code: &str, message: &str) -> ApiError {
     ApiError::new(status, code, message)
@@ -25,6 +27,7 @@ struct View {
     member: Value,
     server: Value,
     channel: Value,
+    roles: Vec<Value>,
     perms: i64,
 }
 
@@ -41,7 +44,33 @@ fn channel_view(own: &Db, server_id: &str, channel_id: &str, user_id: &str) -> R
     if !has(perms, p::VIEW_CHANNEL) {
         return Err(not_found());
     }
-    Ok(View { member, server, channel, perms })
+    Ok(View { member, server, channel, roles, perms })
+}
+
+/// Bounded push fanout. Only readable members are eligible; no message text or encrypted
+/// content leaves the server. Mention-routing hints are ephemeral metadata from the sender.
+fn notify_channel(sr: &Db, push_subject: &str, server: &Value, roles: &[Value], channel: &Value, sender_id: &str, sender_perms: i64, body: &Value) -> Result<()> {
+    let members = sr.filter("ServerMember", json!({ "server_id": server["id"] }), "joined_at", CHANNEL_PUSH_BATCH + 1)?;
+    if members.len() > CHANNEL_PUSH_BATCH { eprintln!("commonveil push: channel_fanout_limited count={CHANNEL_PUSH_BATCH}"); }
+    let hint = &body["notification_hint"];
+    let users: Vec<&str> = hint["users"].as_array().into_iter().flatten().filter_map(Value::as_str).take(50).collect();
+    let mentioned_roles: Vec<&str> = hint["roles"].as_array().into_iter().flatten().filter_map(Value::as_str)
+        .filter(|role| roles.iter().any(|r| r["id"] == *role && !truthy(r.get("is_everyone"))))
+        .take(20).collect();
+    let everyone = hint["everyone"] == true && has(sender_perms, p::MENTION_EVERYONE);
+    let mut mention_targets = Vec::new();
+    let mut activity_targets = Vec::new();
+    for member in members.iter().take(CHANNEL_PUSH_BATCH) {
+        let uid = member["user_id"].as_str().unwrap_or("");
+        if uid.is_empty() || uid == sender_id || member["key_status"] != "ok" || !has(channel_permissions(server, roles, Some(member), channel), p::VIEW_CHANNEL) { continue; }
+        let matched = everyone || users.contains(&uid) || member["role_ids"].as_array().is_some_and(|rs| rs.iter().any(|r| r.as_str().is_some_and(|v| mentioned_roles.contains(&v))));
+        if matched { mention_targets.push(uid.to_string()); } else { activity_targets.push(uid.to_string()); }
+    }
+    let path = format!("/app/s/{}/{}", id_of(server), id_of(channel));
+    let place_id = id_of(channel);
+    if !mention_targets.is_empty() { notify_people(sr, push_subject, &mention_targets, "mention", &path, place_id); }
+    if !activity_targets.is_empty() { notify_people(sr, push_subject, &activity_targets, "activity", &path, place_id); }
+    Ok(())
 }
 
 fn is_live(m: &Value, now: i64) -> bool {
@@ -109,7 +138,7 @@ fn readable_now(own: &Db, user_id: &str, rows: Vec<Value>) -> Result<Vec<Value>>
 fn send(ctx: &mut Ctx) -> Result<Value> {
     let (sr, own, uid, now, body) = (ctx.sr(), ctx.own(), ctx.user_id().to_string(), ctx.now, &ctx.body);
     let server_id = id(&body["server_id"], "server")?;
-    let View { member, server, channel, perms, .. } = channel_view(&own, &server_id, &id(&body["channel_id"], "channel")?, &uid)?;
+    let View { member, server, channel, roles, perms } = channel_view(&own, &server_id, &id(&body["channel_id"], "channel")?, &uid)?;
     if !channel["kind"].as_str().is_some_and(|k| MESSAGE_KINDS.contains(&k)) {
         return Err(deny(400, "BAD_FIELD", "You can't post in this kind of channel."));
     }
@@ -244,6 +273,9 @@ fn send(ctx: &mut Ctx) -> Result<Value> {
     if let (Some(r), "message") = (&root, kind.as_str()) {
         let count = { let x = to_number(r.get("reply_count")); if x.is_nan() { 0.0 } else { x } };
         sr.update("ServerMessage", id_of(r), json!({ "last_reply_at": at, "reply_count": crate::js::number_value(count + 1.0) }))?;
+    }
+    if posting && notify_channel(&sr, &subject(ctx), &server, &roles, &channel, &uid, perms, body).is_err() {
+        eprintln!("commonveil push: channel_preparation_failed");
     }
     Ok(json!({ "message": server_message_out(&message) }))
 }
