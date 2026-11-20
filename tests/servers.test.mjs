@@ -160,7 +160,7 @@ test("channel pushes distinguish mentions from activity and never reach private-
     const state = await alice.server(sid);
     const { keys } = await alice.keysOf(state);
     const mentions = { users: [bob.id], roles: [], everyone: false };
-    const body = await buildChannelMessage({ serverId: sid, channel: general, generations: state.generations, keys, userId: alice.id, device: alice.device, payload: textPayload("Hello @bobby", { mentions }) });
+    const body = await buildChannelMessage({ serverId: sid, channel: general, generations: state.generations, keys, userId: alice.id, device: alice.device, kind: "message", payload: textPayload("Hello @bobby", { mentions }) });
     body.notification_hint = mentions;
     const first = await alice.call("channels", body);
     assert.equal(first.status, 200, JSON.stringify(first.body));
@@ -177,7 +177,7 @@ test("channel pushes distinguish mentions from activity and never reach private-
     outgoing.length = 0;
     const staffState = await alice.server(other);
     const staffKeys = (await alice.keysOf(staffState)).keys;
-    const hidden = await buildChannelMessage({ serverId: other, channel: staff, generations: staffState.generations, keys: staffKeys, userId: alice.id, device: alice.device, payload: textPayload("Confidential", { mentions: { users: [bob.id] } }) });
+    const hidden = await buildChannelMessage({ serverId: other, channel: staff, generations: staffState.generations, keys: staffKeys, userId: alice.id, device: alice.device, kind: "message", payload: textPayload("Confidential", { mentions: { users: [bob.id] } }) });
     hidden.notification_hint = { users: [bob.id] };
     assert.equal((await alice.call("channels", hidden)).status, 200);
     assert.equal(outgoing.length, 0, "a private channel cannot notify an excluded member");
