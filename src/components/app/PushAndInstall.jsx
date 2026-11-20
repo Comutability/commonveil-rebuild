@@ -7,6 +7,16 @@ import { pushState, pushSupported, sendTestPush, turnOffPush, turnOnPush } from 
 import { install, isIos, isStandalone, useApp } from "@/lib/pwa/app";
 import { pushHint } from "@/lib/pwa/browser";
 
+/** What to say about a test push: that it worked, or which of the two links broke. */
+async function check(pending) {
+  const result = await pending;
+  if (result === "shown") return { note: "It arrived: this device is receiving notifications." };
+  if (result === "received")
+    return { error: `The push reached Commonveil on this device, but your phone didn't show it: notifications for this browser are switched off in your phone's settings. ${pushHint()}` };
+  if (result === false) return { error: `The push service accepted it, but nothing reached this device. ${pushHint()}` };
+  return { note: "Sent. A notification should arrive in a few seconds." };
+}
+
 /** Push notifications on this device: off until turned on, and they never say anything. */
 export function PushSection() {
   const [state, setState] = useState("checking");
@@ -61,9 +71,9 @@ export function PushSection() {
                 onClick={() =>
                   run(async () => {
                     setNote("Sent. Watching this device for it…");
-                    const arrived = await sendTestPush();
-                    if (arrived === false) throw new Error(`Sent, but nothing appeared on this device within 12 seconds. ${pushHint()}`);
-                    setNote(arrived === true ? "It arrived: this device is receiving notifications." : "Sent. A notification should arrive in a few seconds.");
+                    const verdict = await check(sendTestPush());
+                    if (verdict.error) throw new Error(verdict.error);
+                    setNote(verdict.note);
                   })
                 }
               >
@@ -78,9 +88,9 @@ export function PushSection() {
               onClick={() =>
                 run(async () => {
                   setNote("On. Sending one straight away, to check it reaches this device…");
-                  const arrived = await turnOnPush();
-                  if (arrived === false) throw new Error(`Notifications are on for this browser, but nothing reached this device. ${pushHint()}`);
-                  setNote(arrived === true ? "On. A notification just arrived on this device: it works." : "On. You'll be told about new messages.");
+                  const verdict = await check(turnOnPush());
+                  if (verdict.error) throw new Error(verdict.error);
+                  setNote(verdict.note);
                 })
               }
             >

@@ -114,12 +114,18 @@ export async function turnOffPush() {
 }
 
 /**
- * Send the site's test push and then watch this device for it: true if it turned up, false if it
- * didn't within the wait, null if this browser can't be asked. The device's own list of showing
- * notifications is the only honest answer to "is it working here?".
+ * Send the site's test push and then watch this device for it. Answers:
+ *   "shown"    the notification is on this device: it works;
+ *   "received" the push reached Commonveil here, but the phone didn't show it (its own settings
+ *              for this browser are off: nothing a site can override);
+ *   false      it never reached this device at all;
+ *   null       this browser can't be asked.
+ * Two answers make that possible, and both are the device's own: the service worker says when it
+ * receives a push, and the list of showing notifications says when one was actually displayed.
  */
 export async function sendTestPush(waitMs = 12_000) {
   const reg = await registration().catch(() => null);
+  if (!reg) return null;
   const look = async () => {
     try {
       return await reg.getNotifications({ tag: "commonveil" });
@@ -127,18 +133,31 @@ export async function sendTestPush(waitMs = 12_000) {
       return null;
     }
   };
-  if (!reg || typeof reg.getNotifications !== "function") return null;
-  // Clear any earlier one, so only something new counts as an arrival.
-  for (const old of (await look()) || []) old.close();
-  await callFn("notifications", { action: "test" });
-  const until = Date.now() + waitMs;
-  while (Date.now() < until) {
-    await new Promise((r) => setTimeout(r, 500));
-    const seen = await look();
-    if (seen === null) return null;
-    if (seen.length) return true;
+  let received = false;
+  const heard = (event) => {
+    if (event.data?.type === "push-received") received = true;
+  };
+  navigator.serviceWorker.addEventListener("message", heard);
+  try {
+    // Clear any earlier one, so only something new counts as an arrival.
+    for (const old of (await look()) || []) old.close();
+    await callFn("notifications", { action: "test" });
+    let countable = typeof reg.getNotifications === "function";
+    const until = Date.now() + waitMs;
+    while (Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 500));
+      if (countable) {
+        const seen = await look();
+        if (seen === null) countable = false;
+        else if (seen.length) return "shown";
+      }
+      if (received && !countable) return "received";
+    }
+    if (received) return "received";
+    return countable ? false : null;
+  } finally {
+    navigator.serviceWorker.removeEventListener("message", heard);
   }
-  return false;
 }
 
 /** Mirror quiet hours and focus for the service worker, which can't read the app's storage. */

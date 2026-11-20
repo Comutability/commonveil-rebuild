@@ -8,8 +8,8 @@
 //      and a one-time code, nothing else; tapping it opens the app, which asks (signed in) where to go.
 // Bumping these names is also what tells every browser there's a new version to fetch: the file's
 // bytes change, so a new worker installs, and the old kept copies are cleared when it takes over.
-const SHELL = "cv-shell-v2";
-const ASSETS = "cv-assets-v2";
+const SHELL = "cv-shell-v3";
+const ASSETS = "cv-assets-v3";
 const MAX_ASSETS = 300;
 
 self.addEventListener("install", (event) => {
@@ -126,19 +126,38 @@ self.addEventListener("push", (event) => {
       } catch {
         p = {};
       }
-      const prefs = await readPrefs();
+      // Say so to any window that's open, first. A phone can show nothing at all for reasons the
+      // site can't see, and this is how the app knows the push got here at least.
+      try {
+        for (const w of await self.clients.matchAll({ type: "window", includeUncontrolled: true })) w.postMessage({ type: "push-received", kind: p.k });
+      } catch {
+        // No window open: there's nobody to tell.
+      }
+      // Quiet hours live in this device's own storage, which a phone that has just woken up can be
+      // slow to answer. A notification that never appears is worse than one that isn't silenced.
+      const prefs = await Promise.race([readPrefs(), new Promise((r) => setTimeout(() => r({}), 1500))]);
       const muted = Boolean(p.m && Array.isArray(prefs.muted) && prefs.muted.includes(p.m));
       const silent = muted || quietNow(prefs);
+      const body = WORDS[p.k] || "New activity";
       // One notification at a time, replaced by the next: fewer records left on the device.
-      await self.registration.showNotification("Commonveil", {
-        body: WORDS[p.k] || "New activity",
-        tag: "commonveil",
-        renotify: !silent,
-        silent,
-        icon: "/icons/icon-192.png",
-        badge: "/icons/badge-96.png",
-        data: { c: typeof p.c === "string" ? p.c : "" },
-      });
+      try {
+        await self.registration.showNotification("Commonveil", {
+          body,
+          tag: "commonveil",
+          renotify: !silent,
+          silent,
+          icon: "/icons/icon-192.png",
+          badge: "/icons/badge-96.png",
+          data: { c: typeof p.c === "string" ? p.c : "" },
+        });
+      } catch {
+        // The phone refused those options: the plainest notification there is beats none.
+        try {
+          await self.registration.showNotification("Commonveil", { body, tag: "commonveil", data: { c: typeof p.c === "string" ? p.c : "" } });
+        } catch {
+          // Nothing left to try on this device.
+        }
+      }
       if (muted) for (const n of await self.registration.getNotifications({ tag: "commonveil" })) n.close();
       if (!muted && navigator.setAppBadge) navigator.setAppBadge().catch(() => {});
     })(),
