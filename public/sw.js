@@ -115,7 +115,7 @@ function quietNow(p, now = new Date()) {
   return p.quietFrom < p.quietTo ? m >= p.quietFrom && m < p.quietTo : m >= p.quietFrom || m < p.quietTo;
 }
 
-const WORDS = { message: "New message", conversation: "New message", activity: "New activity", test: "Notifications are on. This is all they'll ever say." };
+const WORDS = { message: "New message", conversation: "New message", activity: "New activity", mention: "New activity", test: "Notifications are on. This is all they'll ever say." };
 
 self.addEventListener("push", (event) => {
   event.waitUntil(
@@ -136,7 +136,12 @@ self.addEventListener("push", (event) => {
       // Quiet hours live in this device's own storage, which a phone that has just woken up can be
       // slow to answer. A notification that never appears is worse than one that isn't silenced.
       const prefs = await Promise.race([readPrefs(), new Promise((r) => setTimeout(() => r({}), 1500))]);
-      const muted = Boolean(p.m && Array.isArray(prefs.muted) && prefs.muted.includes(p.m));
+      // No channel ids or preferences leave the device. An unknown channel defaults to quiet,
+      // rather than allowing a server's activity to leak onto a locked screen.
+      const serverActivity = p.k === "activity" || p.k === "mention";
+      const level = serverActivity ? (prefs.pushLevels?.[p.m] || "none") : null;
+      const muted = Boolean((p.m && Array.isArray(prefs.muted) && prefs.muted.includes(p.m)) ||
+        (serverActivity && (level === "none" || (level === "mentions" && p.k !== "mention"))));
       const silent = muted || quietNow(prefs);
       const body = WORDS[p.k] || "New activity";
       // A test gets its own tag: one still sitting in the shade would be replaced by the new one

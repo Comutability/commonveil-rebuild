@@ -167,7 +167,8 @@ export async function sendTestPush(waitMs = 12_000) {
 }
 
 /** Mirror quiet hours and focus for the service worker, which can't read the app's storage. */
-export function mirrorPushPrefs(alerts) {
+/** Merge preferences in one transaction so message and channel settings cannot overwrite each other. */
+function writeWorkerPrefs(changes) {
   if (typeof indexedDB === "undefined") return;
   try {
     const open = indexedDB.open("commonveil-push", 1);
@@ -175,14 +176,35 @@ export function mirrorPushPrefs(alerts) {
     open.onsuccess = () => {
       try {
         const tx = open.result.transaction("kv", "readwrite");
-        tx.objectStore("kv").put({ quiet: alerts.quiet, quietFrom: alerts.quietFrom, quietTo: alerts.quietTo, focusUntil: alerts.focusUntil, muted: [] }, "prefs");
-      } catch {
-        // Nothing to mirror into: notifications just aren't silenced on schedule.
-      }
+        const store = tx.objectStore("kv");
+        const read = store.get("prefs");
+        read.onsuccess = () => store.put({ ...(read.result || {}), ...changes }, "prefs");
+      } catch { /* No worker preferences to update. */ }
     };
-  } catch {
-    // As above.
+  } catch { /* IndexedDB is unavailable. */ }
+}
+
+/** Mirror quiet hours and focus without erasing channel-specific choices. */
+export function mirrorPushPrefs(alerts) {
+  writeWorkerPrefs({ quiet: alerts.quiet, quietFrom: alerts.quietFrom, quietTo: alerts.quietTo, focusUntil: alerts.focusUntil });
+}
+
+/** Compute the same per-device HMAC as the backend without sending notification preferences to it. */
+export async function mirrorServerPushPrefs(servers, prefs) {
+  if (!supported() || !crypto?.subtle) return;
+  const secret = muteSecret();
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const channels = Object.entries(servers || {}).flatMap(([sid, entry]) =>
+    (entry.channels || []).filter((c) => ["text", "announcement", "rules", "forum"].includes(c.kind)).map((c) => ({
+      id: c.id,
+      level: prefs?.muted?.[sid] || prefs?.muted?.[c.id] ? "none" : prefs?.notify?.[c.id] || prefs?.notify?.[sid] || (entry.server?.is_default ? "mentions" : "all"),
+    })));
+  const pushLevels = {};
+  for (const c of channels) {
+    const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`mute:${c.id}`));
+    pushLevels[toB64url(mac).slice(0, 16)] = c.level;
   }
+  writeWorkerPrefs({ pushLevels });
 }
 
 /** Where a tapped notification leads (the code is used once). */

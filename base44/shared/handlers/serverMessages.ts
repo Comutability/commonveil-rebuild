@@ -9,6 +9,7 @@ import { ApiError, LIMITS, id, int, isoTime, parsePlatformTime, platformTime, ra
 import { signedByActiveDevice } from "../deviceAuth.ts";
 import { checkSentAt, verifyServerItemSignature } from "../verify.ts";
 import { P, channelPermissions, has } from "../permissions.ts";
+import { notifyPeople } from "./notifications.ts";
 import { countSince, profileOf, rateLimited, requireActiveDevice } from "../store.ts";
 import { floodedBy, logCase } from "../servers/moderation.ts";
 import {
@@ -28,6 +29,39 @@ import {
 } from "../servers/model.ts";
 
 const KINDS = ["message", "reaction", "edit", "post"] as const;
+// Bounded fanout: the caller cannot select arbitrary people to notify.
+const CHANNEL_PUSH_BATCH = 200;
+
+/**
+ * Encrypted content stays encrypted. The sender optionally supplies ephemeral mention-routing
+ * metadata (user/role ids, never text). Only current members who can read the channel receive a
+ * notification; the recipient's browser independently applies its private notification settings.
+ * This metadata is not persisted with the message or included in its push payload.
+ */
+async function notifyChannel(sr: any, push: any, view: any, senderId: string, body: any) {
+  try {
+    const { server, roles, channel } = view;
+    const members = await sr.entities.ServerMember.filter({ server_id: server.id }, "joined_at", CHANNEL_PUSH_BATCH + 1);
+    if (members.length > CHANNEL_PUSH_BATCH) console.info("commonveil push: channel_fanout_limited", { count: CHANNEL_PUSH_BATCH });
+    const hint = body.notification_hint && typeof body.notification_hint === "object" ? body.notification_hint : {};
+    const users = new Set((Array.isArray(hint.users) ? hint.users : []).filter((x: unknown) => typeof x === "string").slice(0, 50));
+    const mentionedRoles = new Set((Array.isArray(hint.roles) ? hint.roles : []).filter((x: unknown) => typeof x === "string" && roles.some((r: any) => r.id === x && !r.is_everyone)).slice(0, 20));
+    const everyone = hint.everyone === true && has(view.perms, P.MENTION_EVERYONE);
+    const targets = members.slice(0, CHANNEL_PUSH_BATCH).filter((m: any) => m.user_id !== senderId && m.key_status === "ok" && has(channelPermissions(server, roles, m, channel), P.VIEW_CHANNEL));
+    const mentions: string[] = [];
+    const activity: string[] = [];
+    for (const m of targets) {
+      const match = everyone || users.has(m.user_id) || (m.role_ids || []).some((r: string) => mentionedRoles.has(r));
+      (match ? mentions : activity).push(m.user_id);
+    }
+    const options = { path: `/app/s/${server.id}/${channel.id}`, placeId: channel.id };
+    if (mentions.length) await notifyPeople(sr, push, mentions, { ...options, kind: "mention" });
+    if (activity.length) await notifyPeople(sr, push, activity, { ...options, kind: "activity" });
+  } catch {
+    // Never stop an encrypted message because push delivery or member lookup failed.
+    console.warn("commonveil push: channel_preparation_failed");
+  }
+}
 
 /** The caller's view of one channel, read with their own access: the row rules hide private channels they can't see. */
 async function channelView(own: any, serverId: string, channelId: string, userId: string) {
@@ -96,7 +130,7 @@ async function readableNow(own: any, userId: string, rows: any[]) {
 }
 
 export const serverMessageActions: Actions = {
-  async send({ sr, own, user, body, now }) {
+  async send({ sr, own, user, body, now, push }) {
     const serverId = id(body.server_id, "server");
     const view = await channelView(own, serverId, id(body.channel_id, "channel"), user.id);
     const { member, server, channel, perms } = view;
@@ -198,6 +232,7 @@ export const serverMessageActions: Actions = {
     if (root && kind === "message") {
       await sr.entities.ServerMessage.update(root.id, { last_reply_at: message.created_date || platformTime(now), reply_count: (Number(root.reply_count) || 0) + 1 });
     }
+    if (kind === "message" || kind === "post") await notifyChannel(sr, push, view, user.id, body);
     return { message: serverMessageOut(message) };
   },
 

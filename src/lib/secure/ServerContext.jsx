@@ -15,6 +15,7 @@ import { P, basePermissions, channelPermissions, has, isStaff, topPosition } fro
 import { useNavigate } from "react-router-dom";
 import { buildThread } from "./thread.js";
 import { isQuiet, showAlert } from "./alerts.js";
+import { mirrorServerPushPrefs } from "../pwa/push.js";
 import { votePayload } from "./polls.js";
 import { copyAttachments, uploadAttachments } from "./fileTransfer.js";
 import { EMPTY_AUTOMOD, automodReason } from "./automod.js";
@@ -837,6 +838,15 @@ export function ServerProvider({ children }) {
       if (!e?.generations || !keys) throw new Error("This server is still loading. Try again in a moment.");
       try {
         const body = await SP.buildChannelMessage({ serverId: sid, channel, generations: e.generations, keys, userId, device, payload, kind, threadId, itemId });
+        // Routing hint is metadata only: no message text. Server checks channel membership and access.
+        // The real mention list remains inside the authenticated encrypted payload.
+        if ((kind === "message" || kind === "post") && payload?.mentions) {
+          body.notification_hint = {
+            users: (payload.mentions.users || []).slice(0, 50),
+            roles: (payload.mentions.roles || []).slice(0, 20),
+            everyone: payload.mentions.everyone === true,
+          };
+        }
         const hold = async (heldBy = "") => {
           const entry = await O.queue(userId, { msg_id: body.msg_id, fn: "channels", body, place: { server_id: sid, channel_id: channel.id, thread_id: threadId, kind } });
           if (heldBy) await O.markHeld(userId, body.msg_id, heldBy);
@@ -1037,6 +1047,10 @@ export function ServerProvider({ children }) {
   }, [mergeRows]);
 
   // ---------- unread ----------
+
+  // Notification rules stay on this browser, even when the app is closed. The worker receives
+  // only a per-browser keyed token for the channel, never its identifier or a message.
+  useEffect(() => { mirrorServerPushPrefs(servers, prefs).catch(() => {}); }, [servers, prefs]);
 
   const muted = useCallback((id) => Boolean(prefs.muted?.[id]), [prefs]);
 
