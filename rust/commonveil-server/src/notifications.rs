@@ -74,7 +74,7 @@ fn notify(sr: &Db, subject: &str, user_ids: &[String], kind: &str, path: &str, p
         sr.create("PushCode", json!({ "user_id": user, "code_hash": sha256_hex(&code), "path": path, "expires_at": iso(now + CODE_DAYS * 86_400_000) }))?;
         codes.push((user, code));
     }
-    let urgency = if kind == "message" || kind == "conversation" { "high" } else { "normal" };
+    let urgency = if kind == "message" || kind == "conversation" || kind == "mention" { "high" } else { "normal" };
     for s in &due {
         tally["attempted"] = json!(tally["attempted"].as_u64().unwrap_or(0) + 1);
         let user = to_js_string(s.get("user_id"));

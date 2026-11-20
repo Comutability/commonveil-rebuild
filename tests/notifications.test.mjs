@@ -137,3 +137,51 @@ test("subscriptions: only real push addresses, one owner each, gone with the acc
   const { public_key } = await bea.ok("notifications", { action: "key" });
   assert.equal(fromB64url(public_key).length, 65);
 });
+
+
+test("test push targets just the requesting device and refuses an unregistered browser", async () => {
+  const { bea, b } = await pair();
+  await bea.ok("notifications", { action: "subscribe", endpoint: "https://fcm.googleapis.com/fcm/send/bea-desktop", ...b.keys, mute_secret: "desktop" });
+  const sent = pushService();
+  const target = "https://fcm.googleapis.com/fcm/send/bea-phone";
+  const reply = await bea.ok("notifications", { action: "test", endpoint: target });
+  assert.equal(reply.attempted, 1);
+  assert.equal(reply.sent, 1);
+  assert.equal(reply.status_code, 201);
+  assert.deepEqual(sent.map((x) => x.url), [target]);
+  const bad = await bea.call("notifications", { action: "test", endpoint: "https://fcm.googleapis.com/fcm/send/unknown" });
+  assert.equal(bad.status, 409);
+  assert.equal(bad.body.code, "PUSH_NOT_REGISTERED");
+});
+
+test("rejected push reports its status and does not suppress the next incoming DM", async () => {
+  const { ann, bea, w } = await pair();
+  const target = "https://fcm.googleapis.com/fcm/send/bea-phone";
+  const sent = pushService(403);
+  const rejection = await bea.ok("notifications", { action: "test", endpoint: target });
+  assert.equal(rejection.rejected, 1);
+  assert.equal(rejection.sent, 0);
+  assert.equal(rejection.status_code, 403);
+  assert.equal(sent.length, 1);
+  const subs = await w.clientFor(null).asServiceRole.entities.PushSubscription.filter({ user_id: bea.id });
+  assert.equal(subs[0].last_push_at, "", "failed delivery must not trigger the cooldown");
+  const accepted = pushService();
+  const dm = await ann.dm(bea);
+  assert.equal((await ann.send(dm, "retry after refused push")).status, 200);
+  assert.equal(accepted.length, 1, "a real message retries instead of silently disappearing");
+});
+
+test("group messages alert the other members, but never the sender", async () => {
+  const w = new FakeWorld();
+  const ann = await new Member(w, "ann").setup();
+  const bea = await new Member(w, "bea").setup();
+  const cat = await new Member(w, "cat").setup();
+  const b = await browser();
+  for (const m of [bea, cat]) {
+    await m.ok("notifications", { action: "subscribe", endpoint: `https://fcm.googleapis.com/fcm/send/${m.name}-phone`, ...b.keys, mute_secret: "abc" });
+  }
+  const sent = pushService();
+  const group = await ann.group([bea.name, cat.name]);
+  assert.equal((await ann.send(group, "group message")).status, 200);
+  assert.deepEqual(sent.map((x) => x.url).sort(), ["https://fcm.googleapis.com/fcm/send/bea-phone", "https://fcm.googleapis.com/fcm/send/cat-phone"]);
+});

@@ -86,7 +86,7 @@ export async function notifyPeople(sr: any, push: PushConfig | undefined, userId
       tally.attempted += 1;
       try {
         const payload = { v: 1, k: kind, c: codes.get(s.user_id), m: s.mute_secret ? await muteKey(s.mute_secret, placeId) : "" };
-        const result = await sendPush({ endpoint: s.endpoint, p256dh: s.p256dh, auth: s.auth }, payload, { keys, subject: (push || BASE44_PUSH).subject, urgency: kind === "message" || kind === "conversation" ? "high" : "normal" });
+        const result = await sendPush({ endpoint: s.endpoint, p256dh: s.p256dh, auth: s.auth }, payload, { keys, subject: (push || BASE44_PUSH).subject, urgency: kind === "message" || kind === "conversation" || kind === "mention" ? "high" : "normal" });
         if (onlyEndpoint && result.status) tally.status_code = result.status;
         console.info("commonveil push: delivery", { kind, outcome: result.state, ...(result.status ? { status: result.status } : {}), ...(result.reason ? { reason: result.reason } : {}) });
         if (result.state === "gone") {
