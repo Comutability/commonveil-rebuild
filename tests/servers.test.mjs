@@ -162,7 +162,8 @@ test("channel pushes distinguish mentions from activity and never reach private-
     const mentions = { users: [bob.id], roles: [], everyone: false };
     const body = await buildChannelMessage({ serverId: sid, channel: general, generations: state.generations, keys, userId: alice.id, device: alice.device, payload: textPayload("Hello @bobby", { mentions }) });
     body.notification_hint = mentions;
-    assert.equal((await alice.call("channels", body)).status, 200);
+    const first = await alice.call("channels", body);
+    assert.equal(first.status, 200, JSON.stringify(first.body));
     assert.deepEqual(outgoing.map((p) => p.url).sort(), [bobEndpoint, carolEndpoint].sort());
     assert.equal(outgoing.find((p) => p.url === bobEndpoint).headers.Urgency, "high", "a direct mention is prioritised");
     assert.equal(outgoing.find((p) => p.url === carolEndpoint).headers.Urgency, "normal", "other activity is less urgent");
