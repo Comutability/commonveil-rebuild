@@ -160,7 +160,7 @@ export async function sendTestPush(waitMs = 12_000) {
       if (received && !countable) return answer("received", sent);
     }
     if (received) return answer("received", sent);
-    if (!sent) return answer("refused", sent);
+    if (!sent) return answer("refused", sent, reply?.status_code || null);
     return answer(countable ? "blocked" : "unknown", sent);
   } finally {
     navigator.serviceWorker.removeEventListener("message", heard);

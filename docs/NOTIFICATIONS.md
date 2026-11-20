@@ -16,7 +16,7 @@ to write into its notification log. So we never send one.
 - Title: **Commonveil**. Body: **New message** (a conversation) or **New activity** (anything else).
 - Every notification has the tag `commonveil`, so each replaces the last: at most one is ever on the
   device. Waiting pushes also replace each other at the push service (the `Topic` header).
-- Tapping it opens the app straight to the right conversation (below).
+- Tapping it opens the app straight to the right conversation or channel (below).
 - Quiet hours and focus make it silent. Those settings are mirrored into the browser's own storage for
   the service worker and never sent to us.
 - The test push says "Notifications are on. This is all they'll ever say."
@@ -33,7 +33,7 @@ Decrypted, it is:
 { "v": 1, "k": "message", "c": "<one-time code>", "m": "<mute key>" }
 ```
 
-- `k`, the kind: `message`, `conversation`, `activity` or `test`.
+- `k`, the kind: `message`, `conversation`, `activity`, `mention` or `test`.
 - `c`, a random one-time code. On its own it means nothing.
 - `m`, a mute key: `HMAC(mute_secret, "mute:" + place)`, cut to 16 characters. The browser made
   `mute_secret` and keeps it, so only that browser can tell which of its muted places a push is for. To
@@ -71,10 +71,31 @@ public half is what browsers subscribe with; the private half never leaves the s
 
 - At most one push per device every 20 seconds. A burst of messages becomes one notification.
 - The sender's own devices aren't notified.
-- Only conversations push. Servers stay quiet: you see them when you open the app.
+- Conversations, group messages, server channel activity and @mentions can push. The server
+  checks the recipient can read a channel, and each device applies its own channel preference
+  (`All messages`, `Only @mentions` or `Nothing`) using an opaque local HMAC token.
+- Channel notification fanout currently covers the first 200 server members per message; larger
+  communities need a paginated queue before every member can be guaranteed a push.
+- `Send a test` targets only the requesting browser, not the account's other devices.
+- A failed or rejected push does not start the 20-second cooldown, and a server-side diagnostic
+  records only the outcome, counts and safe HTTP status code, never addresses, keys or contents.
 - Pushes are sent only to the browsers' real push services (an allowlist of their hostnames over HTTPS
   on the standard port), so the server can't be made to post anywhere else.
 - A push service that's down, slow or refusing never delays or fails the message itself.
+
+## Mention-routing metadata and privacy
+
+A channel message remains end-to-end encrypted. To make a browser alert for an @mention while the
+recipient's app is closed, the sending device includes an **ephemeral routing hint** alongside the
+ciphertext: the IDs of directly mentioned accounts and roles, or an `@everyone` flag. The server can
+see **who was targeted** by a mention (this is additional metadata), but never the text, names or
+contents. The hint is not saved with the message or included in the Web Push payload. A modified
+sending client could lie about a mention, so the server validates membership, permissions and
+rate limits rather than treating the hint as proof of decrypted content.
+
+The recipient's own choice of channels to mute or watch remains exclusively on their device. A
+browser HMAC token lets the service worker match a generic push to a local channel rule without
+receiving a channel ID in the push. An unknown channel defaults to no visible server alert.
 
 ## Turning it on and off
 

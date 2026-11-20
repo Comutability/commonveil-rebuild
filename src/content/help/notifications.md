@@ -16,7 +16,10 @@ Open **Settings → Notifications → Push notifications** and choose **Turn on*
 - A push notification says only **Commonveil: New message**. Never the sender, the conversation or a word of the message.
 - Tap it and Commonveil opens straight to that conversation. The app asks the server where to go, once you're signed in, so the notification itself never knows.
 - Each one replaces the last, so only one is ever kept on your device. A burst of messages makes one notification.
-- Only conversations send pushes. Servers stay quiet.
+- Direct messages, groups, server channel messages and @mentions can send pushes. Your channel choices decide which server alerts appear on this device.
+- A sender's device supplies only mention-recipient and role IDs as routing metadata, not the message text. This allows @mention alerts when the app is closed, but means the server can learn who was targeted by a mention.
+- Channel pushes currently cover up to 200 members per message; larger servers need a notification queue for complete coverage.
+- **Send a test** checks this device only, not every device in your account.
 - Quiet hours and focus (below) make them silent.
 - **Send a test** checks they're working. **Turn off**, or signing out, stops them on that device.
 

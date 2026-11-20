@@ -9,13 +9,13 @@ import { pushHint } from "@/lib/pwa/browser";
 
 /** What to say about a test push: that it worked, or which of the two links broke. */
 async function check(pending) {
-  const { state } = (await pending) || {};
+  const { state, status } = (await pending) || {};
   if (state === "shown") return { note: "It arrived: this device is receiving notifications." };
   if (state === "received")
     return { error: `The push reached Commonveil on this device, but your phone didn't show it: notifications for this browser are switched off in your phone's settings. ${pushHint()}` };
   if (state === "blocked")
     return { error: `Your browser's push service accepted it for this device, but nothing arrived, so this device is blocking Commonveil's notifications. ${pushHint()}` };
-  if (state === "refused") return { error: "The push service turned the send down, so nothing went out. That's the site's side to sort, not yours." };
+  if (state === "refused") return { error: `The test was not accepted for this device${status ? ` (HTTP ${status})` : ""}. Check Commonveil's backend delivery diagnostics. Browser permissions alone cannot fix a rejected request.` };
   return { note: "Sent. A notification should arrive in a few seconds." };
 }
 
@@ -107,7 +107,7 @@ export function PushSection() {
       <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
         <li>Pushes travel through your browser's push service (Google, Mozilla, Apple or Microsoft), encrypted so they can't read them. Even decrypted, a push holds only a one-time code.</li>
         <li>Tapping one opens Commonveil, which asks where to go. Quiet hours and focus keep them silent.</li>
-        <li>For conversations only. Servers stay quiet; check them when you open the app.</li>
+        <li>For conversations, channels and @mentions. Each device keeps its own channel notification preferences. Mention routing tells the server who was targeted, but never the text.</li>
         <li>Turned on per device. Signing out turns them off here.</li>
       </ul>
     </SettingsGroup>

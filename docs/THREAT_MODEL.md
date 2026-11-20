@@ -73,7 +73,12 @@ What Commonveil protects, against whom, and what it doesn't. Read with `PROTOCOL
 - **Push notifications** (off until turned on, per device) go through the browser's push service, encrypted to the
   browser. They say only "New message" or "New activity" and carry a one-time code; the app swaps it, signed in, for
   where to go. The push service learns that this device got something from this site at that moment, at most once
-  every 20 seconds. Federated members aren't pushed to. See [NOTIFICATIONS.md](NOTIFICATIONS.md).
+  every 20 seconds. For server @mentions, the sending client supplies recipient/role IDs or an
+  everyone flag as ephemeral routing metadata. The server learns who is targeted, not what was
+  said. A malicious sender can lie about a mention, but cannot notify someone outside the
+  channel's permissions. Channel preferences remain only on the recipient's device. Fanout is
+  currently bounded to 200 members per channel message. Federated members aren't pushed to.
+  See [NOTIFICATIONS.md](NOTIFICATIONS.md).
 - **Edits and reactions are ordered by their sender's own signed time.** A member can make their own edit or reaction look
   older or newer than it is, but can't affect anyone else's, and an edit dated more than a day after the original is ignored.
 - **The scheduled clean-up has a public address**, like every function. It takes no instructions beyond a task name and
