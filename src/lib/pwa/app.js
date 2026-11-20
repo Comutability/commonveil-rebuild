@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 let policy = null;
 /** Trusted Types (see csp.config.mjs): this policy only ever returns the service worker's address. */
-function workerUrl() {
+export function workerUrl() {
   if (window.trustedTypes && !policy) {
     policy = window.trustedTypes.createPolicy("service-worker", {
       createScriptURL: (u) => {
@@ -24,7 +24,9 @@ const emit = () => listeners.forEach((fn) => fn({ ...state }));
 export const isStandalone = () =>
   typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true);
 
-export const isIos = () => typeof navigator !== "undefined" && /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
+// iPadOS 13 and later say they're a Mac: touch points tell them apart from a real one.
+export const isIos = () =>
+  typeof navigator !== "undefined" && (/iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
 
 /** Start the service worker. Called once, from main.jsx. */
 export function startApp() {

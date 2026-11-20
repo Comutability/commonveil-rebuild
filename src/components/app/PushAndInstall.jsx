@@ -40,7 +40,11 @@ export function PushSection() {
     >
       {state === "unsupported" || needsInstall ? (
         <p className="text-sm text-muted-foreground">
-          {needsInstall ? "On iPhone and iPad, add Commonveil to your Home Screen first (below), then open it from there to turn these on." : "This browser can't receive push notifications."}
+          {needsInstall
+            ? "On iPhone and iPad, notifications work only once Commonveil is on your Home Screen: Settings → The app has the steps. Add it there, open Commonveil from your Home Screen, then turn these on here."
+            : isIos()
+              ? "On iPhone and iPad, notifications only work in Safari, with Commonveil added to your Home Screen (Settings → The app)."
+              : "This browser can't receive push notifications. Try Chrome, Edge or Safari on this device, or install Commonveil (Settings → The app) and open it from there."}
         </p>
       ) : state === "blocked" ? (
         <p className="text-sm text-muted-foreground">Notifications are blocked for this site. Allow them in your browser's settings for this site, then come back here.</p>

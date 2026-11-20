@@ -1,9 +1,15 @@
 // Push notifications on this device (docs/NOTIFICATIONS.md). They say only "New message" or "New
 // activity", even to this device; tapping one opens the app, which asks where to go.
 import { callFn } from "@/lib/api";
+import { workerUrl } from "@/lib/pwa/app";
 
 const supported = () => typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 const KEY = "commonveil_push_secret";
+// A phone can take a moment to start the service worker behind the app: long enough for a slow
+// connection, short enough that a worker which never starts says so instead of spinning forever.
+const SW_WAIT_MS = 12_000;
+// Whether this visit has already told the site which browser this is.
+let told = false;
 
 export const pushSupported = supported;
 
@@ -15,7 +21,33 @@ const toB64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).repl
 
 async function registration() {
   if (!supported()) return null;
-  return navigator.serviceWorker.ready;
+  // Started at launch (lib/pwa/app.js). On a phone it can have been closed, or never started at
+  // all: start it here, and don't wait to be controlling the page, so turning them on isn't a
+  // dead end.
+  let reg = await navigator.serviceWorker.getRegistration("/").catch(() => null);
+  if (!reg) reg = await navigator.serviceWorker.register(workerUrl(), { scope: "/" }).catch(() => null);
+  if (!reg) return null;
+  if (reg.active) return reg;
+  return Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(() => r(null), SW_WAIT_MS))]);
+}
+
+/** This browser's own key for mute keys, made once and kept on the device. */
+function muteSecret() {
+  try {
+    const kept = window.localStorage.getItem(KEY);
+    if (kept) return kept;
+    const made = toB64url(crypto.getRandomValues(new Uint8Array(32)));
+    window.localStorage.setItem(KEY, made);
+    return made;
+  } catch {
+    return toB64url(crypto.getRandomValues(new Uint8Array(32)));
+  }
+}
+
+/** Tell the site where to push to this browser. Saying it again changes nothing. */
+async function tellServer(sub) {
+  const json = sub.toJSON();
+  await callFn("notifications", { action: "subscribe", endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth, mute_secret: muteSecret() });
 }
 
 /** Whether this browser is subscribed now. */
@@ -24,32 +56,41 @@ export async function pushState() {
   if (Notification.permission === "denied") return "blocked";
   const reg = await Promise.race([registration(), new Promise((r) => setTimeout(() => r(null), 3000))]);
   if (!reg) return "unavailable";
-  return (await reg.pushManager.getSubscription()) ? "on" : "off";
+  const sub = await Promise.race([reg.pushManager.getSubscription(), new Promise((r) => setTimeout(() => r(null), 3000))]);
+  if (!sub) return "off";
+  // This browser is subscribed, so the site should know it. A turn-on can be interrupted (a phone
+  // that slept, a dropped connection), which leaves the browser subscribed and nothing able to
+  // arrive: say it again, once per visit, and the site writes only if something has changed.
+  if (!told) {
+    try {
+      await tellServer(sub);
+      told = true;
+    } catch {
+      // Offline, or signed out: the next visit tries again.
+    }
+  }
+  return "on";
 }
 
 /** Ask permission, subscribe this browser, and tell the site where to push. */
 export async function turnOnPush() {
-  if (!supported()) throw new Error("This browser can't receive push notifications.");
+  if (!supported()) throw new Error("This browser can't receive push notifications. On a phone they work in Safari (iPhone and iPad, once Commonveil is on your Home Screen) or Chrome (Android).");
   const permission = await Notification.requestPermission();
   if (permission !== "granted") throw new Error(permission === "denied" ? "Notifications are blocked for this site. Allow them in your browser's site settings, then try again." : "Notifications weren't allowed.");
   const reg = await registration();
+  if (!reg) throw new Error("Your browser hasn't started Commonveil's background service yet. Try again in a moment, or close the app and open it again.");
   const { public_key } = await callFn("notifications", { action: "key" });
   let sub = await reg.pushManager.getSubscription();
   if (sub) await sub.unsubscribe().catch(() => {});
   sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromB64url(public_key) });
-  // Made here: lets this device recognise muted places without a push naming them.
-  let secret = "";
   try {
-    secret = window.localStorage.getItem(KEY) || "";
-    if (!secret) {
-      secret = toB64url(crypto.getRandomValues(new Uint8Array(32)));
-      window.localStorage.setItem(KEY, secret);
-    }
-  } catch {
-    secret = toB64url(crypto.getRandomValues(new Uint8Array(32)));
+    await tellServer(sub);
+    told = true;
+  } catch (err) {
+    // Unless the site has this browser's address nothing can arrive: undo, rather than say "On".
+    await sub.unsubscribe().catch(() => {});
+    throw err;
   }
-  const json = sub.toJSON();
-  await callFn("notifications", { action: "subscribe", endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth, mute_secret: secret });
 }
 
 export async function turnOffPush() {

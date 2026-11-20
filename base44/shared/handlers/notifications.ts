@@ -99,8 +99,12 @@ export const notificationActions: Actions = {
     for (const k of ["p256dh", "auth", "mute_secret"]) {
       if (typeof body[k] !== "string" || !B64URL.test(body[k]) || body[k].length > 200) throw new ApiError(400, "BAD_KEYS", "That subscription is incomplete.");
     }
-    // An address belongs to one browser: drop any older claim to it.
-    for (const old of await sr.entities.PushSubscription.filter({ endpoint: body.endpoint }, "created_date", 20)) await sr.entities.PushSubscription.delete(old.id).catch(() => null);
+    // An address belongs to one browser: drop any older claim to it. The app says it again when the
+    // settings are opened (a turn-on can be interrupted), so an identical record is left as it is.
+    const claimed = await sr.entities.PushSubscription.filter({ endpoint: body.endpoint }, "created_date", 20);
+    const same = claimed.find((s: any) => s.user_id === user.id && s.p256dh === body.p256dh && s.auth === body.auth && s.mute_secret === body.mute_secret);
+    if (same) return { ok: true };
+    for (const old of claimed) await sr.entities.PushSubscription.delete(old.id).catch(() => null);
     const mine = await sr.entities.PushSubscription.filter({ user_id: user.id }, "created_date", MAX_SUBSCRIPTIONS + 5);
     for (const old of mine.slice(0, Math.max(0, mine.length - MAX_SUBSCRIPTIONS + 1))) await sr.entities.PushSubscription.delete(old.id).catch(() => null);
     await sr.entities.PushSubscription.create({ user_id: user.id, device_id: session?.deviceId || "", endpoint: body.endpoint, p256dh: body.p256dh, auth: body.auth, mute_secret: body.mute_secret, last_push_at: "" });
