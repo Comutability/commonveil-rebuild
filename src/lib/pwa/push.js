@@ -2,6 +2,7 @@
 // activity", even to this device; tapping one opens the app, which asks where to go.
 import { callFn } from "@/lib/api";
 import { workerUrl } from "@/lib/pwa/app";
+import { pushHint } from "@/lib/pwa/browser";
 
 const supported = () => typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 const KEY = "commonveil_push_secret";
@@ -82,7 +83,13 @@ export async function turnOnPush() {
   const { public_key } = await callFn("notifications", { action: "key" });
   let sub = await reg.pushManager.getSubscription();
   if (sub) await sub.unsubscribe().catch(() => {});
-  sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromB64url(public_key) });
+  try {
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromB64url(public_key) });
+  } catch {
+    // Brave with its own push service turned off, or a phone that won't let this browser post
+    // notifications: the browser's own words mean nothing here, so say which switch to look for.
+    throw new Error(`This browser wouldn't set up notifications. ${pushHint()}`);
+  }
   try {
     await tellServer(sub);
     told = true;

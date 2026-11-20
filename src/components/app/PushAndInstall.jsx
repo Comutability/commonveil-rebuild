@@ -5,6 +5,7 @@ import { ErrorNote } from "@/components/site/bits";
 import { SettingsGroup } from "@/components/settings/SettingsLayout";
 import { pushState, pushSupported, sendTestPush, turnOffPush, turnOnPush } from "@/lib/pwa/push";
 import { install, isIos, isStandalone, useApp } from "@/lib/pwa/app";
+import { pushHint } from "@/lib/pwa/browser";
 
 /** Push notifications on this device: off until turned on, and they never say anything. */
 export function PushSection() {
@@ -44,10 +45,10 @@ export function PushSection() {
             ? "On iPhone and iPad, notifications work only once Commonveil is on your Home Screen: Settings → The app has the steps. Add it there, open Commonveil from your Home Screen, then turn these on here."
             : isIos()
               ? "On iPhone and iPad, notifications only work in Safari, with Commonveil added to your Home Screen (Settings → The app)."
-              : "This browser can't receive push notifications. Try Chrome, Edge or Safari on this device, or install Commonveil (Settings → The app) and open it from there."}
+              : "This browser can't receive push notifications. Try Chrome, Brave, Firefox or Safari on this device, or install Commonveil (Settings → The app) and open it from there."}
         </p>
       ) : state === "blocked" ? (
-        <p className="text-sm text-muted-foreground">Notifications are blocked for this site. Allow them in your browser's settings for this site, then come back here.</p>
+        <p className="text-sm text-muted-foreground">Notifications are blocked for this site. {pushHint()}</p>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
           <p className="mr-2 text-sm font-medium" role="status">{state === "on" ? "On for this device" : state === "checking" ? "Checking…" : "Off for this device"}</p>
@@ -61,7 +62,7 @@ export function PushSection() {
                   run(async () => {
                     setNote("Sent. Watching this device for it…");
                     const arrived = await sendTestPush();
-                    if (arrived === false) throw new Error("Sent, but nothing appeared on this device within 12 seconds. Your phone or browser is holding it back: allow notifications for Commonveil in the phone's own settings, then try again.");
+                    if (arrived === false) throw new Error(`Sent, but nothing appeared on this device within 12 seconds. ${pushHint()}`);
                     setNote(arrived === true ? "It arrived: this device is receiving notifications." : "Sent. A notification should arrive in a few seconds.");
                   })
                 }
@@ -77,6 +78,7 @@ export function PushSection() {
           )}
         </div>
       )}
+      {!needsInstall && state !== "unsupported" && <p className="mt-3 text-xs text-muted-foreground">{pushHint()}</p>}
       <ErrorNote>{error}</ErrorNote>
       {note && <p className="mt-2 text-sm text-primary" role="status">{note}</p>}
       <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
