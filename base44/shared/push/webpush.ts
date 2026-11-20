@@ -119,7 +119,7 @@ export function classifyPushFetchError(err: unknown): { reason: "network" | "tim
   if (name === "NotCapable" || name === "PermissionDenied" || code === "EACCES" || /notcapable|permission denied|not permitted|allow-net|network access denied/.test(lower)) return { reason: "network", error_category: "permission" };
   if (code === "ENOTFOUND" || code === "EAI_AGAIN" || /dns|name resolution|lookup failed/.test(lower)) return { reason: "network", error_category: "dns" };
   if (/certificate|tls handshake|ssl handshake|cert verify/.test(lower)) return { reason: "network", error_category: "tls" };
-  if (/invalid header|invalid request init|unsupported header|abortsignal.timeout is not a function|bad request init/.test(lower)) return { reason: "network", error_category: "invalid_request" };
+  if (/invalid header|invalid redirect value|invalid request init|unsupported header|abortsignal.timeout is not a function|bad request init/.test(lower)) return { reason: "network", error_category: "invalid_request" };
   if (["ECONNREFUSED", "ECONNRESET", "ENETUNREACH", "EHOSTUNREACH"].includes(code) || /connection refused|connection reset|connect error|network unreachable/.test(lower)) return { reason: "network", error_category: "connection" };
   return { reason: "network", error_category: "unclassified" };
 }
@@ -127,8 +127,8 @@ export function classifyPushFetchError(err: unknown): { reason: "network" | "tim
 /** Safe, fixed-host connectivity probe, used only if a device-specific test fails. */
 export async function probeFcmConnection(fetchImpl: typeof fetch = fetch): Promise<{ state: "reachable" | "unreachable" | "timeout"; status?: number; category?: PushErrorCategory }> {
   try {
-    const res = await fetchImpl("https://fcm.googleapis.com/", { method: "HEAD", redirect: "error", signal: AbortSignal.timeout(3500) });
-    return { state: "reachable", status: res.status }; // 404 still proves the host answered.
+    const res = await fetchImpl("https://fcm.googleapis.com/", { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(3500) });
+    return { state: "reachable", status: res.status }; // Any HTTP response proves the public host answered; no redirect followed.
   } catch (err) {
     const info = classifyPushFetchError(err);
     return { state: info.reason === "timeout" ? "timeout" : "unreachable", category: info.error_category };
@@ -158,9 +158,12 @@ export async function sendPush(sub: Subscription, payload: unknown, { keys, subj
         Topic: topic,
       },
       body,
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.timeout(5000),
     });
+    // Cloudflare's edge fetch rejects redirect:"error" before network I/O. Manual keeps the
+    // request on its allowlisted host; never follow a redirect to an arbitrary URL.
+    if (res.type === "opaqueredirect" || res.redirected || (res.status >= 300 && res.status < 400)) return { state: "rejected", status: res.status || undefined };
     if (res.status === 404 || res.status === 410) return { state: "gone", status: res.status };
     return { state: res.ok ? "sent" : "rejected", status: res.status };
   } catch (err) {

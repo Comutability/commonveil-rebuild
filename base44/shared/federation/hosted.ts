@@ -147,10 +147,13 @@ export class HostedFederation {
     if (!W.HOST_RE.test(host) || (!this.open && !W.reachable(host))) throw new FederationError(400, "BAD_SITE", "That isn't a site this one can reach.");
     let res: Response;
     try {
-      res = await this.fetch(this.urlFor(host, path), { method, body, headers: { Accept: "application/json", ...(this.open ? { "X-Forwarded-Host": host } : {}), ...headers }, redirect: "error", signal: AbortSignal.timeout(15_000) });
+      res = await this.fetch(this.urlFor(host, path), { method, body, headers: { Accept: "application/json", ...(this.open ? { "X-Forwarded-Host": host } : {}), ...headers }, redirect: "manual", signal: AbortSignal.timeout(15_000) });
     } catch {
       throw new FederationError(502, "SITE_UNREACHABLE", `${host} can't be reached right now.`);
     }
+    // Edge fetch does not support redirect:"error". A manual response is not followed or
+    // trusted: federation must never allow a site to redirect a signed request elsewhere.
+    if (res.type === "opaqueredirect" || res.redirected || (res.status >= 300 && res.status < 400)) throw new FederationError(502, "SITE_REDIRECT", `${host} redirected a signed federation request.`);
     if (Number(res.headers.get("content-length") || 0) > MAX_REPLY) throw new FederationError(502, "SITE_ERROR", `${host} sent too much.`);
     const text = await res.text();
     if (text.length > MAX_REPLY) throw new FederationError(502, "SITE_ERROR", `${host} sent too much.`);
