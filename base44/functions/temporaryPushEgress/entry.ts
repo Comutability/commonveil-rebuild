@@ -21,7 +21,8 @@ export default async function (req: Request): Promise<Response> {
       const name=typeof e.name==="string" && known.includes(e.name) ? e.name : "other";
       const msg=typeof e.message==="string" ? e.message.toLowerCase() : "";
       const category=/fetch failed|fetcherror/.test(msg)?"fetch_failed":/not implemented|unsupported/.test(msg)?"unsupported":/permission|denied|notcapable/.test(msg)?"permission":/refused|connect/.test(msg)?"connection":/invalid|header/.test(msg)?"request":/timeout|timed out/.test(msg)?"timeout":"unknown";
-      return {name:check.name,ok:false,errorName:name,causeCode:code,category};
+      const safeMessage = typeof e.message === "string" ? e.message.replace(/https?:\/\/[^\s]+/g, "[public-url]").replace(/[A-Za-z0-9_-]{45,}/g, "[redacted]").slice(0,320) : "";
+      return {name:check.name,ok:false,errorName:name,causeCode:code,category,safeMessage};
     }
   }));
   return new Response(JSON.stringify({checks:results}),{status:200,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
