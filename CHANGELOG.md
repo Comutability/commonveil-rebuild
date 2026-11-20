@@ -5,6 +5,17 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.4](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.4): Fix: push notification tests, delivery diagnostics, and server alerts
+
+_2026-11-20_
+
+- Push notification tests now target the browser you are using, rather than all your devices. If the push service rejects a test, Commonveil reports the safe HTTP status code so the problem can be investigated.
+- When a push service fails or rejects a notification, Commonveil records only safe delivery outcomes, counts and HTTP status codes. It never logs message contents, browser push addresses or private keys, and a failed delivery does not start the usual 20-second cooldown.
+- Direct and group conversation messages still trigger background notifications. Channel messages and @mentions can now trigger generic alerts as well. Each browser follows its own All messages, Only @mentions or Nothing setting when deciding what to show.
+- Channel messages remain end-to-end encrypted. To route a mention when the app is closed, the sender shares only the IDs of the targeted accounts or roles with the server, never the words. This additional metadata is explained in the Help Centre and threat model.
+- Channel push fanout is initially limited to 200 server members per message. Larger communities need a queued notification service before every member can be guaranteed a background alert.
+- For people running a self-hosted site: no settings change is needed. Update the Rust server as normal once the new Docker image is available.
+
 ## [0.24.3](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.3): Getting the app's encryption code ready to move to Rust
 
 _2026-11-19_

@@ -45,7 +45,7 @@ async function notifyChannel(sr: any, push: any, view: any, senderId: string, bo
     if (members.length > CHANNEL_PUSH_BATCH) console.info("commonveil push: channel_fanout_limited", { count: CHANNEL_PUSH_BATCH });
     const hint = body.notification_hint && typeof body.notification_hint === "object" ? body.notification_hint : {};
     const users = new Set((Array.isArray(hint.users) ? hint.users : []).filter((x: unknown) => typeof x === "string").slice(0, 50));
-    const mentionedRoles = new Set((Array.isArray(hint.roles) ? hint.roles : []).filter((x: unknown) => typeof x === "string" && roles.some((r: any) => r.id === x && !r.is_everyone)).slice(0, 20));
+    const mentionedRoles = new Set((Array.isArray(hint.roles) ? hint.roles : []).filter((x: unknown) => typeof x === "string" && roles.some((r: any) => r.id === x && r.mentionable === true && !r.is_everyone)).slice(0, 20));
     const everyone = hint.everyone === true && has(view.perms, P.MENTION_EVERYONE);
     const targets = members.slice(0, CHANNEL_PUSH_BATCH).filter((m: any) => m.user_id !== senderId && m.key_status === "ok" && has(channelPermissions(server, roles, m, channel), P.VIEW_CHANNEL));
     const mentions: string[] = [];

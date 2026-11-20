@@ -55,7 +55,7 @@ fn notify_channel(sr: &Db, push_subject: &str, server: &Value, roles: &[Value], 
     let hint = &body["notification_hint"];
     let users: Vec<&str> = hint["users"].as_array().into_iter().flatten().filter_map(Value::as_str).take(50).collect();
     let mentioned_roles: Vec<&str> = hint["roles"].as_array().into_iter().flatten().filter_map(Value::as_str)
-        .filter(|role| roles.iter().any(|r| r["id"] == *role && !truthy(r.get("is_everyone"))))
+        .filter(|role| roles.iter().any(|r| r["id"] == *role && truthy(r.get("mentionable")) && !truthy(r.get("is_everyone"))))
         .take(20).collect();
     let everyone = hint["everyone"] == true && has(sender_perms, p::MENTION_EVERYONE);
     let mut mention_targets = Vec::new();
