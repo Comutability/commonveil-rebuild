@@ -149,6 +149,7 @@ test("test push targets just the requesting device and refuses an unregistered b
   assert.equal(reply.attempted, 1);
   assert.equal(reply.sent, 1);
   assert.equal(reply.status_code, 201);
+  assert.equal(reply.failure_reason, undefined, "accepted delivery cannot report a failure");
   assert.deepEqual(sent.map((x) => x.url), [target]);
   const bad = await bea.call("notifications", { action: "test", endpoint: "https://fcm.googleapis.com/fcm/send/unknown" });
   assert.equal(bad.status, 409);
@@ -163,6 +164,7 @@ test("rejected push reports its status and does not suppress the next incoming D
   assert.equal(rejection.rejected, 1);
   assert.equal(rejection.sent, 0);
   assert.equal(rejection.status_code, 403);
+  assert.equal(rejection.failure_reason, "http_rejected", "the device sees a safe reason and status, not its endpoint");
   assert.equal(sent.length, 1);
   const subs = await w.clientFor(null).asServiceRole.entities.PushSubscription.filter({ user_id: bea.id });
   assert.equal(subs[0].last_push_at, "", "failed delivery must not trigger the cooldown");
@@ -187,6 +189,21 @@ test("group messages alert the other members, but never the sender", async () =>
   assert.deepEqual(sent.map((x) => x.url).sort(), ["https://fcm.googleapis.com/fcm/send/bea-phone", "https://fcm.googleapis.com/fcm/send/cat-phone"]);
 });
 
+
+test("network and timeout errors become safe device-specific diagnostics", async () => {
+  const { bea } = await pair();
+  const target = "https://fcm.googleapis.com/fcm/send/bea-phone";
+  globalThis.fetch = async () => { throw new DOMException("timed out while contacting a private URL", "TimeoutError"); };
+  const timed = await bea.ok("notifications", { action: "test", endpoint: target });
+  assert.equal(timed.attempted, 1);
+  assert.equal(timed.failed, 1);
+  assert.equal(timed.failure_reason, "timeout");
+  assert.ok(!JSON.stringify(timed).includes(target), "no push endpoint in diagnostics");
+  globalThis.fetch = async () => { throw new Error("sensitive private push address in error"); };
+  const offline = await bea.ok("notifications", { action: "test", endpoint: target });
+  assert.equal(offline.failure_reason, "network");
+  assert.ok(!JSON.stringify(offline).includes("sensitive"));
+});
 
 test("browser-local notification preferences use the exact same opaque channel token as the server", async () => {
   const secret = b64url(crypto.getRandomValues(new Uint8Array(32)));
