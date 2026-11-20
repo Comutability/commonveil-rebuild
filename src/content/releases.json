@@ -2,10 +2,24 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.24.7",
+      "date": "2026-11-20",
+      "title": "Fix: push notifications blocked by unsupported edge redirect mode",
+      "commit": null,
+      "notes": [
+        "Fixed the actual reason push tests and automatic Web Push delivery failed on the hosted site: the Base44 edge runtime rejected redirect:error before making any outgoing HTTP request. All Web Push requests now use its supported manual mode.",
+        "An HTTP redirect from a push service is explicitly refused, never followed, so signed notifications cannot be redirected to arbitrary destinations.",
+        "Corrected the public Google connectivity diagnostic to use the same supported mode. It can now distinguish a genuine network failure from this runtime option error.",
+        "Applied the same safe redirect handling to Commonveil’s hosted federation transport, where the unsupported option could also prevent sites communicating.",
+        "All existing browser subscriptions, private encryption keys, muted-channel preferences and accounts are preserved. This release also removes the temporary outbound-network diagnostic endpoint used to identify the problem.",
+        "No configuration change is required for the Rust self-hosted server, which does not use the affected edge fetch API."
+      ]
+    },
+    {
       "version": "0.24.6",
       "date": "2026-11-20",
       "title": "Trace failed push connections safely",
-      "commit": null,
+      "commit": "cfcc508330b9729e075d0cfd4f508233fdbb954a",
       "notes": [
         "Test notifications now distinguish a failure specific to the signed Web Push request from a failure to contact Google’s public push host at all. If a test fails with a network error, Commonveil checks the public Firebase Cloud Messaging host without transmitting the browser’s subscription, identifiers or keys.",
         "New safe diagnostic categories distinguish network permissions, DNS, TLS, connection failure, invalid request setup and unclassified errors. They do not expose private URLs or raw exception messages.",

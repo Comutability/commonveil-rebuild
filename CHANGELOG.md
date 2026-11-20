@@ -5,6 +5,17 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.7](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.7): Fix: push notifications blocked by unsupported edge redirect mode
+
+_2026-11-20_
+
+- Fixed the actual reason push tests and automatic Web Push delivery failed on the hosted site: the Base44 edge runtime rejected redirect:error before making any outgoing HTTP request. All Web Push requests now use its supported manual mode.
+- An HTTP redirect from a push service is explicitly refused, never followed, so signed notifications cannot be redirected to arbitrary destinations.
+- Corrected the public Google connectivity diagnostic to use the same supported mode. It can now distinguish a genuine network failure from this runtime option error.
+- Applied the same safe redirect handling to Commonveil’s hosted federation transport, where the unsupported option could also prevent sites communicating.
+- All existing browser subscriptions, private encryption keys, muted-channel preferences and accounts are preserved. This release also removes the temporary outbound-network diagnostic endpoint used to identify the problem.
+- No configuration change is required for the Rust self-hosted server, which does not use the affected edge fetch API.
+
 ## [0.24.6](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.6): Trace failed push connections safely
 
 _2026-11-20_

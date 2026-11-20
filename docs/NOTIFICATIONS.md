@@ -82,6 +82,9 @@ public half is what browsers subscribe with; the private half never leaves the s
   proves the browser displayed a notification.
 - A failed or rejected push does not start the 20-second cooldown, and a server-side diagnostic
   records only the outcome, counts and safe HTTP status code, never addresses, keys or contents.
+- Hosted Base44 functions use an edge runtime which supports `redirect: "manual"`, not
+  `redirect: "error"`. Commonveil uses the supported mode and explicitly refuses redirect
+  responses for Web Push, preserving the push host allowlist without suppressing outbound sends.
 - If a device-specific test reports a transport failure, the server makes one **fixed-host** HEAD
   request to `https://fcm.googleapis.com/` without any subscription information or credentials.
   Its result distinguishes general Google push-service reachability from a failed signed Web Push
