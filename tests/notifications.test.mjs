@@ -244,3 +244,23 @@ test("a fixed-host probe tells whether Google was reachable without using the us
   const blocked = await probeFcmConnection(async () => { throw new Error("Network access denied for private token"); });
   assert.deepEqual(blocked, { state: "unreachable", category: "permission" });
 });
+
+
+test("an actual failed test push probes only the public FCM host and returns no secret data", async () => {
+  const { bea } = await pair();
+  const target = "https://fcm.googleapis.com/fcm/send/bea-phone";
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ method: options?.method, url: String(url) });
+    if (options?.method === "HEAD") return new Response(null, { status: 404 });
+    throw new Error(`Network blocked for ${target}`);
+  };
+  const reply = await bea.ok("notifications", { action: "test", endpoint: target });
+  assert.equal(reply.sent, 0);
+  assert.equal(reply.failure_reason, "network");
+  assert.deepEqual(reply.fcm_probe, { state: "reachable", status: 404 });
+  assert.equal(calls.length, 2, "one push and one fixed-host check, no repeated delivery");
+  assert.equal(calls[1].url, "https://fcm.googleapis.com/");
+  assert.equal(calls[1].method, "HEAD");
+  assert.ok(!JSON.stringify(reply).includes(target));
+});
