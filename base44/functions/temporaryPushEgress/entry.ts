@@ -10,7 +10,7 @@ export default async function (req: Request): Promise<Response> {
   ];
   const results = await Promise.all(checks.map(async (check) => {
     try {
-      const init: RequestInit = {method:check.method, redirect:"error"};
+      const init: RequestInit = {method:check.method, redirect:"manual"};
       if (check.timeout) init.signal=AbortSignal.timeout(4000);
       const res=await fetch(check.url, init);
       return {name:check.name, ok:true, status:res.status};
