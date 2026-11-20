@@ -106,15 +106,16 @@ fn vapid_header(endpoint: &str, keys: &Value, subject: &str, now_ms: i64) -> Opt
 pub enum Sent {
     /// The subscription's keys are unusable (nothing was sent).
     Unsendable,
-    Sent,
-    Gone,
+    Sent(u16),
+    Gone(u16),
+    Rejected(u16),
     Failed,
 }
 
 /// Send one push.
 pub fn send_push(endpoint: &str, p256dh: &str, auth: &str, payload: &Value, keys: &Value, subject: &str, urgency: &str) -> Sent {
     if !endpoint_ok(&json!(endpoint)) {
-        return Sent::Gone;
+        return Sent::Gone(0);
     }
     // A subscription with bad keys throws in the JavaScript, and the whole notification stops.
     let Some(body) = encrypt_payload(payload.to_string().as_bytes(), p256dh, auth, None) else { return Sent::Unsendable };
@@ -130,8 +131,10 @@ pub fn send_push(endpoint: &str, p256dh: &str, auth: &str, payload: &Value, keys
         .set("Topic", "commonveil")
         .send_bytes(&body);
     match res {
-        Ok(r) if (200..300).contains(&r.status()) => Sent::Sent,
-        Err(ureq::Error::Status(404 | 410, _)) => Sent::Gone,
+        Ok(r) if (200..300).contains(&r.status()) => Sent::Sent(r.status()),
+        Err(ureq::Error::Status(code @ (404 | 410), _)) => Sent::Gone(code),
+        Err(ureq::Error::Status(code, _)) => Sent::Rejected(code),
+        Ok(r) => Sent::Rejected(r.status()),
         _ => Sent::Failed,
     }
 }

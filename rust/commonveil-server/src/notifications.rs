@@ -42,10 +42,14 @@ pub fn conversation_path(conversation_id: &str) -> String {
 
 /// Tell these people's devices there's something new. Never fails: notifications are a nicety.
 pub fn notify_people(sr: &Db, subject: &str, user_ids: &[String], kind: &str, path: &str, place_id: &str) {
-    let _ = notify(sr, subject, user_ids, kind, path, place_id);
+    if notify(sr, subject, user_ids, kind, path, place_id, None, false).is_err() {
+        eprintln!("commonveil push: preparation_failed kind={kind}");
+    }
 }
 
-fn notify(sr: &Db, subject: &str, user_ids: &[String], kind: &str, path: &str, place_id: &str) -> Result<()> {
+/// Return only safe aggregate outcomes: no endpoints, identifiers, keys or payloads in diagnostics.
+fn notify(sr: &Db, subject: &str, user_ids: &[String], kind: &str, path: &str, place_id: &str, only_endpoint: Option<&str>, bypass_quiet: bool) -> Result<Value> {
+    let mut tally = json!({ "attempted": 0, "sent": 0, "rejected": 0, "failed": 0, "gone": 0, "skipped": 0 });
     let mut people: Vec<String> = Vec::new();
     for u in user_ids {
         if !people.contains(u) {
@@ -53,45 +57,56 @@ fn notify(sr: &Db, subject: &str, user_ids: &[String], kind: &str, path: &str, p
         }
     }
     people.truncate(MAX_PER_SEND);
-    if people.is_empty() {
-        return Ok(());
-    }
+    if people.is_empty() { return Ok(tally); }
     let subs = sr.filter("PushSubscription", json!({ "user_id": { "$in": people } }), "created_date", MAX_PER_SEND * 2)?;
     let now = crate::sessions::now_ms();
-    let due: Vec<Value> = subs.into_iter().filter(|s| !truthy(s.get("last_push_at")) || now as f64 - platform_ms(&s["last_push_at"]) > QUIET_MS).collect();
-    if due.is_empty() {
-        return Ok(());
-    }
+    let scoped: Vec<Value> = subs.into_iter().filter(|s| only_endpoint.is_none_or(|e| s["endpoint"] == e)).collect();
+    let due: Vec<Value> = scoped.iter().filter(|s| bypass_quiet || !truthy(s.get("last_push_at")) || now as f64 - platform_ms(&s["last_push_at"]) > QUIET_MS).cloned().collect();
+    tally["skipped"] = json!(scoped.len() - due.len());
+    if scoped.len() != due.len() { eprintln!("commonveil push: rate_limited kind={kind} count={}", scoped.len() - due.len()); }
+    if due.is_empty() { return Ok(tally); }
     let keys = push_keys(sr)?;
     let mut codes: Vec<(String, String)> = Vec::new();
     for s in &due {
         let user = to_js_string(s.get("user_id"));
-        if codes.iter().any(|(u, _)| *u == user) {
-            continue;
-        }
+        if codes.iter().any(|(u, _)| *u == user) { continue; }
         let code = random_token(18);
         sr.create("PushCode", json!({ "user_id": user, "code_hash": sha256_hex(&code), "path": path, "expires_at": iso(now + CODE_DAYS * 86_400_000) }))?;
         codes.push((user, code));
     }
     let urgency = if kind == "message" || kind == "conversation" { "high" } else { "normal" };
     for s in &due {
+        tally["attempted"] = json!(tally["attempted"].as_u64().unwrap_or(0) + 1);
         let user = to_js_string(s.get("user_id"));
         let code = codes.iter().find(|(u, _)| *u == user).map(|(_, c)| c.clone());
         let mute = if truthy(s.get("mute_secret")) { mute_key(&to_js_string(s.get("mute_secret")), place_id) } else { String::new() };
         let payload = json!({ "v": 1, "k": kind, "c": code, "m": mute });
         let text = |k: &str| to_js_string(s.get(k));
-        match crate::webpush::send_push(&text("endpoint"), &text("p256dh"), &text("auth"), &payload, &keys, subject, urgency) {
-            // Bad keys: the JavaScript throws before it records anything.
-            crate::webpush::Sent::Unsendable => {}
-            crate::webpush::Sent::Gone => {
+        let result = crate::webpush::send_push(&text("endpoint"), &text("p256dh"), &text("auth"), &payload, &keys, subject, urgency);
+        let increment = |tally: &mut Value, field: &str| { tally[field] = json!(tally[field].as_u64().unwrap_or(0) + 1); };
+        match result {
+            crate::webpush::Sent::Unsendable => { increment(&mut tally, "failed"); eprintln!("commonveil push: delivery kind={kind} outcome=failed reason=keys"); },
+            crate::webpush::Sent::Gone(code) => {
+                increment(&mut tally, "gone");
+                if code > 0 { if only_endpoint.is_some() { tally["status_code"] = json!(code); } }
+                eprintln!("commonveil push: delivery kind={kind} outcome=gone status={code}");
                 let _ = sr.delete("PushSubscription", id_of(s));
             }
-            _ => {
+            crate::webpush::Sent::Sent(code) => {
+                increment(&mut tally, "sent");
+                if only_endpoint.is_some() { tally["status_code"] = json!(code); }
+                eprintln!("commonveil push: delivery kind={kind} outcome=sent status={code}");
                 let _ = sr.update("PushSubscription", id_of(s), json!({ "last_push_at": iso(crate::sessions::now_ms()) }));
             }
+            crate::webpush::Sent::Rejected(code) => {
+                increment(&mut tally, "rejected");
+                if only_endpoint.is_some() { tally["status_code"] = json!(code); }
+                eprintln!("commonveil push: delivery kind={kind} outcome=rejected status={code}");
+            }
+            crate::webpush::Sent::Failed => { increment(&mut tally, "failed"); eprintln!("commonveil push: delivery kind={kind} outcome=failed reason=network"); }
         }
     }
-    Ok(())
+    Ok(tally)
 }
 
 /// The subject pushes are sent under: this site.
@@ -150,11 +165,13 @@ fn open(ctx: &mut Ctx) -> Result<Value> {
 
 fn test(ctx: &mut Ctx) -> Result<Value> {
     let (sr, uid) = (ctx.sr(), ctx.user_id().to_string());
-    for s in sr.filter("PushSubscription", json!({ "user_id": uid }), "created_date", 20)? {
-        sr.update("PushSubscription", id_of(&s), json!({ "last_push_at": "" }))?;
+    let endpoint = ctx.body["endpoint"].as_str().filter(|e| crate::webpush::endpoint_ok(&json!(e))).ok_or_else(|| ApiError::new(400, "BAD_ENDPOINT", "This browser has no valid push subscription."))?;
+    let subs = sr.filter("PushSubscription", json!({ "user_id": uid }), "created_date", MAX_SUBSCRIPTIONS + 5)?;
+    if !subs.iter().any(|s| s["endpoint"] == endpoint) {
+        return Err(ApiError::new(409, "PUSH_NOT_REGISTERED", "This browser's subscription isn't registered. Turn push off and on here."));
     }
-    notify_people(&sr, &subject(ctx), std::slice::from_ref(&uid), "test", "/app/settings/notifications", "test");
-    Ok(json!({ "ok": true }))
+    let tally = notify(&sr, &subject(ctx), &[uid], "test", "/app/settings/notifications", "test", Some(endpoint), true)?;
+    Ok(json!({ "ok": true, "attempted": tally["attempted"], "sent": tally["sent"], "rejected": tally["rejected"], "failed": tally["failed"], "gone": tally["gone"], "skipped": tally["skipped"], "status_code": tally["status_code"] }))
 }
 
 pub fn actions() -> Actions {
