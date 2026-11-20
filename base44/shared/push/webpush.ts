@@ -105,7 +105,7 @@ export type Subscription = { endpoint: string; p256dh: string; auth: string };
  * topic: pushes with the same topic replace each other while waiting at the push service, so a
  * device that's been off gets one notification, not a pile.
  */
-export type PushDelivery = { state: "sent" | "gone" | "rejected" | "failed"; status?: number; reason?: "endpoint" | "keys" | "network" };
+export type PushDelivery = { state: "sent" | "gone" | "rejected" | "failed"; status?: number; reason?: "endpoint" | "keys" | "network" | "timeout" };
 
 /** A push service accepting a request does not prove the device displayed it. Never return or log endpoints or keys. */
 export async function sendPush(sub: Subscription, payload: unknown, { keys, subject, topic = "commonveil", ttl = 24 * 3600, urgency = "normal", fetchImpl = fetch }: { keys: VapidKeys; subject: string; topic?: string; ttl?: number; urgency?: "high" | "normal" | "low"; fetchImpl?: typeof fetch }): Promise<PushDelivery> {
@@ -135,7 +135,10 @@ export async function sendPush(sub: Subscription, payload: unknown, { keys, subj
     });
     if (res.status === 404 || res.status === 410) return { state: "gone", status: res.status };
     return { state: res.ok ? "sent" : "rejected", status: res.status };
-  } catch {
-    return { state: "failed", reason: "network" };
+  } catch (err) {
+    // A timeout and a failed connection need different remedies. Never return the exception,
+    // which can embed the private push URL in the error message.
+    const name = err instanceof Error ? err.name : "";
+    return { state: "failed", reason: name === "TimeoutError" || name === "AbortError" ? "timeout" : "network" };
   }
 }

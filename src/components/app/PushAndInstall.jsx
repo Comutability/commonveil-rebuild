@@ -9,13 +9,27 @@ import { pushHint } from "@/lib/pwa/browser";
 
 /** What to say about a test push: that it worked, or which of the two links broke. */
 async function check(pending) {
-  const { state, status } = (await pending) || {};
+  const { state, status, reason, attempted } = (await pending) || {};
   if (state === "shown") return { note: "It arrived: this device is receiving notifications." };
   if (state === "received")
     return { error: `The push reached Commonveil on this device, but your phone didn't show it: notifications for this browser are switched off in your phone's settings. ${pushHint()}` };
   if (state === "blocked")
     return { error: `Your browser's push service accepted it for this device, but nothing arrived, so this device is blocking Commonveil's notifications. ${pushHint()}` };
-  if (state === "refused") return { error: `The test was not accepted for this device${status ? ` (HTTP ${status})` : ""}. Check Commonveil's backend delivery diagnostics. Browser permissions alone cannot fix a rejected request.` };
+  if (state === "refused") {
+    const causes = {
+      http_rejected: `The browser push service rejected this test${status ? ` (HTTP ${status})` : ""}.`,
+      expired: `The push service says this browser's subscription expired${status ? ` (HTTP ${status})` : ""}. Turn push off and on to renew it.`,
+      keys: "Commonveil couldn't encrypt the test for this browser's subscription. The subscription keys may be invalid.",
+      endpoint: "The registered push service address was invalid.",
+      timeout: "Commonveil's server timed out trying to reach the browser push service.",
+      network: "Commonveil's server couldn't connect to the browser push service.",
+      internal_error: "Commonveil encountered an internal error while sending this test.",
+      preparation_failed: "Commonveil couldn't prepare this test notification. Check the backend function's setup and delivery logs.",
+      no_subscription: "This browser has no matching push subscription on Commonveil's server.",
+      no_attempt: "The test didn't start a push delivery attempt.",
+    };
+    return { error: `${causes[reason] || "Commonveil couldn't deliver the test notification."} Diagnostic: ${reason || "unknown"}${status && reason !== "http_rejected" && reason !== "expired" ? `, HTTP ${status}` : ""}, ${attempted || 0} attempt(s). Browser notification permissions alone won't resolve server delivery failures.` };
+  }
   return { note: "Sent. A notification should arrive in a few seconds." };
 }
 

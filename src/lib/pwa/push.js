@@ -136,7 +136,7 @@ export async function sendTestPush(waitMs = 12_000) {
     }
   };
   let received = false;
-  const answer = (state, sent) => ({ state, sent });
+  const answer = (state, sent, details = {}) => ({ state, sent, ...details });
   const heard = (event) => {
     if (event.data?.type === "push-received") received = true;
   };
@@ -148,6 +148,13 @@ export async function sendTestPush(waitMs = 12_000) {
     if (!sub) throw new Error("This browser is not subscribed. Turn push off and on again.");
     const reply = await callFn("notifications", { action: "test", endpoint: sub.endpoint });
     const sent = Number(reply?.sent) || 0;
+    const details = {
+      status: Number(reply?.status_code) || null,
+      reason: reply?.failure_reason || (reply?.rejected ? "http_rejected" : reply?.failed ? "internal_error" : reply?.gone ? "expired" : "no_attempt"),
+      attempted: Number(reply?.attempted) || 0,
+    };
+    // If the push failed before acceptance, the worker cannot receive it: report immediately.
+    if (!sent) return answer("refused", sent, details);
     let countable = typeof reg.getNotifications === "function";
     const until = Date.now() + waitMs;
     while (Date.now() < until) {
@@ -160,8 +167,7 @@ export async function sendTestPush(waitMs = 12_000) {
       if (received && !countable) return answer("received", sent);
     }
     if (received) return answer("received", sent);
-    if (!sent) return answer("refused", sent, reply?.status_code || null);
-    return answer(countable ? "blocked" : "unknown", sent);
+    return answer(countable ? "blocked" : "unknown", sent, details);
   } finally {
     navigator.serviceWorker.removeEventListener("message", heard);
   }

@@ -60,7 +60,7 @@ export const muteKey = async (secret: string, placeId: string) => (await hmac(se
  * (a server), "conversation" (someone started one with you). Never throws: notifications are a
  * nicety, and a send mustn't fail because of one.
  */
-export type PushTally = { attempted: number; sent: number; rejected: number; failed: number; gone: number; skipped: number; status_code?: number };
+export type PushTally = { attempted: number; sent: number; rejected: number; failed: number; gone: number; skipped: number; status_code?: number; failure_reason?: "endpoint" | "keys" | "timeout" | "network" | "http_rejected" | "preparation_failed" | "internal_error" | "expired" | "no_subscription" };
 
 /** Messages must never fail when a push fails. Diagnostics only contain outcomes, counts and HTTP status codes. */
 export async function notifyPeople(sr: any, push: PushConfig | undefined, userIds: string[], { kind, path, placeId, onlyEndpoint, bypassQuiet = false }: { kind: string; path: string; placeId: string; onlyEndpoint?: string; bypassQuiet?: boolean }): Promise<PushTally> {
@@ -70,6 +70,7 @@ export async function notifyPeople(sr: any, push: PushConfig | undefined, userId
     if (!people.length) return tally;
     const subs = await sr.entities.PushSubscription.filter({ user_id: { $in: people } }, "created_date", MAX_PER_SEND * 2);
     const scoped = onlyEndpoint ? subs.filter((s: any) => s.endpoint === onlyEndpoint) : subs;
+    if (onlyEndpoint && !scoped.length) tally.failure_reason = "no_subscription";
     const now = Date.now();
     const due = scoped.filter((s: any) => bypassQuiet || !s.last_push_at || now - Date.parse(s.last_push_at) > QUIET_MS);
     tally.skipped = scoped.length - due.length;
@@ -87,7 +88,12 @@ export async function notifyPeople(sr: any, push: PushConfig | undefined, userId
       try {
         const payload = { v: 1, k: kind, c: codes.get(s.user_id), m: s.mute_secret ? await muteKey(s.mute_secret, placeId) : "" };
         const result = await sendPush({ endpoint: s.endpoint, p256dh: s.p256dh, auth: s.auth }, payload, { keys, subject: (push || BASE44_PUSH).subject, urgency: kind === "message" || kind === "conversation" || kind === "mention" ? "high" : "normal" });
-        if (onlyEndpoint && result.status) tally.status_code = result.status;
+        if (onlyEndpoint) {
+          if (result.status) tally.status_code = result.status;
+          if (result.state === "rejected") tally.failure_reason = "http_rejected";
+          else if (result.state === "gone") tally.failure_reason = "expired";
+          else if (result.state === "failed") tally.failure_reason = result.reason === "timeout" ? "timeout" : result.reason === "keys" ? "keys" : result.reason === "endpoint" ? "endpoint" : "network";
+        }
         console.info("commonveil push: delivery", { kind, outcome: result.state, ...(result.status ? { status: result.status } : {}), ...(result.reason ? { reason: result.reason } : {}) });
         if (result.state === "gone") {
           tally.gone += 1;
@@ -99,11 +105,13 @@ export async function notifyPeople(sr: any, push: PushConfig | undefined, userId
         else tally.failed += 1;
       } catch {
         tally.failed += 1;
+        if (onlyEndpoint) tally.failure_reason = "internal_error";
         console.warn("commonveil push: delivery", { kind, outcome: "internal_error" });
       }
     }));
   } catch {
     tally.failed += 1;
+    if (onlyEndpoint) tally.failure_reason = "preparation_failed";
     console.warn("commonveil push: preparation_failed", { kind });
   }
   return tally;
