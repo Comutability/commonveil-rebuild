@@ -171,7 +171,9 @@ fn test(ctx: &mut Ctx) -> Result<Value> {
         return Err(ApiError::new(409, "PUSH_NOT_REGISTERED", "This browser's subscription isn't registered. Turn push off and on here."));
     }
     let tally = notify(&sr, &subject(ctx), &[uid], "test", "/app/settings/notifications", "test", Some(endpoint), true)?;
-    Ok(json!({ "ok": true, "attempted": tally["attempted"], "sent": tally["sent"], "rejected": tally["rejected"], "failed": tally["failed"], "gone": tally["gone"], "skipped": tally["skipped"], "status_code": tally["status_code"] }))
+    let mut response = tally;
+    response["ok"] = json!(true);
+    Ok(response)
 }
 
 pub fn actions() -> Actions {

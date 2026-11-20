@@ -3,6 +3,7 @@
 import { callFn } from "@/lib/api";
 import { workerUrl } from "@/lib/pwa/app";
 import { pushHint } from "@/lib/pwa/browser";
+import { muteToken } from "@/lib/pwa/mute";
 
 const supported = () => typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 const KEY = "commonveil_push_secret";
@@ -193,7 +194,6 @@ export function mirrorPushPrefs(alerts) {
 export async function mirrorServerPushPrefs(servers, prefs) {
   if (!supported() || !crypto?.subtle) return;
   const secret = muteSecret();
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const channels = Object.entries(servers || {}).flatMap(([sid, entry]) =>
     (entry.channels || []).filter((c) => ["text", "announcement", "rules", "forum"].includes(c.kind)).map((c) => ({
       id: c.id,
@@ -201,8 +201,7 @@ export async function mirrorServerPushPrefs(servers, prefs) {
     })));
   const pushLevels = {};
   for (const c of channels) {
-    const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`mute:${c.id}`));
-    pushLevels[toB64url(mac).slice(0, 16)] = c.level;
+    pushLevels[await muteToken(secret, c.id)] = c.level;
   }
   writeWorkerPrefs({ pushLevels });
 }

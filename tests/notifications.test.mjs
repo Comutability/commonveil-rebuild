@@ -8,6 +8,7 @@ import { Member } from "./support/harness.mjs";
 import { encryptPayload, pushEndpointOk } from "../base44/shared/push/webpush.ts";
 import { forgetPushKeys, muteKey } from "../base44/shared/handlers/notifications.ts";
 import { b64url, fromB64url } from "../base44/shared/identity/crypto.ts";
+import { muteToken } from "../src/lib/pwa/mute.js";
 
 const subtle = globalThis.crypto.subtle;
 const realFetch = globalThis.fetch;
@@ -184,4 +185,13 @@ test("group messages alert the other members, but never the sender", async () =>
   const group = await ann.group([bea.name, cat.name]);
   assert.equal((await ann.send(group, "group message")).status, 200);
   assert.deepEqual(sent.map((x) => x.url).sort(), ["https://fcm.googleapis.com/fcm/send/bea-phone", "https://fcm.googleapis.com/fcm/send/cat-phone"]);
+});
+
+
+test("browser-local notification preferences use the exact same opaque channel token as the server", async () => {
+  const secret = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  for (const channel of ["server-channel-1", "server-channel-2", "other-server-channel"]) {
+    assert.equal(await muteToken(secret, channel), await muteKey(secret, channel));
+  }
+  assert.notEqual(await muteToken(secret, "a"), await muteToken(secret, "b"));
 });
