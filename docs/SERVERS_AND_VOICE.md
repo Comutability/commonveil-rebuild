@@ -115,7 +115,8 @@ TURN service that implements coturn-compatible REST shared-secret authentication
 - `VOICE_TURN_URLS`: comma-separated endpoints, for example
   `turn:turn.example.org:3478?transport=udp,turns:turn.example.org:5349?transport=tcp`.
 - `VOICE_TURN_SECRET`: the same high-entropy shared secret configured as `static-auth-secret` in coturn, with
-  `use-auth-secret` enabled. **Never place this secret in the frontend, in a repository or in public configuration.**
+  `use-auth-secret` enabled. It must contain at least 32 characters of unpredictable random data.
+  **Never place this secret in the frontend, in a repository or in public configuration.**
 
 The `voice_ticket` and `call_ticket` actions now derive a six-hour, time-limited TURN username and HMAC-SHA1 password
 after verifying the member and device. Only those temporary credentials are returned to the browser. The relay must be
