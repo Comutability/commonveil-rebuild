@@ -24,10 +24,12 @@ import { signHello, verifyHello, fingerprintOf } from "./hello";
 import frameWorkerUrl from "./frameWorker.js?worker&url";
 import { accessToken } from "@/lib/identity/session";
 
-// A STUN server tells each device its public address so devices on different networks can
-// reach each other. It sees that address, never the call. There's no relay (TURN) server, so
-// some strict networks can't connect.
+// Prefer direct peer-to-peer calls. A server operator can enable an authenticated TURN
+// fallback for strict networks; ephemeral TURN credentials arrive with the voice pass.
+// TURN relays encrypted WebRTC packets, never decrypted audio or video.
 const ICE_SERVERS = [{ urls: "stun:stun.cloudflare.com:3478" }];
+const CONNECT_TIMEOUT_MS = 30_000;
+const CONNECT_RESTART_MS = 12_000;
 const SPEAKING_LEVEL = 0.04;
 const EPOCH_CHECK_MS = 60_000;
 
@@ -152,14 +154,23 @@ export function VoiceProvider({ children }) {
     try {
       c.conn?.send(msg);
     } catch {
-      // The socket reconnects by itself; set-up messages are retried by the peers.
+      // A reconnect sends a fresh welcome, allowing new offers from the peers.
     }
   };
+
+  const updateRoomStatus = useCallback((c) => {
+    if (call.current !== c || !c.seat || c.closed) return;
+    const peers = [...c.peers.values()];
+    const status = !peers.length ? "waiting" : peers.some((p) => p.state === "connected") ? "connected"
+      : peers.every((p) => p.state === "failed" || p.state === "unverified") ? "failed" : "connecting";
+    setRoom((previous) => previous && previous.status !== status ? { ...previous, status } : previous);
+  }, []);
 
   const closePeer = useCallback((c, seat) => {
     const p = c.peers.get(seat);
     if (!p) return;
     clearTimeout(p.restartTimer);
+    clearTimeout(p.connectTimer);
     try {
       p.pc?.close();
     } catch {
@@ -171,7 +182,8 @@ export function VoiceProvider({ children }) {
     }
     c.levels.delete(seat);
     c.peers.delete(seat);
-  }, []);
+    updateRoomStatus(c);
+  }, [updateRoomStatus]);
 
   const attachSend = (c, sender) => {
     if (c.worker) sender.transform = new window.RTCRtpScriptTransform(c.worker, { side: "send" });
@@ -206,10 +218,21 @@ export function VoiceProvider({ children }) {
   const connectPeer = useCallback(async (c, seat, initiator) => {
     const p = c.peers.get(seat);
     if (!p || p.pc) return;
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, certificates: [c.cert], ...(c.worker ? {} : { encodedInsertableStreams: true }) });
+    const pc = new RTCPeerConnection({ iceServers: c.iceServers, certificates: [c.cert], ...(c.worker ? {} : { encodedInsertableStreams: true }) });
     p.pc = pc;
     p.initiator = initiator;
     p.state = "connecting";
+    p.failure = "";
+    // A browser can stay in "connecting" indefinitely when no candidate pair works.
+    // Restart once, then show an actionable error rather than spinning forever.
+    p.restartTimer = setTimeout(() => restartIce(c, seat), CONNECT_RESTART_MS);
+    p.connectTimer = setTimeout(() => {
+      if (call.current !== c || c.peers.get(seat) !== p || pc.connectionState === "connected") return;
+      p.state = "failed";
+      p.failure = c.hasTurn ? "No working direct or TURN network route. Check firewall and TURN availability." : "No direct network route. A TURN relay is required on some networks.";
+      updateRoomStatus(c);
+      bump();
+    }, CONNECT_TIMEOUT_MS);
     for (const track of c.stream.getAudioTracks()) attachSend(c, pc.addTrack(track, c.stream));
     if (initiator) {
       // One video slot, for a camera or a shared screen, switched without renegotiating.
@@ -242,18 +265,23 @@ export function VoiceProvider({ children }) {
       if (e.candidate) send(c, { type: "signal", to: seat, data: { candidate: e.candidate.toJSON() } });
     };
     pc.onconnectionstatechange = () => {
+      if (c.peers.get(seat) !== p || c.closed) return;
       const s = pc.connectionState;
       p.state = s === "connected" ? "connected" : s === "failed" || s === "closed" ? "failed" : p.state === "unverified" ? "unverified" : "connecting";
       clearTimeout(p.restartTimer);
       if (s === "connected") {
+        clearTimeout(p.connectTimer);
+        p.failure = "";
         p.restarts = 0;
         // Tell them what this device is showing; it travels encrypted inside the connection set-up.
         send(c, { type: "signal", to: seat, data: { show: c.videoKind || null } });
       }
+      if (s === "failed") p.failure = c.hasTurn ? "WebRTC failed to find a working direct or TURN route." : "Direct connection failed. This network may need TURN relay support.";
       // Networks change and connections drop: whoever called first finds a new route, keeping the same keys.
       if (initiator && (s === "failed" || s === "disconnected")) {
         p.restartTimer = setTimeout(() => restartIce(c, seat), s === "failed" ? 0 : 4000);
       }
+      updateRoomStatus(c);
       bump();
     };
     if (initiator) {
@@ -261,7 +289,7 @@ export function VoiceProvider({ children }) {
       send(c, { type: "signal", to: seat, data: { sdp: pc.localDescription.toJSON() } });
     }
     bump();
-  }, [bump, watchLevel, restartIce]);
+  }, [bump, watchLevel, restartIce, updateRoomStatus]);
 
   const handleSignal = useCallback(async (c, seat, data) => {
     const p = c.peers.get(seat);
