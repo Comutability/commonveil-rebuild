@@ -33,7 +33,8 @@ A stage is a voice channel for talks and events, for up to 16 people. Moderators
 
 ## Good to know
 
-- As with any direct call, the people in a call can see each other's network addresses. A public STUN server (Cloudflare) helps devices find each other and sees yours.
-- Some very strict networks (for example some workplaces) block direct calls. If a call won't connect, try another network.
+- Direct calls can reveal the participants' network addresses to one another. Cloudflare STUN helps devices discover their routes. Where an operator has configured a TURN relay, it may carry encrypted media when a direct connection is blocked; the TURN operator sees network metadata, never decrypted audio or video.
+- Commonveil shows **Waiting for others** until a second participant joins. **Connected** means a WebRTC link is actually established, not merely that the signalling server accepted you. A connection that cannot succeed reports a reason instead of spinning indefinitely.
+- Some restrictive networks require a TURN relay. If a call fails, try another network or ask the server operator to configure TURN. Both people can leave and rejoin to retry with fresh connection details.
 - Commonveil knows who joined which call and when, but not what was said.
 - Moderator mutes in servers hold until a moderator lifts them.
