@@ -39,8 +39,9 @@ function Tile({ p, nameOf, profileOf, small = false, voice }) {
       <span className="flex items-center gap-1 text-xs text-muted-foreground">
         {p.canSpeak && p.muted && <MicOff className="h-3.5 w-3.5" aria-label={p.modMuted ? "Muted by a moderator" : "Muted"} />}
         {p.deafened && <HeadphoneOff className="h-3.5 w-3.5" aria-label="Deafened" />}
-        {!p.self && p.state && p.state !== "connected" && <span>{STATE_LABEL[p.state] || "Can't connect"}</span>}
+        {!p.self && p.state && p.state !== "connected" && <span title={p.failure || undefined}>{STATE_LABEL[p.state] || "Can't connect"}</span>}
       </span>
+      {!p.self && p.failure && <span className="max-w-full text-center text-xs text-destructive" role="status">{p.failure}</span>}
     </>
   );
   const cls = `flex flex-col items-center gap-2 rounded-xl border bg-card transition-shadow ${p.stream ? "col-span-full p-2 sm:col-span-2" : small ? "px-2 py-3" : "px-4 py-6"} ${p.speaking ? "border-primary ring-2 ring-primary/50" : "border-border"}`;
