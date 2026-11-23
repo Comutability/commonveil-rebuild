@@ -293,7 +293,17 @@ export function VoiceProvider({ children }) {
 
   const handleSignal = useCallback(async (c, seat, data) => {
     const p = c.peers.get(seat);
-    if (!p || p.state === "unverified") return;
+    if (!p) {
+      // The relay can deliver a signal before an async peer-joined handler has
+      // created the peer. Keep a bounded buffer until the welcome/peer announcement.
+      const pending = c.pendingSignals.get(seat) || [];
+      if (pending.length < 64 && c.pendingSignals.size < 24) {
+        pending.push(data);
+        c.pendingSignals.set(seat, pending);
+      }
+      return;
+    }
+    if (p.state === "unverified") return;
     if (!p.verified) {
       // Still checking their offer: keep the message until then.
       p.queue.push(data);
@@ -307,7 +317,8 @@ export function VoiceProvider({ children }) {
           // Their connection uses a certificate other than the one they signed: someone's in between.
           p.state = "unverified";
           closePeer(c, seat);
-          c.peers.set(seat, { ...p, pc: null, state: "unverified" });
+          c.peers.set(seat, { ...p, pc: null, state: "unverified", failure: "The other device's call identity could not be verified." });
+          updateRoomStatus(c);
           bump();
           return;
         }
@@ -337,15 +348,19 @@ export function VoiceProvider({ children }) {
       }
     } catch {
       p.state = "failed";
+      p.failure = "Couldn't process the other device's connection offer or network candidates.";
+      updateRoomStatus(c);
       bump();
     }
-  }, [bump, closePeer]);
+  }, [bump, closePeer, updateRoomStatus]);
 
   const addPeer = useCallback(async (c, peer, initiator) => {
     const seat = Number(peer.seat);
     if (c.peers.has(seat)) closePeer(c, seat);
-    const p = { seat, userId: peer.user_id, deviceId: peer.device_id, hello: peer.hello, muted: Boolean(peer.muted), deafened: Boolean(peer.deafened), canSpeak: peer.can_speak !== false, modMuted: Boolean(peer.mod_muted), hand: Boolean(peer.hand), moderator: Boolean(peer.moderator), state: "checking", verified: false, queue: [], candidates: [], pc: null, audio: null };
+    const p = { seat, userId: peer.user_id, deviceId: peer.device_id, hello: peer.hello, muted: Boolean(peer.muted), deafened: Boolean(peer.deafened), canSpeak: peer.can_speak !== false, modMuted: Boolean(peer.mod_muted), hand: Boolean(peer.hand), moderator: Boolean(peer.moderator), state: "checking", verified: false, queue: c.pendingSignals.get(seat) || [], candidates: [], pc: null, audio: null, failure: "" };
+    c.pendingSignals.delete(seat);
     c.peers.set(seat, p);
+    updateRoomStatus(c);
     bump();
     const s = secureRef.current;
     let ok = false;
@@ -358,13 +373,22 @@ export function VoiceProvider({ children }) {
     if (call.current !== c || c.peers.get(seat) !== p) return;
     if (!ok) {
       p.state = "unverified";
+      p.failure = "Couldn't verify the other device's signed call identity. Ask them to reopen Commonveil and try again.";
+      updateRoomStatus(c);
       bump();
       return;
     }
     p.verified = true;
-    await connectPeer(c, seat, initiator);
-    for (const data of p.queue.splice(0)) await handleSignal(c, seat, data);
-  }, [bump, closePeer, connectPeer, handleSignal]);
+    try {
+      await connectPeer(c, seat, initiator);
+      for (const data of p.queue.splice(0)) await handleSignal(c, seat, data);
+    } catch {
+      p.state = "failed";
+      p.failure = "Couldn't initialise the encrypted WebRTC connection in this browser.";
+      updateRoomStatus(c);
+      bump();
+    }
+  }, [bump, closePeer, connectPeer, handleSignal, updateRoomStatus]);
 
   // ---------- leaving ----------
 
@@ -387,6 +411,7 @@ export function VoiceProvider({ children }) {
     c.audioCtx?.close().catch(() => {});
     c.worker?.terminate();
     c.keys.clear();
+    c.pendingSignals?.clear();
     if (call.current === c) {
       call.current = null;
       setRoom(null);
@@ -407,6 +432,13 @@ export function VoiceProvider({ children }) {
     c.canSpeak = res.can_speak !== false;
     c.canModerate = res.can_moderate === true;
     c.stage = res.stage === true;
+    // These credentials are freshly signed by Commonveil's own backend. They
+    // never contain the shared TURN secret and are valid only for a limited time.
+    const turn = Array.isArray(res.turn_servers) ? res.turn_servers.filter((server) =>
+      Array.isArray(server?.urls) && server.urls.every((url) => typeof url === "string" && /^turns?:/.test(url))
+      && typeof server.username === "string" && typeof server.credential === "string") : [];
+    c.iceServers = [...ICE_SERVERS, ...turn];
+    c.hasTurn = turn.length > 0;
     return res.ticket;
   }, []);
 
@@ -428,16 +460,18 @@ export function VoiceProvider({ children }) {
       if (msg.can_speak === false) c.canSpeak = false;
       c.canModerate = msg.can_moderate === true;
       c.stage = msg.stage === true;
-      setRoom((r) => (r ? { ...r, status: "connected" } : r));
       const fresh = new Set((msg.peers || []).map((p) => Number(p.seat)));
       for (const seat of [...c.peers.keys()]) if (!fresh.has(seat)) closePeer(c, seat);
       // The newcomer calls everyone already here.
       for (const peer of msg.peers || []) if (!c.peers.get(Number(peer.seat))?.pc) addPeer(c, peer, true);
+      updateRoomStatus(c);
       bump();
     } else if (msg.type === "peer-joined" && msg.peer) {
       addPeer(c, msg.peer, false);
     } else if (msg.type === "peer-left") {
+      c.pendingSignals.delete(Number(msg.seat));
       closePeer(c, Number(msg.seat));
+      updateRoomStatus(c);
       bump();
     } else if (msg.type === "peer-state") {
       if (Number(msg.seat) === c.seat) {
@@ -479,7 +513,7 @@ export function VoiceProvider({ children }) {
       }
       teardown(c, msg.message || "The call ended.");
     }
-  }, [addPeer, bump, closePeer, getPass, handleSignal, teardown]);
+  }, [addPeer, bump, closePeer, getPass, handleSignal, teardown, updateRoomStatus]);
 
   /**
    * Join a call: a server's voice or stage channel ({ serverId, channel }), or a call in a
@@ -501,6 +535,9 @@ export function VoiceProvider({ children }) {
       // The same address the voice function gives out.
       roomId: serverId ? `${serverId}.${channel.id}` : `dm.${conversationId}.${callId}`,
       peers: new Map(),
+      pendingSignals: new Map(),
+      iceServers: ICE_SERVERS,
+      hasTurn: false,
       keys: new Map(),
       levels: new Map(),
       stats: { sealed: 0, opened: 0, dropped: 0 },
@@ -681,7 +718,7 @@ export function VoiceProvider({ children }) {
     if (!c || !room) return [];
     const list = [{ userId: secure.userId, self: true, muted, deafened, speaking: Boolean(c.levels.get("self")?.speaking), state: "connected", video: videoKind, stream: c.localVideo || null, canSpeak: c.canSpeak !== false, hand: Boolean(c.hand), moderator: Boolean(c.canModerate) }];
     for (const p of c.peers.values()) {
-      list.push({ userId: p.userId, self: false, muted: p.muted, deafened: p.deafened, speaking: p.canSpeak !== false && !p.modMuted && Boolean(c.levels.get(p.seat)?.speaking), state: p.state, video: p.canSpeak === false ? null : p.video || null, stream: p.video && p.canSpeak !== false ? p.videoStream || null : null, canSpeak: p.canSpeak !== false, modMuted: Boolean(p.modMuted), hand: Boolean(p.hand), moderator: Boolean(p.moderator) });
+      list.push({ userId: p.userId, self: false, muted: p.muted, deafened: p.deafened, speaking: p.canSpeak !== false && !p.modMuted && Boolean(c.levels.get(p.seat)?.speaking), state: p.state, failure: p.failure, video: p.canSpeak === false ? null : p.video || null, stream: p.video && p.canSpeak !== false ? p.videoStream || null : null, canSpeak: p.canSpeak !== false, modMuted: Boolean(p.modMuted), hand: Boolean(p.hand), moderator: Boolean(p.moderator) });
     }
     return list;
     // tick re-reads the refs.
