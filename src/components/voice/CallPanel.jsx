@@ -1,10 +1,11 @@
 import React, { useEffect, useRef } from "react";
-import { Hand, Headphones, HeadphoneOff, Mic, MicOff, MonitorOff, MonitorUp, PhoneOff, Video, VideoOff } from "lucide-react";
+import { ClipboardCopy, Hand, Headphones, HeadphoneOff, Mic, MicOff, MonitorOff, MonitorUp, PhoneOff, Video, VideoOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ErrorNote } from "@/components/site/bits";
 import { useVoice } from "@/lib/voice/VoiceContext";
 import Avatar from "@/components/chat/Avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import toast from "react-hot-toast";
 
 const STATE_LABEL = {
   checking: "Checking their keys…",
@@ -72,6 +73,14 @@ export default function CallPanel({ nameOf, profileOf }) {
   const speakers = voice.stage ? voice.participants.filter((p) => p.canSpeak) : voice.participants;
   const audience = voice.stage ? voice.participants.filter((p) => !p.canSpeak) : [];
   const round = "h-11 w-11 rounded-full";
+  const copyDiagnostics = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(voice.diagnostics(), null, 2));
+      toast.success("Connection diagnostics copied. No IDs, IP addresses or encryption keys are included.");
+    } catch {
+      toast.error("Couldn't copy diagnostics. Check clipboard permission.");
+    }
+  };
   return (
     <>
       {voice.stage && <h3 className="mb-2 self-start text-sm font-semibold text-muted-foreground">Speakers</h3>}
@@ -113,6 +122,9 @@ export default function CallPanel({ nameOf, profileOf }) {
           <PhoneOff className="h-5 w-5" aria-hidden="true" />
         </Button>
       </div>
+      <Button variant="ghost" size="sm" className="mt-3" onClick={copyDiagnostics}>
+        <ClipboardCopy className="mr-2 h-4 w-4" aria-hidden="true" /> Copy connection diagnostics
+      </Button>
       {voice.error && <div className="mt-4"><ErrorNote>{voice.error}</ErrorNote></div>}
     </>
   );
