@@ -203,10 +203,16 @@ export function VoiceProvider({ children }) {
   const restartIce = useCallback(async (c, seat) => {
     const p = c.peers.get(seat);
     const pc = p?.pc;
-    if (!pc || call.current !== c || c.closed || pc.connectionState === "connected" || pc.signalingState !== "stable") return;
+    if (!pc || call.current !== c || c.closed || pc.connectionState === "connected") return;
     p.restarts = (p.restarts || 0) + 1;
     if (p.restarts > 5) return;
     try {
+      if (pc.signalingState === "have-local-offer" && pc.localDescription) {
+        // A lost initial offer or answer otherwise leaves both clients hanging.
+        send(c, { type: "signal", to: seat, data: { sdp: pc.localDescription.toJSON() } });
+        return;
+      }
+      if (pc.signalingState !== "stable") return;
       pc.restartIce();
       await pc.setLocalDescription(await pc.createOffer({ iceRestart: true }));
       send(c, { type: "signal", to: seat, data: { sdp: pc.localDescription.toJSON() } });
@@ -466,7 +472,10 @@ export function VoiceProvider({ children }) {
       const fresh = new Set((msg.peers || []).map((p) => Number(p.seat)));
       for (const seat of [...c.peers.keys()]) if (!fresh.has(seat)) closePeer(c, seat);
       // The newcomer calls everyone already here.
-      for (const peer of msg.peers || []) if (!c.peers.get(Number(peer.seat))?.pc) addPeer(c, peer, true);
+      for (const peer of msg.peers || []) {
+        const existing = c.peers.get(Number(peer.seat));
+        if (!existing?.pc || existing.state === "failed" || existing.state === "unverified") addPeer(c, peer, true);
+      }
       updateRoomStatus(c);
       bump();
     } else if (msg.type === "peer-joined" && msg.peer) {
