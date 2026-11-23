@@ -123,6 +123,10 @@ publishes a site key and relay endpoints, whether it serves actor documents at a
 seals relay traffic. The address guard is the strict one: HTTPS only, public names only (no numeric,
 loopback, private or reserved addresses), no credentials, redirects refused, and the reply capped.
 
+The checklist blocks any claimed readiness when post-quantum relay keys, required versioned
+Secure Net transfer capabilities, or independent mailbox and outbox endpoints are missing.
+Advertised support alone is not proof that real transfer or import works.
+
 It is preparation. Moving an account or an actor, copying history, deleting anything at the old site
 and switching over are **not** implemented, and the screen says so rather than implying them.
 Nothing about the account, its keys or its messages is sent to the destination.

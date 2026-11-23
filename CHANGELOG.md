@@ -15,6 +15,7 @@ _2026-11-23_
 - A move to another site can now be prepared: the destination's public site document is fetched over HTTPS with a strict address guard (public names only, no redirects, reply capped) and its capabilities are listed one by one, including whether it serves actor documents. Nothing is moved, deleted or switched over.
 - Secure Net is described as it is: a neutral transport between sites, an inbox, an outbox and a relay, not an issuer of identities. No zero-knowledge proof is claimed: verification is ordinary hybrid signature checking.
 - Encryption, message routing and stored data are unchanged. No keys are stored on the server.
+- The destination checklist treats missing post-quantum relay keys, independent inbox and outbox endpoints, or versioned transfer support as blockers. No destination is automatically trusted for migration.
 
 ## [0.24.8](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.8): Experimental encrypted identity archive preview
 

@@ -128,9 +128,37 @@ export function evaluateDestination(doc, { host }) {
   add("actors", "Serves actor documents (CVP-017)", actors ? "ok" : "gap",
     actors ? "Identities can be looked up there, so an actor could be found at that site." : "It says it doesn't serve actor documents, so your protocol actor couldn't be looked up there.");
 
-  const sealed = doc?.pq && typeof doc.pq === "object" && typeof doc.pq.kem === "string" && doc.pq.kem;
-  add("sealed", "Relay requests are sealed and signed (post-quantum)", sealed ? "ok" : "note",
-    sealed ? `It publishes a ${doc.pq.suite || "post-quantum"} relay key.` : "It doesn't publish post-quantum relay keys, so requests would carry only the classic signature.");
+  const sealed = Boolean(doc?.pq && typeof doc.pq === "object" &&
+    typeof doc.pq.kem === "string" && doc.pq.kem &&
+    typeof doc.pq.sig === "string" && doc.pq.sig);
+  add("sealed", "Relay has hybrid post-quantum encryption and signatures", sealed ? "ok" : "gap",
+    sealed ? "The site publishes hybrid sealed relay keys." :
+      "A future migration must not fall back to classical-only relay transport.");
+
+  // Legacy Commonveil v1 inboxes are not the independent Secure Net v2 mailbox.
+  // No deployed site should be marked ready until it advertises transfer explicitly.
+  const features = doc?.features && typeof doc.features === "object" && !Array.isArray(doc.features) ? doc.features : {};
+  const required = [
+    ["cvp.actors", 1], ["cvp.sessions", 2], ["cvp.delivery", 2],
+    ["cvp.sealed-relay", 1], ["cvp.pq-signatures", 1], ["cvp.transfer", 1],
+  ];
+  const missing = required.filter(([key, version]) =>
+    !Number.isSafeInteger(features[key]) || features[key] < version);
+  add("transfer", "Independent Secure Net transfer capabilities",
+    missing.length === 0 ? "ok" : "gap",
+    missing.length === 0
+      ? "It advertises the required protocol versions. A signed challenge and import verification are still needed."
+      : "Missing or outdated: " + missing.map(([key, version]) => key + " v" + version).join(", ") + ".");
+
+  const requiredTransport = ["actor", "prekeys", "outbox", "mailbox", "deliver", "repo"];
+  const absent = requiredTransport.filter((key) =>
+    typeof endpoints[key] !== "string" || !endpoints[key].startsWith("/") ||
+    endpoints[key].startsWith("//"));
+  add("v2-transport", "Independent actor, mailbox and delivery endpoints",
+    absent.length === 0 ? "ok" : "gap",
+    absent.length === 0
+      ? "It lists actor discovery, prekeys, outbox, mailbox, delivery and repository endpoints."
+      : "Missing: " + absent.join(", ") + ". The older Commonveil inbox is not a Secure Net v2 transfer service.");
 
   add("software", "What it runs", "note",
     software.name || software.version ? `${String(software.name || "unknown")} ${String(software.version || "")}`.trim() : "It doesn't say what software or version it runs.");

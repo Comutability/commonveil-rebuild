@@ -12,7 +12,8 @@
         "Attaching an outside actor to your account stays off. It would need a fresh server challenge signed by that actor's key and by one of your certified devices, with replay protection and cross-instance tests. None of that is built, so the screen only reads, and no document is ever treated as proof of ownership.",
         "A move to another site can now be prepared: the destination's public site document is fetched over HTTPS with a strict address guard (public names only, no redirects, reply capped) and its capabilities are listed one by one, including whether it serves actor documents. Nothing is moved, deleted or switched over.",
         "Secure Net is described as it is: a neutral transport between sites, an inbox, an outbox and a relay, not an issuer of identities. No zero-knowledge proof is claimed: verification is ordinary hybrid signature checking.",
-        "Encryption, message routing and stored data are unchanged. No keys are stored on the server."
+        "Encryption, message routing and stored data are unchanged. No keys are stored on the server.",
+        "The destination checklist treats missing post-quantum relay keys, independent inbox and outbox endpoints, or versioned transfer support as blockers. No destination is automatically trusted for migration."
       ]
     },
     {

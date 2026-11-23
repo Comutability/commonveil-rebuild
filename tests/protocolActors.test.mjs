@@ -159,7 +159,16 @@ const siteDoc = (over = {}) => ({
   software: { name: "commonveil", version: "9.9.9" },
   handle_domain: "friend.example.org",
   key: { alg: "Ed25519", public: "site-key" },
-  endpoints: { directory: "/cvp/v1/directory", inbox: "/cvp/v1/inbox", identity: "/.well-known/commonveil/identity", actor: "/.well-known/commonveil/actor" },
+  endpoints: {
+    directory: "/cvp/v1/directory", inbox: "/cvp/v1/inbox", identity: "/.well-known/commonveil/identity",
+    actor: "/.well-known/commonveil/actor", prekeys: "/cvp/v2/prekeys",
+    outbox: "/cvp/v2/outbox", mailbox: "/cvp/v2/mailbox",
+    deliver: "/cvp/v2/deliver", repo: "/cvp/v2/repo",
+  },
+  features: {
+    "cvp.actors": 1, "cvp.sessions": 2, "cvp.delivery": 2,
+    "cvp.sealed-relay": 1, "cvp.pq-signatures": 1, "cvp.transfer": 1,
+  },
   pq: { suite: "p256-mlkem768+mldsa65", kem: "kem", sig: "sig" },
   ...over,
 });
@@ -182,8 +191,22 @@ test("a checklist reports what a site can do, and gaps it would hit today", () =
   assert.ok(oldProtocol.items.some((i) => i.id === "protocol" && i.state === "gap"));
 
   const cheap = evaluateDestination(siteDoc({ pq: undefined }), { host: "friend.example.org" });
-  assert.equal(cheap.ok, true, "no sealed relay is a note, not a gap");
-  assert.ok(cheap.items.some((i) => i.id === "sealed" && i.state === "note"));
+  assert.equal(cheap.ok, false, "migration must not downgrade post-quantum transport");
+  assert.ok(cheap.items.some((i) => i.id === "sealed" && i.state === "gap"));
+
+  const missingTransfer = evaluateDestination(siteDoc({ features: {
+    "cvp.actors": 1, "cvp.sessions": 2, "cvp.delivery": 2,
+    "cvp.sealed-relay": 1, "cvp.pq-signatures": 1,
+  } }), { host: "friend.example.org" });
+  assert.equal(missingTransfer.ok, false, "legacy federation is not full account portability");
+  assert.ok(missingTransfer.items.some((i) => i.id === "transfer" && i.state === "gap"));
+
+  const missingMailbox = evaluateDestination(siteDoc({
+    endpoints: { directory: "/cvp/v1/directory", inbox: "/cvp/v1/inbox",
+      identity: "/.well-known/commonveil/identity", actor: "/.well-known/commonveil/actor" },
+  }), { host: "friend.example.org" });
+  assert.equal(missingMailbox.ok, false, "old inbox is not independent v2 delivery");
+  assert.ok(missingMailbox.items.some((i) => i.id === "v2-transport" && i.state === "gap"));
 });
 
 test("the screen's flow refuses a replay, and only a newer document moves the mark", () => {
