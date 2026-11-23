@@ -8,6 +8,8 @@ import { useChat } from "@/lib/secure/ChatContext";
 /** While you're in a call: where, and the controls to mute, deafen or hang up. */
 export default function VoiceStatus() {
   const { room, leave, muted, deafened, toggleMute, toggleDeafen, participants } = useVoice();
+  const statusLabel = room?.status === "connected" ? "Voice connected" : room?.status === "waiting" ? "Waiting for others…"
+    : room?.status === "failed" ? "Voice connection failed" : "Connecting…";
   const { serverName, channelName, servers } = useServers();
   const { conversationName, conversations } = useChat();
   if (!room) return null;
@@ -22,7 +24,7 @@ export default function VoiceStatus() {
         <div className="min-w-0 flex-1">
           <p className={`flex items-center gap-1 text-sm font-semibold ${room.status === "connected" ? "text-primary" : "text-[hsl(var(--warning))]"}`}>
             <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-            {room.status === "connected" ? (room.serverId ? "Voice connected" : "Call connected") : "Connecting…"}
+            {room.status === "connected" && !room.serverId ? "Call connected" : statusLabel}
           </p>
           <Link to={to} className="block truncate text-xs text-muted-foreground hover:underline">
             {where}, {participants.length} {participants.length === 1 ? "person" : "people"}
