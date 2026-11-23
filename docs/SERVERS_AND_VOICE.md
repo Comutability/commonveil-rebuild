@@ -99,9 +99,33 @@ Up to 8 devices per voice channel call. Audio goes directly between devices; the
    grants, recorded call traffic is protected against a future quantum computer too. Chromium does this on the page
    (`createEncodedStreams`); Firefox and Safari in a worker (`RTCRtpScriptTransform`).
 
-Limits: the people in a call see each other's network addresses, as with any peer-to-peer call, and the STUN server
-(`stun.cloudflare.com`) sees yours. There's no relay (TURN) server, so some strict networks can't connect. The service
-knows who joined which call and when. Mute is enforced by each device, not cryptographically.
+**Network routing.** WebRTC tries a direct connection using Cloudflare STUN (`stun.cloudflare.com`). On restrictive
+networks, an operator-configured TURN service can relay DTLS-SRTP ciphertext instead, while Commonveil still uses its
+per-frame end-to-end encryption and signed peer certificates. The TURN operator can see connecting IP addresses and
+traffic metadata, but cannot decrypt the audio or video. Without configured TURN, strict NAT or firewalls may still
+prevent calls. A room shows **Waiting for others** until someone joins, **Connecting** while WebRTC establishes the
+media path, and **Connected** only after a peer connection succeeds. Unreachable peers show a failure after 30 seconds.
+The service knows who joined which call and when. Mute is enforced by each device, not cryptographically.
+
+### Configure your own TURN relay
+
+Commonveil does not include or silently use a public TURN service. An operator can self-host coturn or use a trusted
+TURN service that implements coturn-compatible REST shared-secret authentication. Configure these **backend secrets**:
+
+- `VOICE_TURN_URLS`: comma-separated endpoints, for example
+  `turn:turn.example.org:3478?transport=udp,turns:turn.example.org:5349?transport=tcp`.
+- `VOICE_TURN_SECRET`: the same high-entropy shared secret configured as `static-auth-secret` in coturn, with
+  `use-auth-secret` enabled. **Never place this secret in the frontend, in a repository or in public configuration.**
+
+The `voice_ticket` and `call_ticket` actions now derive a six-hour, time-limited TURN username and HMAC-SHA1 password
+after verifying the member and device. Only those temporary credentials are returned to the browser. The relay must be
+reachable from users' networks; configure public DNS, TLS certificates, UDP/TCP listeners, and a firewall rule for the
+relay port range. For strict networks provide TURN over TCP/TLS as well as UDP. TURN bandwidth and abuse controls are
+the operator's responsibility. If these settings are absent or invalid, calls remain direct-only and no backend secret
+is sent to users. A call may need to reconnect after TURN credentials expire.
+
+A TURN relay is distinct from the **VoiceRoom signalling actor**, which exchanges session descriptions, candidate
+addresses and membership events. This setup does not grant the relay access to decrypted call frames.
 
 **Video and screen sharing** use the same path: each connection carries one video slot, switched with `replaceTrack`, and
 video frames are sealed like audio frames, leaving the codec header in the clear where the browser needs it (VP8: 10 bytes
