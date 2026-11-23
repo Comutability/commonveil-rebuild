@@ -737,6 +737,26 @@ export function VoiceProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room, muted, deafened, videoKind, tick, secure.userId]);
 
+  const diagnostics = useCallback(() => {
+    const c = call.current;
+    return {
+      version: 1,
+      call_type: c?.conversationId ? "dm" : "server_voice",
+      status: room?.status || "idle",
+      admitted_to_signalling: Boolean(c?.seat),
+      turn_configured: Boolean(c?.hasTurn),
+      // Deliberately omit account IDs, IP addresses, ICE candidates, room IDs, keys and tokens.
+      peers: [...(c?.peers.values() || [])].map((p) => ({
+        state: p.state,
+        error: p.failure || null,
+        connection: p.pc?.connectionState || null,
+        ice: p.pc?.iceConnectionState || null,
+        gathering: p.pc?.iceGatheringState || null,
+        signalling: p.pc?.signalingState || null,
+      })),
+    };
+  }, [room]);
+
   const value = useMemo(() => ({
     room,
     join,
@@ -759,10 +779,11 @@ export function VoiceProvider({ children }) {
     canShareScreen: typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.getDisplayMedia),
     participants,
     error,
+    diagnostics,
     supported: voiceSupported(),
     /** Frame counts for this call (sealed, opened, dropped), for the call's details. */
     frameStats: () => ({ ...(call.current?.stats || {}) }),
-  }), [room, join, joinCall, leave, muted, deafened, toggleMute, toggleDeafen, videoKind, toggleCamera, toggleScreen, participants, error, raiseHand, setSpeaker, mutePeer, tick]);
+  }), [room, join, joinCall, leave, muted, deafened, toggleMute, toggleDeafen, videoKind, toggleCamera, toggleScreen, participants, error, diagnostics, raiseHand, setSpeaker, mutePeer, tick]);
 
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>;
 }
