@@ -10,7 +10,6 @@ export * as vote from "./governance/vote.js";
 export * as debate from "./governance/debate.js";
 export * as tokens from "./tokens/voprf.js";
 export * as portable from "./identity/portable.js";
-export * as zk from "./identity/zk.js";
 export * as consent from "./consent/capsule.js";
 export * as extensions from "./extensions/manifest.js";
 export * as session from "./session/index.js";

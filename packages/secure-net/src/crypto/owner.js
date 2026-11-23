@@ -79,25 +79,6 @@ export async function ownerKey(input) {
   }
 }
 
-/**
- * The same owner key, quantum-resistant: the Ed25519 half above, plus an ML-DSA-65 seed derived
- * from the same phrase with a different label. Nothing new to remember: one phrase, both halves,
- * and the hybrid public form is "<Ed25519>.<ML-DSA-65>" (see ../core/signed.js). Used for an
- * identity passport, which must stay unforgeable after quantum computers arrive.
- */
-export async function ownerKeyPair(input) {
-  const entropy = entropyOf(input);
-  try {
-    const [secret, pqSeed] = await Promise.all([
-      hkdfBytes(entropy, utf8("commonveil/owner/v1"), "ed25519", 32),
-      hkdfBytes(entropy, utf8("commonveil/owner/v1"), "ml-dsa-65", 32),
-    ]);
-    return { secret, publicKey: toB64Url(ed25519.getPublicKey(secret)), pqSeed };
-  } finally {
-    entropy.fill(0);
-  }
-}
-
 /** What a signature covers; the server checks the same text (server/auth.mjs). */
 export const ownerText = (host, purpose, challenge) => `commonveil-owner/v1\n${host}\n${purpose}\n${challenge}`;
 
