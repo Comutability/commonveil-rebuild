@@ -121,16 +121,22 @@ export function verifyPassport(file) {
   const body = doc.record.body;
   const owner = body.owner || {};
   const problems = [];
-  if (doc.record.kind !== PASSPORT_KIND || body.version !== 2) problems.push("Unsupported record version.");
-  if (!owner.ed25519 || !owner.ml_dsa_65 || owner.hybrid !== `${owner.ed25519}.${owner.ml_dsa_65}` || keyId(owner.hybrid) !== owner.kid) {
-    problems.push("Invalid hybrid signing key.");
-  }
-  if (doc.record.sig?.kid !== owner.kid || !checkSignature(doc.record, doc.record.sig, owner.hybrid)) {
-    problems.push("Both owner signatures must verify.");
-  }
-  if (sha256B64u(canonicalBytes(doc.sealed.contacts)) !== body.parts?.contacts?.digest ||
-      sha256B64u(canonicalBytes(doc.sealed.archive)) !== body.parts?.archive?.digest) {
-    problems.push("Encrypted archive content has been changed.");
+  try {
+    if (doc.record.kind !== PASSPORT_KIND || body.version !== 2) problems.push("Unsupported record version.");
+    if (typeof owner.ed25519 !== "string" || typeof owner.ml_dsa_65 !== "string" ||
+        owner.hybrid !== `${owner.ed25519}.${owner.ml_dsa_65}` || keyId(owner.hybrid) !== owner.kid) {
+      problems.push("Invalid hybrid signing key.");
+    }
+    if (doc.record.sig?.kid !== owner.kid || !checkSignature(doc.record, doc.record.sig, owner.hybrid)) {
+      problems.push("Both owner signatures must verify.");
+    }
+    if (!doc.sealed?.contacts?.iv || !doc.sealed?.archive?.iv ||
+        sha256B64u(canonicalBytes(doc.sealed.contacts)) !== body.parts?.contacts?.digest ||
+        sha256B64u(canonicalBytes(doc.sealed.archive)) !== body.parts?.archive?.digest) {
+      problems.push("Encrypted archive content has been changed.");
+    }
+  } catch {
+    problems.push("This archive contains malformed signing or encrypted data.");
   }
   return { ok: problems.length === 0, body, problems };
 }
