@@ -18,7 +18,7 @@
       "version": "0.24.7",
       "date": "2026-11-20",
       "title": "Fix: push notifications blocked by unsupported edge redirect mode",
-      "commit": null,
+      "commit": "a5201d654ca8a5853e7a5bfe4110146c0b129f78",
       "notes": [
         "Fixed the actual reason push tests and automatic Web Push delivery failed on the hosted site: the Base44 edge runtime rejected redirect:error before making any outgoing HTTP request. All Web Push requests now use its supported manual mode.",
         "An HTTP redirect from a push service is explicitly refused, never followed, so signed notifications cannot be redirected to arbitrary destinations.",
