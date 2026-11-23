@@ -34,7 +34,7 @@ What Commonveil protects, against whom, and what it doesn't. Read with `PROTOCOL
   sees who is in which server, roles, channel structure (not names), who's waiting for keys, ticket membership, and who
   joined which call and when. A server listed in Discover publishes an unencrypted public card.
 - **Network address privacy in calls.** Calls are peer to peer, so participants see each other's IP addresses, and the
-  STUN server (Cloudflare) sees yours when you join. There's no TURN relay, so some networks can't connect.
+  STUN server (Cloudflare) sees yours when you join. If the operator enables TURN, that relay sees participant IPs and encrypted media traffic metadata but cannot decrypt call content. Without TURN, some networks cannot connect.
 - **Cryptographic group membership.** The server holds member lists. Device-signed changes and the client-side member pins
   limit the damage, but a signed membership log checked by every client would be stronger.
 - **Conversation integrity.** Each message is authenticated, but the server can withhold or reorder messages.
