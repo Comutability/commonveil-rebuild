@@ -5,6 +5,16 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.8](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.8): Experimental encrypted identity archive preview
+
+_2026-11-23_
+
+- Added a read-only identity archive tool under Settings that exports accessible conversations and contact references as a file protected by AES-256-GCM and signed using both Ed25519 and ML-DSA-65.
+- An archive can be independently checked and unlocked in the browser; only encrypted archive files persist in browser storage. Decrypted previews remain in memory while the screen is open.
+- This is not yet a portable account move. Existing DMs, site identity, credentials, membership rights, attachments and mailbox routing cannot be transferred with this preview.
+- Restored the independent Secure Net JavaScript compatibility package unchanged. Proposals for actual identity migration, inbox/outbox handover and audited privacy proofs are tracked in Secure Net draft SNIP-0007.
+- No authentication keys, federation endpoints, stored user messages or Rust server behaviour are changed by this release.
+
 ## [0.24.7](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.7): Fix: push notifications blocked by unsupported edge redirect mode
 
 _2026-11-20_

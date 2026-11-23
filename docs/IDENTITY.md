@@ -49,29 +49,37 @@ The app records the owner key whenever the phrase is to hand: when you set up en
 change your phrase, and when you use it to unlock your messages on a new device. You can also
 enter it in **Settings → Sign-in and recovery**.
 
-## The identity passport: taking your account to another site
+## Encrypted identity archive (experimental)
 
-Your account belongs to the owner key, not to the site it happens to live on, so it can move. A
-**passport** is that ownership in one file you keep (`Settings → Identity passport`):
+Commonveil has an **Identity and portable archive** screen in Settings. It makes a signed,
+encrypted backup of the **messages currently readable on the exporting device** and the
+contacts inferred from those conversations. This is an early, file-only backup and
+read-only viewer, **not an account migration**.
 
-| In the passport | How it's protected |
-| --- | --- |
-| The owner key, as **Ed25519 + ML-DSA-65** | The post-quantum half is derived from the same phrase under a different label, so there's still only one phrase to keep. The passport is signed with both halves and a signature that carries only one is refused (`packages/secure-net/src/core/signed.js`). |
-| A **zero-knowledge proof** that the holder has the key | A Schnorr proof over Ed25519's group (`packages/secure-net/src/identity/zk.js`), bound to the passport's digest. A site that checks it learns that you hold the key and nothing else: not the key, not where else it was used. A signature is the same bytes everywhere and two sites could compare theirs; a proof can't be compared. |
-| The **move history** | One signed notice per move (`identity.migration`, `packages/secure-net/src/identity/portable.js`), each by the owner key, numbered so an older state can never be presented as the current one. |
-| **Contacts and messages** | Sealed with AES-256-GCM under a key from your phrase. The site you arrive at holds the file but can't read a word; only your phrase opens it, in your browser. |
+- The archive is signed with both Ed25519 and ML-DSA-65 using keys derived from the existing
+  24-word recovery secret. This is a hybrid post-quantum **file signature**, not an upgrade to
+  the site's account login or a new, live CVP-017 actor identity. Its public signing key and
+  some metadata, including the site address and counts, remain visible in the file.
+- Contacts and message history are encrypted locally using AES-256-GCM. Both encrypted parts
+  have hashes in the signed manifest. Only an authorised browser with the matching phrase
+  can decrypt them, subject to trusting the application's JavaScript delivery.
+- Import checks the hybrid signatures and encrypted part digests and can show the archive in
+  a read-only viewer. It does not log the user into a new account, restore message routing,
+  create live DMs, change memberships, migrate attachments, or make old messages readable
+  on a device that never held their required keys.
+- When a user chooses to keep a copy in browser storage, **only the encrypted file** is saved.
+  The decrypted preview stays in memory for that Settings screen. Earlier experimental
+  plaintext archives stored by this browser are discarded on opening the screen.
+- This file does **not** include a zero-knowledge proof system. Signing a challenge with the
+  owner's private key proves key possession, but it is not the same thing as a general
+  zero-knowledge proof. The original site still controls a site-specific login, and its
+  administrators could serve malicious JavaScript, or deny service.
 
-`src/lib/identity/passport.js` builds and checks one; `src/components/identity/PassportSettings.jsx`
-is the screen. Moving is two steps: **Record the move** signs a notice naming the site you're going
-to (it goes into your next passport), and **Export a passport** writes the file. On the new site,
-**Bring an identity here** checks the signatures, the proof and every step of the history before it
-accepts anything, then keeps the contacts and the archive in that browser
-(`src/lib/identity/archive.js`), where they stay readable.
-
-The protocol's inbox and outbox (`docs/FEDERATION.md`) remain how sites reach each other, sealed hop
-by hop. The passport never travels that way in readable form: it's a file you carry. A site can
-still refuse to serve you, but it can't stop you being you somewhere else, and it can't read what
-you bring.
+The secure, genuinely portable account move, signed destination proof, authenticated archive
+streaming, inbox/outbox relay cutover and new-device history transfer are proposed in
+[Secure Net SNIP-0007](https://github.com/Comutability/secure-net/pull/16).
+These remain to be specified, implemented, tested between independent instances and reviewed.
+Secure Net stays an independent protocol; Commonveil is one application that can use it.
 
 ## Signing in
 
