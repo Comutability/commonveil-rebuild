@@ -10,7 +10,7 @@ test("TURN is disabled when no operator secret and URLs are configured", async (
     delete process.env.VOICE_TURN_SECRET;
     process.env.VOICE_TURN_URLS = "turn:relay.example.test:3478?transport=udp";
     assert.deepEqual(await turnIceServers("user-id"), []);
-    process.env.VOICE_TURN_SECRET = "test-secret";
+    process.env.VOICE_TURN_SECRET = "a-valid-length-secret-for-turn-tests";
     delete process.env.VOICE_TURN_URLS;
     assert.deepEqual(await turnIceServers("user-id"), []);
   } finally {
@@ -25,7 +25,7 @@ test("TURN credentials use coturn REST HMAC-SHA1 and expire after six hours", as
   const oldSecret = process.env.VOICE_TURN_SECRET;
   const oldUrls = process.env.VOICE_TURN_URLS;
   try {
-    process.env.VOICE_TURN_SECRET = "a-long-random-operator-secret";
+    process.env.VOICE_TURN_SECRET = "a-long-random-operator-secret-0123456789";
     process.env.VOICE_TURN_URLS = "turn:relay.example.test:3478?transport=udp, turns:relay.example.test:5349?transport=tcp";
     const now = Math.floor(Date.now() / 1000);
     const [server] = await turnIceServers("user-id");
@@ -47,8 +47,8 @@ test("TURN rejects malformed URLs rather than accepting insecure configuration",
   const oldSecret = process.env.VOICE_TURN_SECRET;
   const oldUrls = process.env.VOICE_TURN_URLS;
   try {
-    process.env.VOICE_TURN_SECRET = "test-secret";
-    for (const url of ["https://example.test", "turn:relay.test:3478?token=secret", "turn:bad /path"]) {
+    process.env.VOICE_TURN_SECRET = "a-valid-length-secret-for-turn-tests";
+    for (const url of ["https://example.test", "turn:relay.test:3478?token=secret", "turn:user:password@relay.test:3478", "turn:bad /path"]) {
       process.env.VOICE_TURN_URLS = url;
       assert.deepEqual(await turnIceServers("user-id"), []);
     }
