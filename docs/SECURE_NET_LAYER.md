@@ -40,6 +40,10 @@ account's keys, or its recovery phrase, still can't read these messages.
 - **First sight is trusted.** A device pins each person's actor the first time it sees it, and
   refuses a different one afterwards (messages then go without the layer, and Settings says so).
   Safety numbers for comparing actors aren't shown in the app yet.
+- **No portable identity yet.** Settings, Protocol identity shows your actor and checks an actor
+  document made with another application, but an outside actor can't be attached to your account:
+  that needs a server challenge signed by both keys, with replay protection, which isn't built
+  (docs/IDENTITY.md, "Protocol actors"). A move to another site can only be prepared, not made.
 - **Not reviewed.** Secure Net's sessions and social protocol are marked Draft in its own
   standard. Treat this as a preview.
 

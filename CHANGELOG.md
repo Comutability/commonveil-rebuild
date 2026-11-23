@@ -5,6 +5,17 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.9](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.9): Protocol identity: your actor, checked; another site, checked
+
+_2026-11-23_
+
+- New Settings section, Protocol identity, showing this account's Secure Net actor (CVP-017): handle, actor id, fingerprint, key type, devices, version, and whether it verifies. The check runs in your browser against Secure Net's own rules rather than trusting what the site serves.
+- You can paste or choose an actor document made with any compatible application and have it checked here: the hybrid signature, an id that must be the account key's id, the signed device list, and a seq that never goes backwards, because this browser remembers the highest it has accepted. Nothing is uploaded and nothing is saved to your account.
+- Attaching an outside actor to your account stays off. It would need a fresh server challenge signed by that actor's key and by one of your certified devices, with replay protection and cross-instance tests. None of that is built, so the screen only reads, and no document is ever treated as proof of ownership.
+- A move to another site can now be prepared: the destination's public site document is fetched over HTTPS with a strict address guard (public names only, no redirects, reply capped) and its capabilities are listed one by one, including whether it serves actor documents. Nothing is moved, deleted or switched over.
+- Secure Net is described as it is: a neutral transport between sites, an inbox, an outbox and a relay, not an issuer of identities. No zero-knowledge proof is claimed: verification is ordinary hybrid signature checking.
+- Encryption, message routing and stored data are unchanged. No keys are stored on the server.
+
 ## [0.24.8](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.8): Experimental encrypted identity archive preview
 
 _2026-11-23_

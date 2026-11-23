@@ -81,6 +81,52 @@ streaming, inbox/outbox relay cutover and new-device history transfer are propos
 These remain to be specified, implemented, tested between independent instances and reviewed.
 Secure Net stays an independent protocol; Commonveil is one application that can use it.
 
+## Protocol actors: one identity, not one issuer
+
+The app's own sign-in is one thing; a **Secure Net actor** (CVP-017) is another. An actor is a
+quantum-resistant account key, a document signed by that key saying what it's called and which
+devices speak for it, and a handle. Its id *is* the key's id, so a site can serve the document but
+can't change who it names.
+
+Secure Net is a transport between sites: an inbox, an outbox, a relay. It does not issue
+identities. Anyone can make a CVP-017 actor with any compatible application, offline, and this
+app's actor is simply the one Commonveil made for them. **Settings → Protocol identity** shows this
+account's actor — handle, actor id, fingerprint, key type, devices, `seq`, and whether it verifies —
+and the check runs in the browser against `packages/secure-net`'s own rules, not on a site's word.
+
+The same screen checks an **actor document made elsewhere**: paste it or choose the file. The hybrid
+signature must verify, the id must be the account key's id, the device list inside must be signed by
+that key, and its `seq` must not be older than one this browser already accepted (the highest seen
+is remembered per actor, and only ever goes up). The file is read locally: nothing is uploaded, and
+nothing is saved to the account. A document that verifies proves a key exists and signed that
+version. It does **not** prove that the signed-in account owns that actor.
+
+### Why an outside actor can't be attached to an account yet
+
+Attaching one would need both of these, and neither is built:
+
+1. a fresh, single-use challenge from this site's server that the outside actor's own hybrid key
+   signs — so a copied document is useless and an old answer can't be replayed; and
+2. a signature from one of this account's **currently certified devices** over that same challenge —
+   so nobody can attach someone else's actor to a stranger's account,
+
+with replay protection tested end to end, and cross-instance tests before any live routing depends
+on it. Until then the screen only reads: there is no code path that binds an actor, and no document
+is accepted as proof of ownership. Leaving it unbuilt is deliberate; a half-tested binding would be
+worse than none.
+
+### Preparing a move, without pretending it happened
+
+The migration checklist asks a destination one public question — its site document — and lists what
+it says it can do: the protocol it speaks, whether the document is for that address, whether it
+publishes a site key and relay endpoints, whether it serves actor documents at all, and whether it
+seals relay traffic. The address guard is the strict one: HTTPS only, public names only (no numeric,
+loopback, private or reserved addresses), no credentials, redirects refused, and the reply capped.
+
+It is preparation. Moving an account or an actor, copying history, deleting anything at the old site
+and switching over are **not** implemented, and the screen says so rather than implying them.
+Nothing about the account, its keys or its messages is sent to the destination.
+
 ## Signing in
 
 - **With a passkey:** "Sign in with a passkey" asks your device (or password manager) for any

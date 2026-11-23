@@ -14,12 +14,12 @@ import { destinationHost, fetchSiteDocument, evaluateDestination, checkDestinati
 
 const NOW = 1_700_000_000_000;
 
-function actor({ handle = "ann@alpha.test", seq = 3, user = "ann", extra = {} } = {}) {
-  const account = createAccount();
+function actor({ handle = "ann@alpha.test", seq = 3, user = "ann", extra = {}, account = null } = {}) {
+  const key = account || createAccount();
   const device = createDevice();
-  const devices = signDeviceList(account, [devicePublic(device)], { seq: 1, now: NOW });
-  const document = createActorDocument(account, { handle, type: "Person", name: user, devices, seq, now: NOW, ...extra });
-  return { account, device, devices, document };
+  const devices = signDeviceList(key, [devicePublic(device)], { seq: 1, now: NOW });
+  const document = createActorDocument(key, { handle, type: "Person", name: user, devices, seq, now: NOW, ...extra });
+  return { account: key, device, devices, document };
 }
 
 const memoryStorage = () => {
@@ -184,6 +184,40 @@ test("a checklist reports what a site can do, and gaps it would hit today", () =
   const cheap = evaluateDestination(siteDoc({ pq: undefined }), { host: "friend.example.org" });
   assert.equal(cheap.ok, true, "no sealed relay is a note, not a gap");
   assert.ok(cheap.items.some((i) => i.id === "sealed" && i.state === "note"));
+});
+
+test("the screen's flow refuses a replay, and only a newer document moves the mark", () => {
+  const storage = memoryStorage();
+  const { account } = actor();
+  const base = { handle: "ann@alpha.test", user: "ann" };
+  const v4 = actor({ ...base, seq: 4, account });
+  const v5 = actor({ ...base, seq: 5, account });
+  const v6 = actor({ ...base, seq: 6, account });
+
+  // What ExternalActorVerify does: look up what was seen, check against it, remember only if it verifies.
+  const check = (document) => {
+    const seen = seenActor(document.body.id, storage);
+    const info = describeActor(document, { minSeq: seen?.seq || 0 });
+    if (info.ok) rememberActor(info.id, { seq: info.seq, handle: info.handle }, storage);
+    return info;
+  };
+
+  assert.equal(check(v5.document).ok, true, "the first sighting is accepted");
+  assert.equal(seenActor(v5.document.body.id, storage).seq, 5);
+
+  assert.equal(check(v5.document).ok, true, "the same document again is the same state, so it still verifies");
+  assert.equal(seenActor(v5.document.body.id, storage).seq, 5, "and the mark stays where it was");
+
+  const stale = check(v4.document);
+  assert.equal(stale.ok, false, "an older document is refused");
+  assert.equal(stale.code, "ROLLBACK");
+  assert.equal(seenActor(v5.document.body.id, storage).seq, 5, "a refused document never moves the mark");
+
+  assert.equal(check(v6.document).ok, true, "a newer version is accepted");
+  assert.equal(seenActor(v5.document.body.id, storage).seq, 6);
+
+  assert.equal(check(v5.document).ok, false, "once a newer version is known, the older one can't come back");
+  assert.equal(seenActor(v5.document.body.id, storage).seq, 6);
 });
 
 test("checking an address end to end never claims a move happened", async () => {
