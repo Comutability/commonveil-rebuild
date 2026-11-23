@@ -3,14 +3,19 @@
 // lifespan and are issued only after the caller has passed voice permissions.
 const env = (name: string): string => {
   const g = globalThis as any;
-  return String(g.Deno?.env?.get?.(name) ?? g.process?.env?.[name] ?? "").trim();
+  try {
+    return String(g.Deno?.env?.get?.(name) ?? g.process?.env?.[name] ?? "").trim();
+  } catch {
+    // A deployment without access to secrets safely remains direct-only.
+    return "";
+  }
 };
 
 export async function turnIceServers(userId: string): Promise<Array<{ urls: string[]; username: string; credential: string }>> {
   const secret = env("VOICE_TURN_SECRET");
   const urls = env("VOICE_TURN_URLS").split(",").map((url) => url.trim()).filter(Boolean);
   // All or nothing: never use a TURN URL with missing or malformed credentials.
-  if (!secret || !urls.length || urls.some((url) => !/^turns?:[^\s/?#]+(?::\d{1,5})?(?:\?transport=(?:udp|tcp))?$/.test(url))) return [];
+  if (secret.length < 32 || !urls.length || urls.some((url) => !/^turns?:[A-Za-z0-9.-]+(?::\d{1,5})?(?:\?transport=(?:udp|tcp))?$/.test(url))) return [];
   const expires = Math.floor(Date.now() / 1000) + 6 * 60 * 60;
   // The user id is not secret and contains no name, email or IP address.
   const username = `${expires}:${userId}`;
