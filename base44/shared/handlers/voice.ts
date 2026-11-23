@@ -7,6 +7,7 @@ import { signedByActiveDevice } from "../deviceAuth.ts";
 import { P, has } from "../permissions.ts";
 import { channelIn, permsOf, requireMember, serverParts } from "../servers/model.ts";
 import { rateLimited } from "../store.ts";
+import { turnIceServers } from "./turn.ts";
 
 export const VOICE_LIMITS = { perCall: 8, perStage: 16, ticketSeconds: 60, ticketsPerMinute: 6 };
 
@@ -33,7 +34,7 @@ async function issue(ctx: Ctx, device: any, room: string, { canSpeak, canModerat
     stage,
     expires_at: new Date(now.getTime() + VOICE_LIMITS.ticketSeconds * 1000).toISOString(),
   });
-  return { ticket: row.id, room, can_speak: canSpeak, can_moderate: canModerate, stage, max_people: stage ? VOICE_LIMITS.perStage : VOICE_LIMITS.perCall };
+  return { ticket: row.id, room, can_speak: canSpeak, can_moderate: canModerate, stage, max_people: stage ? VOICE_LIMITS.perStage : VOICE_LIMITS.perCall, turn_servers: await turnIceServers(user.id) };
 }
 
 export const voiceActions: Actions = {
