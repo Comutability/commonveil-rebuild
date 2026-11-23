@@ -1,36 +1,30 @@
-// What a passport leaves on the site you land on (lib/identity/passport.js): the move history,
-// so your next export carries it, and the archive you brought, kept here in this browser because
-// it's yours, not the site's. IndexedDB, per account, readable only while signed in.
+// Only encrypted passport files may persist in IndexedDB.
+// Decrypted contacts and message content are deliberately memory-only.
 import { createStore, del, get, set } from "idb-keyval";
 
 const store = typeof indexedDB !== "undefined" ? createStore("commonveil-passport", "items") : undefined;
 const key = (userId, name) => `${userId}:${name}`;
 
-/** The moves this account has recorded, oldest first. */
-export async function loadChain(userId) {
-  if (!store || !userId) return [];
-  const chain = await get(key(userId, "chain"), store).catch(() => null);
-  return Array.isArray(chain) ? chain : [];
-}
-
-export async function saveChain(userId, chain) {
-  if (!store || !userId) return;
-  await set(key(userId, "chain"), (chain || []).slice(-50), store);
-}
-
-/** The archive brought from another site: { from, imported_at, body, contacts, data }. */
 export async function loadArchive(userId) {
   if (!store || !userId) return null;
-  return (await get(key(userId, "archive"), store).catch(() => null)) || null;
+  // A short-lived early preview stored unencrypted archives. Never load it again.
+  await del(key(userId, "archive"), store).catch(() => {});
+  return (await get(key(userId, "encrypted-passport"), store).catch(() => null)) || null;
 }
 
-export async function saveArchive(userId, archive) {
-  if (!store || !userId) return null;
-  await set(key(userId, "archive"), archive, store);
-  return archive;
+export async function saveArchive(userId, doc) {
+  if (!store || !userId) throw new Error("Browser storage is unavailable.");
+  if (doc?.format !== "commonveil-passport-2" || !doc?.sealed?.archive || !doc?.sealed?.contacts) {
+    throw new Error("Only an encrypted identity archive can be saved.");
+  }
+  await set(key(userId, "encrypted-passport"), doc, store);
+  return doc;
 }
 
 export async function clearArchive(userId) {
   if (!store || !userId) return;
-  await del(key(userId, "archive"), store);
+  await Promise.all([
+    del(key(userId, "encrypted-passport"), store),
+    del(key(userId, "archive"), store),
+  ]);
 }
