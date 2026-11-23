@@ -49,6 +49,30 @@ The app records the owner key whenever the phrase is to hand: when you set up en
 change your phrase, and when you use it to unlock your messages on a new device. You can also
 enter it in **Settings → Sign-in and recovery**.
 
+## The identity passport: taking your account to another site
+
+Your account belongs to the owner key, not to the site it happens to live on, so it can move. A
+**passport** is that ownership in one file you keep (`Settings → Identity passport`):
+
+| In the passport | How it's protected |
+| --- | --- |
+| The owner key, as **Ed25519 + ML-DSA-65** | The post-quantum half is derived from the same phrase under a different label, so there's still only one phrase to keep. The passport is signed with both halves and a signature that carries only one is refused (`packages/secure-net/src/core/signed.js`). |
+| A **zero-knowledge proof** that the holder has the key | A Schnorr proof over Ed25519's group (`packages/secure-net/src/identity/zk.js`), bound to the passport's digest. A site that checks it learns that you hold the key and nothing else: not the key, not where else it was used. A signature is the same bytes everywhere and two sites could compare theirs; a proof can't be compared. |
+| The **move history** | One signed notice per move (`identity.migration`, `packages/secure-net/src/identity/portable.js`), each by the owner key, numbered so an older state can never be presented as the current one. |
+| **Contacts and messages** | Sealed with AES-256-GCM under a key from your phrase. The site you arrive at holds the file but can't read a word; only your phrase opens it, in your browser. |
+
+`src/lib/identity/passport.js` builds and checks one; `src/components/identity/PassportSettings.jsx`
+is the screen. Moving is two steps: **Record the move** signs a notice naming the site you're going
+to (it goes into your next passport), and **Export a passport** writes the file. On the new site,
+**Bring an identity here** checks the signatures, the proof and every step of the history before it
+accepts anything, then keeps the contacts and the archive in that browser
+(`src/lib/identity/archive.js`), where they stay readable.
+
+The protocol's inbox and outbox (`docs/FEDERATION.md`) remain how sites reach each other, sealed hop
+by hop. The passport never travels that way in readable form: it's a file you carry. A site can
+still refuse to serve you, but it can't stop you being you somewhere else, and it can't read what
+you bring.
+
 ## Signing in
 
 - **With a passkey:** "Sign in with a passkey" asks your device (or password manager) for any

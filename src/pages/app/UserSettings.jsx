@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { Bell, ClipboardCheck, CloudOff, Database, Download, Eye, Fingerprint, KeyRound, LogOut, Palette, Shield, ShieldCheck, UserRound } from "lucide-react";
+import { Bell, ClipboardCheck, CloudOff, Database, Download, Eye, Fingerprint, Globe, KeyRound, LogOut, Palette, Shield, ShieldCheck, UserRound } from "lucide-react";
 import SignInSettings from "./SignInSettings";
+import PassportSettings from "@/components/identity/PassportSettings";
 import OfflineSettings from "./OfflineSettings";
 import PrivacyReport from "./PrivacyReport";
 import { Button } from "@/components/ui/button";
@@ -361,6 +362,7 @@ const SECTIONS = {
   data: DataSettings,
   offline: OfflineSettings,
   "sign-in": SignInSettings,
+  passport: PassportSettings,
 };
 
 export default function UserSettings() {
@@ -386,6 +388,7 @@ export default function UserSettings() {
         { id: "privacy", label: "Privacy and safety", icon: Eye },
         { id: "privacy-report", label: "Privacy report", icon: ClipboardCheck },
         { id: "sign-in", label: "Sign-in and recovery", icon: Fingerprint },
+        { id: "passport", label: "Identity passport", icon: Globe },
         { id: "keys", label: "Devices and keys", icon: KeyRound },
         { id: "data", label: "Data and account", icon: Database },
       ],
