@@ -268,8 +268,8 @@ export function VoiceProvider({ children }) {
       if (c.peers.get(seat) !== p || c.closed) return;
       const s = pc.connectionState;
       p.state = s === "connected" ? "connected" : s === "failed" || s === "closed" ? "failed" : p.state === "unverified" ? "unverified" : "connecting";
-      clearTimeout(p.restartTimer);
       if (s === "connected") {
+        clearTimeout(p.restartTimer);
         clearTimeout(p.connectTimer);
         p.failure = "";
         p.restarts = 0;
@@ -383,6 +383,9 @@ export function VoiceProvider({ children }) {
       await connectPeer(c, seat, initiator);
       for (const data of p.queue.splice(0)) await handleSignal(c, seat, data);
     } catch {
+      clearTimeout(p.restartTimer);
+      clearTimeout(p.connectTimer);
+      p.pc?.close();
       p.state = "failed";
       p.failure = "Couldn't initialise the encrypted WebRTC connection in this browser.";
       updateRoomStatus(c);
