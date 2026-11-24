@@ -1,0 +1,16 @@
+// Domain-level federation moderation. Public and private reasons must be kept separate.
+{
+  "name":"SiteDomainRule",
+  "type":"object",
+  "description":"One exact site host's domain-level access policy. Contains no private message content.",
+  "properties":{
+    "domain":{"type":"string"},
+    "severity":{"type":"string","enum":["suspend","limit","reject_media","allow"]},
+    "public_reason":{"type":"string"},
+    "private_note":{"type":"string"},
+    "updated_by":{"type":"string"},
+    "updated_at":{"type":"string"}
+  },
+  "required":["domain","severity","updated_by","updated_at"],
+  "rls":{"read":false,"create":false,"update":false,"delete":false}
+}

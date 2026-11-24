@@ -1,0 +1,19 @@
+// Site-wide owner/admin rules and federation defaults. Backend-only; public fields are exposed by an explicit read action.
+{
+  "name": "SitePolicy",
+  "type": "object",
+  "description": "Site-wide moderation, registration and federation policy. This is not an encrypted community-server rules document.",
+  "properties": {
+    "scope": {"type":"string"},
+    "public_rules": {"type":"array","items":{"type":"string"}},
+    "contact": {"type":"string"},
+    "federation_mode": {"type":"string","enum":["open","allowlist","off"],"default":"open"},
+    "registration_open": {"type":"boolean","default":true},
+    "allow_remote_discovery": {"type":"boolean","default":true},
+    "show_domain_blocks": {"type":"boolean","default":false},
+    "updated_by": {"type":"string"},
+    "updated_at": {"type":"string"}
+  },
+  "required":["scope","public_rules","federation_mode","registration_open","allow_remote_discovery"],
+  "rls":{"read":false,"create":false,"update":false,"delete":false}
+}
