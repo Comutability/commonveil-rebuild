@@ -5,6 +5,17 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.20](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.20): Host ownership, Mastodon-style domain moderation and transparent SNIP closure reasons
+
+_2026-11-24_
+
+- Introduced site-level policy distinct from each encrypted community server. The host owner controls registration and federation mode (open, approved sites only, off). Delegated site admins can manage up to 20 public rules, contact and appeals details, local remote-site decisions and publication of public domain block reasons. Private staff notes remain backend-only.
+- Site administrators can suspend an exact remote hostname, limit new remote interactions, reject media via the remote proxy or explicitly allow the hostname in approved-only federation mode. Changes are enforced by both Node and Rust self-hosted federation verification, including cached site documents. The experimental independently authenticated Secure Net direct outbox/deliver/flush path respects the same host suspension and allowlist.
+- Added Site admin > Site rules & safety and public /rules. The owner-only settings preserve the stricter Docker OPEN_REGISTRATION=false and FEDERATION=false operator switches. Site moderation never claims to decrypt private messages, censor another independent site or change Secure Net protocol governance.
+- Improved Secure Net SNIP forum notes to distinguish merged PRs from declined/withdrawn PRs and link to the actual available GitHub reason or PR author's stated purpose. Notes explicitly separate merging code from adopting a protocol standard, and never invent a maintainer rationale.
+- Added a visible authorised-device Sync now control so default-server administrators can create, close and sign missing encrypted SNIP threads, including SNIP-0007 and SNIP-0008, without impersonating a device from the backend. Server-side code does not forge forum messages; the administrator must open and unlock Commonveil.
+- Documented local governance, domain moderation, security boundaries and the Docker/operator configuration in docs/SITE_POLICY.md and docs/SNIP_FORUM.md. Added tests for site owner/admin access, domain validation and transport enforcement across two independent self-hosted Node installations.
+
 ## [0.24.19](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.19): Secure Net SNIP proposals forum reconciliation and GitHub merge tracking
 
 _2026-11-24_
