@@ -68,6 +68,7 @@ All settings are in `.env`. After changing one, run `docker compose up -d`.
 | `SNIP_FORUM` | `on` adds a proposals forum to the community server, with one post per Secure Net Improvement Proposal on GitHub. Your server then reads GitHub's public API about every 20 minutes. Off by default. See [SNIP_FORUM.md](SNIP_FORUM.md). |
 | `OPEN_REGISTRATION` | `false` stops new sign-ups once the first admin exists. The first admin always needs the setup code. |
 | `FEDERATION` | `false` keeps your site to itself: no other site can reach it, and its people can't reach others. |
+| Site moderation settings | Open **Site admin → Site rules & safety** for domain rules, public rules, appeals, signup and federation controls. Settings persist in the data volume. See [SITE_POLICY.md](SITE_POLICY.md). |
 | EXPERIMENTAL_TRANSFER_STAGING | Experimental Secure Net draft ciphertext and encrypted-report staging, explicitly disabled by default. Use only on an isolated private test instance, never a production site. It does **not** move accounts or messages. See [the limitations](MIGRATION_STAGING.md). |
 | EXPERIMENTAL_RECIPIENT_CONSENT | Additional explicit private-test-only gate for signed recipient device request and owner grant storage. Requires the transfer staging flag as well. Does not prove private KEM key ownership, enrol a device, import messages or cut over a mailbox. Defaults to false. |
 | EXPERIMENTAL_SECURE_NET_RELAY, SECURE_NET_RELAY_ADMIN | Separate operator-gated independent actor inbox/outbox trial, disabled by default and unaudited. Requires a private disposable test site. See [SECURE_NET_RELAY.md](SECURE_NET_RELAY.md). |
@@ -91,9 +92,12 @@ with a passkey, the phrase or private key, or from a device that's already signe
 manage all of this in **Settings → Sign-in and recovery**. `docs/IDENTITY.md` explains how it
 works.
 
-Admins see **Site admin** in settings: reports, security reports, help content, updates, and the
-other sites this one talks to. Being an admin doesn't let anyone read messages: those are
-encrypted on people's devices.
+Admins see **Site admin** in settings: reports, security reports, help content,
+updates, **Site rules & safety**, and the other sites this one talks to.
+Site owners control sign-up and federation modes. Site admins can maintain
+public site rules, moderation contacts, domain suspension, limiting, media
+rejection and permitted site lists. See [SITE_POLICY.md](SITE_POLICY.md).
+Being an administrator does not give anyone private decryption keys.
 
 Commands for the command line (run them in your Commonveil folder):
 

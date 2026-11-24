@@ -18,6 +18,9 @@ services:
       DEFAULT_SERVER_ADMINS: ${DEFAULT_SERVER_ADMINS:-}
       SNIP_FORUM: ${SNIP_FORUM:-}
       OPEN_REGISTRATION: ${OPEN_REGISTRATION:-true}
+      # Site admin -> Site rules & safety may impose stricter persistent
+      # owner/admin moderation settings. These Docker switches remain
+      # upper bounds, and no private-message plaintext is inspected.
       FEDERATION: ${FEDERATION:-true}
       # Optional coturn relay for calls behind restrictive NAT. The secret
       # stays server-side; browser credentials expire after six hours.

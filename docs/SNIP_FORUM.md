@@ -20,7 +20,7 @@ can't write them. The work is split:
   stand, about every five minutes, and makes whatever is missing. The posts are signed by that
   admin's device like anything else they post, and show as theirs.
 
-The admin app checks shortly after it opens and again when its tab regains focus or reconnects. It then checks about every five minutes while visible. Updates need an authorised admin device with the forum's encryption keys; simply checking GitHub on a server cannot create a valid encrypted post.
+The signed-in administrator also sees a **Sync now** control to reconcile the forum using their own device keys. The admin app checks shortly after it opens and again when its tab regains focus or reconnects. It then checks about every five minutes while visible. Updates need an authorised admin device with the forum's encryption keys; simply checking GitHub on a server cannot create a valid encrypted post.
 
 **A merged PR or SNIP file on main is not a human standards approval.** Closing the forum thread is a local discussion-workflow choice; the normative status remains in the SNIP itself on GitHub.
 
@@ -29,9 +29,9 @@ The admin app checks shortly after it opens and again when its tab regains focus
 | On GitHub | In the forum |
 | --- | --- |
 | A SNIP file appears on the default branch, or in an open pull request | A thread is started: "SNIP-0003: its title", with its status and a link |
-| A SNIP file reaches the GitHub default branch (including via a merged PR), even if its status still reads Draft | The admin device adds a note saying it was merged into the repository, **not** approved as a standard, and locks the thread |
+| A SNIP reaches the GitHub default branch (including via a merged PR), even if still Draft | The admin device adds a **Merged** note with the source-linked PR author's stated purpose where available, explicitly **not** standards approval, then locks the thread |
 | A SNIP's Status line reads Accepted, Rejected, Implemented, Released or Withdrawn inside an open PR | The admin device adds a closing note and locks the thread |
-| A pull request containing a SNIP is closed without merging | The admin device adds a note explaining it closed without merging and locks the thread |
+| A PR containing a SNIP closes without merging | The admin device adds a **Closed without merge** note, a source-linked maintainer reason if one is recorded, or explicitly says none was recorded, then locks the thread |
 
 - Everyone in the server can read the forum and reply in open threads. Only people who manage
   threads can start one, so there is exactly one thread per proposal.

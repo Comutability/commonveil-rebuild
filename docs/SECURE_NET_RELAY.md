@@ -104,6 +104,15 @@ device-sealed message -> outbox queue -> signed + PQ sealed deliver -> mailbox
                                                               device decrypts
 ```
 
+## Instance federation policy
+
+The experimental relay follows its self-hosted operator's
+[SITE_POLICY.md](SITE_POLICY.md) choices before placing remote ciphertext
+in its outbox, accepting a signed remote delivery or flushing the queued
+messages. A suspended or unapproved remote hostname cannot circumvent
+the host's policy by choosing these trial endpoints. The relay remains
+disabled by default and unaudited.
+
 ## Deliberate limitations
 
 - No production-wide CVP-019 feature advertisement. The trial site
@@ -130,6 +139,6 @@ device-sealed message -> outbox queue -> signed + PQ sealed deliver -> mailbox
 
 See the independent
 [Secure Net CVP-019 specification](https://github.com/Comutability/secure-net/blob/main/spec/CVP-019-delivery.md),
-[CVP-015](https://github.com/Comutability/secure-net/blob/main/spec/CVP-015-sealed-relay.md),
+[CVP-015](https://github.com/Comutability/secure-net/blob/main/spec/CVP-015-quantum-resistance.md),
 [SNIP-0008](https://github.com/Comutability/secure-net/blob/main/snips/SNIP-0008.md)
 and [Comutability documentation](https://comutability.org/docs).
