@@ -11,6 +11,7 @@ import { functionTable, runAction, runMaintenance } from "./functions.mjs";
 import { bearer, json, readBody, send, serveStatic } from "./http.mjs";
 import { Updates } from "./updates.mjs";
 import { Federation } from "./federation/index.mjs";
+import {sitePolicy} from "./sitePolicy.mjs";
 import { selfHostCsp } from "./csp.mjs";
 import { createBootstrap } from "./bootstrap.mjs";
 import VoiceRoom from "../base44/actors/VoiceRoom/entry.ts";
@@ -77,7 +78,7 @@ export async function createApp(config, options = {}) {
       passkeyHost: (h) => h === config.host,
       // The first account needs the operator's one-time setup code (server/bootstrap.mjs).
       bootstrap,
-      registrationOpen: () => config.openRegistration,
+      registrationOpen: () => config.openRegistration && sitePolicy(store).registration_open,
       passwordRounds: config.passwordRounds,
     },
   });

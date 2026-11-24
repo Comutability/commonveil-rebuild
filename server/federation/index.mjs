@@ -21,6 +21,7 @@ import { json, readBody, bearer } from "../http.mjs";
 import { FederationError, PROTOCOL, Signer, Transport, normHost } from "./net.mjs";
 import { CURSOR_FIELDS, FAN_OUT, mergeResults } from "../../base44/shared/federation/merge.ts";
 import { DEFAULT_ENDPOINTS } from "../../packages/secure-net/src/wire/federation.js";
+import {sitePolicy,siteVerdict,publicSiteRules} from "../sitePolicy.mjs";
 
 const ID24 = /^[0-9a-f]{24}$/;
 const ID_KEYS = new Set(["conversation_id", "server_id", "channel_id", "event_id", "report_id", "case_id", "message_id", "thread_id", "ticket_id", "invite_id", "role_id", "id", "parent_id"]);
@@ -534,6 +535,13 @@ export class Federation {
     } catch {
       parsed = {};
     }
+    // A Mastodon-style limit prevents unsolicited new interactions from a
+    // remote site but preserves already established encrypted conversations.
+    if (siteVerdict(this.store,from)==="limit" &&
+        ((fn==="conversations" && ["create","start"].includes(parsed.action)) ||
+         (fn==="servers" && ["join","join_open"].includes(parsed.action)))) {
+      throw new FederationError(403,"SITE_LIMITED","New interactions from this remote site are limited by local moderation.");
+    }
     // Things that only make sense on a person's own site.
     if (["keys", "profile", "safety"].includes(fn) && !["peer_keys", "get_many", "find"].includes(parsed.action)) {
       throw new FederationError(403, "HOME_ONLY", "That's done on the person's own site.");
@@ -554,6 +562,9 @@ export class Federation {
   }
 
   async #inboundDirectory(from, payload) {
+    if (sitePolicy(this.store).allow_remote_discovery===false || siteVerdict(this.store,from)==="limit") {
+      throw new FederationError(403,"SITE_LIMITED","This site's policy restricts remote discovery.");
+    }
     const handle = String(payload?.handle || "").toLowerCase();
     const username = this.#localUsername(handle);
     const profile = username ? await this.#localProfile(username) : null;
@@ -716,6 +727,9 @@ export class Federation {
       // host. This site only fetches from sites its people have things on.
       const [, , , , hostEnc, name] = p.split("/");
       const host = (() => { try { return normHost(decodeURIComponent(hostEnc || "")); } catch { return null; } })();
+      if (host && ["suspend","reject_media"].includes(siteVerdict(this.store,host))) {
+        return json(res,403,{error:"Media from that site is restricted by this site's policy.",code:"SITE_MEDIA_BLOCKED"}),true;
+      }
       if (!host || !/^[a-f0-9]{48}$/.test(name || "") || !this.store.db.prepare("SELECT 1 FROM fed_user_hosts WHERE host = ? LIMIT 1").get(host)) return json(res, 404, { error: "Not found" }), true;
       const bytes = await this.signer.endpoint(host, "files").then((base) => this.transport.bytes(host, `${base}/${name}?${url.searchParams.toString()}`)).catch(() => null);
       if (!bytes) return json(res, 404, { error: "That link has expired." }), true;
@@ -724,6 +738,9 @@ export class Federation {
       return true;
     }
 
+    if (p === "/api/site/rules" && req.method==="GET") {
+      return json(res,200,publicSiteRules(this.store),{"Cache-Control":"public, max-age=120"}),true;
+    }
     if (p === "/api/admin/federation") {
       const user = await this.auth.userFor(bearer(req));
       if (!user || user.role !== "admin") return json(res, 403, { error: "Admins only." }), true;
@@ -741,7 +758,10 @@ export class Federation {
 
     if (p.startsWith("/cvp/v1/")) {
       if (!this.enabled) return json(res, 404, { error: "This site doesn't talk to other sites.", code: "FEDERATION_OFF" }), true;
-      if (req.method === "GET" && p === "/cvp/v1/discover") return this.#discover(res, url), true;
+      if (req.method === "GET" && p === "/cvp/v1/discover") {
+        if (!sitePolicy(this.store).allow_remote_discovery) return json(res,403,{error:"Remote directory listings are disabled by this site's policy.",code:"DISCOVERY_DISABLED"}),true;
+        return this.#discover(res, url), true;
+      }
       if (req.method !== "POST") return json(res, 405, { error: "Use POST." }), true;
       try {
         const body = await readBody(req, MAX_ACT_BODY);

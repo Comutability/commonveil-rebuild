@@ -8,6 +8,7 @@ import https from "node:https";
 import { lookup as dnsLookup } from "node:dns";
 import { Readable } from "node:stream";
 import { WebSocket } from "ws";
+import { siteVerdict } from "../sitePolicy.mjs";
 // The wire format itself (what's signed, digests, which addresses are off limits) is Secure Net's.
 import { PROTOCOL, HOST_RE, SITE_DOCUMENT, signatureBase, digestOf, isPrivate, endpointsOf } from "../../packages/secure-net/src/wire/federation.js";
 
@@ -315,12 +316,15 @@ export class Signer {
   }
 
   #refuseBlocked(host) {
-    if (this.q.get.get(host)?.blocked) throw new FederationError(403, "SITE_BLOCKED", `This site doesn't talk to ${host}.`);
+    if (this.q.get.get(host)?.blocked || siteVerdict(this.store,host)==="suspend") {
+      throw new FederationError(403, "SITE_BLOCKED", `This site does not federate with ${host} under its local site policy.`);
+    }
   }
 
   /** Another site's public document, and its key pinned on first contact. */
   async siteDoc(host) {
     host = normHost(host);
+    this.#refuseBlocked(host); // Checks even on cached documents, so a new block takes effect now.
     const cached = this.docs.get(host);
     if (cached && Date.now() - cached.at < DOC_TTL_MS) return cached.doc;
     const { status, data } = await this.transport.request(host, SITE_DOCUMENT);
