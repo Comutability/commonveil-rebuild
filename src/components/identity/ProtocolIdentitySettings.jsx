@@ -24,6 +24,31 @@ export default function ProtocolIdentitySettings() {
         <ExternalActorVerify />
       </SettingsGroup>
       <SettingsGroup
+        title="Protocol and migration readiness"
+        description="The Secure Net protocol is independent of Commonveil and can be implemented by other compatible applications."
+      >
+        <div className="space-y-3 text-sm">
+          <p>
+            Commonveil can verify signed independent actor documents and check another site's
+            advertised transport capabilities. The self-hosted Rust server also contains an
+            experimental encrypted-transfer staging prototype using Secure Net's draft
+            migration validation rules.
+          </p>
+          <p className="text-muted-foreground">
+            This is <strong>not an active migration service</strong>. The staging API is disabled
+            by default in Docker, is not offered by the hosted site, and cannot move a live
+            account or redirect an encrypted inbox. The browser still uses the last
+            compatible Secure Net JavaScript library for its existing messaging and actor
+            verification. The newer transfer primitives run only in the Rust development
+            backend until an independently reviewed cross-device importer is ready.
+          </p>
+          <p className="text-muted-foreground">
+            Your existing messages, contacts, keys and routing are not changed by viewing
+            these checks. Do not delete the original account after exporting a passport.
+          </p>
+        </div>
+      </SettingsGroup>
+      <SettingsGroup
         title="Preparing a move to another site"
         description="A compatibility check against a destination, not a move. Secure Net carries messages between sites; it doesn't issue identities, and this site doesn't own yours."
       >

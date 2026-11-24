@@ -100,7 +100,7 @@ export default function MigrationChecklist() {
           <li>Moving the account or the actor to another site, with a signed notice the destination accepts.</li>
           <li>Copying message history across, or continuing a conversation on two sites at once.</li>
           <li>Deleting anything at this site, or switching it over. Neither happens on this screen, and neither is implemented.</li>
-          <li>Cross-instance tests. Until two real sites exchange and check each other's messages, routing stays exactly as it is.</li>
+          <li>Full cross-instance migration testing. The Rust staging prototype has passed a limited two-destination test, but live account transfer and message continuity between sites have not been implemented or verified.</li>
         </ul>
       </div>
     </div>
