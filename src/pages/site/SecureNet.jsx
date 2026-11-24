@@ -33,7 +33,7 @@ const CARDS = [
 
 export default function SecureNet() {
   return (
-    <main className="container-cv py-12 sm:py-16">
+    <div className="container-cv py-12 sm:py-16">
       <p className="eyebrow">Open protocol</p>
       <h1 className="mt-3 max-w-3xl text-4xl font-semibold sm:text-5xl">Secure Net is independent of Commonveil</h1>
       <p className="mt-5 max-w-3xl text-lg text-muted-foreground">
@@ -110,6 +110,6 @@ export default function SecureNet() {
           </Link>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
