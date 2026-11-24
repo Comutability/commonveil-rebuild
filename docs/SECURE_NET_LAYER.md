@@ -82,3 +82,35 @@ staging prototype: see [MIGRATION_STAGING.md](MIGRATION_STAGING.md).
 It verifies independent hybrid actor keys, does not issue identities, cannot
 decrypt messages, and does not bind existing accounts or switch inboxes.
 It must not advertise production migration support.
+
+## Secure Net draft alignment and Docker traceability (0.24.14)
+
+The self-hosted Rust server and Rust/WebAssembly client source now pin the exact
+experimental Secure Net SNIP-0007 draft commit
+12ab6f3e351bb348aed75f864095e50965be9239. The corresponding OpenMLS
+dependency forks are pinned to the same commit in rust/Cargo.toml and
+rust/Cargo.lock. The staging service uses Secure Net's Rust transfer module
+to verify transfer-intent authorisations against the destination's durable
+challenge/sequence state and to compute the canonical signed ciphertext
+manifest commitment, avoiding duplicated versioned protocol rules.
+
+The installed Docker image's OCI labels include the source Secure Net
+revision when built by the release workflow. Docker Compose explicitly
+keeps EXPERIMENTAL_TRANSFER_STAGING=false by default. If an operator tests
+the feature on an **isolated development site only**, the Rust server provides
+the staged encrypted-report and owner-signed reconciliation endpoints in
+docs/MIGRATION_STAGING.md. These endpoints do not create identities, change
+messages or perform live migration. No CVP transfer capability is advertised
+in the site's public federation document.
+
+The hosted Commonveil site and browser still use the frozen Secure Net 0.5.0
+JavaScript compatibility code for existing messages and actor verification.
+They display a read-only protocol readiness description and destination
+compatibility checklist but cannot use the experimental Rust staging API.
+A protected client-side, recipient-authorised importer and independent
+cross-implementation tests are required before enabling actual migration.
+
+**Status:** SNIP-0007 and the 0.7.0 migration helpers are draft/unaudited.
+A green Rust build and Docker image do not constitute protocol adoption,
+post-quantum recipient key enrolment, cryptographic security review or a
+working account/inbox cutover.

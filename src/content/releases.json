@@ -2,10 +2,23 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.24.14",
+      "date": "2026-11-24",
+      "title": "Secure Net draft integration and self-hosted Docker safety checks",
+      "commit": null,
+      "notes": [
+        "Pinned the self-hosted Rust server, Rust browser client core and the OpenMLS forks to the same tested experimental Secure Net SNIP-0007 revision. The destination staging service now verifies transfer intents and canonical ciphertext manifests using Secure Net’s Rust transfer helpers.",
+        "Updated Commonveil’s Protocol identity Settings to explain the independent actor model and the difference between read-only verification, disabled development staging and an actual migration. Destination compatibility checks do not import or move accounts.",
+        "The self-hosted Docker image records the pinned Secure Net source commit in an OCI label when built by the release workflow. Docker Compose keeps experimental staging disabled by default and CI checks that default and the pinned lockfile.",
+        "The JavaScript browser and hosted backend continue using the frozen Secure Net 0.5.0 compatibility implementation for existing encrypted messages. No live cryptography, account authentication, stored conversations or inbox routes are replaced by experimental migration routines.",
+        "Experimental transfer and reconciliation remain unaudited, disabled and not advertised as production CVP features. Full actor/account binding, private-history import, post-quantum recipient key handover, interop cutover and independent security review remain future milestones."
+      ]
+    },
+    {
       "version": "0.24.13",
       "date": "2026-11-24",
       "title": "Experimental migration: encrypted reconciliation report staging",
-      "commit": null,
+      "commit": "845d6f07526f9edf35ec7e78412d8536adb2c6e5",
       "notes": [
         "Extended the disabled self-hosted Rust migration destination to require a staged, bounded reconciliation report before it accepts the owner's separately signed report hash. The server re-hashes the private report and previously staged archive chunks under a transaction.",
         "Added bearer-authorised opaque report upload and retrieval, idempotent identical retries, rejection of corruption or conflicting uploads, status visibility and deletion on abort. No decryption keys are stored on the server.",

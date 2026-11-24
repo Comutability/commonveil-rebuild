@@ -19,6 +19,8 @@ services:
       SNIP_FORUM: ${SNIP_FORUM:-}
       OPEN_REGISTRATION: ${OPEN_REGISTRATION:-true}
       FEDERATION: ${FEDERATION:-true}
+      # Private-test only: NOT a live account, identity or inbox migration service.
+      # Stays off even when a newer experimental Secure Net core is inside the image.
       EXPERIMENTAL_TRANSFER_STAGING: ${EXPERIMENTAL_TRANSFER_STAGING:-false}
       FEDERATION_PATH_PREFIX: ${FEDERATION_PATH_PREFIX:-}
       UPDATER_URL: http://updater:8090

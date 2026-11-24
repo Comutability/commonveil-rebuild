@@ -5,6 +5,16 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.14](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.14): Secure Net draft integration and self-hosted Docker safety checks
+
+_2026-11-24_
+
+- Pinned the self-hosted Rust server, Rust browser client core and the OpenMLS forks to the same tested experimental Secure Net SNIP-0007 revision. The destination staging service now verifies transfer intents and canonical ciphertext manifests using Secure Net’s Rust transfer helpers.
+- Updated Commonveil’s Protocol identity Settings to explain the independent actor model and the difference between read-only verification, disabled development staging and an actual migration. Destination compatibility checks do not import or move accounts.
+- The self-hosted Docker image records the pinned Secure Net source commit in an OCI label when built by the release workflow. Docker Compose keeps experimental staging disabled by default and CI checks that default and the pinned lockfile.
+- The JavaScript browser and hosted backend continue using the frozen Secure Net 0.5.0 compatibility implementation for existing encrypted messages. No live cryptography, account authentication, stored conversations or inbox routes are replaced by experimental migration routines.
+- Experimental transfer and reconciliation remain unaudited, disabled and not advertised as production CVP features. Full actor/account binding, private-history import, post-quantum recipient key handover, interop cutover and independent security review remain future milestones.
+
 ## [0.24.13](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.13): Experimental migration: encrypted reconciliation report staging
 
 _2026-11-24_
