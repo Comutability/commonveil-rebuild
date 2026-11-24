@@ -1209,7 +1209,7 @@ test("the proposals forum: a thread for every SNIP on GitHub, made and closed by
 
     // First pass from an admin's app: the forum, then a thread for each proposal on GitHub.
     let done = await runSnipSync(ioFor(owner));
-    assert.deepEqual(done, { forum: true, posted: ["SNIP-0001", "SNIP-0002"], closed: [] });
+    assert.deepEqual(done, { forum: true, posted: ["SNIP-0001", "SNIP-0002"], closed: ["SNIP-0001", "SNIP-0002"] });
     const forum = await owner.channelNamed(sid, "snips");
     assert.equal(forum.kind, "forum");
     let posts = (await owner.readChannel(sid, forum)).filter((m) => m.content?.type === "post");
@@ -1223,10 +1223,12 @@ test("the proposals forum: a thread for every SNIP on GitHub, made and closed by
     // Two admins' apps racing for the same proposal: the fixed id lets only one post exist.
     await ioFor(second).post(forum, { type: "post", title: "SNIP-0001: again", text: "x" }, { kind: "post", itemId: snipThreadId("SNIP-0001") }).then(() => assert.fail("should be a duplicate"), (e) => assert.equal(e.code, "DUPLICATE_ID"));
 
-    // Members discuss in a proposal's thread, but only the forum's keepers start threads.
+    // A default-branch merge closes discussion without treating draft as approved.
     await owner.fulfil(sid);
     await first.ok("servers", await signed(first, "accept_rules", { server_id: sid }));
-    { const r = await first.post(sid, forum, textPayload("I have a question about this"), "message", snipThreadId("SNIP-0001")); assert.equal(r.status, 200, JSON.stringify(r.body)); }
+    assert.equal((await first.post(sid, forum, textPayload("already merged"), "message", snipThreadId("SNIP-0001"))).body.code, "THREAD_LOCKED");
+    const original = (await owner.readChannel(sid, forum, { thread_id: snipThreadId("SNIP-0001") })).map((m) => m.text);
+    assert.ok(original.some((t) => /code merge is NOT approval, ratification/i.test(t || "")));
     assert.equal((await first.post(sid, forum, { type: "post", title: "My own proposal", text: "x" }, "post")).body.code, "MISSING_PERMISSION");
 
     // A new proposal arrives in a pull request: it gets a thread while still under discussion.
@@ -1234,20 +1236,25 @@ test("the proposals forum: a thread for every SNIP on GitHub, made and closed by
     refresh();
     done = await runSnipSync(ioFor(owner));
     assert.deepEqual(done.posted, ["SNIP-0003"]);
-    // It is merged (now on the default branch, still a Draft): the thread stays open.
+    assert.deepEqual(done.closed, []);
+    { const r = await first.post(sid, forum, textPayload("Please review this proposal"), "message", snipThreadId("SNIP-0003")); assert.equal(r.status, 200, JSON.stringify(r.body)); }
+    // Once it enters main, close the forum thread, even if governance status remains Draft.
     gh.pulls[0].state = "closed";
     gh.pulls[0].merged_at = "2026-11-14T00:00:00Z";
     gh.main["SNIP-0003.md"] = snip("0003", "Post-quantum sessions", "Draft");
     refresh();
-    assert.deepEqual(await runSnipSync(ioFor(owner)), { forum: false, posted: [], closed: [] });
+    assert.deepEqual(await runSnipSync(ioFor(owner)), { forum: false, posted: [], closed: ["SNIP-0003"] });
+    const mergedDiscussion = (await owner.readChannel(sid, forum, { thread_id: snipThreadId("SNIP-0003") })).map((m) => m.text);
+    assert.ok(mergedDiscussion.some((t) => /SNIP governance status: Draft/.test(t || "")));
+    assert.ok(mergedDiscussion.some((t) => /code merge is NOT approval/.test(t || "")));
 
-    // Accepted on GitHub: a closing note, then the thread is locked.
+    // A later formal status change does not re-close an already locked thread.
     gh.main["SNIP-0001.md"] = snip("0001", "The proposal process", "Accepted on 20 November 2026");
     refresh();
     done = await runSnipSync(ioFor(owner));
-    assert.deepEqual(done.closed, ["SNIP-0001"]);
+    assert.deepEqual(done.closed, []);
     const thread = (await owner.readChannel(sid, forum, { thread_id: snipThreadId("SNIP-0001") })).map((m) => m.text);
-    assert.ok(thread.some((t) => /now: Accepted on 20 November 2026\. This thread is closed/.test(t || "")));
+    assert.ok(thread.some((t) => /code merge is NOT approval/.test(t || "")));
     assert.ok(w.rows("ServerMessage").find((m) => m.msg_id === snipThreadId("SNIP-0001")).thread_locked);
     assert.equal(w.rows("ServerMessage").filter((m) => m.msg_id === snipClosedNoteId("SNIP-0001")).length, 1);
     assert.equal((await first.post(sid, forum, textPayload("too late"), "message", snipThreadId("SNIP-0001"))).body.code, "THREAD_LOCKED");
@@ -1257,13 +1264,13 @@ test("the proposals forum: a thread for every SNIP on GitHub, made and closed by
     gh.pulls.push({ number: 9, state: "closed", merged_at: null, html_url: "https://github.com/Comutability/secure-net/pull/9", head: { sha: "def456" }, files: { "SNIP-0004.md": snip("0004", "An idea that was turned down", "Draft") } });
     refresh();
     done = await runSnipSync(ioFor(owner));
-    assert.deepEqual([done.posted, done.closed], [["SNIP-0004"], []]);
+    assert.deepEqual([done.posted, done.closed], [["SNIP-0004"], ["SNIP-0004"]], "missing and closed posts finish in the same pass");
     done = await runSnipSync(ioFor(owner));
-    assert.deepEqual(done.closed, ["SNIP-0004"], "on the next pass");
+    assert.deepEqual(done.closed, [], "no duplicate closing note on the next pass");
     // ...and one rejected on the default branch is closed too.
     gh.main["SNIP-0002.md"] = snip("0002", "The sealed relay", "Rejected");
     refresh();
-    assert.deepEqual((await runSnipSync(ioFor(owner))).closed, ["SNIP-0002"]);
+    assert.deepEqual((await runSnipSync(ioFor(owner))).closed, [], "a locked merged thread is not re-opened for a later review status");
 
     // GitHub unreachable: the last copy is used, marked stale, and nothing is opened or closed from it.
     gh.down = true;
