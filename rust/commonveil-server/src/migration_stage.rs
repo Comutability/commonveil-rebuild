@@ -14,8 +14,11 @@ use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use secure_net_core::bytes::{from_b64u, random_b64u, sha256, sha256_b64u};
 use secure_net_core::signed::{key_id, verify};
 use secure_net_core::transfer::{
-    ciphertext_root as protocol_ciphertext_root, verify_intent as protocol_verify_intent,
-    Chunk as ProtocolChunk,
+    ciphertext_root as protocol_ciphertext_root,
+    encrypted_report_digest as protocol_encrypted_report_digest,
+    verify_intent as protocol_verify_intent,
+    verify_reconciliation as protocol_verify_reconciliation, Chunk as ProtocolChunk,
+    ExpectedReconciliation, MAX_REPORT_BYTES, MIN_REPORT_BYTES,
 };
 use secure_net_core::wire::federation::norm_host;
 use serde_json::{json, Value};
@@ -30,12 +33,12 @@ const MAX_PENDING: i64 = 32;
 const MAX_ACTIVE: i64 = 8;
 const CAP_PER_ACTOR: i64 = 2;
 const PURPOSE: &str = "transfer.intent";
+// The client must encrypt the report before uploading it. A server can
+// validate framing and signatures, not authenticate the inner AES-GCM tag.
+#[cfg(test)]
 const RECONCILE_PURPOSE: &str = "transfer.reconcile";
+#[cfg(test)]
 const RECONCILE_LIFE_MS: i64 = 5 * 60 * 1000;
-// The client must encrypt the private report using recipient-authenticated
-// encryption before uploading. The host cannot prove that the bytes are encrypted.
-const MIN_REPORT_BYTES: usize = 48;
-const MAX_REPORT_BYTES: usize = 64 * 1024;
 
 type StageRow = (
     Vec<u8>,
@@ -757,10 +760,18 @@ impl Stage {
         if state["client_attested"] == true {
             return err(409, "ALREADY_ATTESTED");
         }
-        if ciphertext.len() < MIN_REPORT_BYTES || ciphertext.len() > MAX_REPORT_BYTES {
-            return err(413, "REPORT_SIZE_LIMIT");
-        }
-        let digest = sha256_b64u(ciphertext);
+        let digest = protocol_encrypted_report_digest(ciphertext).map_err(|error| StageError {
+            status: if error.code == "BAD_REPORT_SIZE" {
+                413
+            } else {
+                400
+            },
+            code: if error.code == "BAD_REPORT_SIZE" {
+                "REPORT_SIZE_LIMIT"
+            } else {
+                "BAD_REPORT_FORMAT"
+            },
+        })?;
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -849,9 +860,10 @@ impl Stage {
         let Some((digest, ciphertext)) = row else {
             return err(404, "NOT_FOUND");
         };
-        if ciphertext.len() < MIN_REPORT_BYTES
-            || ciphertext.len() > MAX_REPORT_BYTES
-            || sha256_b64u(&ciphertext) != digest
+        if protocol_encrypted_report_digest(&ciphertext)
+            .ok()
+            .as_deref()
+            != Some(digest.as_str())
         {
             return err(409, "CORRUPT_REPORT");
         }
@@ -881,85 +893,39 @@ impl Stage {
         if state["actor"] != actor {
             return err(403, "WRONG_ACTOR");
         }
-        // Require the complete signed envelope to contain ONLY protocol fields.
-        // The signature covers its body, not arbitrary extra top-level metadata.
-        let Some(envelope) = signed.as_object() else {
-            return err(400, "BAD_RECONCILIATION");
-        };
-        let Some(signature) = signed["sig"].as_object() else {
-            return err(400, "BAD_RECONCILIATION");
-        };
-        if envelope.len() != 3
-            || !["kind", "body", "sig"]
-                .iter()
-                .all(|key| envelope.contains_key(*key))
-            || signature.len() != 4
-            || !["kid", "alg", "value", "pq"]
-                .iter()
-                .all(|key| signature.contains_key(*key))
-        {
-            return err(400, "BAD_RECONCILIATION");
-        }
-        let body = verify(
-            signed,
-            |kid| (kid == actor).then(|| owner_public.to_string()),
-            Some(&[RECONCILE_PURPOSE]),
-        )
-        .map_err(|_| StageError {
-            status: 403,
-            code: "BAD_SIGNATURE",
-        })?;
-        // Refuse any extra keys: a relay must not become a covert data-storage
-        // destination for plaintext message descriptions or contact details.
-        let Some(fields) = body.as_object() else {
-            return err(400, "BAD_RECONCILIATION");
-        };
-        const FIELDS: [&str; 10] = [
-            "v",
-            "actor",
-            "stage_id",
-            "to",
-            "ciphertext_root",
-            "challenge",
-            "encrypted_report_sha256",
-            "client_checked",
-            "issued_ms",
-            "expires_ms",
-        ];
-        if fields.len() != FIELDS.len() || !FIELDS.iter().all(|key| fields.contains_key(*key)) {
-            return err(400, "BAD_RECONCILIATION");
-        }
-        if body["v"] != 1
-            || body["actor"] != actor
-            || body["stage_id"] != id
-            || body["to"] != self.destination
-            || body["ciphertext_root"] != state["root"]
-            || body["challenge"] != state["reconcile_nonce"]
-            || body["client_checked"] != true
-            || !body["encrypted_report_sha256"]
-                .as_str()
-                .is_some_and(|hash| from_b64u(hash).is_ok_and(|bytes| bytes.len() == 32))
-        {
-            return err(400, "BAD_RECONCILIATION");
-        }
+        // Delegate the hybrid-signed draft record, schema and time checks
+        // to the independent Secure Net implementation. No account changes.
         if state["reconcile_nonce"].as_str().unwrap_or("").is_empty() {
             return err(409, "RESTAGE_REQUIRED");
         }
-        let issued = body["issued_ms"].as_i64().ok_or(StageError {
-            status: 400,
-            code: "BAD_RECONCILIATION",
+        let claimed_digest = signed["body"]["encrypted_report_sha256"]
+            .as_str()
+            .unwrap_or("");
+        let expected = ExpectedReconciliation {
+            owner_public,
+            actor_id: &actor,
+            stage_id: id,
+            destination: &self.destination,
+            ciphertext_root: state["root"].as_str().unwrap_or(""),
+            challenge: state["reconcile_nonce"].as_str().unwrap_or(""),
+            encrypted_report_sha256: claimed_digest,
+            now_ms: now,
+        };
+        let body = protocol_verify_reconciliation(signed, &expected).map_err(|error| {
+            let code = match error.code {
+                "BAD_SIGNATURE" | "UNKNOWN_SIGNER" | "WRONG_KIND" => "BAD_SIGNATURE",
+                "EXPIRED" => "EXPIRED_RECONCILIATION",
+                "WRONG_ACTOR" => "WRONG_ACTOR",
+                "BAD_REPORT_DIGEST" => "REPORT_HASH_MISMATCH",
+                _ => "BAD_RECONCILIATION",
+            };
+            let status = match code {
+                "BAD_SIGNATURE" | "WRONG_ACTOR" => 403,
+                "EXPIRED_RECONCILIATION" | "REPORT_HASH_MISMATCH" => 409,
+                _ => 400,
+            };
+            StageError { status, code }
         })?;
-        let expires = body["expires_ms"].as_i64().ok_or(StageError {
-            status: 400,
-            code: "BAD_RECONCILIATION",
-        })?;
-        if issued > now.saturating_add(60_000)
-            || expires < now
-            || expires <= issued
-            || expires - issued > RECONCILE_LIFE_MS
-        {
-            return err(409, "EXPIRED_RECONCILIATION");
-        }
         // Verify storage again immediately before recording any owner attestation.
         // The SQLite transaction serialises stage writes and receipt creation.
         let tx = self
@@ -1030,10 +996,11 @@ impl Stage {
             return err(409, "MISSING_ENCRYPTED_REPORT");
         };
         let signed_digest = body["encrypted_report_sha256"].as_str().unwrap_or("");
-        if report_ciphertext.len() < MIN_REPORT_BYTES
-            || report_ciphertext.len() > MAX_REPORT_BYTES
-            || report_digest != signed_digest
-            || sha256_b64u(&report_ciphertext) != signed_digest
+        if report_digest != signed_digest
+            || protocol_encrypted_report_digest(&report_ciphertext)
+                .ok()
+                .as_deref()
+                != Some(signed_digest)
         {
             return err(409, "REPORT_HASH_MISMATCH");
         }
@@ -1269,7 +1236,8 @@ mod tests {
     const DEST: &str = "new.example";
     // Test-only opaque sample. Actual clients must produce authenticated,
     // recipient-bound ciphertext before using the report endpoint.
-    const TEST_REPORT: &[u8] = &[0xA5_u8; 64];
+    const TEST_REPORT: &[u8] =
+        b"CVRPT\x01abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
 
     fn fixture(parts: &[&[u8]]) -> (Vec<Value>, String, usize) {
         let m: Vec<Value> = parts
@@ -1576,6 +1544,23 @@ mod tests {
                     .code,
                 "REPORT_SIZE_LIMIT"
             );
+            assert_eq!(
+                s.stage_report(&id, &token, &[0xA5_u8; 64], NOW + 1000)
+                    .unwrap_err()
+                    .code,
+                "BAD_REPORT_FORMAT"
+            );
+            assert_eq!(
+                s.stage_report(
+                    &id,
+                    &token,
+                    b"CVRPT\x02abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz",
+                    NOW + 1000
+                )
+                .unwrap_err()
+                .code,
+                "BAD_REPORT_FORMAT"
+            );
             let stored = s
                 .stage_report(&id, &token, TEST_REPORT, NOW + 1000)
                 .unwrap();
@@ -1587,9 +1572,14 @@ mod tests {
                 true
             );
             assert_eq!(
-                s.stage_report(&id, &token, &[0xAA_u8; 64], NOW + 1000)
-                    .unwrap_err()
-                    .code,
+                s.stage_report(
+                    &id,
+                    &token,
+                    b"CVRPT\x01abcdefghijklabcdefghijklmnopqrstuvwxyz123456789012",
+                    NOW + 1000
+                )
+                .unwrap_err()
+                .code,
                 "REPORT_CONFLICT"
             );
             let downloaded = s.download_report(&id, &token, NOW + 1000).unwrap();

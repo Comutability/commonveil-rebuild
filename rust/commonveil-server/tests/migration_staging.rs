@@ -174,7 +174,7 @@ fn owner_signed_reconciliation_over_http_survives_restart_without_cutover() {
     let impostor = SigningKey::generate(true);
     let ciphertext = "opaque encrypted report archive";
     // Test-only opaque data. Real devices must AEAD-encrypt this before upload.
-    let report = "A".repeat(64);
+    let report = format!("CVRPT{}{}", char::from(1), "A".repeat(64));
     let prefix = "/cvp/v2/experimental-transfer";
     let (id, token, statement) = {
         let server = start_with(
@@ -230,7 +230,13 @@ fn owner_signed_reconciliation_over_http_survives_restart_without_cutover() {
         let (code, retry) = post(server.1, "POST", &report_path, &token, &report);
         assert_eq!(code, 200, "{retry}");
         assert_eq!(retry["duplicate"], true);
-        let (code, conflict) = post(server.1, "POST", &report_path, &token, &"B".repeat(64));
+        let (code, conflict) = post(
+            server.1,
+            "POST",
+            &report_path,
+            &token,
+            &format!("CVRPT{}{}", char::from(1), "B".repeat(64)),
+        );
         assert_eq!(code, 409, "{conflict}");
         assert_eq!(conflict["code"], "REPORT_CONFLICT");
         let (code, denied) = post(server.1, "GET", &report_path, &random_b64u(32), "");
