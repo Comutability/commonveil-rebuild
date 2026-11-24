@@ -5,6 +5,17 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.16](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.16): Secure Net recipient consent foundation, disabled by default
+
+_2026-11-24_
+
+- Aligned Commonveil Rust server/client and pinned Docker dependencies with Secure Net draft fe44f0d, including independent hybrid recipient request/grant records and an experimental KEM possession verifier in the shared protocol library.
+- Added strictly experimental self-hosted destination endpoints to verify, store and retrieve a receiving device’s hybrid-signed public MLKEM768-P256 key request and the identity owner’s separate hybrid-signed grant. A separate SQLite table stores only the exact validated signed public records; changes conflict, retries are idempotent, restart recovery works and abort deletes records.
+- Added an explicit EXPERIMENTAL_RECIPIENT_CONSENT environment gate, which also requires the existing EXPERIMENTAL_TRANSFER_STAGING=true flag. Both default to false in Docker Compose and operator examples. Docker CI checks both switches are off by default and the image’s Secure Net commit matches the Rust lockfile.
+- Added tests for independent recipient and actor signatures, wrong identity, forged grant, incomplete ciphertext, cross-stage replay, expiry, unauthorised stage token, immutable retries, server restart, cancellation and separate environment gating.
+- The prototype shared KEM challenge/response is not exposed as a Commonveil network endpoint because its in-memory nonce cannot yet provide crash-safe replay protection. Signed recipient consent is not KEM private-key possession, account binding, user history import, post-quantum history key exchange, inbox redirection or a live migration.
+- The hosted website gains accurate read-only readiness guidance while existing messaging, private keys, contacts, accounts and message routes remain unchanged. This work remains an unapproved, unaudited protocol draft; stable Docker latest is not automatically advanced.
+
 ## [0.24.15](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.15): Shared Secure Net hybrid reconciliation and browser interoperability
 
 _2026-11-24_

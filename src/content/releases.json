@@ -2,10 +2,24 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.24.16",
+      "date": "2026-11-24",
+      "title": "Secure Net recipient consent foundation, disabled by default",
+      "commit": null,
+      "notes": [
+        "Aligned Commonveil Rust server/client and pinned Docker dependencies with Secure Net draft fe44f0d, including independent hybrid recipient request/grant records and an experimental KEM possession verifier in the shared protocol library.",
+        "Added strictly experimental self-hosted destination endpoints to verify, store and retrieve a receiving device’s hybrid-signed public MLKEM768-P256 key request and the identity owner’s separate hybrid-signed grant. A separate SQLite table stores only the exact validated signed public records; changes conflict, retries are idempotent, restart recovery works and abort deletes records.",
+        "Added an explicit EXPERIMENTAL_RECIPIENT_CONSENT environment gate, which also requires the existing EXPERIMENTAL_TRANSFER_STAGING=true flag. Both default to false in Docker Compose and operator examples. Docker CI checks both switches are off by default and the image’s Secure Net commit matches the Rust lockfile.",
+        "Added tests for independent recipient and actor signatures, wrong identity, forged grant, incomplete ciphertext, cross-stage replay, expiry, unauthorised stage token, immutable retries, server restart, cancellation and separate environment gating.",
+        "The prototype shared KEM challenge/response is not exposed as a Commonveil network endpoint because its in-memory nonce cannot yet provide crash-safe replay protection. Signed recipient consent is not KEM private-key possession, account binding, user history import, post-quantum history key exchange, inbox redirection or a live migration.",
+        "The hosted website gains accurate read-only readiness guidance while existing messaging, private keys, contacts, accounts and message routes remain unchanged. This work remains an unapproved, unaudited protocol draft; stable Docker latest is not automatically advanced."
+      ]
+    },
+    {
       "version": "0.24.15",
       "date": "2026-11-24",
       "title": "Shared Secure Net hybrid reconciliation and browser interoperability",
-      "commit": null,
+      "commit": "3baa6a5273bb00b8b6c7ff165535ce1a46671cc9",
       "notes": [
         "Updated the self-hosted Rust and Docker Secure Net pin from draft 12ab6f3 to the CI-passing e82fd9e reconciliation verifier. All Rust core, server and OpenMLS patch references move together under Cargo.lock.",
         "Commonveil no longer duplicates provisional transfer.reconcile signature and schema verification: the disabled test-only Rust staging service now delegates owner-hybrid signatures, actor, stage, destination, challenge, archive root and signed report digest checks to the independent Secure Net crate.",
