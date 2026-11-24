@@ -28,8 +28,8 @@ function requireContext(context) {
       !isB64u(ciphertextRoot, 43, 43) || !isB64u(recipientDeviceId, 12, 90) ||
       typeof destination !== "string" || destination.length > 253 ||
       destination === "localhost" || destination.endsWith(".localhost") ||
-      !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(destination) ||
-      /^(?:[0-9]+\\.){3}[0-9]+$/.test(destination)) {
+      !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(destination) ||
+      /^(?:[0-9]+\.){3}[0-9]+$/.test(destination)) {
     throw new MigrationReportError("BAD_CONTEXT", "Invalid actor, stage, recipient or destination binding.");
   }
   return new TextEncoder().encode(
