@@ -2198,7 +2198,7 @@ pub async fn route(app: Arc<App>, req: Request) -> Routed {
                 200,
                 &json!({
                     "version": "2.1", "software": { "name": "commonveil", "version": c.version, "repository": "https://github.com/Comutability/commonveil-rebuild" },
-                    "protocols": [], "services": { "inbound": [], "outbound": [] }, "openRegistrations": c.open_registration, "usage": { "users": {} },
+                    "protocols": [], "services": { "inbound": [], "outbound": [] }, "openRegistrations": c.open_registration && crate::site_policy::current_policy(&app.store).is_ok_and(|p|p["registration_open"]==true), "usage": { "users": {} },
                     "metadata": { "nodeName": c.site_name, "federation": if fed.enabled { PROTOCOL } else { "off" } },
                 }),
                 &[],

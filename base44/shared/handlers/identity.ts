@@ -313,7 +313,8 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
         if (await userIdForName(sr, username)) throw deny(409, "USERNAME_TAKEN", "That username is taken.");
         if (!cfg.bootstrap.consume(body.setup_code)) throw deny(403, "BAD_SETUP_CODE", "That setup code isn't right, or has already been used.");
         role = "admin";
-      } else if (cfg.registrationOpen && !cfg.registrationOpen()) {
+      } else if ((cfg.registrationOpen && !cfg.registrationOpen()) ||
+                 (await sr.entities.SitePolicy.filter({scope:"site"},"created_date",1))[0]?.registration_open===false) {
         throw deny(403, "REGISTRATION_CLOSED", "This site isn't taking new accounts. Ask its operator.");
       }
       if (await userIdForName(sr, username)) throw deny(409, "USERNAME_TAKEN", "That username is taken.");

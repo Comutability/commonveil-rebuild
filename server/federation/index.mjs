@@ -692,7 +692,7 @@ export class Federation {
     }
     if (p === "/nodeinfo/2.1") {
       // Deliberately no user counts: how many people use a site is nobody else's business.
-      return json(res, 200, { version: "2.1", software: { name: "commonveil", version: this.config.version, repository: "https://github.com/Comutability/commonveil-rebuild" }, protocols: [], services: { inbound: [], outbound: [] }, openRegistrations: this.config.openRegistration, usage: { users: {} }, metadata: { nodeName: this.config.siteName, federation: this.enabled ? PROTOCOL : "off" } }), true;
+      return json(res, 200, { version: "2.1", software: { name: "commonveil", version: this.config.version, repository: "https://github.com/Comutability/commonveil-rebuild" }, protocols: [], services: { inbound: [], outbound: [] }, openRegistrations: this.config.openRegistration && sitePolicy(this.store).registration_open, usage: { users: {} }, metadata: { nodeName: this.config.siteName, federation: this.enabled ? PROTOCOL : "off" } }), true;
     }
 
     // Where someone lives, from their handle or their site's address (for "join from your own site").
