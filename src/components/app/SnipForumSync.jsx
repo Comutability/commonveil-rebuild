@@ -33,6 +33,8 @@ export default function SnipForumSync() {
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [nextStepAt, setNextStepAt] = useState(0);
   const [stale, setStale] = useState(false);
+  const [snapshotAt, setSnapshotAt] = useState("");
+  const [lastAction, setLastAction] = useState("");
 
   const defaultId = Object.keys(ctx.servers || {}).find((sid) => ctx.servers[sid]?.server?.is_default) || "";
   const manager = Boolean(defaultId) && ctx.can(defaultId, P.MANAGE_CHANNELS) && ctx.can(defaultId, P.MANAGE_THREADS);
@@ -49,7 +51,15 @@ export default function SnipForumSync() {
       // Do not let focus/online events or repeated clicks exhaust the same
       // shared Base44 request budget. A rate-limited partial operation will
       // resume against fixed SNIP IDs rather than creating duplicates.
-      if (stopped || busy.current || isOffline() || document.visibilityState !== "visible") return;
+      if (stopped || busy.current) return;
+      if (isOffline()) {
+        setLastError("Commonveil is in offline mode. Turn off offline mode or reconnect before synchronising.");
+        return;
+      }
+      if (document.visibilityState !== "visible") {
+        setLastError("Keep Commonveil visible and unlocked while you synchronise.");
+        return;
+      }
       const now = Date.now();
       if (now < nextAllowed.current) return;
       busy.current = true;
@@ -61,6 +71,10 @@ export default function SnipForumSync() {
           status: async () => {
             const report = await callFn("snips", { action: "status" });
             setStale(Boolean(report.stale));
+            setSnapshotAt(report.fetched_at || "");
+            if (!report.enabled) {
+              throw new Error("Secure Net proposal synchronisation is disabled on this site.");
+            }
             backlog = planSnipSync(report, Number.MAX_SAFE_INTEGER).length;
             setPending(backlog);
             return report;
@@ -74,12 +88,27 @@ export default function SnipForumSync() {
             if (!find()) await c().reloadServer(defaultId);
             return find();
           },
-          post: (channel, payload, opts) => c().sendWithId(defaultId, channel, payload, opts),
+          post: async (channel, payload, opts) => {
+            const sent = await c().sendWithId(defaultId, channel, payload, opts);
+            // The ordinary chat send API is allowed to queue signed ciphertext
+            // locally during a connection failure. A forum sync must NOT treat
+            // a queued local-only message as successfully published on the server.
+            if (!sent || sent.waiting || sent.held) {
+              throw Object.assign(new Error("The signed forum post is queued on this device, not yet published. Keep Commonveil open and online to deliver it."), { code: "SNIP_POST_QUEUED" });
+            }
+            return sent;
+          },
           lock: (channel, msgId) => c().lockThread(defaultId, { m: { channel_id: channel.id, msg_id: msgId } }, true),
         });
         busyFailures.current = 0;
         setCooldownUntil(0);
         setLastError("");
+        if (result.posted.length || result.closed.length) {
+          const ids = [...new Set([...result.posted, ...result.closed])];
+          setLastAction("Processed " + ids.join(", ") + " on the default server.");
+        } else if (!backlog) {
+          setLastAction("No new forum actions are possible from the current GitHub snapshot.");
+        }
         // A newly posted, immediately locked proposal counts once.
         const completed = result.posted.length + result.closed.filter((id) => !result.posted.includes(id)).length;
         const left = Math.max(0, (backlog ?? 0) - completed);
@@ -110,7 +139,8 @@ export default function SnipForumSync() {
           later(pass, pause + 1_000);
         } else {
           setLastError(err?.message || "Could not sync the proposals.");
-          // Another transient failure should not cause a rapid retry loop.
+          // An error should never be reported as a success. Distinguish queued
+          // local ciphertext from an accepted, persisted forum message.
           nextAllowed.current = Date.now() + NEXT_STEP_MS;
         }
       } finally {
@@ -151,10 +181,15 @@ export default function SnipForumSync() {
     </div>
     {lastError ? <p role={cooldownUntil ? "status" : "alert"} className="mt-2 text-muted-foreground">{lastError}</p> :
       <p className="mt-1 text-muted-foreground">
-        {stale ? "GitHub is temporarily unavailable; no changes will be made from an old snapshot." :
+        {stale ? (
           typeof pending === "number" && pending > 0 ?
-          "Continuing in small, spaced-out steps while this tab stays open." :
-          "Only this authorised device can sign and encrypt forum updates."}
+          "GitHub refresh failed. Creating missing discussions from a recent cached snapshot only. Merge/decline closures will wait for fresh confirmation." :
+          "GitHub refresh unavailable. Closure changes are paused until fresh data returns."
+        ) : typeof pending === "number" && pending > 0 ?
+          "Creating missing threads first, then closing completed proposals. Keep this tab unlocked." :
+          "No outstanding work confirmed. Only this device can encrypt and sign forum changes."}
       </p>}
+    {lastAction && <p role="status" className="mt-1 text-muted-foreground">{lastAction}</p>}
+    {snapshotAt && <p className="mt-1 text-muted-foreground">GitHub snapshot: {new Date(snapshotAt).toLocaleString()} {stale ? "(cached)" : "(fresh)"}</p>}
   </div>;
 }
