@@ -81,6 +81,9 @@ jobs:
         run: |
           echo "image=ghcr.io/$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')/commonveil" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          protocol_rev=$(sed -n 's/^secure-net-core = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' rust/Cargo.toml)
+          test "$(printf '%s' "$protocol_rev" | wc -c)" -eq 40 || { echo "::error::Missing pinned Secure Net revision"; exit 1; }
+          echo "secure_net_rev=$protocol_rev" >> "$GITHUB_OUTPUT"
           latest="v$(node -p 'require("./notes/package.json").version')"
           echo "latest=$([ "$TAG" = "$latest" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           # The updater is built from the repository's root from 0.24.0 (it's Rust, in rust/);
@@ -95,6 +98,7 @@ jobs:
           push: true
           build-args: |
             COMMONVEIL_VERSION=${{ steps.name.outputs.version }}
+            SECURE_NET_REV=${{ steps.name.outputs.secure_net_rev }}
           # :latest only ever points at the newest release.
           tags: |
             ${{ steps.name.outputs.image }}:${{ steps.name.outputs.version }}

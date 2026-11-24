@@ -58,6 +58,11 @@ FROM ${ALPINE_IMAGE}
 RUN apk upgrade --no-cache && apk add --no-cache "zlib>=1.4-r0" \
  && addgroup -g 1000 commonveil && adduser -D -H -u 1000 -G commonveil -h /app -s /sbin/nologin commonveil
 ARG COMMONVEIL_VERSION=""
+# Every release image identifies the exact pinned Secure Net source revision.
+# The migration staging service still defaults to disabled in the Rust server.
+ARG SECURE_NET_REV="not-specified"
+LABEL org.opencontainers.image.secure-net.commit="${SECURE_NET_REV}" \
+      org.opencontainers.image.secure-net.transfer="experimental-disabled-by-default"
 LABEL org.opencontainers.image.title="Commonveil" \
       org.opencontainers.image.description="End-to-end encrypted chat and communities you can run yourself" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
