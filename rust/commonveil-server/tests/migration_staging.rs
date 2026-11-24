@@ -304,3 +304,169 @@ fn owner_signed_reconciliation_over_http_survives_restart_without_cutover() {
     );
     assert_eq!(code, 404, "{missing}");
 }
+
+// A->B->C here tests *independent identity and ciphertext staging only*.
+// It does NOT test live account migration, actor redirect or mailbox transfer.
+#[test]
+fn independently_owned_actor_can_stage_on_two_distinct_hosts_without_a_source_host() {
+    let original_actor = SigningKey::generate(true);
+    let classical_only = SigningKey::generate(false);
+    let host_b_dir = tempdir().unwrap();
+    let host_c_dir = tempdir().unwrap();
+    let enabled = "true".to_string();
+    let host_b = start_with(
+        false,
+        host_b_dir.path(),
+        &[
+            ("EXPERIMENTAL_TRANSFER_STAGING", enabled.clone()),
+            ("SITE_URL", "https://b.example".to_string()),
+        ],
+    );
+    let host_c = start_with(
+        false,
+        host_c_dir.path(),
+        &[
+            ("EXPERIMENTAL_TRANSFER_STAGING", enabled),
+            ("SITE_URL", "https://c.example".to_string()),
+        ],
+    );
+    let endpoint = "/cvp/v2/experimental-transfer";
+    let (bad, downgrade) = post(
+        host_c.1,
+        "POST",
+        &format!("{endpoint}/challenge"),
+        "",
+        &json!({"owner_public":classical_only.public_key}).to_string(),
+    );
+    assert_eq!(bad, 400, "{downgrade}");
+    assert_eq!(downgrade["code"], "HYBRID_KEY_REQUIRED");
+
+    // Host A is deliberately offline. Only the user-held independent actor
+    // key and ciphertext are available. We make no claim to transfer A's
+    // unavailable messages or to verify A's past actor document sequence.
+    let mut stage_tokens = Vec::new();
+    for (server, from, destination, seq, payload) in [
+        (
+            &host_b,
+            "a.example",
+            "b.example",
+            1_u64,
+            "opaque-stage-for-b",
+        ),
+        (
+            &host_c,
+            "b.example",
+            "c.example",
+            2_u64,
+            "opaque-stage-for-c",
+        ),
+    ] {
+        let (status, issued) = post(
+            server.1,
+            "POST",
+            &format!("{endpoint}/challenge"),
+            "",
+            &json!({"owner_public":original_actor.public_key}).to_string(),
+        );
+        assert_eq!(status, 200, "{issued}");
+        assert_eq!(issued["actor"], original_actor.kid);
+        assert_eq!(issued["destination"], destination);
+        let nonce = issued["challenge"].as_str().unwrap();
+        let (manifest, root, bytes) = manifest(&[payload]);
+        let now = commonveil_server::sessions::now_ms();
+        // First try a properly signed but wrong-destination statement. A
+        // separate host must not accept a valid signature addressed to B.
+        let bad_to = if destination == "b.example" {
+            "c.example"
+        } else {
+            "b.example"
+        };
+        let make_intent = |to: &str| {
+            sign(
+                "transfer.intent",
+                &json!({
+                    "v": 1, "actor": original_actor.kid, "from": from, "to": to,
+                    "seq": seq, "challenge": nonce, "ciphertext_root": root,
+                    "chunks": 1, "bytes": bytes, "issued_ms": now, "expires_ms": now + 120_000,
+                }),
+                &original_actor,
+            )
+            .unwrap()
+        };
+        let forged_destination = make_intent(bad_to);
+        let (code, rejected) = post(
+            server.1,
+            "POST",
+            &format!("{endpoint}/prepare"),
+            "",
+            &json!({
+                "owner_public": original_actor.public_key,
+                "intent": forged_destination, "manifest": manifest,
+            })
+            .to_string(),
+        );
+        assert_eq!(code, 400, "{rejected}");
+        assert_eq!(rejected["code"], "BAD_INTENT");
+
+        let signed = make_intent(destination);
+        let (code, prepared) = post(
+            server.1,
+            "POST",
+            &format!("{endpoint}/prepare"),
+            "",
+            &json!({
+                "owner_public": original_actor.public_key,
+                "intent": signed, "manifest": manifest,
+            })
+            .to_string(),
+        );
+        assert_eq!(code, 200, "{prepared}");
+        assert_eq!(prepared["cutover"], false);
+        let stage = prepared["stage_id"].as_str().unwrap();
+        let token = prepared["stage_token"].as_str().unwrap();
+        let (code, response) = post(
+            server.1,
+            "POST",
+            &format!("{endpoint}/stages/{stage}/chunks/0"),
+            token,
+            payload,
+        );
+        assert_eq!(code, 200, "{response}");
+        assert_eq!(response["ciphertext_complete"], true);
+        assert_eq!(response["cutover"], false);
+        stage_tokens.push((server.1, stage.to_string(), token.to_string()));
+    }
+    // The two staging databases and bearer credentials are independent.
+    let (b_port, b_id, b_token) = &stage_tokens[0];
+    let (c_port, c_id, c_token) = &stage_tokens[1];
+    let (bad, denied) = post(
+        *c_port,
+        "POST",
+        &format!("{endpoint}/stages/{c_id}/status"),
+        b_token,
+        "{}",
+    );
+    assert_eq!(bad, 404, "{denied}");
+    let (bad, denied) = post(
+        *b_port,
+        "POST",
+        &format!("{endpoint}/stages/{b_id}/status"),
+        c_token,
+        "{}",
+    );
+    assert_eq!(bad, 404, "{denied}");
+    for (port, id, token) in stage_tokens {
+        let (code, status) = post(
+            port,
+            "POST",
+            &format!("{endpoint}/stages/{id}/status"),
+            &token,
+            "{}",
+        );
+        assert_eq!(code, 200, "{status}");
+        assert_eq!(status["ciphertext_complete"], true);
+        assert_eq!(status["client_attested"], false);
+        assert_eq!(status["imported"], false);
+        assert_eq!(status["cutover"], false);
+    }
+}
