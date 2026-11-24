@@ -848,7 +848,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e35d6e78f4cebb90e51d543db8fe41528851d6deeef6ef21ebd4bfdc1e784776"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2079,7 +2079,7 @@ dependencies = [
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.6.0"
-source = "git+https://github.com/Comutability/secure-net?rev=12ab6f3e351bb348aed75f864095e50965be9239#12ab6f3e351bb348aed75f864095e50965be9239"
+source = "git+https://github.com/Comutability/secure-net?rev=e82fd9e453f5c145e0f6e7892dd57e958db38ff2#e82fd9e453f5c145e0f6e7892dd57e958db38ff2"
 dependencies = [
  "aes-gcm 0.10.3",
  "chacha20poly1305",
@@ -2143,7 +2143,7 @@ dependencies = [
 [[package]]
 name = "openmls_traits"
 version = "0.6.0"
-source = "git+https://github.com/Comutability/secure-net?rev=12ab6f3e351bb348aed75f864095e50965be9239#12ab6f3e351bb348aed75f864095e50965be9239"
+source = "git+https://github.com/Comutability/secure-net?rev=e82fd9e453f5c145e0f6e7892dd57e958db38ff2#e82fd9e453f5c145e0f6e7892dd57e958db38ff2"
 dependencies = [
  "serde",
  "tls_codec 0.5.0",
@@ -2708,7 +2708,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2798,7 +2798,7 @@ dependencies = [
 [[package]]
 name = "secure-net-core"
 version = "0.7.0"
-source = "git+https://github.com/Comutability/secure-net?rev=12ab6f3e351bb348aed75f864095e50965be9239#12ab6f3e351bb348aed75f864095e50965be9239"
+source = "git+https://github.com/Comutability/secure-net?rev=e82fd9e453f5c145e0f6e7892dd57e958db38ff2#e82fd9e453f5c145e0f6e7892dd57e958db38ff2"
 dependencies = [
  "aes-gcm 0.11.1",
  "base64 0.23.1",
@@ -3149,7 +3149,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3648,7 +3648,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
