@@ -49,6 +49,12 @@ export const PAGES = Object.freeze([
     priority: "0.7",
   },
   {
+    path: "/secure-net",
+    title: "Secure Net: an independent open protocol",
+    description: "Secure Net is an open protocol for independent encrypted inbox, outbox and relay communication. Commonveil is the first application, not a required gateway.",
+    priority: "0.7",
+  },
+  {
     path: "/security",
     title: "How the encryption works, and where it stops",
     description: "Commonveil's end-to-end encryption in plain language: what it protects, what the server can still see, and the limits we know about.",

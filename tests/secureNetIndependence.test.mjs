@@ -23,6 +23,9 @@ test("public website exposes independent protocol information without enabling u
   const home = source("src/pages/site/Home.jsx");
   const settings = source("src/components/identity/ProtocolIdentitySettings.jsx");
   assert.match(routes, /path="secure-net" element=\{<SecureNet/);
+  const seo = source("src/lib/site/seo.js");
+  assert.match(seo, /path: "\/secure-net"/);
+  assert.match(seo, /Secure Net: an independent open protocol/);
   assert.match(home, /to="\/secure-net"/);
   assert.match(settings, /to="\/secure-net"/);
   assert.match(page, /independent of Commonveil/i);
