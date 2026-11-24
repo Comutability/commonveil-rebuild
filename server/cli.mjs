@@ -2,6 +2,7 @@
 //   docker compose exec app node server/index.mjs <command> [arguments]
 //
 //   make-admin <username>     give an account the admin role (or an older account's email)
+//   make-owner <username>     transfer site ownership from the operator-only console
 //   reset-password <username> set a temporary password and print it
 //   setup-code                the one-time code for creating a new site's first (admin) account
 //   backup                    copy the database to DATA_DIR/backups
@@ -38,6 +39,23 @@ export async function runCli(config, [command, arg]) {
       console.log(`${arg} is now an admin. (Restart the app for it to take effect: docker compose restart app)`);
       return 0;
     }
+    if (command === "make-owner") {
+      const id = userIdFor(arg);
+      const table = id && record("Person",id) ? "Person":"User";
+      const user = id && record(table,id);
+      if (!user) return fail("No account for " + arg);
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        db.prepare("UPDATE records SET data=json_set(data,'$.site_owner',json('false')) WHERE entity IN ('Person','User') AND json_extract(data,'$.site_owner')=1").run();
+        save(table,id,{...user,role:"admin",site_owner:true});
+        db.exec("COMMIT");
+        console.log("Site ownership transferred to " + arg + ". Restart the app to refresh sessions.");
+        return 0;
+      } catch {
+        db.exec("ROLLBACK");
+        return fail("Couldn't transfer site ownership.");
+      }
+    }
     if (command === "reset-password") {
       const id = userIdFor(arg);
       const row = id && db.prepare("SELECT id, data FROM records WHERE entity = 'CvAccount' AND json_extract(data, '$.user_id') = ? LIMIT 1").get(id);
@@ -66,7 +84,7 @@ export async function runCli(config, [command, arg]) {
       console.log(`Saved ${file}`);
       return 0;
     }
-    return fail(`Unknown command ${command}. Try: make-admin, reset-password, setup-code, backup, version`);
+    return fail(`Unknown command ${command}. Try: make-admin, make-owner, reset-password, setup-code, backup, version`);
   } finally {
     db.close();
   }

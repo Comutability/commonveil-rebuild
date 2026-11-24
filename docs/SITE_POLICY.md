@@ -56,6 +56,24 @@ FEDERATION=true
 
 Back up the database before major production federation changes. The host operator is responsible for exercising these choices fairly and explaining their own moderation procedures.
 
+### First owner and existing installations
+
+A fresh site gives its first account the owner role **only when the operator
+uses the one-time setup code**. A regular admin does not automatically have
+owner privileges. On an existing Docker installation, the operator can
+explicitly designate or transfer the owner using an operator-only command
+after checking the chosen account:
+
+```bash
+docker compose exec app commonveil-server make-owner <username>
+docker compose restart app
+```
+
+This revokes the old site's owner marker and grants the chosen account
+the admin and owner roles. It does not change encryption keys or member
+identity. The command requires container-console access and is **not**
+available to normal website administrators. Back up your database first.
+
 ## Limitations
 
 These are local transport restrictions, not a global content-control service, not an automatic abuse classifier and not an inspection of end-to-end encrypted messages. Limiting a remote host is not the same as Mastodon's ActivityPub semantics. Wildcard/suffix domain blocks are not implemented, and previously downloaded media cannot be removed remotely.

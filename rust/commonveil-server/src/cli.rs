@@ -2,6 +2,7 @@
 //!   docker compose exec app commonveil-server <command> [arguments]
 //!
 //!   make-admin <username>     give an account the admin role (or an older account's email)
+//!   make-owner <username>     transfer site ownership using the operator-only container console
 //!   reset-password <username> set a temporary password and print it
 //!   setup-code                the one-time code for creating a new site's first (admin) account
 //!   backup                    copy the database to DATA_DIR/backups
@@ -68,6 +69,27 @@ pub fn run(config: &Config, args: &[String]) -> i32 {
             println!("{arg} is now an admin. (Restart the app for it to take effect: docker compose restart app)");
             0
         }
+        "make-owner" => {
+            let id = user_id_for(&arg);
+            let table = if id.as_deref().is_some_and(|i| record("Person",i).is_some()) {"Person"}else{"User"};
+            let Some((id,mut user))=id.and_then(|i|record(table,&i).map(|u|(i,u))) else {
+                return fail(&format!("No account for {arg}"));
+            };
+            user["role"]=json!("admin");
+            user["site_owner"]=json!(true);
+            if db.execute_batch("BEGIN IMMEDIATE TRANSACTION").is_err(){return fail("Couldn't acquire the owner transfer lock.")}
+            let clear=db.execute(
+                "UPDATE records SET data=json_set(data,'$.site_owner',json('false')) WHERE entity IN ('Person','User') AND json_extract(data,'$.site_owner')=1",
+                []
+            );
+            let saved=if clear.is_ok(){save(table,&id,&user)}else{clear};
+            if saved.is_err()||db.execute_batch("COMMIT").is_err(){
+                let _=db.execute_batch("ROLLBACK");
+                return fail("Couldn't transfer site ownership.");
+            }
+            println!("Transferred site ownership to {arg}. Restart the app: docker compose restart app");
+            0
+        }
         "reset-password" => {
             let row: Option<(String, String)> = user_id_for(&arg).and_then(|id| {
                 db.query_row("SELECT id, data FROM records WHERE entity = 'CvAccount' AND json_extract(data, '$.user_id') = ? LIMIT 1", [id], |r| Ok((r.get(0)?, r.get(1)?))).optional().ok().flatten()
@@ -111,6 +133,6 @@ pub fn run(config: &Config, args: &[String]) -> i32 {
                 Err(e) => fail(&format!("The backup couldn't be made: {e}")),
             }
         }
-        _ => fail(&format!("Unknown command {command}. Try: make-admin, reset-password, setup-code, backup, version")),
+        _ => fail(&format!("Unknown command {command}. Try: make-admin, make-owner, reset-password, setup-code, backup, version")),
     }
 }

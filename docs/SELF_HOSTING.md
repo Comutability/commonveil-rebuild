@@ -103,6 +103,7 @@ Commands for the command line (run them in your Commonveil folder):
 
 ```bash
 docker compose exec app commonveil-server make-admin <username>
+docker compose exec app commonveil-server make-owner <username>  # operator-only; transfers site ownership
 docker compose exec app commonveil-server setup-code                  # shows the first-admin code, if still unused
 docker compose exec app commonveil-server reset-password <username>   # prints a temporary password and signs them out everywhere
 docker compose exec app commonveil-server backup
