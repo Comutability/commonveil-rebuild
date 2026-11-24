@@ -305,3 +305,420 @@ impl Relay {
         )
     }
 }
+
+impl Relay {
+    fn canonical_recipient(&self, to: &Value, envelope: &Value) -> RelayResult<(String, String)> {
+        if !valid_actor_id(to) {
+            return error(400, "BAD_RECIPIENT");
+        }
+        if !envelope_problems(envelope)
+            .map_err(|_| RelayError {
+                status: 400,
+                code: "BAD_ENVELOPE",
+            })?
+            .is_empty()
+            || envelope["mode"] != "direct"
+            || !valid_device(&envelope["device"])
+        {
+            // Audience, group and public records need separate membership and
+            // author verification. Fail closed until supported.
+            return error(400, "UNSUPPORTED_ENVELOPE");
+        }
+        Ok((
+            to.as_str().unwrap_or("").to_owned(),
+            envelope["device"].as_str().unwrap_or("").to_owned(),
+        ))
+    }
+
+    /// Outbox is scoped to a *site-local* independent actor token. It never
+    /// takes Commonveil login state, legacy federation ids or raw plaintext.
+    pub fn outbox(&mut self, token: &str, body: &Value, now: i64) -> RelayResult<Value> {
+        let actor = self.actor_for_token(token)?;
+        if !strict(body, &["items"]) {
+            return error(400, "BAD_REQUEST");
+        }
+        let items = body["items"].as_array().ok_or(RelayError {
+            status: 400,
+            code: "BAD_ITEMS",
+        })?;
+        if items.is_empty() || items.len() > MAX_ITEMS {
+            return error(400, "BAD_ITEMS");
+        }
+        let mut work = Vec::new();
+        for item in items {
+            if !strict(item, &["host", "to", "envelope"]) {
+                return error(400, "BAD_ITEMS");
+            }
+            let host = item["host"].as_str().unwrap_or("");
+            if wire::norm_host(host).as_deref() != Some(host) {
+                return error(400, "BAD_SITE");
+            }
+            let (to, device) = self.canonical_recipient(&item["to"], &item["envelope"])?;
+            let local = host == self.host;
+            if local {
+                if !self.listed_device(&to, &device)? {
+                    return error(404, "RECIPIENT_UNAVAILABLE");
+                }
+            } else if self.trusted(host)?.is_none() {
+                return error(403, "UNTRUSTED_SITE");
+            }
+            work.push((
+                host.to_string(),
+                to,
+                device,
+                item["envelope"].to_string(),
+                local,
+            ));
+        }
+        self.purge(now)?;
+        let tx = from_db(
+            self.db
+                .transaction_with_behavior(TransactionBehavior::Immediate),
+        )?;
+        let mut local_count = 0u64;
+        let mut remote_count = 0u64;
+        for (host, to, device, envelope, local) in work {
+            if local {
+                let count: i64 = from_db(tx.query_row(
+                    "SELECT COUNT(*) FROM mail WHERE actor=?1 AND device=?2",
+                    params![to, device],
+                    |r| r.get(0),
+                ))?;
+                if count >= MAX_MAIL_PER_DEVICE {
+                    return error(429, "MAILBOX_FULL");
+                }
+                let id = random_b64u(24);
+                let inserted = from_db(tx.execute(
+                    "INSERT INTO mail(id,actor,device,source_host,envelope,created,expires)
+                     VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT DO NOTHING",
+                    params![id, to, device, self.host, envelope, now, now + MAIL_TTL_MS],
+                ))?;
+                local_count += inserted as u64;
+            } else {
+                let count: i64 = from_db(tx.query_row(
+                    "SELECT COUNT(*) FROM outbox WHERE actor=?1",
+                    params![actor],
+                    |r| r.get(0),
+                ))?;
+                if count >= MAX_OUTBOX_PER_ACTOR {
+                    return error(429, "OUTBOX_FULL");
+                }
+                from_db(tx.execute(
+                    "INSERT INTO outbox(id,actor,site,destination,envelope,created,next_at)
+                     VALUES(?1,?2,?3,?4,?5,?6,?6)",
+                    params![random_b64u(24), actor, host, to, envelope, now],
+                ))?;
+                remote_count += 1;
+            }
+        }
+        from_db(tx.commit())?;
+        Ok(
+            json!({"accepted":local_count+remote_count,"local_stored":local_count,
+          "remote_queued":remote_count,"pending_delivery":remote_count>0,
+          "cvp_profile":"experimental","commonveil_account_required":false}),
+        )
+    }
+
+    pub fn mailbox(&mut self, token: &str, device: &str, now: i64) -> RelayResult<Value> {
+        let actor = self.actor_for_token(token)?;
+        if !valid_device(&json!(device)) || !self.listed_device(&actor, device)? {
+            return error(403, "FORBIDDEN");
+        }
+        self.purge(now)?;
+        let mut statement = from_db(self.db.prepare(
+            "SELECT id,source_host,envelope FROM mail
+             WHERE actor=?1 AND device=?2 AND expires>=?3
+             ORDER BY created,id LIMIT 100",
+        ))?;
+        let items = from_db(statement.query_map(params![actor, device, now], |r| {
+            let id: String = r.get(0)?;
+            let source: String = r.get(1)?;
+            let body: String = r.get(2)?;
+            Ok((id, source, body))
+        }))?;
+        let mut out = Vec::new();
+        for entry in items {
+            let (id, from, envelope) = entry.map_err(|_| internal())?;
+            let parsed: Value = serde_json::from_str(&envelope).map_err(|_| internal())?;
+            out.push(json!({"id":id,"from":from,"envelope":parsed}));
+        }
+        Ok(json!({"actor":actor,"device":device,"items":out,"cvp_profile":"experimental"}))
+    }
+
+    pub fn acknowledge(&mut self, token: &str, body: &Value) -> RelayResult<Value> {
+        let actor = self.actor_for_token(token)?;
+        if !strict(body, &["device", "ids"]) || !valid_device(&body["device"]) {
+            return error(400, "BAD_REQUEST");
+        }
+        let device = body["device"].as_str().unwrap_or("");
+        if !self.listed_device(&actor, device)? {
+            return error(403, "FORBIDDEN");
+        }
+        let ids = body["ids"].as_array().ok_or(RelayError {
+            status: 400,
+            code: "BAD_IDS",
+        })?;
+        if ids.len() > 100
+            || ids.iter().any(|v| {
+                v.as_str().is_none_or(|s| {
+                    !(16..=64).contains(&s.len())
+                        || !s
+                            .bytes()
+                            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+                })
+            })
+        {
+            return error(400, "BAD_IDS");
+        }
+        let tx = from_db(
+            self.db
+                .transaction_with_behavior(TransactionBehavior::Immediate),
+        )?;
+        let mut deleted = 0usize;
+        for id in ids {
+            deleted += from_db(tx.execute(
+                "DELETE FROM mail WHERE id=?1 AND actor=?2 AND device=?3",
+                params![id, actor, device],
+            ))?;
+        }
+        from_db(tx.commit())?;
+        Ok(json!({"acknowledged":deleted}))
+    }
+
+    fn authenticate_delivery(
+        &mut self,
+        headers: &std::collections::HashMap<String, String>,
+        raw: &[u8],
+        now: i64,
+        relay_secret: &str,
+    ) -> RelayResult<(String, Vec<Value>, Vec<u8>, String)> {
+        let get = |key: &str| headers.get(key).map(String::as_str).unwrap_or("");
+        let from = get("cv-from");
+        if from == self.host || wire::norm_host(from).as_deref() != Some(from) {
+            return error(403, "UNTRUSTED_SITE");
+        }
+        let (key, pq_kem, pq_sig) = self.trusted(from)?.ok_or(RelayError {
+            status: 403,
+            code: "UNTRUSTED_SITE",
+        })?;
+        let nonce = get("cv-nonce");
+        if nonce.len() < 16
+            || nonce.len() > 64
+            || !nonce
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+        {
+            return error(401, "BAD_NONCE");
+        }
+        if !wire::fresh_enough(get("cv-date"), now) {
+            return error(401, "STALE");
+        }
+        if get("cv-digest") != wire::digest_of(raw) {
+            return error(401, "BAD_DIGEST");
+        }
+        let transcript = wire::signature_base(&RequestFields {
+            method: "POST",
+            to: &self.host,
+            path: "/cvp/v2/deliver",
+            from,
+            date: get("cv-date"),
+            nonce,
+            digest: get("cv-digest"),
+            user: "",
+        });
+        if !wire::verify_request(
+            &RequestFields {
+                method: "POST",
+                to: &self.host,
+                path: "/cvp/v2/deliver",
+                from,
+                date: get("cv-date"),
+                nonce,
+                digest: get("cv-digest"),
+                user: "",
+            },
+            get("cv-signature"),
+            &key,
+        ) || !sealed::verify(&pq_sig, &transcript, get("cv-pq-signature"))
+        {
+            return error(401, "BAD_SIGNATURE");
+        }
+        if get("cv-sealed") != "1" {
+            return error(401, "UNSEALED");
+        }
+        let outer: Value = serde_json::from_slice(raw).map_err(|_| RelayError {
+            status: 400,
+            code: "BAD_BODY",
+        })?;
+        if !strict(&outer, &["sealed"]) || pq_kem.is_empty() {
+            return error(400, "BAD_BODY");
+        }
+        let context = sealed::relay_context(from, &self.host, "/cvp/v2/deliver");
+        let (clear, reply_key) = sealed::open(
+            relay_secret,
+            outer["sealed"].as_str().unwrap_or(""),
+            &context,
+        )
+        .map_err(|_| RelayError {
+            status: 400,
+            code: "CANNOT_OPEN",
+        })?;
+        let inner: Value = serde_json::from_str(&clear).map_err(|_| RelayError {
+            status: 400,
+            code: "BAD_BODY",
+        })?;
+        if !strict(&inner, &["v", "items"]) {
+            return error(400, "BAD_BODY");
+        }
+        let items = read_delivery_body(&inner).map_err(|_| RelayError {
+            status: 400,
+            code: "BAD_DELIVERY",
+        })?;
+        Ok((from.to_string(), items, reply_key, context))
+    }
+
+    /// All-or-nothing verified site delivery and persisted nonce consumption.
+    pub fn deliver(
+        &mut self,
+        headers: &std::collections::HashMap<String, String>,
+        raw: &[u8],
+        now: i64,
+        relay_secret: &str,
+    ) -> RelayResult<Value> {
+        if raw.len() > MAX_REQUEST {
+            return error(413, "TOO_LARGE");
+        }
+        let (from, items, reply_key, context) =
+            self.authenticate_delivery(headers, raw, now, relay_secret)?;
+        self.purge(now)?;
+        let nonce = headers.get("cv-nonce").ok_or(RelayError {
+            status: 401,
+            code: "BAD_NONCE",
+        })?;
+        // Validate the *entire* delivery before writing anything.
+        let mut destinations = Vec::new();
+        for item in items {
+            let (to, device) = self.canonical_recipient(&item["to"], &item["envelope"])?;
+            if self.listed_device(&to, &device)? {
+                destinations.push((to, device, item["envelope"].to_string()));
+            }
+        }
+        let tx = from_db(
+            self.db
+                .transaction_with_behavior(TransactionBehavior::Immediate),
+        )?;
+        let seen: Option<i64> = from_db(
+            tx.query_row(
+                "SELECT seen FROM seen_site_nonces WHERE host=?1 AND nonce=?2",
+                params![from, nonce],
+                |r| r.get(0),
+            )
+            .optional(),
+        )?;
+        if seen.is_some() {
+            return error(409, "REPLAY");
+        }
+        let mut stored = 0usize;
+        for (to, device, envelope) in destinations {
+            let count: i64 = from_db(tx.query_row(
+                "SELECT COUNT(*) FROM mail WHERE actor=?1 AND device=?2",
+                params![to, device],
+                |r| r.get(0),
+            ))?;
+            if count >= MAX_MAIL_PER_DEVICE {
+                return error(429, "MAILBOX_FULL");
+            }
+            stored += from_db(tx.execute(
+                "INSERT INTO mail(id,actor,device,source_host,envelope,created,expires)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT DO NOTHING",
+                params![
+                    random_b64u(24),
+                    to,
+                    device,
+                    from,
+                    envelope,
+                    now,
+                    now + MAIL_TTL_MS
+                ],
+            ))?;
+        }
+        from_db(tx.execute(
+            "INSERT INTO seen_site_nonces(host,nonce,seen) VALUES(?1,?2,?3)",
+            params![from, nonce, now],
+        ))?;
+        from_db(tx.commit())?;
+        let reply = sealed::seal_reply(
+            &reply_key,
+            &json!({"ok":true,"stored":stored}).to_string(),
+            &context,
+        )
+        .map_err(|_| internal())?;
+        Ok(json!({"sealed":reply}))
+    }
+
+    /// The sending site explicitly drains its durable remote outbox. A failed
+    /// remote reply leaves the queued delivery untouched for a later retry.
+    pub fn pending(
+        &self,
+        token: &str,
+        admin: &str,
+        now: i64,
+    ) -> RelayResult<Vec<(String, String, String, String)>> {
+        self.admin(token, admin)?;
+        let mut stmt = from_db(self.db.prepare(
+            "SELECT id,site,destination,envelope FROM outbox WHERE next_at<=?1
+             ORDER BY created,id LIMIT 20",
+        ))?;
+        let rows = from_db(stmt.query_map(params![now], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        }))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|_| internal())?)
+        }
+        Ok(out)
+    }
+    pub fn mark_sent(&mut self, token: &str, admin: &str, id: &str) -> RelayResult<()> {
+        self.admin(token, admin)?;
+        from_db(
+            self.db
+                .execute("DELETE FROM outbox WHERE id=?1", params![id]),
+        )?;
+        Ok(())
+    }
+    pub fn delay(&mut self, token: &str, admin: &str, id: &str, now: i64) -> RelayResult<()> {
+        self.admin(token, admin)?;
+        from_db(self.db.execute(
+            "UPDATE outbox SET attempts=attempts+1,next_at=?2 WHERE id=?1",
+            params![id, now + 60_000],
+        ))?;
+        Ok(())
+    }
+    pub fn peer_kem(&self, host: &str) -> RelayResult<String> {
+        self.trusted(host)?.map(|x| x.1).ok_or(RelayError {
+            status: 403,
+            code: "UNTRUSTED_SITE",
+        })
+    }
+
+    pub fn actors(&self) -> RelayResult<Value> {
+        let rows = from_db(
+            self.db
+                .prepare("SELECT document FROM actors ORDER BY handle LIMIT 100"),
+        )?
+        .query_map([], |r| r.get::<_, String>(0));
+        // Use a fresh statement below to avoid borrowing a temporary.
+        let _ = rows;
+        let mut stmt = from_db(
+            self.db
+                .prepare("SELECT document FROM actors ORDER BY handle LIMIT 100"),
+        )?;
+        let rows = from_db(stmt.query_map([], |r| r.get::<_, String>(0)))?;
+        let mut records = Vec::new();
+        for row in rows {
+            let text = row.map_err(|_| internal())?;
+            records.push(serde_json::from_str::<Value>(&text).map_err(|_| internal())?);
+        }
+        Ok(json!({"actors":records,"cvp_profile":"experimental"}))
+    }
+}
