@@ -1228,7 +1228,7 @@ test("the proposals forum: a thread for every SNIP on GitHub, made and closed by
     await first.ok("servers", await signed(first, "accept_rules", { server_id: sid }));
     assert.equal((await first.post(sid, forum, textPayload("already merged"), "message", snipThreadId("SNIP-0001"))).body.code, "THREAD_LOCKED");
     const original = (await owner.readChannel(sid, forum, { thread_id: snipThreadId("SNIP-0001") })).map((m) => m.text);
-    assert.ok(original.some((t) => /code merge is NOT approval, ratification/i.test(t || "")));
+    assert.ok(original.some((t) => /source-code merge is NOT standards acceptance, ratification/i.test(t || "")));
     assert.equal((await first.post(sid, forum, { type: "post", title: "My own proposal", text: "x" }, "post")).body.code, "MISSING_PERMISSION");
 
     // A new proposal arrives in a pull request: it gets a thread while still under discussion.
@@ -1246,7 +1246,7 @@ test("the proposals forum: a thread for every SNIP on GitHub, made and closed by
     assert.deepEqual(await runSnipSync(ioFor(owner)), { forum: false, posted: [], closed: ["SNIP-0003"] });
     const mergedDiscussion = (await owner.readChannel(sid, forum, { thread_id: snipThreadId("SNIP-0003") })).map((m) => m.text);
     assert.ok(mergedDiscussion.some((t) => /SNIP governance status: Draft/.test(t || "")));
-    assert.ok(mergedDiscussion.some((t) => /code merge is NOT approval/.test(t || "")));
+    assert.ok(mergedDiscussion.some((t) => /source-code merge is NOT standards acceptance/.test(t || "")));
 
     // A later formal status change does not re-close an already locked thread.
     gh.main["SNIP-0001.md"] = snip("0001", "The proposal process", "Accepted on 20 November 2026");
@@ -1254,7 +1254,7 @@ test("the proposals forum: a thread for every SNIP on GitHub, made and closed by
     done = await runSnipSync(ioFor(owner));
     assert.deepEqual(done.closed, []);
     const thread = (await owner.readChannel(sid, forum, { thread_id: snipThreadId("SNIP-0001") })).map((m) => m.text);
-    assert.ok(thread.some((t) => /code merge is NOT approval/.test(t || "")));
+    assert.ok(thread.some((t) => /source-code merge is NOT standards acceptance/.test(t || "")));
     assert.ok(w.rows("ServerMessage").find((m) => m.msg_id === snipThreadId("SNIP-0001")).thread_locked);
     assert.equal(w.rows("ServerMessage").filter((m) => m.msg_id === snipClosedNoteId("SNIP-0001")).length, 1);
     assert.equal((await first.post(sid, forum, textPayload("too late"), "message", snipThreadId("SNIP-0001"))).body.code, "THREAD_LOCKED");
