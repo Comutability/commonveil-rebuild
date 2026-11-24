@@ -39,7 +39,8 @@ The signed-in administrator also sees a **Sync now** control to reconcile the fo
   create one: the second is refused as a duplicate.
 - A locked thread is never unlocked automatically, so a moderator's decision to lock one stands.
   If a proposal is reopened on GitHub, unlock its thread by hand.
-- If GitHub can't be read, the last copy is used and nothing is opened or closed from it.
+- If GitHub cannot be refreshed, a **verified main-branch proposal cached within the last 12 hours** can still get a clearly marked discussion thread, using the last known title and status. **No thread is closed from a stale snapshot**, and an open-PR-only proposal will not be posted from stale data. After 12 hours without a valid refresh, even new threads are paused.
+- The admin sync displays the cached GitHub snapshot time, a pending count, and the last processed proposal. It reports missing permission, unloaded forum channels, offline mode and queued local messages instead of silently claiming success. A locally queued signed post is not a confirmed forum post; once delivery is confirmed the next sync can finish without making a duplicate.
 - **Only one proposal is reconciled per pass**, prioritising missing threads, including SNIP-0007 and SNIP-0008. A missing merged or declined proposal can still be posted, given its signed note and locked as one safe operation group.
 - The device automatically resumes the next pending proposal after a pause while the browser remains unlocked and visible. It does not flood the service with a whole backlog at once.
 - If Base44 reports `UPSTREAM_BUSY` (HTTP 429), the device pauses and retries with increasing delays instead of repeatedly hammering the shared backend. The button shows **Retry queued** during the pause. Already encrypted/signed posts are retained; stable message IDs make a partial operation resumable without duplicates.

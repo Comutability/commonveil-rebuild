@@ -37,7 +37,9 @@ Notifications only appear while Commonveil is open in a tab. Check that **Notify
 
 Commonveil has a shared limit on how many backend requests it can process per minute.
 
-If you see this while using **Secure Net proposals → Sync now**, the admin-device synchroniser now pauses safely and automatically resumes one proposal at a time while that tab remains open and unlocked. The button shows **Retry queued** during a rate-limit pause. You do not need to click it repeatedly, and previously signed forum posts will not be duplicated.
+If you see this while using **Secure Net proposals → Sync now**, the admin-device synchroniser pauses safely and automatically resumes one proposal at a time while that tab remains open and unlocked. The button shows **Retry queued** during a rate-limit pause.
+
+If the error disappears but SNIP threads are still missing, check the snapshot timestamp and pending count in the proposal-sync panel. When GitHub is temporarily unavailable, Commonveil can create a missing thread only for a proposal confirmed on the default branch in the previous 12 hours. It will clearly label the cached information and **will not close or decide any proposal** until GitHub refreshes successfully. An offline browser, an unloaded forum channel, missing community-admin permissions or a locally queued message now shows a specific explanation. You do not need to repeatedly click Sync now; signed forum posts will not be duplicated.
 
 For other actions, let the current request settle before trying again. If it persists across normal browsing, report the time and feature to a site administrator. Do not share your keys or private message contents when reporting an error.
 
