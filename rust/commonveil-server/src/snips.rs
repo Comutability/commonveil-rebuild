@@ -154,8 +154,8 @@ fn fetch_snips(repo: &str, token: &str) -> std::result::Result<Vec<Value>, Strin
     for path in &names {
         let id = snip_file(path).unwrap_or_default();
         let (title, status) = parse_snip(&id, g.raw("HEAD", path)?.as_deref());
-        let closed = is_closed_status(&status);
-        out.push((id.clone(), json!({ "id": id, "title": title, "status": status, "url": format!("https://github.com/{repo}/blob/HEAD/{path}"), "where": "main", "closed": closed })));
+        let closed = true; // Merged onto main closes the forum, not protocol approval.
+        out.push((id.clone(), json!({ "id": id, "title": title, "status": status, "url": format!("https://github.com/{repo}/blob/HEAD/{path}"), "where": "main", "closure": "merged_to_main", "closed": closed })));
     }
     // 2. Proposals that so far exist only in a pull request: open ones, then ones closed unmerged.
     let in_pull = |out: &mut Vec<(String, Value)>,
@@ -183,8 +183,8 @@ fn fetch_snips(repo: &str, token: &str) -> std::result::Result<Vec<Value>, Strin
                 g.raw(&to_js_string(pr["head"].get("sha")), &filename)?
                     .as_deref(),
             );
-            let closed = !open || is_closed_status(&status);
-            out.push((id.clone(), json!({ "id": id, "title": title, "status": if open { status } else { "Closed without merging".into() }, "url": pr["html_url"], "where": "pull", "pull": pr["number"], "closed": closed })));
+            let closed = !open || is_closed_status(&status);\n            let closure = if !open { "closed_unmerged" } else if closed { "status_final" } else { "" };
+            out.push((id.clone(), json!({ "id": id, "title": title, "status": if open { status } else { "Closed without merging".into() }, "url": pr["html_url"], "where": "pull", "pull": pr["number"], "closed": closed, "closure": closure })));
         }
         Ok(())
     };

@@ -54,12 +54,12 @@ async function fetchSnips(repo: string, token: string, fetcher: typeof fetch) {
     return res.ok ? res.text() : null;
   };
   const out = new Map<string, any>();
-  // 1. Proposals on the default branch.
+  // 1. Main-branch SNIP files close the forum thread under the requested policy.\n  // Their protocol status and human approval remain independent.
   const names: string[] = (await gh("/contents/snips")).map((f: any) => `snips/${f.name}`).filter((n: string) => SNIP_FILE.test(n)).sort().slice(0, MAX_SNIPS);
   await Promise.all(names.map(async (path) => {
     const id = SNIP_FILE.exec(path)![1];
     const { title, status } = parseSnip(id, await raw("HEAD", path));
-    out.set(id, { id, title, status, url: `https://github.com/${repo}/blob/HEAD/${path}`, where: "main", closed: isClosedStatus(status) });
+    out.set(id, { id, title, status, url: `https://github.com/${repo}/blob/HEAD/${path}`, where: "main", closure: "merged_to_main", closed: true });
   }));
   // 2. Proposals that so far exist only in a pull request: open ones, then ones closed without merging.
   const inPull = async (pr: any, open: boolean) => {
@@ -70,7 +70,7 @@ async function fetchSnips(repo: string, token: string, fetcher: typeof fetch) {
       const { title, status } = parseSnip(m[1], await raw(pr.head.sha, f.filename));
       out.set(m[1], {
         id: m[1], title, status: open ? status : "Closed without merging", url: pr.html_url, where: "pull", pull: pr.number,
-        closed: !open || isClosedStatus(status),
+        closed: !open || isClosedStatus(status), closure: open ? (isClosedStatus(status) ? "status_final" : "") : "closed_unmerged",
       });
     }
   };
