@@ -43,7 +43,9 @@ impl Conn {
     }
     pub fn reject(&self, code: u16, reason: &str) {
         let units: Vec<u16> = reason.encode_utf16().take(120).collect();
-        let _ = self.tx.send(Out::Close(code, String::from_utf16_lossy(&units)));
+        let _ = self
+            .tx
+            .send(Out::Close(code, String::from_utf16_lossy(&units)));
     }
     fn terminate(&self) {
         let _ = self.tx.send(Out::Terminate);
@@ -67,10 +69,15 @@ impl Cx<'_> {
         self.conns.iter().find(|c| c.id == id)
     }
     pub fn storage_get(&self, name: &str) -> Option<Value> {
-        self.app.store.get_setting(&format!("actor:{}:{name}", self.storage_key)).filter(|v| !v.is_null())
+        self.app
+            .store
+            .get_setting(&format!("actor:{}:{name}", self.storage_key))
+            .filter(|v| !v.is_null())
     }
     pub fn storage_put(&self, name: &str, value: &Value) {
-        self.app.store.set_setting(&format!("actor:{}:{name}", self.storage_key), Some(value));
+        self.app
+            .store
+            .set_setting(&format!("actor:{}:{name}", self.storage_key), Some(value));
     }
     /// Call the room's `wake(key)` at `at` (milliseconds), replacing any timer with that key.
     pub fn schedule(&mut self, key: &str, at: i64) {
@@ -88,7 +95,9 @@ impl Cx<'_> {
                     return;
                 }
                 guard.timers.remove(&key_owned);
-                guard.with(&host, &Arc::downgrade(&inst), |room, cx| room.wake(cx, &key_owned));
+                guard.with(&host, &Arc::downgrade(&inst), |room, cx| {
+                    room.wake(cx, &key_owned)
+                });
                 let empty = guard.is_empty();
                 let name = guard.key.clone();
                 drop(guard);
@@ -98,7 +107,8 @@ impl Cx<'_> {
             })
             .await;
         });
-        self.timers.insert(key.to_string(), (token, task.abort_handle()));
+        self.timers
+            .insert(key.to_string(), (token, task.abort_handle()));
     }
     pub fn cancel(&mut self, key: &str) {
         if let Some((_, t)) = self.timers.remove(key) {
@@ -126,10 +136,31 @@ pub struct Instance {
 }
 
 impl Instance {
-    fn with<R>(&mut self, host: &Arc<Host>, me: &Weak<Mutex<Instance>>, f: impl FnOnce(&mut Box<dyn Room>, &mut Cx) -> R) -> R {
+    fn with<R>(
+        &mut self,
+        host: &Arc<Host>,
+        me: &Weak<Mutex<Instance>>,
+        f: impl FnOnce(&mut Box<dyn Room>, &mut Cx) -> R,
+    ) -> R {
         let app = host.app();
-        let Instance { key, instance_id, room, conns, timers, next_timer } = self;
-        let mut cx = Cx { app: &app, instance_id, conns, storage_key: key, timers, me, host, next_timer };
+        let Instance {
+            key,
+            instance_id,
+            room,
+            conns,
+            timers,
+            next_timer,
+        } = self;
+        let mut cx = Cx {
+            app: &app,
+            instance_id,
+            conns,
+            storage_key: key,
+            timers,
+            me,
+            host,
+            next_timer,
+        };
         f(room, &mut cx)
     }
     fn is_empty(&self) -> bool {
@@ -145,7 +176,11 @@ pub struct Host {
 
 impl Host {
     pub fn new(app: Weak<App>) -> Arc<Self> {
-        Arc::new(Self { app, instances: Mutex::new(HashMap::new()), serial: Mutex::new(0) })
+        Arc::new(Self {
+            app,
+            instances: Mutex::new(HashMap::new()),
+            serial: Mutex::new(0),
+        })
     }
 
     fn app(&self) -> Arc<App> {
@@ -166,7 +201,14 @@ impl Host {
         if let Some(i) = all.get(&key) {
             return Some(i.clone());
         }
-        let inst = Arc::new(Mutex::new(Instance { key: key.clone(), instance_id: instance_id.into(), room: Self::make(name)?, conns: Vec::new(), timers: HashMap::new(), next_timer: 0 }));
+        let inst = Arc::new(Mutex::new(Instance {
+            key: key.clone(),
+            instance_id: instance_id.into(),
+            room: Self::make(name)?,
+            conns: Vec::new(),
+            timers: HashMap::new(),
+            next_timer: 0,
+        }));
         {
             let mut guard = inst.lock().unwrap_or_else(|e| e.into_inner());
             guard.with(self, &Arc::downgrade(&inst), |room, cx| room.start(cx));
@@ -177,18 +219,34 @@ impl Host {
 
     fn maybe_drop(&self, key: &str) {
         let mut all = self.instances.lock().unwrap_or_else(|e| e.into_inner());
-        if all.get(key).is_some_and(|i| i.lock().unwrap_or_else(|e| e.into_inner()).is_empty()) {
+        if all
+            .get(key)
+            .is_some_and(|i| i.lock().unwrap_or_else(|e| e.into_inner()).is_empty())
+        {
             all.remove(key);
         }
     }
 
     /// Join a WebSocket to a room, as this person (None: not signed in).
-    pub async fn attach(self: Arc<Self>, socket: WebSocket, name: String, instance_id: String, conn_id: String, user_id: Option<String>) {
+    pub async fn attach(
+        self: Arc<Self>,
+        socket: WebSocket,
+        name: String,
+        instance_id: String,
+        conn_id: String,
+        user_id: Option<String>,
+    ) {
         let host = self.clone();
         let (n, i) = (name.clone(), instance_id.clone());
-        let Ok(Some(inst)) = tokio::task::spawn_blocking(move || host.instance(&n, &i)).await else {
+        let Ok(Some(inst)) = tokio::task::spawn_blocking(move || host.instance(&n, &i)).await
+        else {
             let (mut sink, _) = socket.split();
-            let _ = sink.send(Message::Close(Some(CloseFrame { code: 1008, reason: "Unknown room".into() }))).await;
+            let _ = sink
+                .send(Message::Close(Some(CloseFrame {
+                    code: 1008,
+                    reason: "Unknown room".into(),
+                })))
+                .await;
             return;
         };
         let (mut sink, mut stream) = socket.split();
@@ -208,7 +266,12 @@ impl Host {
                         }
                     }
                     Out::Close(code, reason) => {
-                        let _ = sink.send(Message::Close(Some(CloseFrame { code, reason: reason.into() }))).await;
+                        let _ = sink
+                            .send(Message::Close(Some(CloseFrame {
+                                code,
+                                reason: reason.into(),
+                            })))
+                            .await;
                         break;
                     }
                     Out::Terminate => break,
@@ -219,13 +282,24 @@ impl Host {
         let me = Arc::downgrade(&inst);
         // Connect, as one step (a same-id connection already here is cut off).
         {
-            let (inst, host, me, conn_id, tx) = (inst.clone(), self.clone(), me.clone(), conn_id.clone(), tx.clone());
+            let (inst, host, me, conn_id, tx) = (
+                inst.clone(),
+                self.clone(),
+                me.clone(),
+                conn_id.clone(),
+                tx.clone(),
+            );
             let _ = tokio::task::spawn_blocking(move || {
                 let mut g = inst.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(pos) = g.conns.iter().position(|c| c.id == conn_id) {
                     g.conns.remove(pos).terminate();
                 }
-                g.conns.push(Conn { id: conn_id.clone(), user_id, serial, tx });
+                g.conns.push(Conn {
+                    id: conn_id.clone(),
+                    user_id,
+                    serial,
+                    tx,
+                });
                 g.with(&host, &me, |room, cx| room.connect(cx, &conn_id));
             })
             .await;
@@ -238,16 +312,23 @@ impl Host {
                 Message::Close(_) => break,
                 _ => continue,
             };
-            let Ok(msg) = serde_json::from_str::<Value>(&text) else { continue };
+            let Ok(msg) = serde_json::from_str::<Value>(&text) else {
+                continue;
+            };
             if msg.is_object() && msg["type"] == "__ping" {
                 let _ = tx.send(Out::Text(json!({ "type": "__pong" }).to_string()));
                 continue;
             }
-            let (inst, host, me, conn_id) = (inst.clone(), self.clone(), me.clone(), conn_id.clone());
+            let (inst, host, me, conn_id) =
+                (inst.clone(), self.clone(), me.clone(), conn_id.clone());
             let _ = tokio::task::spawn_blocking(move || {
                 let mut g = inst.lock().unwrap_or_else(|e| e.into_inner());
                 // A newer connection with this id took over: this one says nothing more.
-                if !g.conns.iter().any(|c| c.id == conn_id && c.serial == serial) {
+                if !g
+                    .conns
+                    .iter()
+                    .any(|c| c.id == conn_id && c.serial == serial)
+                {
                     return;
                 }
                 g.with(&host, &me, |room, cx| room.message(cx, &conn_id, &msg));
@@ -258,7 +339,13 @@ impl Host {
         let host = self.clone();
         let _ = tokio::task::spawn_blocking(move || {
             let mut g = inst.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(pos) = g.conns.iter().position(|c| c.id == conn_id && c.serial == serial) else { return };
+            let Some(pos) = g
+                .conns
+                .iter()
+                .position(|c| c.id == conn_id && c.serial == serial)
+            else {
+                return;
+            };
             g.conns.remove(pos);
             g.with(&host, &me, |room, cx| room.close(cx, &conn_id));
             let (empty, key) = (g.is_empty(), g.key.clone());
@@ -277,43 +364,81 @@ fn name_ok(s: &str) -> bool {
     (1..=40).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphabetic())
 }
 fn instance_ok(s: &str) -> bool {
-    (1..=160).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+    (1..=160).contains(&s.len())
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
 }
 fn conn_ok(s: &str) -> bool {
-    (8..=64).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+    (8..=64).contains(&s.len())
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
 }
 
 /// An upgrade request under /api/actors/: check it, then hand the socket to its room.
 pub async fn upgrade(app: Arc<App>, req: axum::extract::Request) -> Response<Body> {
     use axum::extract::FromRequestParts;
-    let not_found = || Response::builder().status(404).body(Body::empty()).expect("valid response");
+    let not_found = || {
+        Response::builder()
+            .status(404)
+            .body(Body::empty())
+            .expect("valid response")
+    };
     let path = req.uri().path().to_string();
     let query = req.uri().query().unwrap_or("").to_string();
-    let get = |k: &str| url::form_urlencoded::parse(query.as_bytes()).find(|(n, _)| n == k).map(|(_, v)| v.into_owned()).unwrap_or_default();
+    let get = |k: &str| {
+        url::form_urlencoded::parse(query.as_bytes())
+            .find(|(n, _)| n == k)
+            .map(|(_, v)| v.into_owned())
+            .unwrap_or_default()
+    };
     let segs: Vec<&str> = path.split('/').collect();
     let name = segs.get(3).copied().unwrap_or("").to_string();
-    let instance = url::form_urlencoded::parse(format!("x={}", segs.get(4).copied().unwrap_or("").replace('+', "%2B")).as_bytes()).next().map(|(_, v)| v.into_owned()).unwrap_or_default();
+    let instance = url::form_urlencoded::parse(
+        format!(
+            "x={}",
+            segs.get(4).copied().unwrap_or("").replace('+', "%2B")
+        )
+        .as_bytes(),
+    )
+    .next()
+    .map(|(_, v)| v.into_owned())
+    .unwrap_or_default();
     let conn_id = get("id");
-    if !name_ok(&name) || Host::make(&name).is_none() || !instance_ok(&instance) || !conn_ok(&conn_id) {
+    if !name_ok(&name)
+        || Host::make(&name).is_none()
+        || !instance_ok(&instance)
+        || !conn_ok(&conn_id)
+    {
         return not_found();
     }
     let (mut parts, _) = req.into_parts();
-    let Ok(ws) = axum::extract::ws::WebSocketUpgrade::from_request_parts(&mut parts, &()).await else { return not_found() };
+    let Ok(ws) = axum::extract::ws::WebSocketUpgrade::from_request_parts(&mut parts, &()).await
+    else {
+        return not_found();
+    };
     let token = get("token");
     let host = app.actors.clone();
-    ws.max_message_size(MAX_MESSAGE_BYTES).on_upgrade(move |socket| async move {
-        let (a, room) = (app.clone(), instance.clone());
-        let found = tokio::task::spawn_blocking(move || {
-            let user = a.session_for(&token).map(|(u, _)| crate::js::to_js_string(u.get("id")));
-            // A room on another site: this site carries the connection there.
-            let remote = user.as_ref().and_then(|_| a.federation.room_host(&room));
-            (user, remote)
+    ws.max_message_size(MAX_MESSAGE_BYTES)
+        .on_upgrade(move |socket| async move {
+            let (a, room) = (app.clone(), instance.clone());
+            let found = tokio::task::spawn_blocking(move || {
+                let user = a
+                    .session_for(&token)
+                    .map(|(u, _)| crate::js::to_js_string(u.get("id")));
+                // A room on another site: this site carries the connection there.
+                let remote = user.as_ref().and_then(|_| a.federation.room_host(&room));
+                (user, remote)
+            })
+            .await;
+            let (user, remote) = found.unwrap_or((None, None));
+            match (user, remote) {
+                (Some(user), Some(site)) => {
+                    app.federation
+                        .clone()
+                        .proxy_actor(socket, site, name, instance, conn_id, user)
+                        .await
+                }
+                (user, _) => host.attach(socket, name, instance, conn_id, user).await,
+            }
         })
-        .await;
-        let (user, remote) = found.unwrap_or((None, None));
-        match (user, remote) {
-            (Some(user), Some(site)) => app.federation.clone().proxy_actor(socket, site, name, instance, conn_id, user).await,
-            (user, _) => host.attach(socket, name, instance, conn_id, user).await,
-        }
-    })
 }

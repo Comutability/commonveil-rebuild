@@ -16,15 +16,25 @@ pub struct PasskeyError {
     pub message: String,
 }
 fn pk_err(m: &str) -> PasskeyError {
-    PasskeyError { known: true, message: m.into() }
+    PasskeyError {
+        known: true,
+        message: m.into(),
+    }
 }
 fn other(m: &str) -> PasskeyError {
-    PasskeyError { known: false, message: m.into() }
+    PasskeyError {
+        known: false,
+        message: m.into(),
+    }
 }
 
 /// `String(v || "")`.
 fn text_or_empty(v: &Value) -> String {
-    if crate::js::truthy(Some(v)) { crate::js::to_js_string(Some(v)) } else { String::new() }
+    if crate::js::truthy(Some(v)) {
+        crate::js::to_js_string(Some(v))
+    } else {
+        String::new()
+    }
 }
 type R<T> = Result<T, PasskeyError>;
 
@@ -49,7 +59,11 @@ impl Cbor {
         }
     }
     fn bytes(&self) -> Option<&[u8]> {
-        if let Cbor::Bytes(b) = self { Some(b) } else { None }
+        if let Cbor::Bytes(b) = self {
+            Some(b)
+        } else {
+            None
+        }
     }
 }
 
@@ -74,8 +88,12 @@ pub fn cbor(bytes: &[u8], start: usize) -> R<(Cbor, usize)> {
                 0..=23 => u64::from(info),
                 24 => u64::from(self.byte()?),
                 25 => (u64::from(self.byte()?) << 8) | u64::from(self.byte()?),
-                26 => (0..4).try_fold(0u64, |n, _| Ok::<_, PasskeyError>((n << 8) | u64::from(self.byte()?)))?,
-                27 => (0..8).try_fold(0u64, |n, _| Ok::<_, PasskeyError>(n.wrapping_mul(256) + u64::from(self.byte()?)))?,
+                26 => (0..4).try_fold(0u64, |n, _| {
+                    Ok::<_, PasskeyError>((n << 8) | u64::from(self.byte()?))
+                })?,
+                27 => (0..8).try_fold(0u64, |n, _| {
+                    Ok::<_, PasskeyError>(n.wrapping_mul(256) + u64::from(self.byte()?))
+                })?,
                 _ => return Err(pk_err("Unsupported CBOR")),
             };
             Ok((major, info, n))
@@ -101,7 +119,11 @@ pub fn cbor(bytes: &[u8], start: usize) -> R<(Cbor, usize)> {
                     }
                     let v = self.b[self.i..end].to_vec();
                     self.i = end;
-                    if major == 2 { Cbor::Bytes(v) } else { Cbor::Text(String::from_utf8_lossy(&v).into_owned()) }
+                    if major == 2 {
+                        Cbor::Bytes(v)
+                    } else {
+                        Cbor::Text(String::from_utf8_lossy(&v).into_owned())
+                    }
                 }
                 4 => Cbor::Array((0..n).map(|_| self.read(depth + 1)).collect::<R<_>>()?),
                 5 => {
@@ -141,7 +163,13 @@ fn parse_auth_data(d: &[u8]) -> R<AuthData> {
     if d.len() < 37 {
         return Err(pk_err("Short authenticator data"));
     }
-    let mut out = AuthData { rp_id_hash: d[..32].to_vec(), flags: d[32], counter: u32::from_be_bytes([d[33], d[34], d[35], d[36]]), credential_id: None, public_key: None };
+    let mut out = AuthData {
+        rp_id_hash: d[..32].to_vec(),
+        flags: d[32],
+        counter: u32::from_be_bytes([d[33], d[34], d[35], d[36]]),
+        credential_id: None,
+        public_key: None,
+    };
     if out.flags & 0x40 != 0 {
         let i = 37 + 16;
         let at = |k: usize| d.get(k).copied().unwrap_or(0) as usize;
@@ -178,23 +206,48 @@ fn import_cose(cose: &[u8]) -> R<(Key, i64)> {
     let (kty, alg) = (int(1), int(3));
     match (kty, alg) {
         (Some(Cbor::Int(2)), Some(Cbor::Int(-7))) if int(-1) == Some(Cbor::Int(1)) => {
-            let (x, y) = (int(-2).and_then(|v| v.bytes().map(<[u8]>::to_vec)).ok_or_else(unsupported)?, int(-3).and_then(|v| v.bytes().map(<[u8]>::to_vec)).ok_or_else(unsupported)?);
+            let (x, y) = (
+                int(-2)
+                    .and_then(|v| v.bytes().map(<[u8]>::to_vec))
+                    .ok_or_else(unsupported)?,
+                int(-3)
+                    .and_then(|v| v.bytes().map(<[u8]>::to_vec))
+                    .ok_or_else(unsupported)?,
+            );
             if x.len() != 32 || y.len() != 32 {
                 return Err(unsupported());
             }
             let mut raw = vec![4u8];
             raw.extend(x);
             raw.extend(y);
-            p256::ecdsa::VerifyingKey::from_sec1_bytes(&raw).map(|k| (Key::Es256(k), -7)).map_err(|_| unsupported())
+            p256::ecdsa::VerifyingKey::from_sec1_bytes(&raw)
+                .map(|k| (Key::Es256(k), -7))
+                .map_err(|_| unsupported())
         }
         (Some(Cbor::Int(1)), Some(Cbor::Int(-8))) if int(-1) == Some(Cbor::Int(6)) => {
-            let x = int(-2).and_then(|v| v.bytes().map(<[u8]>::to_vec)).ok_or_else(unsupported)?;
+            let x = int(-2)
+                .and_then(|v| v.bytes().map(<[u8]>::to_vec))
+                .ok_or_else(unsupported)?;
             let x: [u8; 32] = x.try_into().map_err(|_| unsupported())?;
-            ed25519_dalek::VerifyingKey::from_bytes(&x).map(|k| (Key::EdDsa(k), -8)).map_err(|_| unsupported())
+            ed25519_dalek::VerifyingKey::from_bytes(&x)
+                .map(|k| (Key::EdDsa(k), -8))
+                .map_err(|_| unsupported())
         }
         (Some(Cbor::Int(3)), Some(Cbor::Int(-257))) => {
-            let (n, e) = (int(-1).and_then(|v| v.bytes().map(<[u8]>::to_vec)).ok_or_else(unsupported)?, int(-2).and_then(|v| v.bytes().map(<[u8]>::to_vec)).ok_or_else(unsupported)?);
-            rsa::RsaPublicKey::new(rsa::BigUint::from_bytes_be(&n), rsa::BigUint::from_bytes_be(&e)).map(|k| (Key::Rs256(k), -257)).map_err(|_| unsupported())
+            let (n, e) = (
+                int(-1)
+                    .and_then(|v| v.bytes().map(<[u8]>::to_vec))
+                    .ok_or_else(unsupported)?,
+                int(-2)
+                    .and_then(|v| v.bytes().map(<[u8]>::to_vec))
+                    .ok_or_else(unsupported)?,
+            );
+            rsa::RsaPublicKey::new(
+                rsa::BigUint::from_bytes_be(&n),
+                rsa::BigUint::from_bytes_be(&e),
+            )
+            .map(|k| (Key::Rs256(k), -257))
+            .map_err(|_| unsupported())
         }
         _ => Err(pk_err("That kind of passkey isn't supported.")),
     }
@@ -236,8 +289,12 @@ fn verify_signature(cose: &[u8], sig: &[u8], data: &[u8]) -> R<bool> {
     use p256::ecdsa::signature::Verifier;
     let (key, _) = import_cose(cose)?;
     Ok(match key {
-        Key::Es256(k) => p256::ecdsa::Signature::from_slice(&der_to_raw(sig)?).is_ok_and(|s| k.verify(data, &s).is_ok()),
-        Key::EdDsa(k) => <[u8; 64]>::try_from(sig).is_ok_and(|s| k.verify_strict(data, &ed25519_dalek::Signature::from_bytes(&s)).is_ok()),
+        Key::Es256(k) => p256::ecdsa::Signature::from_slice(&der_to_raw(sig)?)
+            .is_ok_and(|s| k.verify(data, &s).is_ok()),
+        Key::EdDsa(k) => <[u8; 64]>::try_from(sig).is_ok_and(|s| {
+            k.verify_strict(data, &ed25519_dalek::Signature::from_bytes(&s))
+                .is_ok()
+        }),
         Key::Rs256(k) => {
             let v = rsa::pkcs1v15::VerifyingKey::<sha2::Sha256>::new(k);
             rsa::pkcs1v15::Signature::try_from(sig).is_ok_and(|s| v.verify(data, &s).is_ok())
@@ -249,12 +306,21 @@ fn verify_signature(cose: &[u8], sig: &[u8], data: &[u8]) -> R<bool> {
 
 fn host_of(origin: &str) -> Option<(String, String)> {
     let u = url::Url::parse(origin).ok()?;
-    Some((u.scheme().to_string(), u.host_str().unwrap_or("").trim_start_matches('[').trim_end_matches(']').to_lowercase()))
+    Some((
+        u.scheme().to_string(),
+        u.host_str()
+            .unwrap_or("")
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .to_lowercase(),
+    ))
 }
 
 /// Is this an origin a passkey for rp_id may come from?
 pub fn origin_fits(origin: &str, rp_id: &str) -> bool {
-    let Some((scheme, host)) = host_of(origin) else { return false };
+    let Some((scheme, host)) = host_of(origin) else {
+        return false;
+    };
     let secure = scheme == "https" || host == "localhost" || host.ends_with(".localhost");
     secure && (host == rp_id || host.ends_with(&format!(".{rp_id}")))
 }
@@ -269,10 +335,16 @@ pub fn rp_id_for(origin: &str, allowed: &dyn Fn(&str) -> bool) -> Result<String,
 }
 
 fn client_data(response: &Value, typ: &str, challenge: &str, rp_id: &str) -> R<Vec<u8>> {
-    let raw = from_b64url(&text_or_empty(&response["response"]["clientDataJSON"])).ok_or_else(|| other("bad base64url"))?;
-    let parsed: Value = serde_json::from_str(&String::from_utf8_lossy(&raw)).map_err(|_| pk_err("That passkey's answer couldn't be read."))?;
+    let raw = from_b64url(&text_or_empty(&response["response"]["clientDataJSON"]))
+        .ok_or_else(|| other("bad base64url"))?;
+    let parsed: Value = serde_json::from_str(&String::from_utf8_lossy(&raw))
+        .map_err(|_| pk_err("That passkey's answer couldn't be read."))?;
     let origin = text_or_empty(&parsed["origin"]);
-    if parsed["type"] != typ || parsed["challenge"] != challenge || !origin_fits(&origin, rp_id) || parsed["crossOrigin"] == true {
+    if parsed["type"] != typ
+        || parsed["challenge"] != challenge
+        || !origin_fits(&origin, rp_id)
+        || parsed["crossOrigin"] == true
+    {
         return Err(pk_err("That passkey's answer wasn't for this sign-in."));
     }
     Ok(raw)
@@ -282,7 +354,15 @@ fn creds(list: &[(String, Value)]) -> Value {
     Value::Array(list.iter().map(|(id, t)| json!({ "type": "public-key", "id": id, "transports": if crate::js::truthy(Some(t)) { t.clone() } else { json!([]) } })).collect())
 }
 
-pub fn registration_options(rp_id: &str, rp_name: &str, user_id: &str, user_name: &str, challenge: &str, exclude: &[(String, Value)], kind: &str) -> Value {
+pub fn registration_options(
+    rp_id: &str,
+    rp_name: &str,
+    user_id: &str,
+    user_name: &str,
+    challenge: &str,
+    exclude: &[(String, Value)],
+    kind: &str,
+) -> Value {
     let mut sel = json!({ "residentKey": "required", "requireResidentKey": true, "userVerification": "preferred" });
     if kind == "device" {
         sel["authenticatorAttachment"] = json!("platform");
@@ -321,17 +401,23 @@ pub struct Registered {
 pub fn verify_registration(response: &Value, challenge: &str, rp_id: &str) -> R<Registered> {
     client_data(response, "webauthn.create", challenge, rp_id)?;
     let unreadable = || pk_err("That passkey couldn't be read.");
-    let att_bytes = from_b64url(&text_or_empty(&response["response"]["attestationObject"])).ok_or_else(unreadable)?;
+    let att_bytes = from_b64url(&text_or_empty(&response["response"]["attestationObject"]))
+        .ok_or_else(unreadable)?;
     let (att, _) = cbor(&att_bytes, 0).map_err(|_| unreadable())?;
     if !matches!(att, Cbor::Map(_)) {
         return Err(other("not a map"));
     }
-    let auth_data = att.get(&Cbor::Text("authData".into())).and_then(Cbor::bytes).ok_or_else(|| other("no authenticator data"))?;
+    let auth_data = att
+        .get(&Cbor::Text("authData".into()))
+        .and_then(Cbor::bytes)
+        .ok_or_else(|| other("no authenticator data"))?;
     let auth = parse_auth_data(auth_data)?;
     if auth.rp_id_hash != sha256(rp_id.as_bytes()) {
         return Err(pk_err("That passkey is for another site."));
     }
-    let (Some(cid), Some(pk)) = (auth.credential_id, auth.public_key) else { return Err(pk_err("That passkey couldn't be added.")) };
+    let (Some(cid), Some(pk)) = (auth.credential_id, auth.public_key) else {
+        return Err(pk_err("That passkey couldn't be added."));
+    };
     if auth.flags & UP == 0 {
         return Err(pk_err("That passkey couldn't be added."));
     }
@@ -341,16 +427,36 @@ pub fn verify_registration(response: &Value, challenge: &str, rp_id: &str) -> R<
     }
     let (_, alg) = import_cose(&pk)?;
     let transports = match &response["response"]["transports"] {
-        Value::Array(a) => Value::Array(a.iter().filter(|t| t.is_string()).take(6).cloned().collect()),
+        Value::Array(a) => Value::Array(
+            a.iter()
+                .filter(|t| t.is_string())
+                .take(6)
+                .cloned()
+                .collect(),
+        ),
         _ => json!([]),
     };
-    Ok(Registered { credential_id: id, public_key: b64url(&pk), alg, counter: auth.counter, synced: auth.flags & BE != 0, transports })
+    Ok(Registered {
+        credential_id: id,
+        public_key: b64url(&pk),
+        alg,
+        counter: auth.counter,
+        synced: auth.flags & BE != 0,
+        transports,
+    })
 }
 
 /// A passkey's answer when signing in: (its new counter, whether it's synced).
-pub fn verify_assertion(response: &Value, challenge: &str, rp_id: &str, public_key: &str, counter: u32) -> R<(u32, bool)> {
+pub fn verify_assertion(
+    response: &Value,
+    challenge: &str,
+    rp_id: &str,
+    public_key: &str,
+    counter: u32,
+) -> R<(u32, bool)> {
     let raw = client_data(response, "webauthn.get", challenge, rp_id)?;
-    let data = from_b64url(&text_or_empty(&response["response"]["authenticatorData"])).ok_or_else(|| other("bad base64url"))?;
+    let data = from_b64url(&text_or_empty(&response["response"]["authenticatorData"]))
+        .ok_or_else(|| other("bad base64url"))?;
     let auth = parse_auth_data(&data)?;
     if auth.rp_id_hash != sha256(rp_id.as_bytes()) {
         return Err(pk_err("That passkey is for another site."));
@@ -362,14 +468,17 @@ pub fn verify_assertion(response: &Value, challenge: &str, rp_id: &str, public_k
     signed.extend_from_slice(&sha256(&raw));
     // Bad base64url here throws in the JavaScript before the signature check: an underlying error.
     let key = from_b64url(public_key).ok_or_else(|| other("bad base64url"))?;
-    let sig = from_b64url(&text_or_empty(&response["response"]["signature"])).ok_or_else(|| other("bad base64url"))?;
+    let sig = from_b64url(&text_or_empty(&response["response"]["signature"]))
+        .ok_or_else(|| other("bad base64url"))?;
     let ok = verify_signature(&key, &sig, &signed).unwrap_or(false);
     if !ok {
         return Err(pk_err("That passkey didn't work. Try again."));
     }
     // A counter that goes backwards means the passkey may have been copied.
     if auth.counter > 0 && counter > 0 && auth.counter <= counter {
-        return Err(pk_err("That passkey looks like a copy. Remove it and add it again."));
+        return Err(pk_err(
+            "That passkey looks like a copy. Remove it and add it again.",
+        ));
     }
     Ok((auth.counter, auth.flags & BS != 0 || auth.flags & BE != 0))
 }

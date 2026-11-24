@@ -26,21 +26,45 @@ pub struct Bootstrap {
 
 /// `String(s || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "")`.
 fn normal(v: &serde_json::Value) -> String {
-    let s = if crate::js::truthy(Some(v)) { crate::js::to_js_string(Some(v)) } else { String::new() };
-    crate::js::trim(&s).to_uppercase().chars().filter(|c| c.is_ascii_uppercase() || c.is_ascii_digit()).collect()
+    let s = if crate::js::truthy(Some(v)) {
+        crate::js::to_js_string(Some(v))
+    } else {
+        String::new()
+    };
+    crate::js::trim(&s)
+        .to_uppercase()
+        .chars()
+        .filter(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        .collect()
 }
 
 fn grouped(code: &str) -> String {
-    code.as_bytes().chunks(5).map(|c| String::from_utf8_lossy(c).into_owned()).collect::<Vec<_>>().join("-")
+    code.as_bytes()
+        .chunks(5)
+        .map(|c| String::from_utf8_lossy(c).into_owned())
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 fn has_admin(s: &Store) -> bool {
-    ["Person", "User"].iter().any(|t| s.filter(t, &json!({ "role": "admin" }), Some(&json!("created_date")), Some(1.0), None).is_ok_and(|r| !r.is_empty()))
+    ["Person", "User"].iter().any(|t| {
+        s.filter(
+            t,
+            &json!({ "role": "admin" }),
+            Some(&json!("created_date")),
+            Some(1.0),
+            None,
+        )
+        .is_ok_and(|r| !r.is_empty())
+    })
 }
 
 impl Bootstrap {
     pub fn new(data_dir: &std::path::Path) -> Self {
-        Self { file: data_dir.join("setup-code"), state: Mutex::new(State::default()) }
+        Self {
+            file: data_dir.join("setup-code"),
+            state: Mutex::new(State::default()),
+        }
     }
 
     fn finish(&self, st: &mut State) {
@@ -56,7 +80,10 @@ impl Bootstrap {
             return self.finish(&mut st);
         }
         // 20 characters from a 32-letter alphabet: 100 bits, written in groups of five.
-        let code: String = crate::crypto::random_bytes(20).iter().map(|b| ALPHABET[(b % 32) as usize] as char).collect();
+        let code: String = crate::crypto::random_bytes(20)
+            .iter()
+            .map(|b| ALPHABET[(b % 32) as usize] as char)
+            .collect();
         let shown = grouped(&code);
         let _ = std::fs::create_dir_all(self.file.parent().unwrap_or(std::path::Path::new(".")));
         let written = {
@@ -65,10 +92,14 @@ impl Bootstrap {
             o.write(true).create(true).truncate(true);
             #[cfg(unix)]
             std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
-            o.open(&self.file).and_then(|mut f| f.write_all(format!("{shown}\n").as_bytes()))
+            o.open(&self.file)
+                .and_then(|mut f| f.write_all(format!("{shown}\n").as_bytes()))
         };
         if written.is_err() {
-            eprintln!("Couldn't write {}; the setup code is only in this log.", self.file.display());
+            eprintln!(
+                "Couldn't write {}; the setup code is only in this log.",
+                self.file.display()
+            );
         }
         println!("This site has no admin yet. Create the first account with this setup code (also in {}):\n\n    {shown}\n", self.file.display());
         st.code = Some(code);
@@ -90,7 +121,9 @@ impl Bootstrap {
     /// Use the code: true once, for the right code; false for anything else.
     pub fn consume(&self, given: &serde_json::Value) -> bool {
         let mut st = self.state.lock().unwrap();
-        let Some(code) = st.code.clone().filter(|_| !st.done) else { return false };
+        let Some(code) = st.code.clone().filter(|_| !st.done) else {
+            return false;
+        };
         if !crate::crypto::same_string(&normal(given), &code) {
             return false;
         }

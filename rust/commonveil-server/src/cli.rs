@@ -20,7 +20,10 @@ fn fail(message: &str) -> i32 {
 
 /// Run one command; returns the process exit code.
 pub fn run(config: &Config, args: &[String]) -> i32 {
-    let (command, arg) = (args.first().map(String::as_str).unwrap_or(""), args.get(1).cloned().unwrap_or_default());
+    let (command, arg) = (
+        args.first().map(String::as_str).unwrap_or(""),
+        args.get(1).cloned().unwrap_or_default(),
+    );
     if command == "version" {
         println!("{}", config.version);
         return 0;
@@ -30,14 +33,28 @@ pub fn run(config: &Config, args: &[String]) -> i32 {
         Err(e) => return fail(&format!("Couldn't open the database: {e}")),
     };
     let record = |entity: &str, id: &str| -> Option<Value> {
-        db.query_row("SELECT data FROM records WHERE entity = ? AND id = ?", params![entity, id], |r| r.get::<_, String>(0)).optional().ok().flatten().and_then(|d| serde_json::from_str(&d).ok())
+        db.query_row(
+            "SELECT data FROM records WHERE entity = ? AND id = ?",
+            params![entity, id],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .and_then(|d| serde_json::from_str(&d).ok())
     };
-    let save = |entity: &str, id: &str, data: &Value| db.execute("UPDATE records SET data = ? WHERE entity = ? AND id = ?", params![data.to_string(), entity, id]);
+    let save = |entity: &str, id: &str, data: &Value| {
+        db.execute(
+            "UPDATE records SET data = ? WHERE entity = ? AND id = ?",
+            params![data.to_string(), entity, id],
+        )
+    };
     // The account id for a username.
     let user_id_for = |name: &str| -> Option<String> {
         let n = name.trim().trim_start_matches('@').to_lowercase();
         let p: Option<String> = db.query_row("SELECT data FROM records WHERE entity = 'Profile' AND json_extract(data, '$.username_key') = ? LIMIT 1", [n], |r| r.get(0)).optional().ok().flatten();
-        p.and_then(|d| serde_json::from_str::<Value>(&d).ok()).and_then(|v| v["user_id"].as_str().map(String::from))
+        p.and_then(|d| serde_json::from_str::<Value>(&d).ok())
+            .and_then(|v| v["user_id"].as_str().map(String::from))
     };
     match command {
         "make-admin" => {

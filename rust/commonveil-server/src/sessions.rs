@@ -21,11 +21,17 @@ pub struct Session {
 }
 
 pub fn now_ms() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn first(store: &Store, table: &str, query: Value) -> Option<Value> {
-    store.filter(table, &query, Some(&json!("created_date")), Some(1.0), None).ok().and_then(|r| r.into_iter().next())
+    store
+        .filter(table, &query, Some(&json!("created_date")), Some(1.0), None)
+        .ok()
+        .and_then(|r| r.into_iter().next())
 }
 
 /// The site's token key, made the first time and then kept (CvSecret).
@@ -34,7 +40,9 @@ pub struct Keys {
 }
 impl Default for Keys {
     fn default() -> Self {
-        Self { cached: Mutex::new(None) }
+        Self {
+            cached: Mutex::new(None),
+        }
     }
 }
 impl Keys {
@@ -43,13 +51,24 @@ impl Keys {
         if let Some(s) = c.as_ref() {
             return s.clone();
         }
-        let found = first(store, "CvSecret", json!({ "name": "access-tokens" })).and_then(|r| r["value"].as_str().filter(|v| !v.is_empty()).map(String::from));
+        let found = first(store, "CvSecret", json!({ "name": "access-tokens" })).and_then(|r| {
+            r["value"]
+                .as_str()
+                .filter(|v| !v.is_empty())
+                .map(String::from)
+        });
         let secret = match found {
             Some(v) => v,
             None => {
-                let _ = store.create("CvSecret", &json!({ "name": "access-tokens", "value": random_token(32) }), None);
+                let _ = store.create(
+                    "CvSecret",
+                    &json!({ "name": "access-tokens", "value": random_token(32) }),
+                    None,
+                );
                 // Two first requests at once: the oldest key wins, for everyone.
-                first(store, "CvSecret", json!({ "name": "access-tokens" })).and_then(|r| r["value"].as_str().map(String::from)).unwrap_or_default()
+                first(store, "CvSecret", json!({ "name": "access-tokens" }))
+                    .and_then(|r| r["value"].as_str().map(String::from))
+                    .unwrap_or_default()
             }
         };
         *c = Some(secret.clone());
@@ -61,37 +80,70 @@ impl Keys {
 pub fn security_epoch(store: &Store, user_id: &str) -> i64 {
     first(store, "CvAccount", json!({ "user_id": user_id })).map_or(0, |a| {
         let n = crate::js::to_number(a.get("security_epoch"));
-        if n.is_nan() { 0 } else { n as i64 }
+        if n.is_nan() {
+            0
+        } else {
+            n as i64
+        }
     })
 }
 
 pub fn bump_epoch(store: &Store, user_id: &str) {
     if let Some(a) = first(store, "CvAccount", json!({ "user_id": user_id })) {
         let n = crate::js::to_number(a.get("security_epoch"));
-        let _ = store.update("CvAccount", a["id"].as_str().unwrap_or(""), &json!({ "security_epoch": if n.is_nan() { 0 } else { n as i64 } + 1 }));
+        let _ = store.update(
+            "CvAccount",
+            a["id"].as_str().unwrap_or(""),
+            &json!({ "security_epoch": if n.is_nan() { 0 } else { n as i64 } + 1 }),
+        );
     }
 }
 
-pub fn issue_access(keys: &Keys, store: &Store, user_id: &str, device_id: &str, now: i64) -> (String, String) {
+pub fn issue_access(
+    keys: &Keys,
+    store: &Store,
+    user_id: &str,
+    device_id: &str,
+    now: i64,
+) -> (String, String) {
     let e = security_epoch(store, user_id);
-    let claims = b64url(json!({ "u": user_id, "d": device_id, "x": now.div_euclid(1000) + ACCESS_SECONDS, "e": e }).to_string().as_bytes());
+    let claims = b64url(
+        json!({ "u": user_id, "d": device_id, "x": now.div_euclid(1000) + ACCESS_SECONDS, "e": e })
+            .to_string()
+            .as_bytes(),
+    );
     let sig = hmac(&keys.token_secret(store), &format!("cv1.{claims}"));
-    (format!("cv1.{claims}.{sig}"), iso(now + ACCESS_SECONDS * 1000))
+    (
+        format!("cv1.{claims}.{sig}"),
+        iso(now + ACCESS_SECONDS * 1000),
+    )
 }
 
 /// Who a valid access token is for, or nothing.
-pub fn verify_access(keys: &Keys, store: &Store, token: Option<&Value>, now: i64) -> Option<Session> {
+pub fn verify_access(
+    keys: &Keys,
+    store: &Store,
+    token: Option<&Value>,
+    now: i64,
+) -> Option<Session> {
     let token = token?.as_str()?;
     if token.encode_utf16().count() > 600 {
         return None;
     }
     // `const [v, claims, sig] = token.split(".")`: anything after a third dot is ignored.
     let mut parts = token.split('.');
-    let (v, claims, sig) = (parts.next()?, parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+    let (v, claims, sig) = (
+        parts.next()?,
+        parts.next().unwrap_or(""),
+        parts.next().unwrap_or(""),
+    );
     if v != "cv1" || claims.is_empty() || sig.is_empty() {
         return None;
     }
-    if !same_string(&hmac(&keys.token_secret(store), &format!("cv1.{claims}")), sig) {
+    if !same_string(
+        &hmac(&keys.token_secret(store), &format!("cv1.{claims}")),
+        sig,
+    ) {
         return None;
     }
     let c: Value = serde_json::from_slice(&from_b64url(claims)?).ok()?;
@@ -102,7 +154,11 @@ pub fn verify_access(keys: &Keys, store: &Store, token: Option<&Value>, now: i64
         return None;
     }
     let e = crate::js::to_number(c.get("e"));
-    Some(Session { user_id: u.into(), device_id: d.into(), epoch: if e.is_nan() || e == 0.0 { 0 } else { e as i64 } })
+    Some(Session {
+        user_id: u.into(),
+        device_id: d.into(),
+        epoch: if e.is_nan() || e == 0.0 { 0 } else { e as i64 },
+    })
 }
 
 pub fn issue_refresh(store: &Store, user_id: &str, device_id: &str, now: i64) -> String {
@@ -112,7 +168,13 @@ pub fn issue_refresh(store: &Store, user_id: &str, device_id: &str, now: i64) ->
 }
 
 /// Everything the app keeps after signing in, plus `extra` fields.
-pub fn signed_in(keys: &Keys, store: &Store, user_id: &str, device_id: &str, extra: Value) -> Value {
+pub fn signed_in(
+    keys: &Keys,
+    store: &Store,
+    user_id: &str,
+    device_id: &str,
+    extra: Value,
+) -> Value {
     let now = now_ms();
     let (token, expires) = issue_access(keys, store, user_id, device_id, now);
     let mut out = json!({ "session": { "access_token": token, "access_expires_at": expires, "refresh_token": issue_refresh(store, user_id, device_id, now), "user_id": user_id, "device_id": device_id } });
@@ -124,7 +186,9 @@ pub fn signed_in(keys: &Keys, store: &Store, user_id: &str, device_id: &str, ext
 
 /// Whether a session may still change how the account is protected.
 pub fn live_session(store: &Store, user_id: &str, session: Option<&Session>) -> bool {
-    let Some(s) = session.filter(|s| !s.device_id.is_empty()) else { return false };
+    let Some(s) = session.filter(|s| !s.device_id.is_empty()) else {
+        return false;
+    };
     match store.get("CvDevice", &s.device_id) {
         Ok(d) if d["user_id"] == user_id => s.epoch == security_epoch(store, user_id),
         _ => false,
@@ -142,7 +206,9 @@ pub fn refresh_row(store: &Store, token: Option<&Value>, now: i64) -> Option<(Va
     if expires.is_some_and(|e| (e as i64) < now) {
         return None;
     }
-    let device = store.get("CvDevice", row["device_id"].as_str().unwrap_or("")).ok()?;
+    let device = store
+        .get("CvDevice", row["device_id"].as_str().unwrap_or(""))
+        .ok()?;
     (device["user_id"] == row["user_id"]).then_some((row, device))
 }
 
@@ -153,11 +219,18 @@ pub fn user_record(store: &Store, id: &str) -> Option<Value> {
     if id.is_empty() {
         return None;
     }
-    store.get("Person", id).ok().or_else(|| store.get("User", id).ok())
+    store
+        .get("Person", id)
+        .ok()
+        .or_else(|| store.get("User", id).ok())
 }
 
 pub fn update_user_record(store: &Store, id: &str, changes: &Value) -> Option<Value> {
-    if store.get("Person", id).is_ok() { store.update("Person", id, changes).ok() } else { store.update("User", id, changes).ok() }
+    if store.get("Person", id).is_ok() {
+        store.update("Person", id, changes).ok()
+    } else {
+        store.update("User", id, changes).ok()
+    }
 }
 
 pub fn user_exists(store: &Store, id: &str) -> bool {

@@ -12,13 +12,28 @@ use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{json, Value};
 
 fn repo() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 fn node(ops: &[Value]) -> Option<Vec<Value>> {
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/node/identity-ops.mjs");
-    let mut child = Command::new("node").arg(script).arg(repo().join("base44/entities")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn().ok()?;
-    child.stdin.take().unwrap().write_all(Value::from(ops.to_vec()).to_string().as_bytes()).unwrap();
+    let mut child = Command::new("node")
+        .arg(script)
+        .arg(repo().join("base44/entities"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .ok()?;
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(Value::from(ops.to_vec()).to_string().as_bytes())
+        .unwrap();
     let out = child.wait_with_output().ok()?;
     assert!(out.status.success(), "the TypeScript sign-in code failed");
     Some(serde_json::from_slice(&out.stdout).unwrap())
@@ -54,7 +69,13 @@ fn passwords_tokens_and_signatures_match_the_typescript() {
         want.push(Some(json!(hmac(secret, text))));
     }
     // Passwords made in Rust, checked by the TypeScript
-    let passwords = ["correct horse battery staple", "", "ﬁne", "naïve café", "x".repeat(200).as_str().to_owned().leak()];
+    let passwords = [
+        "correct horse battery staple",
+        "",
+        "ﬁne",
+        "naïve café",
+        "x".repeat(200).as_str().to_owned().leak(),
+    ];
     for p in passwords {
         let h = hash_password(p, 1000);
         ops.push(json!({ "op": "checkPassword", "password": p, "hash": h }));
@@ -62,7 +83,13 @@ fn passwords_tokens_and_signatures_match_the_typescript() {
         ops.push(json!({ "op": "checkPassword", "password": format!("{p}!"), "hash": h }));
         want.push(Some(json!(false)));
     }
-    for (p, h) in [("x", ""), ("x", "pbkdf2-sha256$0$AAAA$AAAA$2"), ("x", "pbkdf2-sha256$1000$!!$AAAA$2"), ("x", "argon2$1$a$b"), ("x", "pbkdf2-sha256$-5$AAAAAAAAAAAAAAAAAAAAAA$AAAA$2")] {
+    for (p, h) in [
+        ("x", ""),
+        ("x", "pbkdf2-sha256$0$AAAA$AAAA$2"),
+        ("x", "pbkdf2-sha256$1000$!!$AAAA$2"),
+        ("x", "argon2$1$a$b"),
+        ("x", "pbkdf2-sha256$-5$AAAAAAAAAAAAAAAAAAAAAA$AAAA$2"),
+    ] {
         ops.push(json!({ "op": "checkPassword", "password": p, "hash": h }));
         want.push(Some(json!(check_password(p, h))));
     }
@@ -76,20 +103,46 @@ fn passwords_tokens_and_signatures_match_the_typescript() {
     let (rust_token, rust_expiry) = issue_access(&keys, &store, "u1", "d1", T);
     let issued_at = ops.len();
     ops.push(json!({ "op": "issueAccess", "user": "u1", "device": "d1", "now": T }));
-    want.push(Some(json!({ "token": rust_token, "expires_at": rust_expiry })));
+    want.push(Some(
+        json!({ "token": rust_token, "expires_at": rust_expiry }),
+    ));
     let bent = |t: &str| -> Vec<Value> {
-        let mut v = vec![json!(t), json!(format!("{t}.extra")), json!(t.replacen("cv1.", "cv2.", 1)), json!(format!("{}x", &t[..t.len() - 1])), json!(t.split('.').take(2).collect::<Vec<_>>().join(".")), json!(""), json!(42), json!(null), json!(format!("cv1.{}.{}", b64url(b"{\"u\":1}"), "sig")), json!("x".repeat(601))];
-        let claims = b64url(json!({ "d": "d1", "x": T / 1000 + 900, "e": 0 }).to_string().as_bytes());
-        v.push(json!(format!("cv1.{claims}.{}", hmac("the-site-secret", &format!("cv1.{claims}")))));
+        let mut v = vec![
+            json!(t),
+            json!(format!("{t}.extra")),
+            json!(t.replacen("cv1.", "cv2.", 1)),
+            json!(format!("{}x", &t[..t.len() - 1])),
+            json!(t.split('.').take(2).collect::<Vec<_>>().join(".")),
+            json!(""),
+            json!(42),
+            json!(null),
+            json!(format!("cv1.{}.{}", b64url(b"{\"u\":1}"), "sig")),
+            json!("x".repeat(601)),
+        ];
+        let claims = b64url(
+            json!({ "d": "d1", "x": T / 1000 + 900, "e": 0 })
+                .to_string()
+                .as_bytes(),
+        );
+        v.push(json!(format!(
+            "cv1.{claims}.{}",
+            hmac("the-site-secret", &format!("cv1.{claims}"))
+        )));
         let claims = b64url(b"not json");
-        v.push(json!(format!("cv1.{claims}.{}", hmac("the-site-secret", &format!("cv1.{claims}")))));
+        v.push(json!(format!(
+            "cv1.{claims}.{}",
+            hmac("the-site-secret", &format!("cv1.{claims}"))
+        )));
         v
     };
     for token in bent(&rust_token) {
         for now in [T, T + 899_000, T + 900_000] {
             let s = verify_access(&keys, &store, Some(&token), now);
             ops.push(json!({ "op": "verifyAccess", "token": token, "now": now }));
-            want.push(Some(s.map_or(Value::Null, |s| json!({ "userId": s.user_id, "deviceId": s.device_id, "epoch": s.epoch }))));
+            want.push(Some(s.map_or(
+                Value::Null,
+                |s| json!({ "userId": s.user_id, "deviceId": s.device_id, "epoch": s.epoch }),
+            )));
         }
     }
     // Ed25519
@@ -98,7 +151,14 @@ fn passwords_tokens_and_signatures_match_the_typescript() {
     let sig = b64url(&sk.sign(b"proof text").to_bytes());
     let mut bad_sig = commonveil_server::crypto::from_b64url(&sig).unwrap();
     bad_sig[63] |= 0x80; // S no longer canonical
-    for (k, t, s) in [(pk.clone(), "proof text", sig.clone()), (pk.clone(), "proof texT", sig.clone()), (pk.clone(), "proof text", b64url(&bad_sig)), (b64url(&[0u8; 32]), "proof text", sig.clone()), ("!!".into(), "proof text", sig.clone()), (pk.clone(), "proof text", "AAAA".into())] {
+    for (k, t, s) in [
+        (pk.clone(), "proof text", sig.clone()),
+        (pk.clone(), "proof texT", sig.clone()),
+        (pk.clone(), "proof text", b64url(&bad_sig)),
+        (b64url(&[0u8; 32]), "proof text", sig.clone()),
+        ("!!".into(), "proof text", sig.clone()),
+        (pk.clone(), "proof text", "AAAA".into()),
+    ] {
         ops.push(json!({ "op": "verifyEd25519", "key": k, "text": t, "sig": s }));
         want.push(Some(json!(verify_ed25519(&k, t, &s))));
     }
@@ -115,7 +175,13 @@ fn passwords_tokens_and_signatures_match_the_typescript() {
     // Hashes the TypeScript made check out in Rust, and the right way round.
     for (j, p) in passwords.iter().enumerate() {
         let h = got[made_at + j].as_str().unwrap();
-        assert!(check_password(p, h) && !check_password(&format!("{p}?"), h), "{p:?}");
+        assert!(
+            check_password(p, h) && !check_password(&format!("{p}?"), h),
+            "{p:?}"
+        );
     }
-    assert_eq!(got[issued_at]["token"], rust_token, "the same token, byte for byte");
+    assert_eq!(
+        got[issued_at]["token"], rust_token,
+        "the same token, byte for byte"
+    );
 }

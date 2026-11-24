@@ -8,17 +8,26 @@ use commonveil_server::store::{load_schemas, Person, Store};
 use serde_json::{json, Map, Value};
 
 fn repo() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 fn node_ok() -> bool {
-    Command::new("node").arg("--version").output().is_ok_and(|o| o.status.success())
+    Command::new("node")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success())
 }
 
 /// A small deterministic generator, so a failure can be replayed.
 struct Rng(u64);
 impl Rng {
     fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         self.0 >> 33
     }
     fn pick<'a, T>(&mut self, xs: &'a [T]) -> &'a T {
@@ -31,7 +40,21 @@ impl Rng {
 
 fn workload(seed: u64) -> Vec<Value> {
     let mut r = Rng(seed);
-    let values = [json!(1), json!(2.5), json!("3"), json!("abc"), json!("Zoë"), json!(null), json!(true), json!(false), json!(0), json!(-4), json!([1, "abc"]), json!("10"), json!("2")];
+    let values = [
+        json!(1),
+        json!(2.5),
+        json!("3"),
+        json!("abc"),
+        json!("Zoë"),
+        json!(null),
+        json!(true),
+        json!(false),
+        json!(0),
+        json!(-4),
+        json!([1, "abc"]),
+        json!("10"),
+        json!("2"),
+    ];
     let users = ["u1", "u2", "u3"];
     let audiences = ["a1", "a2", "a3"];
     let tables = ["Message", "Channel", "Resource", "Profile"];
@@ -47,18 +70,46 @@ fn workload(seed: u64) -> Vec<Value> {
     };
     for i in 0..1000 {
         let table = *r.pick(&tables);
-        let field = *r.pick(&["n", "name", "status", "audience_id", "user_id", "recipient_ids", "missing"]);
+        let field = *r.pick(&[
+            "n",
+            "name",
+            "status",
+            "audience_id",
+            "user_id",
+            "recipient_ids",
+            "missing",
+        ]);
         let v = r.pick(&values).clone();
         let op = r.next() % 10;
         let mut row = Map::new();
         let o = match op {
             0..=3 => {
                 row.insert("n".into(), r.pick(&values).clone());
-                row.insert("name".into(), r.pick(&[json!("b"), json!("A"), json!("a"), json!("é"), json!("10"), json!(9)]).clone());
+                row.insert(
+                    "name".into(),
+                    r.pick(&[
+                        json!("b"),
+                        json!("A"),
+                        json!("a"),
+                        json!("é"),
+                        json!("10"),
+                        json!(9),
+                    ])
+                    .clone(),
+                );
                 row.insert("status".into(), json!(r.pick(&["published", "draft"])));
                 row.insert("audience_id".into(), json!(r.pick(&audiences)));
-                row.insert("user_id".into(), json!(format!("{}-person-id", r.pick(&users))));
-                row.insert("recipient_ids".into(), json!([format!("{}-person-id", r.pick(&users)), format!("{}-person-id", r.pick(&users))]));
+                row.insert(
+                    "user_id".into(),
+                    json!(format!("{}-person-id", r.pick(&users))),
+                );
+                row.insert(
+                    "recipient_ids".into(),
+                    json!([
+                        format!("{}-person-id", r.pick(&users)),
+                        format!("{}-person-id", r.pick(&users))
+                    ]),
+                );
                 if r.chance(4) {
                     row.remove("n");
                 }
@@ -74,7 +125,10 @@ fn workload(seed: u64) -> Vec<Value> {
                     }
                 }
                 if !r.chance(5) {
-                    row.insert("label".into(), json!(r.pick(&["b", "A", "a", "é", "10", "9", "Zoë", ""])));
+                    row.insert(
+                        "label".into(),
+                        json!(r.pick(&["b", "A", "a", "é", "10", "9", "Zoë", ""])),
+                    );
                 }
                 let id = format!("id{i:06}x{}", r.next() % 1000);
                 ids.push((table.to_string(), id.clone()));
@@ -84,16 +138,33 @@ fn workload(seed: u64) -> Vec<Value> {
                 let query = match r.next() % 9 {
                     0 => json!({ field: v }),
                     1 => json!({ field: { "$in": [v, r.pick(&values).clone()] } }),
-                    2 => json!({ field: { r.pick(&["$gte", "$gt", "$lte", "$lt"]).to_string(): v } }),
+                    2 => {
+                        json!({ field: { r.pick(&["$gte", "$gt", "$lte", "$lt"]).to_string(): v } })
+                    }
                     3 => json!({ field: { "$ne": v } }),
                     4 => json!({ field: { "$exists": r.chance(2) } }),
                     5 => json!({ "$or": [{ field: v }, { "status": "draft" }] }),
-                    6 => json!({ "$and": [{ "audience_id": { "$in": ["a1", "a2"] } }, { field: { "$nin": [v] } }] }),
+                    6 => {
+                        json!({ "$and": [{ "audience_id": { "$in": ["a1", "a2"] } }, { field: { "$nin": [v] } }] })
+                    }
                     7 => json!({ field: [v, "a"] }),
                     _ => json!({}),
                 };
-                let sort = r.pick(&[json!(null), json!("rank"), json!("-rank"), json!("label"), json!("-label"), json!("+status"), json!("-created_date"), json!("missing")]).clone();
-                let limit = r.pick(&[json!(null), json!(3), json!(0), json!(-1), json!(10000)]).clone();
+                let sort = r
+                    .pick(&[
+                        json!(null),
+                        json!("rank"),
+                        json!("-rank"),
+                        json!("label"),
+                        json!("-label"),
+                        json!("+status"),
+                        json!("-created_date"),
+                        json!("missing"),
+                    ])
+                    .clone();
+                let limit = r
+                    .pick(&[json!(null), json!(3), json!(0), json!(-1), json!(10000)])
+                    .clone();
                 let skip = r.pick(&[json!(null), json!(1), json!(2.7)]).clone();
                 let mut o = json!({ "op": "filter", "table": table, "query": query, "sort": sort, "limit": limit, "skip": skip });
                 if r.chance(2) {
@@ -111,7 +182,9 @@ fn workload(seed: u64) -> Vec<Value> {
                 }
                 None => json!({ "op": "get", "table": table, "id": "nothing-here" }),
             },
-            8 => json!({ "op": "updateMany", "table": table, "query": { field: v }, "ops": { "$set": { "touched": i } } }),
+            8 => {
+                json!({ "op": "updateMany", "table": table, "query": { field: v }, "ops": { "$set": { "touched": i } } })
+            }
             _ => {
                 if r.chance(4) {
                     json!({ "op": "deleteMany", "table": table, "query": { "n": v } })
@@ -128,10 +201,18 @@ fn workload(seed: u64) -> Vec<Value> {
 }
 
 fn person(v: &Value) -> Person {
-    Person { id: v["id"].as_str().unwrap().into(), email: v["email"].as_str().unwrap().into(), record: v.as_object().unwrap().clone() }
+    Person {
+        id: v["id"].as_str().unwrap().into(),
+        email: v["email"].as_str().unwrap().into(),
+        record: v.as_object().unwrap().clone(),
+    }
 }
 fn num(v: &Value) -> Option<f64> {
-    if v.is_null() { None } else { Some(commonveil_server::js::to_number(Some(v))) }
+    if v.is_null() {
+        None
+    } else {
+        Some(commonveil_server::js::to_number(Some(v)))
+    }
 }
 
 fn run_rust(ops: &[Value]) -> Vec<Value> {
@@ -143,8 +224,25 @@ fn run_rust(ops: &[Value]) -> Vec<Value> {
             let r = match (o["op"].as_str().unwrap(), &as_) {
                 ("create", Some(p)) => store.person_create(Some(p), t, &o["data"]),
                 ("create", None) => store.create(t, &o["data"], o["id"].as_str()),
-                ("filter", Some(p)) => store.person_filter(Some(p), t, &o["query"], o.get("sort"), num(&o["limit"]), num(&o["skip"])).map(Value::from),
-                ("filter", None) => store.filter(t, &o["query"], o.get("sort"), num(&o["limit"]), num(&o["skip"])).map(Value::from),
+                ("filter", Some(p)) => store
+                    .person_filter(
+                        Some(p),
+                        t,
+                        &o["query"],
+                        o.get("sort"),
+                        num(&o["limit"]),
+                        num(&o["skip"]),
+                    )
+                    .map(Value::from),
+                ("filter", None) => store
+                    .filter(
+                        t,
+                        &o["query"],
+                        o.get("sort"),
+                        num(&o["limit"]),
+                        num(&o["skip"]),
+                    )
+                    .map(Value::from),
                 ("get", Some(p)) => store.person_get(Some(p), t, id),
                 ("get", None) => store.get(t, id),
                 ("update", Some(p)) => store.person_update(Some(p), t, id, &o["data"]),
@@ -165,8 +263,20 @@ fn run_rust(ops: &[Value]) -> Vec<Value> {
 
 fn run_node(ops: &[Value]) -> Vec<Value> {
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/node/store-ops.mjs");
-    let mut child = Command::new("node").arg(script).arg(repo().join("base44/entities")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn().unwrap();
-    child.stdin.take().unwrap().write_all(Value::from(ops.to_vec()).to_string().as_bytes()).unwrap();
+    let mut child = Command::new("node")
+        .arg(script)
+        .arg(repo().join("base44/entities"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(Value::from(ops.to_vec()).to_string().as_bytes())
+        .unwrap();
     let out = child.wait_with_output().unwrap();
     assert!(out.status.success(), "the Node store failed");
     serde_json::from_slice(&out.stdout).unwrap()
@@ -179,7 +289,10 @@ fn strip(v: &mut Value) {
             m.remove("created_date");
             m.remove("updated_date");
             // Ids the store makes itself are random on both sides.
-            if m.get("id").and_then(Value::as_str).is_some_and(|i| i.len() == 24 && i.bytes().all(|c| c.is_ascii_hexdigit())) {
+            if m.get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|i| i.len() == 24 && i.bytes().all(|c| c.is_ascii_hexdigit()))
+            {
                 m.insert("id".into(), json!("<made>"));
             }
             m.values_mut().for_each(strip);
@@ -198,7 +311,11 @@ fn the_store_answers_every_operation_as_the_node_store_does() {
     for seed in [1, 2, 3, 42] {
         let ops = workload(seed);
         if let Ok(f) = std::env::var("CV_PARITY_DUMP") {
-            std::fs::write(format!("{f}-{seed}.json"), Value::from(ops.clone()).to_string()).unwrap();
+            std::fs::write(
+                format!("{f}-{seed}.json"),
+                Value::from(ops.clone()).to_string(),
+            )
+            .unwrap();
         }
         let (mut a, mut b) = (run_rust(&ops), run_node(&ops));
         a.iter_mut().chain(b.iter_mut()).for_each(strip);
@@ -210,7 +327,10 @@ fn the_store_answers_every_operation_as_the_node_store_does() {
                 nonempty += 1;
             }
         }
-        assert!(nonempty > 60, "the workload should find things ({nonempty})");
+        assert!(
+            nonempty > 60,
+            "the workload should find things ({nonempty})"
+        );
     }
 }
 
@@ -225,7 +345,11 @@ impl Drop for Server {
 }
 
 fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
 }
 
 fn start(node: bool, dist: &Path, data: &Path) -> Server {
@@ -237,8 +361,22 @@ fn start(node: bool, dist: &Path, data: &Path) -> Server {
     } else {
         Command::new(env!("CARGO_BIN_EXE_commonveil-server"))
     };
-    cmd.env("PORT", port.to_string()).env("BIND", "127.0.0.1").env("DATA_DIR", data).env("DIST_DIR", dist).env("SITE_URL", "https://cv.example").env("UPDATE_CHECK_HOURS", "1000").env("FEDERATION", "off").env("COMMONVEIL_VERSION", "9.9.9").env("ENTITIES_DIR", repo().join("base44/entities"));
-    let server = Server(cmd.stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap(), port);
+    cmd.env("PORT", port.to_string())
+        .env("BIND", "127.0.0.1")
+        .env("DATA_DIR", data)
+        .env("DIST_DIR", dist)
+        .env("SITE_URL", "https://cv.example")
+        .env("UPDATE_CHECK_HOURS", "1000")
+        .env("FEDERATION", "off")
+        .env("COMMONVEIL_VERSION", "9.9.9")
+        .env("ENTITIES_DIR", repo().join("base44/entities"));
+    let server = Server(
+        cmd.stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+        port,
+    );
     for _ in 0..100 {
         if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
             return server;
@@ -260,17 +398,28 @@ fn request(port: u16, method: &str, path: &str) -> (u16, Map<String, Value>, Vec
     let head = String::from_utf8_lossy(&raw[..split]).to_string();
     let mut body = raw[split + 4..].to_vec();
     let mut lines = head.lines();
-    let status: u16 = lines.next().unwrap().split(' ').nth(1).unwrap().parse().unwrap();
+    let status: u16 = lines
+        .next()
+        .unwrap()
+        .split(' ')
+        .nth(1)
+        .unwrap()
+        .parse()
+        .unwrap();
     let mut headers = Map::new();
     for l in lines {
         if let Some((k, v)) = l.split_once(':') {
             headers.insert(k.trim().to_lowercase(), json!(v.trim()));
         }
     }
-    if headers.get("transfer-encoding").is_some_and(|v| v == "chunked") {
+    if headers
+        .get("transfer-encoding")
+        .is_some_and(|v| v == "chunked")
+    {
         let (mut out, mut i) = (Vec::new(), 0);
         while let Some(end) = body[i..].windows(2).position(|w| w == b"\r\n") {
-            let size = usize::from_str_radix(String::from_utf8_lossy(&body[i..i + end]).trim(), 16).unwrap_or(0);
+            let size = usize::from_str_radix(String::from_utf8_lossy(&body[i..i + end]).trim(), 16)
+                .unwrap_or(0);
             if size == 0 {
                 break;
             }
@@ -295,42 +444,120 @@ fn the_site_and_its_pages_are_served_as_the_node_server_serves_them() {
         return;
     }
     let (d1, d2) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let (node, rust) = (start(true, &dist, d1.path()), start(false, &dist, d2.path()));
-    let asset = std::fs::read_dir(dist.join("assets")).unwrap().next().unwrap().unwrap().file_name().into_string().unwrap();
+    let (node, rust) = (
+        start(true, &dist, d1.path()),
+        start(false, &dist, d2.path()),
+    );
+    let asset = std::fs::read_dir(dist.join("assets"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .file_name()
+        .into_string()
+        .unwrap();
     let paths = [
-        "/", "/help", "/help/", "/help/guide", "/help/welcome", "/help/no-such-article", "/security/report", "/privacy?x=1", "/releases",
-        "/app", "/app/settings", "/admin", "/invite/abc123", "/u/someone", "/reset-password", "/blog", "/blog/a-post", "/wiki/x/y", "/saved",
-        "/no-such-page", "/assets/missing.js", "/missing.png", "/sitemap.xml", "/robots.txt", "/manifest.webmanifest", "/sw.js", "/favicon.svg",
-        &format!("/assets/{asset}"), "/%E0%A4%A", "/..%2f..%2fetc%2fpasswd", "/%2e%2e/%2e%2e/etc/passwd", "/api/health", "/api/site", "/api/nope",
+        "/",
+        "/help",
+        "/help/",
+        "/help/guide",
+        "/help/welcome",
+        "/help/no-such-article",
+        "/security/report",
+        "/privacy?x=1",
+        "/releases",
+        "/app",
+        "/app/settings",
+        "/admin",
+        "/invite/abc123",
+        "/u/someone",
+        "/reset-password",
+        "/blog",
+        "/blog/a-post",
+        "/wiki/x/y",
+        "/saved",
+        "/no-such-page",
+        "/assets/missing.js",
+        "/missing.png",
+        "/sitemap.xml",
+        "/robots.txt",
+        "/manifest.webmanifest",
+        "/sw.js",
+        "/favicon.svg",
+        &format!("/assets/{asset}"),
+        "/%E0%A4%A",
+        "/..%2f..%2fetc%2fpasswd",
+        "/%2e%2e/%2e%2e/etc/passwd",
+        "/api/health",
+        "/api/site",
+        "/api/nope",
     ];
-    let compared = ["content-type", "cache-control", "content-security-policy", "x-frame-options", "x-robots-tag", "location", "x-content-type-options", "referrer-policy", "cross-origin-opener-policy", "cross-origin-resource-policy", "permissions-policy"];
-    for (method, path) in paths.iter().map(|p| ("GET", *p)).chain([("HEAD", "/"), ("HEAD", "/help/welcome"), ("POST", "/"), ("PUT", "/help")]) {
+    let compared = [
+        "content-type",
+        "cache-control",
+        "content-security-policy",
+        "x-frame-options",
+        "x-robots-tag",
+        "location",
+        "x-content-type-options",
+        "referrer-policy",
+        "cross-origin-opener-policy",
+        "cross-origin-resource-policy",
+        "permissions-policy",
+    ];
+    for (method, path) in paths.iter().map(|p| ("GET", *p)).chain([
+        ("HEAD", "/"),
+        ("HEAD", "/help/welcome"),
+        ("POST", "/"),
+        ("PUT", "/help"),
+    ]) {
         let (a, b) = (request(node.1, method, path), request(rust.1, method, path));
         assert_eq!(a.0, b.0, "{method} {path}: status");
         for h in compared {
             assert_eq!(a.1.get(h), b.1.get(h), "{method} {path}: {h}");
         }
         if path == "/help/welcome" && method == "GET" {
-            assert!(String::from_utf8_lossy(&a.2).contains("og:title"), "control: the page really has its tags");
+            assert!(
+                String::from_utf8_lossy(&a.2).contains("og:title"),
+                "control: the page really has its tags"
+            );
         }
-        assert!(a.2 == b.2, "{method} {path}: body differs\nnode: {}\nrust: {}", String::from_utf8_lossy(&a.2[..a.2.len().min(400)]), String::from_utf8_lossy(&b.2[..b.2.len().min(400)]));
+        assert!(
+            a.2 == b.2,
+            "{method} {path}: body differs\nnode: {}\nrust: {}",
+            String::from_utf8_lossy(&a.2[..a.2.len().min(400)]),
+            String::from_utf8_lossy(&b.2[..b.2.len().min(400)])
+        );
     }
 }
 
 fn request_json(port: u16, method: &str, path: &str, token: &str, body: &str) -> (u16, Value) {
     use std::io::Read;
     let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
-    let auth = if token.is_empty() { String::new() } else { format!("Authorization: Bearer {token}\r\n") };
+    let auth = if token.is_empty() {
+        String::new()
+    } else {
+        format!("Authorization: Bearer {token}\r\n")
+    };
     write!(s, "{method} {path} HTTP/1.1\r\nHost: cv.example\r\nConnection: close\r\n{auth}Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
     let mut raw = Vec::new();
     s.read_to_end(&mut raw).unwrap();
     let split = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
-    let status: u16 = String::from_utf8_lossy(&raw[..split]).split(' ').nth(1).unwrap().parse().unwrap();
+    let status: u16 = String::from_utf8_lossy(&raw[..split])
+        .split(' ')
+        .nth(1)
+        .unwrap()
+        .parse()
+        .unwrap();
     let mut body = raw[split + 4..].to_vec();
-    if String::from_utf8_lossy(&raw[..split]).to_lowercase().contains("transfer-encoding: chunked") {
+    if String::from_utf8_lossy(&raw[..split])
+        .to_lowercase()
+        .contains("transfer-encoding: chunked")
+    {
         let (mut out, mut i) = (Vec::new(), 0);
         while let Some(end) = body[i..].windows(2).position(|w| w == b"\r\n") {
-            let size = usize::from_str_radix(String::from_utf8_lossy(&body[i..i + end]).trim(), 16).unwrap_or(0);
+            let size = usize::from_str_radix(String::from_utf8_lossy(&body[i..i + end]).trim(), 16)
+                .unwrap_or(0);
             if size == 0 {
                 break;
             }
@@ -344,7 +571,10 @@ fn request_json(port: u16, method: &str, path: &str, token: &str, body: &str) ->
 
 #[test]
 fn entity_reads_and_writes_follow_the_rules_as_on_the_node_server() {
-    if !node_ok() || !repo().join("node_modules").exists() || !repo().join("dist-selfhost/index.html").exists() {
+    if !node_ok()
+        || !repo().join("node_modules").exists()
+        || !repo().join("dist-selfhost/index.html").exists()
+    {
         eprintln!("skipped: node, the npm packages or dist-selfhost aren't there");
         return;
     }
@@ -352,37 +582,96 @@ fn entity_reads_and_writes_follow_the_rules_as_on_the_node_server() {
     let seed = tempfile::tempdir().unwrap();
     let db = seed.path().join("commonveil.db");
     let (t1, t2, t3) = {
-        let s = Store::open(db.to_str().unwrap(), load_schemas(&repo().join("base44/entities"))).unwrap();
-        let p = |id: &str, role: &str, access: &[&str]| s.create("Person", &json!({ "username": id, "role": role, "cv_access": access }), Some(&format!("{id}-0000000000"))).unwrap();
+        let s = Store::open(
+            db.to_str().unwrap(),
+            load_schemas(&repo().join("base44/entities")),
+        )
+        .unwrap();
+        let p = |id: &str, role: &str, access: &[&str]| {
+            s.create(
+                "Person",
+                &json!({ "username": id, "role": role, "cv_access": access }),
+                Some(&format!("{id}-0000000000")),
+            )
+            .unwrap()
+        };
         p("alice", "user", &["a1"]);
         p("boss", "admin", &["a1", "a2"]);
-        s.create("User", &json!({ "email": "old@x", "role": "user", "cv_access": ["a2"] }), Some("olduser-000000")).unwrap();
-        for (i, (a, b)) in [("alice-0000000000", "boss-0000000000"), ("boss-0000000000", "olduser-000000"), ("olduser-000000", "olduser-000000")].iter().enumerate() {
-            s.create("Message", &json!({ "recipient_ids": [a, b], "n": i }), Some(&format!("message-{i:06}"))).unwrap();
+        s.create(
+            "User",
+            &json!({ "email": "old@x", "role": "user", "cv_access": ["a2"] }),
+            Some("olduser-000000"),
+        )
+        .unwrap();
+        for (i, (a, b)) in [
+            ("alice-0000000000", "boss-0000000000"),
+            ("boss-0000000000", "olduser-000000"),
+            ("olduser-000000", "olduser-000000"),
+        ]
+        .iter()
+        .enumerate()
+        {
+            s.create(
+                "Message",
+                &json!({ "recipient_ids": [a, b], "n": i }),
+                Some(&format!("message-{i:06}")),
+            )
+            .unwrap();
         }
         for (i, a) in ["a1", "a2", "a3", "a1"].iter().enumerate() {
-            s.create("Channel", &json!({ "audience_id": a, "name": format!("c{i}"), "position": 4 - i }), Some(&format!("channel-{i:06}"))).unwrap();
-            s.create("ServerMessage", &json!({ "audience_id": a }), Some(&format!("smessage-{i:06}"))).unwrap();
+            s.create(
+                "Channel",
+                &json!({ "audience_id": a, "name": format!("c{i}"), "position": 4 - i }),
+                Some(&format!("channel-{i:06}")),
+            )
+            .unwrap();
+            s.create(
+                "ServerMessage",
+                &json!({ "audience_id": a }),
+                Some(&format!("smessage-{i:06}")),
+            )
+            .unwrap();
         }
         for (i, st) in ["published", "draft", "published"].iter().enumerate() {
-            s.create("Resource", &json!({ "status": st, "name": format!("r{i}") }), Some(&format!("resource-{i:06}"))).unwrap();
+            s.create(
+                "Resource",
+                &json!({ "status": st, "name": format!("r{i}") }),
+                Some(&format!("resource-{i:06}")),
+            )
+            .unwrap();
         }
-        s.create("Profile", &json!({ "user_id": "alice-0000000000", "bio": "hi" }), Some("profile-alice0")).unwrap();
+        s.create(
+            "Profile",
+            &json!({ "user_id": "alice-0000000000", "bio": "hi" }),
+            Some("profile-alice0"),
+        )
+        .unwrap();
         let k = Keys::default();
         let now = now_ms();
-        (issue_access(&k, &s, "alice-0000000000", "dev-a", now).0, issue_access(&k, &s, "boss-0000000000", "dev-b", now).0, issue_access(&k, &s, "olduser-000000", "dev-c", now).0)
+        (
+            issue_access(&k, &s, "alice-0000000000", "dev-a", now).0,
+            issue_access(&k, &s, "boss-0000000000", "dev-b", now).0,
+            issue_access(&k, &s, "olduser-000000", "dev-c", now).0,
+        )
     };
     let dist = repo().join("dist-selfhost");
     let (d1, d2) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     for d in [&d1, &d2] {
         std::fs::copy(&db, d.path().join("commonveil.db")).unwrap();
     }
-    let (node, rust) = (start(true, &dist, d1.path()), start(false, &dist, d2.path()));
+    let (node, rust) = (
+        start(true, &dist, d1.path()),
+        start(false, &dist, d2.path()),
+    );
     let bent = format!("{}x", &t1[..t1.len() - 1]);
     let tokens = ["", t1.as_str(), t2.as_str(), t3.as_str(), bent.as_str()];
     let bodies = [
         ("Message", "filter", r#"{}"#),
-        ("Message", "filter", r#"{"query":{"n":{"$gte":1}},"sort":"-n"}"#),
+        (
+            "Message",
+            "filter",
+            r#"{"query":{"n":{"$gte":1}},"sort":"-n"}"#,
+        ),
         ("Message", "list", r#"{"limit":1,"skip":1,"sort":"n"}"#),
         ("Message", "get", r#"{"id":"message-000001"}"#),
         ("Message", "get", r#"{"id":"message-000002"}"#),
@@ -392,11 +681,23 @@ fn entity_reads_and_writes_follow_the_rules_as_on_the_node_server() {
         ("Channel", "filter", r#"{"query":{"name":{"$regex":"c"}}}"#),
         ("ServerMessage", "filter", r#"{}"#),
         ("Resource", "list", r#"{}"#),
-        ("Resource", "create", r#"{"data":{"status":"draft","name":"new"}}"#),
-        ("Resource", "update", r#"{"id":"resource-000001","data":{"name":"renamed"}}"#),
+        (
+            "Resource",
+            "create",
+            r#"{"data":{"status":"draft","name":"new"}}"#,
+        ),
+        (
+            "Resource",
+            "update",
+            r#"{"id":"resource-000001","data":{"name":"renamed"}}"#,
+        ),
         ("Resource", "delete", r#"{"id":"resource-000002"}"#),
         ("Resource", "list", r#"{"sort":"name"}"#),
-        ("Profile", "update", r#"{"id":"profile-alice0","data":{"bio":"x"}}"#),
+        (
+            "Profile",
+            "update",
+            r#"{"id":"profile-alice0","data":{"bio":"x"}}"#,
+        ),
         ("Profile", "get", r#"{"id":"profile-alice0"}"#),
         ("Person", "filter", r#"{}"#),
         ("User", "list", r#"{}"#),
@@ -408,13 +709,28 @@ fn entity_reads_and_writes_follow_the_rules_as_on_the_node_server() {
     for token in tokens {
         for (table, op, body) in bodies {
             let path = format!("/api/entities/{table}/{op}");
-            let (mut a, mut b) = (request_json(node.1, "POST", &path, token, body), request_json(rust.1, "POST", &path, token, body));
+            let (mut a, mut b) = (
+                request_json(node.1, "POST", &path, token, body),
+                request_json(rust.1, "POST", &path, token, body),
+            );
             strip(&mut a.1);
             strip(&mut b.1);
-            assert_eq!(a, b, "{table}/{op} {body} as {}", if token.is_empty() { "nobody" } else { &token[..12] });
+            assert_eq!(
+                a,
+                b,
+                "{table}/{op} {body} as {}",
+                if token.is_empty() {
+                    "nobody"
+                } else {
+                    &token[..12]
+                }
+            );
             checked += 1;
         }
     }
-    assert_eq!(request_json(node.1, "GET", "/api/entities/Message/list", &t1, "").0, request_json(rust.1, "GET", "/api/entities/Message/list", &t1, "").0);
+    assert_eq!(
+        request_json(node.1, "GET", "/api/entities/Message/list", &t1, "").0,
+        request_json(rust.1, "GET", "/api/entities/Message/list", &t1, "").0
+    );
     assert!(checked > 100);
 }

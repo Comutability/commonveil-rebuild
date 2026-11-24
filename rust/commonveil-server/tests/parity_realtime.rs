@@ -20,15 +20,25 @@ struct Socket {
 /// Open a room connection, or log why it was refused.
 fn open(f: &mut Flow, name: &str, path: &str) -> Socket {
     let stream = TcpStream::connect(("127.0.0.1", f.port)).unwrap();
-    stream.set_read_timeout(Some(Duration::from_millis(400))).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_millis(400)))
+        .unwrap();
     match tungstenite::client(format!("ws://cv.example{path}"), stream) {
         Ok((ws, _)) => {
-            f.log.push(json!({ "step": format!("{name}: open"), "status": 101 }));
-            Socket { name: name.into(), ws: Some(ws) }
+            f.log
+                .push(json!({ "step": format!("{name}: open"), "status": 101 }));
+            Socket {
+                name: name.into(),
+                ws: Some(ws),
+            }
         }
         Err(tungstenite::HandshakeError::Failure(tungstenite::Error::Http(r))) => {
-            f.log.push(json!({ "step": format!("{name}: open"), "status": r.status().as_u16() }));
-            Socket { name: name.into(), ws: None }
+            f.log
+                .push(json!({ "step": format!("{name}: open"), "status": r.status().as_u16() }));
+            Socket {
+                name: name.into(),
+                ws: None,
+            }
         }
         Err(e) => panic!("{name}: {e}"),
     }
@@ -46,7 +56,9 @@ impl Socket {
         if let Some(ws) = &mut self.ws {
             loop {
                 match ws.read() {
-                    Ok(Message::Text(t)) => got.push(serde_json::from_str(&t).unwrap_or(Value::Null)),
+                    Ok(Message::Text(t)) => {
+                        got.push(serde_json::from_str(&t).unwrap_or(Value::Null))
+                    }
                     Ok(Message::Close(frame)) => {
                         got.push(json!({ "closed": frame.as_ref().map(|c| u16::from(c.code)), "reason": frame.as_ref().map(|c| c.reason.to_string()) }));
                     }
@@ -71,36 +83,93 @@ fn script(port: u16, data: &Path, kits: &[Kit]) -> Vec<Value> {
     let mut f = Flow::new(port);
     let people = people(&mut f, data, &["alice", "bob", "carol"], kits);
     let (alice, bob, carol) = (&people[0], &people[1], &people[2]);
-    let call = |f: &mut Flow, func: &str, step: &str, w: &Who, body: Value| f.call(func, step, &w.token, body);
-    let made = call(&mut f, "servers", "create", bob, bob.signed("create_server", json!({ "template": "community" })));
+    let call = |f: &mut Flow, func: &str, step: &str, w: &Who, body: Value| {
+        f.call(func, step, &w.token, body)
+    };
+    let made = call(
+        &mut f,
+        "servers",
+        "create",
+        bob,
+        bob.signed("create_server", json!({ "template": "community" })),
+    );
     let sid = s(&made["server_id"]);
-    let st = call(&mut f, "servers", "state", bob, json!({ "action": "state", "server_id": sid }));
-    call(&mut f, "servers", "invite", bob, bob.signed("create_invite", json!({ "server_id": sid, "code": "abcdefgh34" })));
-    call(&mut f, "servers", "carol joins", carol, carol.signed("join_server", json!({ "invite_code": "abcdefgh34" })));
+    let st = call(
+        &mut f,
+        "servers",
+        "state",
+        bob,
+        json!({ "action": "state", "server_id": sid }),
+    );
+    call(
+        &mut f,
+        "servers",
+        "invite",
+        bob,
+        bob.signed(
+            "create_invite",
+            json!({ "server_id": sid, "code": "abcdefgh34" }),
+        ),
+    );
+    call(
+        &mut f,
+        "servers",
+        "carol joins",
+        carol,
+        carol.signed("join_server", json!({ "invite_code": "abcdefgh34" })),
+    );
     let general = s(&channel(&st, "general")["id"]);
     let lounge = s(&channel(&st, "lounge")["id"]);
 
     // ----- addresses that aren't rooms -----
-    open(&mut f, "unknown room kind", "/api/actors/Lobby/abc?id=conn-0001");
-    open(&mut f, "bad connection id", &format!("/api/actors/Presence/s.{sid}?id=x"));
-    open(&mut f, "bad room name", "/api/actors/Presence/a%20b?id=conn-0001");
+    open(
+        &mut f,
+        "unknown room kind",
+        "/api/actors/Lobby/abc?id=conn-0001",
+    );
+    open(
+        &mut f,
+        "bad connection id",
+        &format!("/api/actors/Presence/s.{sid}?id=x"),
+    );
+    open(
+        &mut f,
+        "bad room name",
+        "/api/actors/Presence/a%20b?id=conn-0001",
+    );
 
     // ----- presence -----
     let room = format!("/api/actors/Presence/s.{sid}");
-    let mut b1 = open(&mut f, "bob presence", &format!("{room}?id=conn-bob-01&token={}", bob.token));
+    let mut b1 = open(
+        &mut f,
+        "bob presence",
+        &format!("{room}?id=conn-bob-01&token={}", bob.token),
+    );
     b1.read(&mut f, "joined");
-    let mut c1 = open(&mut f, "carol presence", &format!("{room}?id=conn-carol-01"));
+    let mut c1 = open(
+        &mut f,
+        "carol presence",
+        &format!("{room}?id=conn-carol-01"),
+    );
     c1.read(&mut f, "joined without signing in");
     c1.send(json!({ "type": "hello" }));
     c1.read(&mut f, "hello before signing in");
     c1.send(json!({ "type": "__auth", "token": "nonsense" }));
     c1.read(&mut f, "bad token");
-    let mut c1 = open(&mut f, "carol presence again", &format!("{room}?id=conn-carol-01"));
+    let mut c1 = open(
+        &mut f,
+        "carol presence again",
+        &format!("{room}?id=conn-carol-01"),
+    );
     c1.read(&mut f, "joined without signing in");
     c1.send(json!({ "type": "__auth", "token": carol.token }));
     c1.read(&mut f, "signed in");
     b1.read(&mut f, "carol arrives");
-    let mut a1 = open(&mut f, "alice presence", &format!("{room}?id=conn-alice-01&token={}", alice.token));
+    let mut a1 = open(
+        &mut f,
+        "alice presence",
+        &format!("{room}?id=conn-alice-01&token={}", alice.token),
+    );
     a1.read(&mut f, "not a member");
     c1.send(json!({ "type": "hello", "status": "idle" }));
     c1.read(&mut f, "went idle");
@@ -116,11 +185,31 @@ fn script(port: u16, data: &Path, kits: &[Kit]) -> Vec<Value> {
     b1.read(&mut f, "nonsense");
     c1.close();
     b1.read(&mut f, "carol leaves");
-    let dm = call(&mut f, "conversations", "dm", bob, bob.signed("create_dm", json!({ "username": "carol" })));
+    let dm = call(
+        &mut f,
+        "conversations",
+        "dm",
+        bob,
+        bob.signed("create_dm", json!({ "username": "carol" })),
+    );
     let dm_id = s(&dm["conversation"]["id"]);
-    let mut d1 = open(&mut f, "bob in the conversation", &format!("/api/actors/Presence/c.{dm_id}?id=conn-bob-02&token={}", bob.token));
+    let mut d1 = open(
+        &mut f,
+        "bob in the conversation",
+        &format!(
+            "/api/actors/Presence/c.{dm_id}?id=conn-bob-02&token={}",
+            bob.token
+        ),
+    );
     d1.read(&mut f, "joined");
-    let mut d2 = open(&mut f, "alice in the conversation", &format!("/api/actors/Presence/c.{dm_id}?id=conn-alice-02&token={}", alice.token));
+    let mut d2 = open(
+        &mut f,
+        "alice in the conversation",
+        &format!(
+            "/api/actors/Presence/c.{dm_id}?id=conn-alice-02&token={}",
+            alice.token
+        ),
+    );
     d2.read(&mut f, "not in it");
     d1.close();
     b1.close();
@@ -129,9 +218,31 @@ fn script(port: u16, data: &Path, kits: &[Kit]) -> Vec<Value> {
     let vroom = format!("/api/actors/VoiceRoom/{sid}.{lounge}");
     let fp = vec!["AB"; 32].join(":");
     let hello = json!({ "call_id": "call-0001aa", "fingerprint": fp, "issued_at": "2026-11-15T10:00:00Z", "signature": "c2lnbmF0dXJl" });
-    let bt = call(&mut f, "voice", "bob's pass", bob, bob.signed("voice_ticket", json!({ "server_id": sid, "channel_id": lounge })));
-    let ct = call(&mut f, "voice", "carol's pass", carol, carol.signed("voice_ticket", json!({ "server_id": sid, "channel_id": lounge })));
-    let mut bv = open(&mut f, "bob voice", &format!("{vroom}?id=conn-bob-03&token={}", bob.token));
+    let bt = call(
+        &mut f,
+        "voice",
+        "bob's pass",
+        bob,
+        bob.signed(
+            "voice_ticket",
+            json!({ "server_id": sid, "channel_id": lounge }),
+        ),
+    );
+    let ct = call(
+        &mut f,
+        "voice",
+        "carol's pass",
+        carol,
+        carol.signed(
+            "voice_ticket",
+            json!({ "server_id": sid, "channel_id": lounge }),
+        ),
+    );
+    let mut bv = open(
+        &mut f,
+        "bob voice",
+        &format!("{vroom}?id=conn-bob-03&token={}", bob.token),
+    );
     bv.read(&mut f, "connected");
     bv.send(json!({ "type": "join", "ticket": "short", "hello": hello }));
     bv.read(&mut f, "bad join");
@@ -143,13 +254,26 @@ fn script(port: u16, data: &Path, kits: &[Kit]) -> Vec<Value> {
     cv.read(&mut f, "connected without signing in");
     cv.send(json!({ "type": "join", "ticket": ct["ticket"], "hello": hello }));
     cv.read(&mut f, "join without signing in");
-    let mut cv = open(&mut f, "carol voice again", &format!("{vroom}?id=conn-carol-03"));
+    let mut cv = open(
+        &mut f,
+        "carol voice again",
+        &format!("{vroom}?id=conn-carol-03"),
+    );
     cv.read(&mut f, "connected without signing in");
     cv.send(json!({ "type": "__auth", "token": carol.token }));
     cv.read(&mut f, "signed in");
     cv.send(json!({ "type": "join", "ticket": bt["ticket"], "hello": hello }));
     cv.read(&mut f, "someone else's pass (used)");
-    let ct2 = call(&mut f, "voice", "carol's pass again", carol, carol.signed("voice_ticket", json!({ "server_id": sid, "channel_id": lounge })));
+    let ct2 = call(
+        &mut f,
+        "voice",
+        "carol's pass again",
+        carol,
+        carol.signed(
+            "voice_ticket",
+            json!({ "server_id": sid, "channel_id": lounge }),
+        ),
+    );
     cv.send(json!({ "type": "join", "ticket": ct2["ticket"], "hello": hello, "muted": true }));
     cv.read(&mut f, "joined");
     bv.read(&mut f, "carol joined");
@@ -184,9 +308,15 @@ fn the_realtime_rooms_behave_as_the_node_server_does() {
     let kits: Vec<Kit> = (0..3).map(|_| Kit::new()).collect();
     let (d1, d2) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let (node, rust) = (start(true, d1.path()), start(false, d2.path()));
-    let (a, b) = (script(node.1, d1.path(), &kits), script(rust.1, d2.path(), &kits));
+    let (a, b) = (
+        script(node.1, d1.path(), &kits),
+        script(rust.1, d2.path(), &kits),
+    );
     compare(&a, &b);
     succeeded(&a, &["create", "carol joins", "bob's pass", "carol's pass"]);
-    let joined = a.iter().find(|s| s["step"] == "carol voice again: joined").unwrap();
+    let joined = a
+        .iter()
+        .find(|s| s["step"] == "carol voice again: joined")
+        .unwrap();
     assert_eq!(joined["reply"][0]["type"], "welcome", "{joined}");
 }

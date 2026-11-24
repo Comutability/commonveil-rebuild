@@ -12,7 +12,11 @@ pub fn b64url(bytes: &[u8]) -> String {
 /// Like the JavaScript: only `[A-Za-z0-9_-]`, padding optional; a length that leaves one spare
 /// character is refused (as `atob` refuses it).
 pub fn from_b64url(s: &str) -> Option<Vec<u8>> {
-    if !s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_') || s.len() % 4 == 1 {
+    if !s
+        .bytes()
+        .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+        || s.len() % 4 == 1
+    {
         return None;
     }
     // atob ignores stray low bits in the last character; the strict decoder doesn't. Clear them.
@@ -25,7 +29,14 @@ pub fn from_b64url(s: &str) -> Option<Vec<u8>> {
         let keep = if rem == 2 { v & 0b110000 } else { v & 0b111100 };
         t.push(ALPHA[keep] as char);
     }
-    base64::engine::GeneralPurpose::new(&base64::alphabet::URL_SAFE, base64::engine::GeneralPurposeConfig::new().with_encode_padding(false).with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent)).decode(t).ok()
+    base64::engine::GeneralPurpose::new(
+        &base64::alphabet::URL_SAFE,
+        base64::engine::GeneralPurposeConfig::new()
+            .with_encode_padding(false)
+            .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
+    )
+    .decode(t)
+    .ok()
 }
 
 pub fn random_bytes(n: usize) -> Vec<u8> {
@@ -43,7 +54,10 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 }
 
 pub fn sha256_hex(text: &str) -> String {
-    sha256(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+    sha256(text.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Constant-time comparison of two strings (by UTF-16 code unit, as the JavaScript compares).
@@ -89,7 +103,11 @@ fn pbkdf2_chain(password: &str, salt: &[u8], rounds: u32) -> [u8; 32] {
 
 pub fn hash_password(password: &str, rounds: u32) -> String {
     let salt = random_bytes(16);
-    format!("pbkdf2-sha256${rounds}${}${}$2", b64url(&salt), b64url(&pbkdf2_chain(password, &salt, rounds)))
+    format!(
+        "pbkdf2-sha256${rounds}${}${}$2",
+        b64url(&salt),
+        b64url(&pbkdf2_chain(password, &salt, rounds))
+    )
 }
 
 pub fn check_password(password: &str, stored: &str) -> bool {
@@ -105,12 +123,18 @@ pub fn check_password(password: &str, stored: &str) -> bool {
     if count < 1.0 || count.fract() != 0.0 || count > f64::from(u32::MAX) {
         return false;
     }
-    let Some(salt) = from_b64url(get(2)) else { return false };
+    let Some(salt) = from_b64url(get(2)) else {
+        return false;
+    };
     let got = if get(4) == "2" {
         b64url(&pbkdf2_chain(password, &salt, count as u32))
     } else {
         // An older single-call hash: the server runs on Node.js, which allows any round count.
-        b64url(&derive(password.nfkc().collect::<String>().as_bytes(), &salt, count as u32))
+        b64url(&derive(
+            password.nfkc().collect::<String>().as_bytes(),
+            &salt,
+            count as u32,
+        ))
     };
     same_string(&got, get(3))
 }
@@ -119,10 +143,17 @@ pub fn check_password(password: &str, stored: &str) -> bool {
 
 /// Ed25519: a 32-byte public key and a 64-byte signature, both base64url.
 pub fn verify_ed25519(public_key: &str, text: &str, signature: &str) -> bool {
-    let (Some(k), Some(s)) = (from_b64url(public_key), from_b64url(signature)) else { return false };
-    let (Ok(k), Ok(s)) = (<[u8; 32]>::try_from(k), <[u8; 64]>::try_from(s)) else { return false };
-    let Ok(key) = ed25519_dalek::VerifyingKey::from_bytes(&k) else { return false };
-    key.verify_strict(text.as_bytes(), &ed25519_dalek::Signature::from_bytes(&s)).is_ok()
+    let (Some(k), Some(s)) = (from_b64url(public_key), from_b64url(signature)) else {
+        return false;
+    };
+    let (Ok(k), Ok(s)) = (<[u8; 32]>::try_from(k), <[u8; 64]>::try_from(s)) else {
+        return false;
+    };
+    let Ok(key) = ed25519_dalek::VerifyingKey::from_bytes(&k) else {
+        return false;
+    };
+    key.verify_strict(text.as_bytes(), &ed25519_dalek::Signature::from_bytes(&s))
+        .is_ok()
 }
 
 #[cfg(test)]
@@ -136,7 +167,10 @@ mod tests {
         assert!(check_password("correct horse", &h));
         assert!(!check_password("correct horsf", &h));
         assert!(!check_password("x", "") && !check_password("x", "bcrypt$1$a$b"));
-        assert!(check_password("ﬁ", &hash_password("fi", 1000)), "NFKC: the ligature is the two letters");
+        assert!(
+            check_password("ﬁ", &hash_password("fi", 1000)),
+            "NFKC: the ligature is the two letters"
+        );
     }
 
     #[test]
@@ -144,7 +178,13 @@ mod tests {
         assert_eq!(from_b64url("AQID").unwrap(), vec![1, 2, 3]);
         assert_eq!(from_b64url("AQI").unwrap(), vec![1, 2]);
         assert!(from_b64url("A").is_none() && from_b64url("AQ+D").is_none());
-        assert_eq!(from_b64url("AR").unwrap(), vec![1], "stray low bits are ignored, as atob ignores them");
-        assert!(same_string("abc", "abc") && !same_string("abc", "abd") && !same_string("ab", "abc"));
+        assert_eq!(
+            from_b64url("AR").unwrap(),
+            vec![1],
+            "stray low bits are ignored, as atob ignores them"
+        );
+        assert!(
+            same_string("abc", "abc") && !same_string("abc", "abd") && !same_string("ab", "abc")
+        );
     }
 }

@@ -25,7 +25,11 @@ fn parts(v: &str) -> Option<[u64; 3]> {
     let v = v.strip_prefix('v').unwrap_or(v);
     let p: Vec<&str> = v.split('.').collect();
     let lens = [4, 4, 6];
-    if p.len() != 3 || p.iter().zip(lens).any(|(x, l)| x.is_empty() || x.len() > l || !x.bytes().all(|b| b.is_ascii_digit())) {
+    if p.len() != 3
+        || p.iter()
+            .zip(lens)
+            .any(|(x, l)| x.is_empty() || x.len() > l || !x.bytes().all(|b| b.is_ascii_digit()))
+    {
         return None;
     }
     Some([p[0].parse().ok()?, p[1].parse().ok()?, p[2].parse().ok()?])
@@ -71,7 +75,9 @@ fn settings(app: &App) -> Value {
 }
 
 fn status(app: &App) -> Value {
-    app.store.get_setting(STATUS_KEY).unwrap_or_else(|| json!({ "checked_at": null, "latest": null, "error": null, "applying": null }))
+    app.store.get_setting(STATUS_KEY).unwrap_or_else(
+        || json!({ "checked_at": null, "latest": null, "error": null, "applying": null }),
+    )
 }
 
 fn set_status(app: &App, changes: Value) {
@@ -94,7 +100,9 @@ fn updater_base(app: &App) -> String {
 }
 
 fn agent(secs: u64) -> ureq::Agent {
-    crate::tls::agent().timeout(Duration::from_secs(secs)).build()
+    crate::tls::agent()
+        .timeout(Duration::from_secs(secs))
+        .build()
 }
 
 fn version_of(r: &Value) -> String {
@@ -105,10 +113,16 @@ fn version_of(r: &Value) -> String {
 /// Look for a newer release. Installs it straight away if automatic updates are on.
 pub fn check(app: &App) -> Result<Value, String> {
     let result = (|| -> Result<Value, String> {
-        let res = agent(15).get(&app.config.update_feed).set("Accept", "application/vnd.github+json").set("User-Agent", "Commonveil-update-check").call();
+        let res = agent(15)
+            .get(&app.config.update_feed)
+            .set("Accept", "application/vnd.github+json")
+            .set("User-Agent", "Commonveil-update-check")
+            .call();
         let body = match res {
             Ok(r) => r.into_string().map_err(|e| e.to_string())?,
-            Err(ureq::Error::Status(code, _)) => return Err(format!("The release list answered {code}")),
+            Err(ureq::Error::Status(code, _)) => {
+                return Err(format!("The release list answered {code}"))
+            }
             Err(e) => return Err(e.to_string()),
         };
         let list: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
@@ -128,12 +142,28 @@ pub fn check(app: &App) -> Result<Value, String> {
                 })
             })
             .collect();
-        releases.sort_by(|a, b| compare_versions(b["version"].as_str().unwrap_or(""), a["version"].as_str().unwrap_or("")));
+        releases.sort_by(|a, b| {
+            compare_versions(
+                b["version"].as_str().unwrap_or(""),
+                a["version"].as_str().unwrap_or(""),
+            )
+        });
         let latest = releases.first().cloned().unwrap_or(Value::Null);
-        let newer: Vec<Value> = releases.iter().filter(|r| is_newer(r["version"].as_str().unwrap_or(""), &app.config.version)).cloned().collect();
-        set_status(app, json!({ "checked_at": wall_iso(), "latest": latest, "newer": newer, "error": null }));
+        let newer: Vec<Value> = releases
+            .iter()
+            .filter(|r| is_newer(r["version"].as_str().unwrap_or(""), &app.config.version))
+            .cloned()
+            .collect();
+        set_status(
+            app,
+            json!({ "checked_at": wall_iso(), "latest": latest, "newer": newer, "error": null }),
+        );
         let latest_version = latest["version"].as_str().unwrap_or("").to_string();
-        if !latest.is_null() && is_newer(&latest_version, &app.config.version) && settings(app)["auto"] == true && can_apply(app) {
+        if !latest.is_null()
+            && is_newer(&latest_version, &app.config.version)
+            && settings(app)["auto"] == true
+            && can_apply(app)
+        {
             println!("[updates] installing {latest_version} automatically");
             if let Err(e) = apply(app, &latest_version) {
                 eprintln!("[updates] automatic update failed: {e}");
@@ -157,7 +187,10 @@ pub fn backup(app: &App, label: &str) -> Result<std::path::PathBuf, String> {
         let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
     }
     let stamp = wall_iso().replace([':', '.'], "-");
-    let file = dir.join(format!("commonveil-{}-to-{label}-{stamp}.db", app.config.version));
+    let file = dir.join(format!(
+        "commonveil-{}-to-{label}-{stamp}.db",
+        app.config.version
+    ));
     let _ = app.store.vacuum_into(&file);
     // The copy has to be there before anything else happens.
     if std::fs::metadata(&file).map_or(true, |m| m.len() == 0) {
@@ -169,7 +202,12 @@ pub fn backup(app: &App, label: &str) -> Result<std::path::PathBuf, String> {
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "db") && *p != file)
-        .filter_map(|p| std::fs::metadata(&p).and_then(|m| m.modified()).ok().map(|t| (p, t)))
+        .filter_map(|p| {
+            std::fs::metadata(&p)
+                .and_then(|m| m.modified())
+                .ok()
+                .map(|t| (p, t))
+        })
         .collect();
     old.sort_by_key(|o| std::cmp::Reverse(o.1));
     for (p, _) in old.iter().skip(KEEP_BACKUPS - 1) {
@@ -179,7 +217,9 @@ pub fn backup(app: &App, label: &str) -> Result<std::path::PathBuf, String> {
 }
 
 fn base_name(p: &Path) -> String {
-    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+    p.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 pub fn apply(app: &App, version: &str) -> Result<Value, String> {
@@ -193,19 +233,42 @@ pub fn apply(app: &App, version: &str) -> Result<Value, String> {
         return Err("That isn't newer than this site.".into());
     }
     let backup = backup(app, version)?;
-    set_status(app, json!({ "applying": { "version": version, "at": wall_iso(), "backup": base_name(&backup) }, "error": null }));
-    let res = agent(20).post(&format!("{}/update", updater_base(app))).set("Content-Type", "application/json").set("Authorization", &format!("Bearer {}", app.config.updater_token)).send_string(&json!({ "version": version }).to_string());
+    set_status(
+        app,
+        json!({ "applying": { "version": version, "at": wall_iso(), "backup": base_name(&backup) }, "error": null }),
+    );
+    let res = agent(20)
+        .post(&format!("{}/update", updater_base(app)))
+        .set("Content-Type", "application/json")
+        .set(
+            "Authorization",
+            &format!("Bearer {}", app.config.updater_token),
+        )
+        .send_string(&json!({ "version": version }).to_string());
     match res {
         Ok(_) => Ok(json!({ "ok": true, "version": version, "backup": base_name(&backup) })),
         Err(ureq::Error::Status(code, r)) => {
-            let out: Value = r.into_string().ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(json!({}));
-            let msg = out["error"].as_str().filter(|e| !e.is_empty()).map(String::from);
-            set_status(app, json!({ "applying": null, "error": msg.clone().unwrap_or_else(|| format!("The updater answered {code}")) }));
+            let out: Value = r
+                .into_string()
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or(json!({}));
+            let msg = out["error"]
+                .as_str()
+                .filter(|e| !e.is_empty())
+                .map(String::from);
+            set_status(
+                app,
+                json!({ "applying": null, "error": msg.clone().unwrap_or_else(|| format!("The updater answered {code}")) }),
+            );
             Err(msg.unwrap_or_else(|| "The updater refused".into()))
         }
         Err(e) => {
             // Couldn't even ask: nothing is updating (CV-19).
-            set_status(app, json!({ "applying": null, "error": format!("Couldn't reach the updater: {e}") }));
+            set_status(
+                app,
+                json!({ "applying": null, "error": format!("Couldn't reach the updater: {e}") }),
+            );
             Err("Couldn't reach the updater. Nothing was changed.".into())
         }
     }
@@ -219,19 +282,45 @@ pub fn reconcile(app: &App) {
     if !a.is_object() || !is_newer(&version, &app.config.version) {
         return;
     }
-    let job: Option<Value> = agent(5).get(&format!("{}/status", updater_base(app))).set("Authorization", &format!("Bearer {}", app.config.updater_token)).call().ok().and_then(|r| r.into_string().ok()).and_then(|t| serde_json::from_str(&t).ok());
+    let job: Option<Value> = agent(5)
+        .get(&format!("{}/status", updater_base(app)))
+        .set(
+            "Authorization",
+            &format!("Bearer {}", app.config.updater_token),
+        )
+        .call()
+        .ok()
+        .and_then(|r| r.into_string().ok())
+        .and_then(|t| serde_json::from_str(&t).ok());
     let at = crate::dates::parse(&to_js_string(a.get("at"))).unwrap_or(f64::NAN);
     if let Some(last) = job.as_ref().map(|j| &j["last"]).filter(|l| l.is_object()) {
-        if last["version"] == version.as_str() && last["ok"] == false && crate::dates::parse(&to_js_string(last.get("at"))).unwrap_or(f64::NAN) >= at {
-            let how = if last["rolled_back"] == false { " and going back failed too: check the server" } else { ", so the site went back to the version it had" };
-            let extra = if truthy(last.get("error")) { to_js_string(last.get("error")) } else { String::new() };
-            set_status(app, json!({ "applying": null, "error": format!("The update to {version} didn't work{how}. {extra}").trim().to_string() }));
+        if last["version"] == version.as_str()
+            && last["ok"] == false
+            && crate::dates::parse(&to_js_string(last.get("at"))).unwrap_or(f64::NAN) >= at
+        {
+            let how = if last["rolled_back"] == false {
+                " and going back failed too: check the server"
+            } else {
+                ", so the site went back to the version it had"
+            };
+            let extra = if truthy(last.get("error")) {
+                to_js_string(last.get("error"))
+            } else {
+                String::new()
+            };
+            set_status(
+                app,
+                json!({ "applying": null, "error": format!("The update to {version} didn't work{how}. {extra}").trim().to_string() }),
+            );
             return;
         }
     }
     let busy = job.as_ref().is_some_and(|j| truthy(j.get("busy")));
     if !busy && crate::sessions::now_ms() as f64 - at > APPLY_DEADLINE_MS {
-        set_status(app, json!({ "applying": null, "error": format!("The update to {version} didn't finish. You can try again.") }));
+        set_status(
+            app,
+            json!({ "applying": null, "error": format!("The update to {version} didn't finish. You can try again.") }),
+        );
     }
 }
 
@@ -239,10 +328,25 @@ pub fn view(app: &App) -> Value {
     let s = status(app);
     let current = &app.config.version;
     let newer_than = |r: &Value| r["version"].as_str().is_some_and(|v| is_newer(v, current));
-    let latest = if truthy(s.get("latest")) && newer_than(&s["latest"]) { s["latest"].clone() } else { Value::Null };
-    let applying = if truthy(s.get("applying")) && newer_than(&s["applying"]) { s["applying"].clone() } else { Value::Null };
+    let latest = if truthy(s.get("latest")) && newer_than(&s["latest"]) {
+        s["latest"].clone()
+    } else {
+        Value::Null
+    };
+    let applying = if truthy(s.get("applying")) && newer_than(&s["applying"]) {
+        s["applying"].clone()
+    } else {
+        Value::Null
+    };
     let mut out = json!({ "current": current, "available": latest });
-    out["newer"] = json!(s["newer"].as_array().map(|n| n.iter().filter(|r| newer_than(r)).cloned().collect::<Vec<_>>()).unwrap_or_default());
+    out["newer"] = json!(s["newer"]
+        .as_array()
+        .map(|n| n
+            .iter()
+            .filter(|r| newer_than(r))
+            .cloned()
+            .collect::<Vec<_>>())
+        .unwrap_or_default());
     for k in ["checked_at", "error"] {
         if let Some(v) = s.get(k) {
             out[k] = v.clone();
@@ -266,7 +370,10 @@ pub fn route(app: &App, method: &str, user: Option<&Value>, body: &[u8]) -> (u16
         return (200, view(app));
     }
     if method != "POST" {
-        return (405, json!({ "error": "Use GET or POST.", "code": "METHOD" }));
+        return (
+            405,
+            json!({ "error": "Use GET or POST.", "code": "METHOD" }),
+        );
     }
     let text = String::from_utf8_lossy(body);
     let body: Value = match serde_json::from_str(if text.is_empty() { "{}" } else { &text }) {
@@ -285,20 +392,32 @@ pub fn route(app: &App, method: &str, user: Option<&Value>, body: &[u8]) -> (u16
             (200, view(app))
         }
         Some("apply") => {
-            let target = if truthy(body.get("version")) { to_js_string(body.get("version")) } else { view(app)["available"]["version"].as_str().unwrap_or("").to_string() };
+            let target = if truthy(body.get("version")) {
+                to_js_string(body.get("version"))
+            } else {
+                view(app)["available"]["version"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string()
+            };
             match apply(app, &target) {
                 Ok(_) => (200, view(app)),
                 Err(e) => failed(e),
             }
         }
-        _ => (400, json!({ "error": "Unknown action.", "code": "UNKNOWN_ACTION" })),
+        _ => (
+            400,
+            json!({ "error": "Unknown action.", "code": "UNKNOWN_ACTION" }),
+        ),
     }
 }
 
 /// Check a minute after start, then every UPDATE_CHECK_HOURS.
 pub fn start(app: &Arc<App>) {
     let app = app.clone();
-    let every = Duration::from_millis((app.config.update_check_hours * 3_600_000.0).min(2f64.powi(31) - 1.0) as u64);
+    let every = Duration::from_millis(
+        (app.config.update_check_hours * 3_600_000.0).min(2f64.powi(31) - 1.0) as u64,
+    );
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(60)).await;
         loop {
@@ -319,6 +438,11 @@ mod tests {
         assert!(is_newer("1.0.0", "v0.99.99"));
         assert!(!is_newer("0.9.0", "0.9.0"));
         assert!(is_newer("0.0.1", "nonsense"));
-        assert!(!is_version("v1.2.3") && !is_version("1.2") && !is_version("12345.0.0") && is_version("1234.5678.123456"));
+        assert!(
+            !is_version("v1.2.3")
+                && !is_version("1.2")
+                && !is_version("12345.0.0")
+                && is_version("1234.5678.123456")
+        );
     }
 }

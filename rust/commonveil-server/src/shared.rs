@@ -16,7 +16,11 @@ pub const EXPIRY_CHOICES: [i64; 4] = [0, 86_400, 604_800, 2_419_200];
 
 /// `v || fallback`.
 pub fn or(v: &Value, fallback: Value) -> Value {
-    if truthy(Some(v)) { v.clone() } else { fallback }
+    if truthy(Some(v)) {
+        v.clone()
+    } else {
+        fallback
+    }
 }
 /// `v ?? fallback`.
 pub fn or_null(v: &Value) -> Value {
@@ -29,7 +33,11 @@ pub fn platform_ms(v: &Value) -> f64 {
 }
 /// When a record was created, in milliseconds.
 pub fn created_at(r: &Value) -> f64 {
-    if truthy(r.get("created_date")) { platform_ms(&r["created_date"]) } else { f64::NAN }
+    if truthy(r.get("created_date")) {
+        platform_ms(&r["created_date"])
+    } else {
+        f64::NAN
+    }
 }
 /// Oldest first; ties broken by id. (Ids are lower-case hex, where `localeCompare` is byte order.)
 pub fn by_age(a: &Value, b: &Value) -> Ordering {
@@ -44,7 +52,10 @@ pub fn by_age(a: &Value, b: &Value) -> Ordering {
 }
 /// Put a row just written in (once), oldest first.
 pub fn with_row(rows: Vec<Value>, created: &Value) -> Vec<Value> {
-    let mut v: Vec<Value> = rows.into_iter().filter(|r| r["id"] != created["id"]).collect();
+    let mut v: Vec<Value> = rows
+        .into_iter()
+        .filter(|r| r["id"] != created["id"])
+        .collect();
     v.push(created.clone());
     v.sort_by(by_age);
     v
@@ -61,7 +72,10 @@ pub fn iso(ms: i64) -> String {
 // ---------- profiles ----------
 
 pub fn profile_of(db: &Db, user_id: &str) -> Result<Option<Value>> {
-    Ok(db.filter("Profile", json!({ "user_id": user_id }), "created_date", 5)?.into_iter().next())
+    Ok(db
+        .filter("Profile", json!({ "user_id": user_id }), "created_date", 5)?
+        .into_iter()
+        .next())
 }
 
 pub fn public_profile(p: &Value) -> Value {
@@ -87,12 +101,22 @@ pub fn profile_for(p: &Value, contact: bool) -> Value {
 }
 
 /// Which of these people share a server with `user_id`.
-pub fn server_peers_of(sr: &Db, own: &Db, user_id: &str, ids: &[String]) -> Result<HashSet<String>> {
+pub fn server_peers_of(
+    sr: &Db,
+    own: &Db,
+    user_id: &str,
+    ids: &[String],
+) -> Result<HashSet<String>> {
     let mut out = HashSet::new();
     if ids.is_empty() {
         return Ok(out);
     }
-    let mine = own.filter("ServerMember", json!({ "user_id": user_id }), "created_date", 200)?;
+    let mine = own.filter(
+        "ServerMember",
+        json!({ "user_id": user_id }),
+        "created_date",
+        200,
+    )?;
     let mut server_ids: Vec<Value> = Vec::new();
     for m in &mine {
         if !server_ids.contains(&m["server_id"]) {
@@ -102,7 +126,12 @@ pub fn server_peers_of(sr: &Db, own: &Db, user_id: &str, ids: &[String]) -> Resu
     if server_ids.is_empty() {
         return Ok(out);
     }
-    for m in sr.filter("ServerMember", json!({ "server_id": { "$in": server_ids }, "user_id": { "$in": ids } }), "created_date", 5000)? {
+    for m in sr.filter(
+        "ServerMember",
+        json!({ "server_id": { "$in": server_ids }, "user_id": { "$in": ids } }),
+        "created_date",
+        5000,
+    )? {
         out.insert(to_js_string(m.get("user_id")));
     }
     Ok(out)
@@ -127,12 +156,22 @@ pub fn blocked_either_way(sr: &Db, a: &str, b: &str) -> Result<bool> {
 
 fn num_cmp(a: &Value, b: &Value) -> Ordering {
     let d = to_number(Some(a)) - to_number(Some(b));
-    if d < 0.0 { Ordering::Less } else if d > 0.0 { Ordering::Greater } else { Ordering::Equal }
+    if d < 0.0 {
+        Ordering::Less
+    } else if d > 0.0 {
+        Ordering::Greater
+    } else {
+        Ordering::Equal
+    }
 }
 
 pub fn account_keys_of(db: &Db, user_id: &str) -> Result<Vec<Value>> {
     let mut rows = db.filter("AccountKey", json!({ "user_id": user_id }), "version", 300)?;
-    rows.sort_by(|a, b| num_cmp(&a["version"], &b["version"]).then_with(|| to_js_string(a.get("created_date")).cmp(&to_js_string(b.get("created_date")))));
+    rows.sort_by(|a, b| {
+        num_cmp(&a["version"], &b["version"]).then_with(|| {
+            to_js_string(a.get("created_date")).cmp(&to_js_string(b.get("created_date")))
+        })
+    });
     Ok(rows)
 }
 
@@ -184,12 +223,20 @@ pub fn own_statement_out(k: &Value) -> Value {
 
 /// Each user's latest key statement (the oldest row wins a duplicate version).
 pub fn latest_keys_for(sr: &Db, user_ids: &[String]) -> Result<HashMap<String, Value>> {
-    let mut rows = sr.filter("AccountKey", json!({ "user_id": { "$in": user_ids } }), "version", 5000)?;
+    let mut rows = sr.filter(
+        "AccountKey",
+        json!({ "user_id": { "$in": user_ids } }),
+        "version",
+        5000,
+    )?;
     rows.sort_by(by_age);
     let mut latest: HashMap<String, Value> = HashMap::new();
     for r in rows {
         let u = to_js_string(r.get("user_id"));
-        if latest.get(&u).is_none_or(|seen| crate::js::gt(r.get("version"), seen.get("version"))) {
+        if latest
+            .get(&u)
+            .is_none_or(|seen| crate::js::gt(r.get("version"), seen.get("version")))
+        {
             latest.insert(u, r);
         }
     }
@@ -200,17 +247,37 @@ pub fn latest_keys_for(sr: &Db, user_ids: &[String]) -> Result<HashMap<String, V
 
 /// Every live device (active or pending) and the most recent removed ones.
 pub fn devices_of(db: &Db, user_id: &str) -> Result<Vec<Value>> {
-    let mut live = db.filter("Device", json!({ "user_id": user_id, "status": { "$in": ["active", "pending"] } }), "created_date", 100)?;
-    live.extend(db.filter("Device", json!({ "user_id": user_id, "status": "revoked" }), "-created_date", 100)?);
+    let mut live = db.filter(
+        "Device",
+        json!({ "user_id": user_id, "status": { "$in": ["active", "pending"] } }),
+        "created_date",
+        100,
+    )?;
+    live.extend(db.filter(
+        "Device",
+        json!({ "user_id": user_id, "status": "revoked" }),
+        "-created_date",
+        100,
+    )?);
     Ok(live)
 }
 
 pub fn device_of(db: &Db, user_id: &str, device_id: &str) -> Result<Option<Value>> {
-    Ok(db.filter("Device", json!({ "user_id": user_id, "device_id": device_id }), "created_date", 5)?.into_iter().next())
+    Ok(db
+        .filter(
+            "Device",
+            json!({ "user_id": user_id, "device_id": device_id }),
+            "created_date",
+            5,
+        )?
+        .into_iter()
+        .next())
 }
 
 pub fn pending_expired(d: &Value, now: i64) -> bool {
-    d["status"] == "pending" && truthy(d.get("pending_expires_at")) && platform_ms(&d["pending_expires_at"]) < now as f64
+    d["status"] == "pending"
+        && truthy(d.get("pending_expires_at"))
+        && platform_ms(&d["pending_expires_at"]) < now as f64
 }
 
 fn device_pq_out(d: &Value, o: &mut Value) {
@@ -263,9 +330,19 @@ pub fn peer_device_out(d: &Value) -> Value {
 
 /// Active device owned by this user, or a 403.
 pub fn require_active_device(db: &Db, user_id: &str, device_id: &str) -> Result<Value> {
-    let Some(d) = device_of(db, user_id, device_id)? else { return Err(ApiError::new(403, "DEVICE_UNKNOWN", "This device isn't registered to your account.")) };
+    let Some(d) = device_of(db, user_id, device_id)? else {
+        return Err(ApiError::new(
+            403,
+            "DEVICE_UNKNOWN",
+            "This device isn't registered to your account.",
+        ));
+    };
     if d["status"] != "active" {
-        return Err(ApiError::new(403, "DEVICE_NOT_ACTIVE", "This device hasn't been approved, or was removed."));
+        return Err(ApiError::new(
+            403,
+            "DEVICE_NOT_ACTIVE",
+            "This device hasn't been approved, or was removed.",
+        ));
     }
     Ok(d)
 }
@@ -273,11 +350,18 @@ pub fn require_active_device(db: &Db, user_id: &str, device_id: &str) -> Result<
 // ---------- conversations ----------
 
 pub fn my_conversations(db: &Db, user_id: &str, limit: usize) -> Result<Vec<Value>> {
-    db.filter("Conversation", json!({ "member_ids": user_id }), "-updated_date", limit)
+    db.filter(
+        "Conversation",
+        json!({ "member_ids": user_id }),
+        "-updated_date",
+        limit,
+    )
 }
 
 fn str_list(v: &Value) -> Vec<String> {
-    v.as_array().map(|a| a.iter().map(|x| to_js_string(Some(x))).collect()).unwrap_or_default()
+    v.as_array()
+        .map(|a| a.iter().map(|x| to_js_string(Some(x))).collect())
+        .unwrap_or_default()
 }
 
 /// A group's admins (see store.ts adminsOf).
@@ -286,7 +370,10 @@ pub fn admins_of(conv: &Value) -> Vec<String> {
         return vec![];
     }
     let members = str_list(&conv["member_ids"]);
-    let listed: Vec<String> = str_list(&conv["admin_ids"]).into_iter().filter(|m| members.contains(m)).collect();
+    let listed: Vec<String> = str_list(&conv["admin_ids"])
+        .into_iter()
+        .filter(|m| members.contains(m))
+        .collect();
     if !listed.is_empty() {
         return listed;
     }
@@ -299,8 +386,14 @@ pub fn admins_of(conv: &Value) -> Vec<String> {
 
 /// Who's left, and who manages, once someone leaves or is removed.
 pub fn without_member(conv: &Value, user_id: &str) -> (Vec<String>, Vec<String>) {
-    let members: Vec<String> = str_list(&conv["member_ids"]).into_iter().filter(|m| m != user_id).collect();
-    let mut admins: Vec<String> = admins_of(conv).into_iter().filter(|m| m != user_id && members.contains(m)).collect();
+    let members: Vec<String> = str_list(&conv["member_ids"])
+        .into_iter()
+        .filter(|m| m != user_id)
+        .collect();
+    let mut admins: Vec<String> = admins_of(conv)
+        .into_iter()
+        .filter(|m| m != user_id && members.contains(m))
+        .collect();
     if admins.is_empty() && !members.is_empty() {
         admins = vec![members[0].clone()];
     }
@@ -312,14 +405,30 @@ pub fn without_member(conv: &Value, user_id: &str) -> (Vec<String>, Vec<String>)
 pub fn count_since(sr: &Db, entity: &str, query: Value, since: i64, cap: usize) -> Result<usize> {
     let mut q = query;
     q["created_date"] = json!({ "$gte": iso(since).trim_end_matches('Z') });
-    Ok(sr.filter(entity, q, "-created_date", cap + 1)?.iter().filter(|r| platform_ms(&r["created_date"]) >= since as f64).count())
+    Ok(sr
+        .filter(entity, q, "-created_date", cap + 1)?
+        .iter()
+        .filter(|r| platform_ms(&r["created_date"]) >= since as f64)
+        .count())
 }
 
 pub fn rate_limited(what: &str) -> ApiError {
-    ApiError::new(429, "RATE_LIMITED", &format!("You're {what} too quickly. Please wait a moment."))
+    ApiError::new(
+        429,
+        "RATE_LIMITED",
+        &format!("You're {what} too quickly. Please wait a moment."),
+    )
 }
 
-pub fn enforce_rate(sr: &Db, entity: &str, query: Value, window_ms: i64, cap: usize, now: i64, what: &str) -> Result<()> {
+pub fn enforce_rate(
+    sr: &Db,
+    entity: &str,
+    query: Value,
+    window_ms: i64,
+    cap: usize,
+    now: i64,
+    what: &str,
+) -> Result<()> {
     if count_since(sr, entity, query, now - window_ms, cap)? >= cap {
         return Err(rate_limited(what));
     }
@@ -327,21 +436,46 @@ pub fn enforce_rate(sr: &Db, entity: &str, query: Value, window_ms: i64, cap: us
 }
 
 /// Checked again after inserting. False means undo it.
-pub fn within_rate(sr: &Db, entity: &str, query: Value, window_ms: i64, cap: usize, now: i64, created: &Value) -> Result<bool> {
+pub fn within_rate(
+    sr: &Db,
+    entity: &str,
+    query: Value,
+    window_ms: i64,
+    cap: usize,
+    now: i64,
+    created: &Value,
+) -> Result<bool> {
     let since = now - window_ms - 60_000;
     let mut q = query;
     q["created_date"] = json!({ "$gte": iso(since).trim_end_matches('Z') });
     let start = (now - window_ms) as f64;
-    let rows: Vec<Value> = sr.filter(entity, q, "created_date", cap * 2 + 20)?.into_iter().filter(|r| created_at(r) >= start).collect();
+    let rows: Vec<Value> = sr
+        .filter(entity, q, "created_date", cap * 2 + 20)?
+        .into_iter()
+        .filter(|r| created_at(r) >= start)
+        .collect();
     let ordered = with_row(rows, created);
-    Ok(ordered.iter().position(|r| id_of(r) == id_of(created)).is_some_and(|i| i < cap))
+    Ok(ordered
+        .iter()
+        .position(|r| id_of(r) == id_of(created))
+        .is_some_and(|i| i < cap))
 }
 
 /// The conversation, if this person is in it; the same 404 whether it doesn't exist or they aren't.
 pub fn conversation_for_member(db: &Db, user_id: &str, conversation_id: &str) -> Result<Value> {
     match db.get("Conversation", conversation_id) {
-        Some(c) if c["member_ids"].as_array().is_some_and(|m| m.iter().any(|x| x == user_id)) => Ok(c),
-        _ => Err(ApiError::new(404, "CONVERSATION_NOT_FOUND", "Conversation not found.")),
+        Some(c)
+            if c["member_ids"]
+                .as_array()
+                .is_some_and(|m| m.iter().any(|x| x == user_id)) =>
+        {
+            Ok(c)
+        }
+        _ => Err(ApiError::new(
+            404,
+            "CONVERSATION_NOT_FOUND",
+            "Conversation not found.",
+        )),
     }
 }
 
@@ -352,13 +486,20 @@ pub fn is_admin(conv: &Value, user_id: &str) -> bool {
 
 pub fn require_group_admin(conv: &Value, user_id: &str, what: &str) -> Result<()> {
     if !is_admin(conv, user_id) {
-        return Err(ApiError::new(403, "NOT_ADMIN", &format!("Only the group's admins can {what}.")));
+        return Err(ApiError::new(
+            403,
+            "NOT_ADMIN",
+            &format!("Only the group's admins can {what}."),
+        ));
     }
     Ok(())
 }
 
 pub fn conversation_out(c: &Value) -> Value {
-    let expire = { let n = to_number(c.get("expire_seconds")); crate::js::number_value(if n.is_nan() { 0.0 } else { n }) };
+    let expire = {
+        let n = to_number(c.get("expire_seconds"));
+        crate::js::number_value(if n.is_nan() { 0.0 } else { n })
+    };
     let mut o = json!({
         "id": c["id"],
         "kind": c["kind"],
@@ -391,7 +532,13 @@ pub fn conversation_out(c: &Value) -> Value {
     }
     o["title"] = if truthy(c.get("title_envelope")) {
         let mut t = json!({ "envelope": c["title_envelope"], "item_id": c["title_item_id"], "sender_id": c["title_sender_id"], "device_id": c["title_device_id"], "sent_at": c["title_sent_at"], "signature": c["title_signature"] });
-        let keys = [("item_id", "title_item_id"), ("sender_id", "title_sender_id"), ("device_id", "title_device_id"), ("sent_at", "title_sent_at"), ("signature", "title_signature")];
+        let keys = [
+            ("item_id", "title_item_id"),
+            ("sender_id", "title_sender_id"),
+            ("device_id", "title_device_id"),
+            ("sent_at", "title_sent_at"),
+            ("signature", "title_signature"),
+        ];
         for (k, src) in keys {
             if c.get(src).is_none() {
                 t.as_object_mut().unwrap().remove(k);
@@ -414,7 +561,15 @@ pub fn message_out(m: &Value) -> Value {
         "expires_at": or(&m["expires_at"], Value::Null),
         "deleted": deleted, "scheduled": truthy(m.get("scheduled")),
     });
-    for k in ["id", "conversation_id", "msg_id", "sender_id", "device_id", "sent_at", "created_date"] {
+    for k in [
+        "id",
+        "conversation_id",
+        "msg_id",
+        "sender_id",
+        "device_id",
+        "sent_at",
+        "created_date",
+    ] {
         if m.get(k).is_none() {
             o.as_object_mut().unwrap().remove(k);
         }
@@ -438,16 +593,37 @@ pub fn addressed_to(user_id: &str) -> Value {
 }
 
 /// Every member covered exactly once, each at their current key version, post-quantum where theirs is.
-pub fn assert_wraps_match_members(sr: &Db, wraps: &[crate::verify::Wrap], member_ids: &[String]) -> Result<()> {
+pub fn assert_wraps_match_members(
+    sr: &Db,
+    wraps: &[crate::verify::Wrap],
+    member_ids: &[String],
+) -> Result<()> {
     let latest = latest_keys_for(sr, member_ids)?;
     let users: HashSet<&str> = wraps.iter().map(|w| w.u.as_str()).collect();
-    let exact = users.len() == member_ids.len() && member_ids.iter().all(|m| users.contains(m.as_str()));
+    let exact =
+        users.len() == member_ids.len() && member_ids.iter().all(|m| users.contains(m.as_str()));
     if !exact {
-        return Err(ApiError::new(409, "RECIPIENTS_CHANGED", "The people in this conversation changed. Refreshing and trying again."));
+        return Err(ApiError::new(
+            409,
+            "RECIPIENTS_CHANGED",
+            "The people in this conversation changed. Refreshing and trying again.",
+        ));
     }
-    let stale = || ApiError::new(409, "STALE_KEYS", "Someone's keys changed. Refreshing and trying again.");
+    let stale = || {
+        ApiError::new(
+            409,
+            "STALE_KEYS",
+            "Someone's keys changed. Refreshing and trying again.",
+        )
+    };
     for w in wraps {
-        let Some(current) = latest.get(&w.u) else { return Err(ApiError::new(409, "MEMBER_NOT_READY", "Someone here hasn't finished setting up encryption.")) };
+        let Some(current) = latest.get(&w.u) else {
+            return Err(ApiError::new(
+                409,
+                "MEMBER_NOT_READY",
+                "Someone here hasn't finished setting up encryption.",
+            ));
+        };
         if !crate::js::strict_eq(Some(&json!(w.kv)), current.get("version")) {
             return Err(stale());
         }
@@ -460,5 +636,7 @@ pub fn assert_wraps_match_members(sr: &Db, wraps: &[crate::verify::Wrap], member
 
 /// A list field as strings (`member_ids` and the like).
 pub fn ids_of(v: &Value) -> Vec<String> {
-    v.as_array().map(|a| a.iter().map(|x| to_js_string(Some(x))).collect()).unwrap_or_default()
+    v.as_array()
+        .map(|a| a.iter().map(|x| to_js_string(Some(x))).collect())
+        .unwrap_or_default()
 }

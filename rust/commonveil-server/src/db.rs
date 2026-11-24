@@ -12,18 +12,33 @@ pub struct Db<'a> {
 
 impl<'a> Db<'a> {
     pub fn service(store: &'a Store) -> Self {
-        Self { store, person: None }
+        Self {
+            store,
+            person: None,
+        }
     }
     pub fn person(store: &'a Store, person: Person) -> Self {
-        Self { store, person: Some(person) }
+        Self {
+            store,
+            person: Some(person),
+        }
     }
 
     /// `entities[name].filter(query, sort, limit)`.
     pub fn filter(&self, name: &str, query: Value, sort: &str, limit: usize) -> Result<Vec<Value>> {
         let sort = json!(sort);
         Ok(match &self.person {
-            None => self.store.filter(name, &query, Some(&sort), Some(limit as f64), None)?,
-            Some(p) => self.store.person_filter(Some(p), name, &query, Some(&sort), Some(limit as f64), None)?,
+            None => self
+                .store
+                .filter(name, &query, Some(&sort), Some(limit as f64), None)?,
+            Some(p) => self.store.person_filter(
+                Some(p),
+                name,
+                &query,
+                Some(&sort),
+                Some(limit as f64),
+                None,
+            )?,
         })
     }
     pub fn first(&self, name: &str, query: Value, sort: &str) -> Result<Option<Value>> {

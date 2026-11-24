@@ -19,7 +19,12 @@ pub fn sort<T: Clone, F: FnMut(&T, &T) -> i64>(a: &mut [T], cmp: F) {
     if n < 2 {
         return;
     }
-    let mut s = State { a, cmp, min_gallop: MIN_GALLOP_WINS, runs: Vec::new() };
+    let mut s = State {
+        a,
+        cmp,
+        min_gallop: MIN_GALLOP_WINS,
+        runs: Vec::new(),
+    };
     let min_run = compute_min_run(n);
     let (mut low, mut remaining) = (0, n);
     while remaining != 0 {
@@ -52,7 +57,11 @@ impl<T: Clone, F: FnMut(&T, &T) -> i64> State<'_, T, F> {
     }
 
     fn binary_insertion_sort(&mut self, low: usize, start_arg: usize, high: usize) {
-        let mut start = if low == start_arg { start_arg + 1 } else { start_arg };
+        let mut start = if low == start_arg {
+            start_arg + 1
+        } else {
+            start_arg
+        };
         while start < high {
             let (mut left, mut right) = (low, start);
             let pivot = self.a[start].clone();
@@ -278,7 +287,11 @@ impl<T: Clone, F: FnMut(&T, &T) -> i64> State<'_, T, F> {
     fn merge_high(&mut self, base_a: usize, mut len_a: usize, base_b: usize, mut len_b: usize) {
         let temp: Vec<T> = self.a[base_b..base_b + len_b].to_vec();
         // Positions can go one below zero at the very end, as in V8: keep them signed.
-        let (mut dest, mut ct, mut ca) = ((base_b + len_b - 1) as isize, len_b as isize - 1, (base_a + len_a - 1) as isize);
+        let (mut dest, mut ct, mut ca) = (
+            (base_b + len_b - 1) as isize,
+            len_b as isize - 1,
+            (base_a + len_a - 1) as isize,
+        );
         let at = |i: isize| i as usize;
         self.a[at(dest)] = self.a[at(ca)].clone();
         dest -= 1;
@@ -359,7 +372,8 @@ impl<T: Clone, F: FnMut(&T, &T) -> i64> State<'_, T, F> {
                     if wins_b > 0 {
                         dest -= wins_b as isize;
                         ct -= wins_b as isize;
-                        self.a[at(dest + 1)..at(dest + 1) + wins_b].clone_from_slice(&temp[at(ct + 1)..at(ct + 1) + wins_b]);
+                        self.a[at(dest + 1)..at(dest + 1) + wins_b]
+                            .clone_from_slice(&temp[at(ct + 1)..at(ct + 1) + wins_b]);
                         len_b -= wins_b;
                         if len_b == 1 {
                             break 'outer End::CopyA;
@@ -414,7 +428,14 @@ fn copy_within<T: Clone>(a: &mut [T], from: usize, to: usize, n: usize) {
 }
 
 /// The position in `arr[base..base+len]` where `key` goes, leftmost among equals.
-fn gallop_left<T: Clone, F: FnMut(&T, &T) -> i64>(cmp: &mut F, arr: &[T], key: &T, base: usize, len: usize, hint: usize) -> usize {
+fn gallop_left<T: Clone, F: FnMut(&T, &T) -> i64>(
+    cmp: &mut F,
+    arr: &[T],
+    key: &T,
+    base: usize,
+    len: usize,
+    hint: usize,
+) -> usize {
     let (mut last, mut offset): (isize, isize) = (0, 1);
     let hint_i = hint as isize;
     if cmp(&arr[base + hint], key) < 0 {
@@ -456,7 +477,14 @@ fn gallop_left<T: Clone, F: FnMut(&T, &T) -> i64>(cmp: &mut F, arr: &[T], key: &
 }
 
 /// The position in `arr[base..base+len]` where `key` goes, rightmost among equals.
-fn gallop_right<T: Clone, F: FnMut(&T, &T) -> i64>(cmp: &mut F, arr: &[T], key: &T, base: usize, len: usize, hint: usize) -> usize {
+fn gallop_right<T: Clone, F: FnMut(&T, &T) -> i64>(
+    cmp: &mut F,
+    arr: &[T],
+    key: &T,
+    base: usize,
+    len: usize,
+    hint: usize,
+) -> usize {
     let (mut last, mut offset): (isize, isize) = (0, 1);
     let hint_i = hint as isize;
     if cmp(key, &arr[base + hint]) < 0 {
@@ -524,7 +552,11 @@ mod tests {
         let mut flip = 0u64;
         sort(&mut v, |a, b| {
             flip = flip.wrapping_mul(31).wrapping_add(u64::from(*a ^ *b));
-            if flip.is_multiple_of(3) { -1 } else { 1 }
+            if flip.is_multiple_of(3) {
+                -1
+            } else {
+                1
+            }
         });
         assert_eq!(v.len(), 3000);
     }

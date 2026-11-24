@@ -28,7 +28,11 @@ esac
 
 fn node_ready() -> bool {
     let reference = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../updater/updater.mjs");
-    reference.exists() && Command::new("node").arg("--version").output().is_ok_and(|o| o.status.success())
+    reference.exists()
+        && Command::new("node")
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success())
 }
 
 /// The app's health answer: the version the stand-in for docker last started.
@@ -42,7 +46,10 @@ fn fake_app(root: PathBuf) -> u16 {
             while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
                 line.clear();
             }
-            let version = std::fs::read_to_string(root.join("running")).unwrap_or_default().trim().to_string();
+            let version = std::fs::read_to_string(root.join("running"))
+                .unwrap_or_default()
+                .trim()
+                .to_string();
             let body = json!({ "status": "ok", "version": version }).to_string();
             let _ = write!(&stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
         }
@@ -72,15 +79,35 @@ fn command(node: bool) -> Command {
     }
 }
 
-fn configured(node: bool, root: &Path, app_port: u16, token: &str, extra: &[(&str, &str)]) -> (Command, u16) {
-    let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+fn configured(
+    node: bool,
+    root: &Path,
+    app_port: u16,
+    token: &str,
+    extra: &[(&str, &str)],
+) -> (Command, u16) {
+    let port = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
     let mut cmd = command(node);
     cmd.env("UPDATER_TEST_PORT", port.to_string())
         .env("UPDATER_PORT", port.to_string())
         .env("UPDATER_TOKEN", token)
         .env("PROJECT_DIR", root.join("project"))
-        .env("APP_HEALTH_URL", format!("http://127.0.0.1:{app_port}/api/health"))
-        .env("PATH", format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap_or_default()))
+        .env(
+            "APP_HEALTH_URL",
+            format!("http://127.0.0.1:{app_port}/api/health"),
+        )
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                root.join("bin").display(),
+                std::env::var("PATH").unwrap_or_default()
+            ),
+        )
         .env("FAKE_DIR", root)
         .env_remove("UPDATER_ALLOW_DOWNGRADE")
         .env_remove("APP_SERVICE");
@@ -92,7 +119,14 @@ fn configured(node: bool, root: &Path, app_port: u16, token: &str, extra: &[(&st
 
 fn start(node: bool, root: &Path, app_port: u16, extra: &[(&str, &str)]) -> Updater {
     let (mut cmd, port) = configured(node, root, app_port, TOKEN, extra);
-    let updater = Updater { child: cmd.stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap(), port };
+    let updater = Updater {
+        child: cmd
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+        port,
+    };
     let until = Instant::now() + Duration::from_secs(20);
     while TcpStream::connect(("127.0.0.1", port)).is_err() {
         assert!(Instant::now() < until, "the updater didn't start");
@@ -104,7 +138,9 @@ fn start(node: bool, root: &Path, app_port: u16, extra: &[(&str, &str)]) -> Upda
 fn call(port: u16, method: &str, path: &str, auth: Option<&str>, body: &str) -> (u16, Value) {
     let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
     s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
-    let auth = auth.map(|a| format!("Authorization: {a}\r\n")).unwrap_or_default();
+    let auth = auth
+        .map(|a| format!("Authorization: {a}\r\n"))
+        .unwrap_or_default();
     write!(s, "{method} {path} HTTP/1.1\r\nHost: updater\r\nConnection: close\r\n{auth}Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
     let mut raw = Vec::new();
     let _ = s.read_to_end(&mut raw);
@@ -112,12 +148,17 @@ fn call(port: u16, method: &str, path: &str, auth: Option<&str>, body: &str) -> 
         return (0, Value::Null);
     };
     let head = String::from_utf8_lossy(&raw[..split]).to_lowercase();
-    let status = head.split(' ').nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let status = head
+        .split(' ')
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     let mut body = raw[split + 4..].to_vec();
     if head.contains("transfer-encoding: chunked") {
         let (mut out, mut i) = (Vec::new(), 0);
         while let Some(end) = body[i..].windows(2).position(|w| w == b"\r\n") {
-            let size = usize::from_str_radix(String::from_utf8_lossy(&body[i..i + end]).trim(), 16).unwrap_or(0);
+            let size = usize::from_str_radix(String::from_utf8_lossy(&body[i..i + end]).trim(), 16)
+                .unwrap_or(0);
             if size == 0 {
                 break;
             }
@@ -134,7 +175,20 @@ fn blank(v: &Value, root: &str) -> Value {
     match v {
         Value::String(s) => json!(s.replace(root, "<dir>")),
         Value::Array(a) => Value::Array(a.iter().map(|x| blank(x, root)).collect()),
-        Value::Object(o) => Value::Object(o.iter().map(|(k, x)| (k.clone(), if k == "at" && x.is_string() { json!("<time>") } else { blank(x, root) })).collect()),
+        Value::Object(o) => Value::Object(
+            o.iter()
+                .map(|(k, x)| {
+                    (
+                        k.clone(),
+                        if k == "at" && x.is_string() {
+                            json!("<time>")
+                        } else {
+                            blank(x, root)
+                        },
+                    )
+                })
+                .collect(),
+        ),
         _ => v.clone(),
     }
 }
@@ -149,10 +203,18 @@ fn deployment() -> (tempfile::TempDir, u16) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(root.join("bin/docker"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(
+            root.join("bin/docker"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
     }
     // Windows line ends, which must survive the update.
-    std::fs::write(root.join("project/.env"), "SITE_DOMAIN=chat.example\r\nCOMMONVEIL_VERSION=0.23.1\r\nUPDATER_TOKEN=x\r\n").unwrap();
+    std::fs::write(
+        root.join("project/.env"),
+        "SITE_DOMAIN=chat.example\r\nCOMMONVEIL_VERSION=0.23.1\r\nUPDATER_TOKEN=x\r\n",
+    )
+    .unwrap();
     std::fs::write(root.join("running"), "0.23.1").unwrap();
     let app = fake_app(root.to_path_buf());
     (dir, app)
@@ -163,7 +225,9 @@ fn script(node: bool) -> Vec<Value> {
     let root = dir.path().to_path_buf();
     let root_text = root.display().to_string();
     let mut log: Vec<Value> = Vec::new();
-    let note = |log: &mut Vec<Value>, step: &str, (status, reply): (u16, Value)| log.push(json!({ "step": step, "status": status, "reply": blank(&reply, &root_text) }));
+    let note = |log: &mut Vec<Value>, step: &str, (status, reply): (u16, Value)| {
+        log.push(json!({ "step": step, "status": status, "reply": blank(&reply, &root_text) }))
+    };
     let bearer = format!("Bearer {TOKEN}");
     let settle = |port: u16| {
         let until = Instant::now() + Duration::from_secs(60);
@@ -180,47 +244,132 @@ fn script(node: bool) -> Vec<Value> {
         let get = |path: &str, auth: Option<&str>| call(u.port, "GET", path, auth, "");
         let post = |path: &str, body: &str| call(u.port, "POST", path, Some(&bearer), body);
         note(&mut log, "status: no token", get("/status", None));
-        note(&mut log, "status: wrong token", get("/status", Some("Bearer nope")));
-        note(&mut log, "status: token and more", get("/status", Some(&format!("{bearer}x"))));
-        note(&mut log, "status: lowercase", get("/status", Some(&format!("bearer {TOKEN}"))));
-        note(&mut log, "update: no token", call(u.port, "POST", "/update", None, r#"{"version":"0.24.0"}"#));
+        note(
+            &mut log,
+            "status: wrong token",
+            get("/status", Some("Bearer nope")),
+        );
+        note(
+            &mut log,
+            "status: token and more",
+            get("/status", Some(&format!("{bearer}x"))),
+        );
+        note(
+            &mut log,
+            "status: lowercase",
+            get("/status", Some(&format!("bearer {TOKEN}"))),
+        );
+        note(
+            &mut log,
+            "update: no token",
+            call(u.port, "POST", "/update", None, r#"{"version":"0.24.0"}"#),
+        );
         note(&mut log, "status", get("/status", Some(&bearer)));
         note(&mut log, "update: GET", get("/update", Some(&bearer)));
         note(&mut log, "status: POST", post("/status", ""));
-        note(&mut log, "status: with a query", get("/status?x=1", Some(&bearer)));
+        note(
+            &mut log,
+            "status: with a query",
+            get("/status?x=1", Some(&bearer)),
+        );
         note(&mut log, "nothing there", get("/", Some(&bearer)));
-        for body in ["", "not json", "null", "[]", "{}", r#"{"version":"0.24"}"#, r#"{"version":"v0.24.0"}"#, r#"{"version":"0.24.0 "}"#, r#"{"version":"0.24.0\n"}"#, r#"{"version":1}"#, r#"{"version":true}"#, r#"{"version":{}}"#, r#"{"version":["0","24"]}"#, r#"{"version":"12345.0.0"}"#] {
+        for body in [
+            "",
+            "not json",
+            "null",
+            "[]",
+            "{}",
+            r#"{"version":"0.24"}"#,
+            r#"{"version":"v0.24.0"}"#,
+            r#"{"version":"0.24.0 "}"#,
+            r#"{"version":"0.24.0\n"}"#,
+            r#"{"version":1}"#,
+            r#"{"version":true}"#,
+            r#"{"version":{}}"#,
+            r#"{"version":["0","24"]}"#,
+            r#"{"version":"12345.0.0"}"#,
+        ] {
             note(&mut log, &format!("update: {body}"), post("/update", body));
         }
-        note(&mut log, "update: what runs now", post("/update", r#"{"version":"0.23.1"}"#));
-        note(&mut log, "update: older", post("/update", r#"{"version":"0.23.0"}"#));
-        note(&mut log, "update", post("/update", r#"{"version":"0.24.0"}"#));
-        note(&mut log, "update: while busy", post("/update", r#"{"version":"0.24.1"}"#));
+        note(
+            &mut log,
+            "update: what runs now",
+            post("/update", r#"{"version":"0.23.1"}"#),
+        );
+        note(
+            &mut log,
+            "update: older",
+            post("/update", r#"{"version":"0.23.0"}"#),
+        );
+        note(
+            &mut log,
+            "update",
+            post("/update", r#"{"version":"0.24.0"}"#),
+        );
+        note(
+            &mut log,
+            "update: while busy",
+            post("/update", r#"{"version":"0.24.1"}"#),
+        );
         note(&mut log, "status: busy", get("/status", Some(&bearer)));
         note(&mut log, "status: updated", settle(u.port));
-        note(&mut log, "update: not newer than what runs now", post("/update", r#"{"version":"0.24.0"}"#));
+        note(
+            &mut log,
+            "update: not newer than what runs now",
+            post("/update", r#"{"version":"0.24.0"}"#),
+        );
 
         std::fs::write(root.join("fail-pull"), "").unwrap();
-        note(&mut log, "update: the pull fails", post("/update", r#"{"version":"0.25.0"}"#));
+        note(
+            &mut log,
+            "update: the pull fails",
+            post("/update", r#"{"version":"0.25.0"}"#),
+        );
         note(&mut log, "status: went back", settle(u.port));
         std::fs::remove_file(root.join("fail-pull")).unwrap();
 
         std::fs::write(root.join("fail-up"), "").unwrap();
-        note(&mut log, "update: starting fails", post("/update", r#"{"version":"0.25.0"}"#));
+        note(
+            &mut log,
+            "update: starting fails",
+            post("/update", r#"{"version":"0.25.0"}"#),
+        );
         note(&mut log, "status: couldn't go back", settle(u.port));
         std::fs::remove_file(root.join("fail-up")).unwrap();
 
-        std::fs::write(root.join("project/.env"), "SITE_DOMAIN=chat.example\nUPDATER_TOKEN=x").unwrap();
-        note(&mut log, "update: .env doesn't name a version", post("/update", r#"{"version":"0.26.0"}"#));
+        std::fs::write(
+            root.join("project/.env"),
+            "SITE_DOMAIN=chat.example\nUPDATER_TOKEN=x",
+        )
+        .unwrap();
+        note(
+            &mut log,
+            "update: .env doesn't name a version",
+            post("/update", r#"{"version":"0.26.0"}"#),
+        );
         note(&mut log, "status: named now", settle(u.port));
     }
     {
         // The operator allows going back.
         let u = start(node, &root, app, &[("UPDATER_ALLOW_DOWNGRADE", "true")]);
-        note(&mut log, "update: back to an older version", call(u.port, "POST", "/update", Some(&bearer), r#"{"version":"0.23.0"}"#));
+        note(
+            &mut log,
+            "update: back to an older version",
+            call(
+                u.port,
+                "POST",
+                "/update",
+                Some(&bearer),
+                r#"{"version":"0.23.0"}"#,
+            ),
+        );
         note(&mut log, "status: older", settle(u.port));
     }
-    let read = |p: &str| std::fs::read_to_string(root.join(p)).unwrap_or_default().replace(&root_text, "<dir>");
+    let read = |p: &str| {
+        std::fs::read_to_string(root.join(p))
+            .unwrap_or_default()
+            .replace(&root_text, "<dir>")
+    };
     log.push(json!({ "step": "docker commands", "lines": read("docker.log").lines().collect::<Vec<_>>() }));
     log.push(json!({ "step": ".env", "text": read("project/.env") }));
     log.push(json!({ "step": "running", "text": read("running") }));
@@ -248,14 +397,28 @@ fn the_updater_answers_as_the_node_one_did() {
         assert_eq!(a, b, "\nnode: {a}\nrust: {b}");
     }
     // The script did reach what it means to test.
-    let step = |name: &str| rust.iter().find(|s| s["step"] == name).unwrap_or_else(|| panic!("no step {name}")).clone();
+    let step = |name: &str| {
+        rust.iter()
+            .find(|s| s["step"] == name)
+            .unwrap_or_else(|| panic!("no step {name}"))
+            .clone()
+    };
     assert_eq!(step("update")["status"], 202);
     assert_eq!(step("update: while busy")["status"], 409);
     assert_eq!(step("status: updated")["reply"]["last"]["ok"], true);
-    assert_eq!(step("status: went back")["reply"]["last"]["rolled_back"], true);
-    assert_eq!(step("status: couldn't go back")["reply"]["last"]["rolled_back"], false);
+    assert_eq!(
+        step("status: went back")["reply"]["last"]["rolled_back"],
+        true
+    );
+    assert_eq!(
+        step("status: couldn't go back")["reply"]["last"]["rolled_back"],
+        false
+    );
     assert_eq!(step("status: older")["reply"]["last"]["version"], "0.23.0");
-    assert_eq!(step(".env")["text"], "SITE_DOMAIN=chat.example\nUPDATER_TOKEN=x\nCOMMONVEIL_VERSION=0.23.0\n");
+    assert_eq!(
+        step(".env")["text"],
+        "SITE_DOMAIN=chat.example\nUPDATER_TOKEN=x\nCOMMONVEIL_VERSION=0.23.0\n"
+    );
     assert_eq!(step("short token")["code"], 1);
 }
 
@@ -268,6 +431,9 @@ fn a_long_request_starts_nothing() {
     let (status, _) = call(u.port, "POST", "/update", Some(&bearer), &body);
     assert_ne!(status, 202);
     std::thread::sleep(Duration::from_millis(300));
-    assert_eq!(call(u.port, "GET", "/status", Some(&bearer), ""), (200, json!({ "busy": false, "last": null })));
+    assert_eq!(
+        call(u.port, "GET", "/status", Some(&bearer), ""),
+        (200, json!({ "busy": false, "last": null }))
+    );
     assert!(!dir.path().join("docker.log").exists());
 }

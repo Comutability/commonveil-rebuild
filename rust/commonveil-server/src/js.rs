@@ -32,9 +32,22 @@ pub fn string_to_number(s: &str) -> f64 {
     if t.is_empty() {
         return 0.0;
     }
-    for (prefix, radix) in [("0x", 16), ("0X", 16), ("0o", 8), ("0O", 8), ("0b", 2), ("0B", 2)] {
+    for (prefix, radix) in [
+        ("0x", 16),
+        ("0X", 16),
+        ("0o", 8),
+        ("0O", 8),
+        ("0b", 2),
+        ("0B", 2),
+    ] {
         if let Some(digits) = t.strip_prefix(prefix) {
-            return if !digits.is_empty() && digits.chars().all(|c| c.is_digit(radix)) { digits.chars().fold(0.0, |n, c| n * f64::from(radix) + f64::from(c.to_digit(radix).unwrap())) } else { f64::NAN };
+            return if !digits.is_empty() && digits.chars().all(|c| c.is_digit(radix)) {
+                digits.chars().fold(0.0, |n, c| {
+                    n * f64::from(radix) + f64::from(c.to_digit(radix).unwrap())
+                })
+            } else {
+                f64::NAN
+            };
         }
     }
     match t {
@@ -42,19 +55,30 @@ pub fn string_to_number(s: &str) -> f64 {
         "-Infinity" => return f64::NEG_INFINITY,
         _ => {}
     }
-    let ok = t.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | 'e' | 'E' | '+' | '-'));
-    if ok { t.parse::<f64>().unwrap_or(f64::NAN) } else { f64::NAN }
+    let ok = t
+        .chars()
+        .all(|c| c.is_ascii_digit() || matches!(c, '.' | 'e' | 'E' | '+' | '-'));
+    if ok {
+        t.parse::<f64>().unwrap_or(f64::NAN)
+    } else {
+        f64::NAN
+    }
 }
 
 /// `String(value)` for a primitive (what `<` uses when one side isn't a number).
 fn to_primitive_string(v: &Value) -> Option<String> {
     match v {
         Value::String(s) => Some(s.clone()),
-        Value::Array(a) => Some(a.iter().map(|x| match x {
-            Value::Null => String::new(),
-            Value::String(s) => s.clone(),
-            other => to_primitive_string(other).unwrap_or_default(),
-        }).collect::<Vec<_>>().join(",")),
+        Value::Array(a) => Some(
+            a.iter()
+                .map(|x| match x {
+                    Value::Null => String::new(),
+                    Value::String(s) => s.clone(),
+                    other => to_primitive_string(other).unwrap_or_default(),
+                })
+                .collect::<Vec<_>>()
+                .join(","),
+        ),
         Value::Object(_) => Some("[object Object]".into()),
         _ => None,
     }
@@ -68,9 +92,18 @@ fn utf16_cmp(a: &str, b: &str) -> Ordering {
 /// when JavaScript would answer `undefined` (a NaN on either side), which every operator treats
 /// as false.
 fn less_than(a: Option<&Value>, b: Option<&Value>) -> Option<bool> {
-    let (pa, pb) = (a.and_then(to_primitive_string), b.and_then(to_primitive_string));
+    let (pa, pb) = (
+        a.and_then(to_primitive_string),
+        b.and_then(to_primitive_string),
+    );
     if let (Some(x), Some(y)) = (&pa, &pb) {
-        if matches!(a, Some(Value::String(_) | Value::Array(_) | Value::Object(_))) && matches!(b, Some(Value::String(_) | Value::Array(_) | Value::Object(_))) {
+        if matches!(
+            a,
+            Some(Value::String(_) | Value::Array(_) | Value::Object(_))
+        ) && matches!(
+            b,
+            Some(Value::String(_) | Value::Array(_) | Value::Object(_))
+        ) {
             return Some(utf16_cmp(x, y) == Ordering::Less);
         }
     }
@@ -124,7 +157,11 @@ pub fn compare(a: Option<&Value>, b: Option<&Value>) -> Ordering {
     if missing(b) {
         return Ordering::Less;
     }
-    if lt(a, b) { Ordering::Less } else { Ordering::Greater }
+    if lt(a, b) {
+        Ordering::Less
+    } else {
+        Ordering::Greater
+    }
 }
 
 /// `String.prototype.trim`: JavaScript's whitespace and line terminators, both ends.
@@ -135,7 +172,17 @@ pub fn trim(s: &str) -> String {
 /// JavaScript's WhiteSpace and LineTerminator (not Rust's `is_whitespace`, which also counts
 /// U+0085).
 pub fn is_js_space(c: char) -> bool {
-    matches!(c, '\t' | '\n' | '\u{B}' | '\u{C}' | '\r' | ' ' | '\u{A0}' | '\u{1680}' | '\u{2000}'..='\u{200A}' | '\u{2028}' | '\u{2029}' | '\u{202F}' | '\u{205F}' | '\u{3000}' | '\u{FEFF}')
+    matches!(
+        c,
+        '\t' | '\n' | '\u{B}' | '\u{C}' | '\r' | ' ' | '\u{A0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200A}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202F}'
+                | '\u{205F}'
+                | '\u{3000}'
+                | '\u{FEFF}'
+    )
 }
 
 /// `String(value)` (`None` is `undefined`).
@@ -185,18 +232,29 @@ mod tests {
     fn comparisons_follow_javascript() {
         let j = |v: Value| v;
         assert!(lt(Some(&j(json!(2))), Some(&j(json!(10)))));
-        assert!(lt(Some(&j(json!("10"))), Some(&j(json!("2")))), "strings compare as strings");
-        assert!(lt(Some(&j(json!("2"))), Some(&j(json!(10)))), "a string against a number is a number");
-        assert!(!lt(None, Some(&j(json!(1)))) && !ge(None, Some(&j(json!(1)))), "undefined compares as NaN");
+        assert!(
+            lt(Some(&j(json!("10"))), Some(&j(json!("2")))),
+            "strings compare as strings"
+        );
+        assert!(
+            lt(Some(&j(json!("2"))), Some(&j(json!(10)))),
+            "a string against a number is a number"
+        );
+        assert!(
+            !lt(None, Some(&j(json!(1)))) && !ge(None, Some(&j(json!(1)))),
+            "undefined compares as NaN"
+        );
         assert!(ge(Some(&j(json!(null))), Some(&j(json!(0)))), "null is 0");
         assert!(!ge(Some(&j(json!("abc"))), Some(&j(json!(1)))));
         assert!(strict_eq(Some(&j(json!(1))), Some(&j(json!(1.0)))));
         assert!(!strict_eq(Some(&j(json!(1))), Some(&j(json!("1")))));
         assert!(!strict_eq(Some(&j(json!([1]))), Some(&j(json!([1])))));
         assert_eq!(compare(None, Some(&j(json!("a")))), Ordering::Greater);
-        assert_eq!(compare(Some(&j(json!("a"))), Some(&j(json!(null)))), Ordering::Less);
+        assert_eq!(
+            compare(Some(&j(json!("a"))), Some(&j(json!(null)))),
+            Ordering::Less
+        );
         assert_eq!(string_to_number(" 0x1f "), 31.0);
         assert!(string_to_number("1_000").is_nan());
     }
 }
-

@@ -27,13 +27,25 @@ pub struct ApiError {
 }
 impl ApiError {
     pub fn new(status: u16, code: &str, message: &str) -> Self {
-        Self { status, code: code.into(), message: if message.is_empty() { code.into() } else { message.into() } }
+        Self {
+            status,
+            code: code.into(),
+            message: if message.is_empty() {
+                code.into()
+            } else {
+                message.into()
+            },
+        }
     }
 }
 impl From<crate::store::StoreError> for ApiError {
     fn from(e: crate::store::StoreError) -> Self {
         // A store failure inside an action is an unexpected one, as in the JavaScript.
-        ApiError { status: 500, code: "INTERNAL".into(), message: format!("store: {}", e.message) }
+        ApiError {
+            status: 500,
+            code: "INTERNAL".into(),
+            message: format!("store: {}", e.message),
+        }
     }
 }
 pub type Result<T> = std::result::Result<T, ApiError>;
@@ -60,12 +72,18 @@ impl Ctx<'_> {
     }
     /// The caller's own access, under the entities' row rules.
     pub fn own(&self) -> crate::db::Db<'_> {
-        let user = self.user.clone().unwrap_or_else(|| json!({ "id": "", "email": "" }));
+        let user = self
+            .user
+            .clone()
+            .unwrap_or_else(|| json!({ "id": "", "email": "" }));
         crate::db::Db::person(&self.app.store, crate::person_of(&user))
     }
     /// The caller's id (actions that need a signed-in caller only run with one).
     pub fn user_id(&self) -> &str {
-        self.user.as_ref().and_then(|u| u["id"].as_str()).unwrap_or("")
+        self.user
+            .as_ref()
+            .and_then(|u| u["id"].as_str())
+            .unwrap_or("")
     }
 }
 
@@ -78,21 +96,41 @@ pub struct RunOptions {
 }
 impl Default for RunOptions {
     fn default() -> Self {
-        Self { allow_anonymous: false, max_body_bytes: Limits::MAX_BODY_BYTES }
+        Self {
+            allow_anonymous: false,
+            max_body_bytes: Limits::MAX_BODY_BYTES,
+        }
     }
 }
 
 /// Run one named action: (status, JSON reply).
-pub fn run_action(app: &crate::App, user: Option<Value>, session: Option<Session>, raw: &str, actions: &Actions, options: &RunOptions) -> (u16, Value) {
+pub fn run_action(
+    app: &crate::App,
+    user: Option<Value>,
+    session: Option<Session>,
+    raw: &str,
+    actions: &Actions,
+    options: &RunOptions,
+) -> (u16, Value) {
     let fail = |e: ApiError| (e.status, json!({ "error": e.message, "code": e.code }));
     if raw.encode_utf16().count() > options.max_body_bytes {
-        return fail(ApiError::new(413, "TOO_LARGE", "That request is too large."));
+        return fail(ApiError::new(
+            413,
+            "TOO_LARGE",
+            "That request is too large.",
+        ));
     }
     let mut body = json!({});
     if !raw.is_empty() {
         match serde_json::from_str::<Value>(raw) {
             Ok(v) => body = v,
-            Err(_) => return fail(ApiError::new(400, "BAD_JSON", "The request wasn't valid JSON.")),
+            Err(_) => {
+                return fail(ApiError::new(
+                    400,
+                    "BAD_JSON",
+                    "The request wasn't valid JSON.",
+                ))
+            }
         }
     }
     if !body.is_object() {
@@ -101,18 +139,33 @@ pub fn run_action(app: &crate::App, user: Option<Value>, session: Option<Session
     // A sign-in token in the body isn't how self-hosted callers are known; it's dropped.
     body.as_object_mut().unwrap().remove("_session");
     if user.is_none() && !options.allow_anonymous {
-        return fail(ApiError::new(401, "SIGN_IN_REQUIRED", "Please sign in again."));
+        return fail(ApiError::new(
+            401,
+            "SIGN_IN_REQUIRED",
+            "Please sign in again.",
+        ));
     }
     let action = body["action"].as_str().unwrap_or("").to_string();
-    let Some(f) = actions.get(action.as_str()) else { return fail(ApiError::new(400, "UNKNOWN_ACTION", "Unknown action.")) };
-    let mut ctx = Ctx { app, user, session, body, now: crate::sessions::now_ms() };
+    let Some(f) = actions.get(action.as_str()) else {
+        return fail(ApiError::new(400, "UNKNOWN_ACTION", "Unknown action."));
+    };
+    let mut ctx = Ctx {
+        app,
+        user,
+        session,
+        body,
+        now: crate::sessions::now_ms(),
+    };
     match f(&mut ctx) {
         Ok(Value::Null) => (200, json!({ "ok": true })),
         Ok(v) => (200, v),
         Err(e) if e.status == 500 && e.code == "INTERNAL" => {
             // Log a category only: no request bodies, keys or user data.
             eprintln!("commonveil function failure");
-            (500, json!({ "error": "Something went wrong. Nothing was changed.", "code": "INTERNAL" }))
+            (
+                500,
+                json!({ "error": "Something went wrong. Nothing was changed.", "code": "INTERNAL" }),
+            )
         }
         Err(e) => fail(e),
     }
@@ -121,7 +174,9 @@ pub fn run_action(app: &crate::App, user: Option<Value>, session: Option<Session
 // ---------- small validators ----------
 
 fn id_like(s: &str, min: usize) -> bool {
-    (min..=64).contains(&s.len()) && s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+    (min..=64).contains(&s.len())
+        && s.bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
 }
 
 pub fn str_field(v: &Value, name: &str, max: usize, min: usize) -> Result<String> {
@@ -131,14 +186,27 @@ pub fn str_field(v: &Value, name: &str, max: usize, min: usize) -> Result<String
     }
 }
 pub fn id(v: &Value, name: &str) -> Result<String> {
-    v.as_str().filter(|s| id_like(s, 1)).map(String::from).ok_or_else(|| bad_field(name))
+    v.as_str()
+        .filter(|s| id_like(s, 1))
+        .map(String::from)
+        .ok_or_else(|| bad_field(name))
 }
 pub fn random_id_field(v: &Value, name: &str) -> Result<String> {
-    v.as_str().filter(|s| id_like(s, 16)).map(String::from).ok_or_else(|| bad_field(name))
+    v.as_str()
+        .filter(|s| id_like(s, 16))
+        .map(String::from)
+        .ok_or_else(|| bad_field(name))
 }
 pub fn int(v: &Value, name: &str, min: i64, max: i64) -> Result<i64> {
-    let f = v.as_f64().filter(|f| f.fract() == 0.0 && f.is_finite()).ok_or_else(|| bad_field(name))?;
-    if f < min as f64 || f > max as f64 { Err(bad_field(name)) } else { Ok(f as i64) }
+    let f = v
+        .as_f64()
+        .filter(|f| f.fract() == 0.0 && f.is_finite())
+        .ok_or_else(|| bad_field(name))?;
+    if f < min as f64 || f > max as f64 {
+        Err(bad_field(name))
+    } else {
+        Ok(f as i64)
+    }
 }
 
 /// Strip control and direction characters, then trim.
@@ -152,7 +220,11 @@ pub fn clean_text(v: &Value, max: usize) -> Result<String> {
     let cleaned: String = s.chars().filter(|c| !bad(*c)).collect();
     let cleaned = crate::js::trim(&cleaned);
     if cleaned.encode_utf16().count() > max {
-        return Err(ApiError::new(400, "TOO_LONG", &format!("Please keep it under {max} characters.")));
+        return Err(ApiError::new(
+            400,
+            "TOO_LONG",
+            &format!("Please keep it under {max} characters."),
+        ));
     }
     Ok(cleaned)
 }
@@ -165,7 +237,9 @@ pub fn platform_time(ms: i64) -> String {
 
 /// A list of ids, each checked, duplicates dropped (first kept).
 pub fn id_list(v: &Value, name: &str, max: usize) -> Result<Vec<String>> {
-    let Some(a) = v.as_array().filter(|a| a.len() <= max) else { return Err(bad_field(name)) };
+    let Some(a) = v.as_array().filter(|a| a.len() <= max) else {
+        return Err(bad_field(name));
+    };
     let mut out: Vec<String> = Vec::new();
     for x in a {
         let i = id(x, name)?;
@@ -178,7 +252,10 @@ pub fn id_list(v: &Value, name: &str, max: usize) -> Result<Vec<String>> {
 
 /// `atob`: forgiving base64 (WHATWG), `None` where it would throw.
 pub fn atob(s: &str) -> Option<Vec<u8>> {
-    let mut t: Vec<u8> = s.bytes().filter(|c| !matches!(c, b' ' | b'\t' | b'\n' | b'\x0c' | b'\r')).collect();
+    let mut t: Vec<u8> = s
+        .bytes()
+        .filter(|c| !matches!(c, b' ' | b'\t' | b'\n' | b'\x0c' | b'\r'))
+        .collect();
     if t.len().is_multiple_of(4) {
         for _ in 0..2 {
             if t.last() == Some(&b'=') {

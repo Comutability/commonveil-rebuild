@@ -36,16 +36,25 @@ fn bad(name: &str) -> ApiError {
 }
 
 fn kid_ok(s: &str) -> bool {
-    s.len() == 22 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    s.len() == 22
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
 /// `KID.test(v || "")`: the test coerces what it's given to a string.
 fn kid_test(v: Option<&Value>) -> bool {
-    kid_ok(&if truthy(v) { to_js_string(v) } else { String::new() })
+    kid_ok(&if truthy(v) {
+        to_js_string(v)
+    } else {
+        String::new()
+    })
 }
 
 fn kid(v: &Value, name: &str) -> Result<String> {
-    v.as_str().filter(|s| kid_ok(s)).map(String::from).ok_or_else(|| bad(name))
+    v.as_str()
+        .filter(|s| kid_ok(s))
+        .map(String::from)
+        .ok_or_else(|| bad(name))
 }
 
 /// `JSON.stringify`, with whole numbers written as JavaScript writes them.
@@ -54,7 +63,9 @@ pub fn js_stringify(v: &Value) -> String {
         match v {
             Value::Number(n) => n.as_f64().map_or(v.clone(), number_value),
             Value::Array(a) => Value::Array(a.iter().map(norm).collect()),
-            Value::Object(o) => Value::Object(o.iter().map(|(k, v)| (k.clone(), norm(v))).collect()),
+            Value::Object(o) => {
+                Value::Object(o.iter().map(|(k, v)| (k.clone(), norm(v))).collect())
+            }
             _ => v.clone(),
         }
     }
@@ -74,7 +85,13 @@ fn record_of(text: &Value, kind: &str, name: &str, max: usize) -> Result<Value> 
     let r = parse(text, name, max)?;
     let body_ok = truthy(r.get("body")) && (r["body"].is_object() || r["body"].is_array());
     let sig = &r["sig"];
-    if r["kind"] != kind || !body_ok || !truthy(r.get("sig")) || !kid_test(sig.get("kid")) || !sig["value"].is_string() || !sig["pq"].is_string() {
+    if r["kind"] != kind
+        || !body_ok
+        || !truthy(r.get("sig"))
+        || !kid_test(sig.get("kid"))
+        || !sig["value"].is_string()
+        || !sig["pq"].is_string()
+    {
         return Err(bad(name));
     }
     Ok(r)
@@ -85,7 +102,12 @@ fn actor_of(sr: &Db, user_id: &str) -> Result<Option<Value>> {
 }
 
 fn devices_in(doc: &Value) -> Vec<String> {
-    doc["body"]["devices"]["body"]["devices"].as_array().into_iter().flatten().filter_map(|d| d["kid"].as_str().map(String::from)).collect()
+    doc["body"]["devices"]["body"]["devices"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|d| d["kid"].as_str().map(String::from))
+        .collect()
 }
 
 fn document_of(actor: &Value) -> Value {
@@ -113,8 +135,14 @@ fn remove_all(sr: &Db, entity: &str, query: Value) -> Result<()> {
 /// Sends and bundle requests are counted in memory: a brake, not an exact limit.
 fn brake(key: &str, per_minute: usize, now: i64, what: &str) -> Result<()> {
     static RECENT: OnceLock<Mutex<HashMap<String, Vec<i64>>>> = OnceLock::new();
-    let mut recent = RECENT.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
-    let mut list: Vec<i64> = recent.get(key).map(|l| l.iter().copied().filter(|x| now - x < 60_000).collect()).unwrap_or_default();
+    let mut recent = RECENT
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let mut list: Vec<i64> = recent
+        .get(key)
+        .map(|l| l.iter().copied().filter(|x| now - x < 60_000).collect())
+        .unwrap_or_default();
     if list.len() >= per_minute {
         return Err(rate_limited(what));
     }
@@ -140,20 +168,39 @@ fn mine(ctx: &mut Ctx) -> Result<Value> {
 }
 
 fn proto_publish(ctx: &mut Ctx) -> Result<Value> {
-    let (_, data) = signed_by_active_device(ctx, "proto_publish", crate::api::Limits::MAX_BODY_BYTES)?;
+    let (_, data) =
+        signed_by_active_device(ctx, "proto_publish", crate::api::Limits::MAX_BODY_BYTES)?;
     let (sr, uid) = (ctx.sr(), ctx.user_id().to_string());
-    let doc = record_of(&data["document"], "actor.document", "actor document", DOCUMENT_CHARS)?;
+    let doc = record_of(
+        &data["document"],
+        "actor.document",
+        "actor document",
+        DOCUMENT_CHARS,
+    )?;
     let b = &doc["body"];
     let profile = profile_of(&sr, &uid)?;
     let Some(profile) = profile.filter(|p| truthy(p.get("username"))) else {
         return Err(ApiError::new(409, "NO_PROFILE", "Choose a username first."));
     };
-    let handle = if truthy(b.get("handle")) { to_js_string(b.get("handle")) } else { String::new() };
+    let handle = if truthy(b.get("handle")) {
+        to_js_string(b.get("handle"))
+    } else {
+        String::new()
+    };
     let name = handle.split('@').next().unwrap_or("");
-    if name != to_js_string(profile.get("username")).to_lowercase() || to_js_string(b.get("handle")).split('@').count() != 2 {
-        return Err(ApiError::new(400, "BAD_HANDLE", "The handle must be your username at this site."));
+    if name != to_js_string(profile.get("username")).to_lowercase()
+        || to_js_string(b.get("handle")).split('@').count() != 2
+    {
+        return Err(ApiError::new(
+            400,
+            "BAD_HANDLE",
+            "The handle must be your username at this site.",
+        ));
     }
-    if !kid_test(b.get("id")) || doc["sig"]["kid"] != b["id"] || !b["account"].as_str().is_some_and(|a| a.contains('.')) {
+    if !kid_test(b.get("id"))
+        || doc["sig"]["kid"] != b["id"]
+        || !b["account"].as_str().is_some_and(|a| a.contains('.'))
+    {
         return Err(ApiError::new(400, "BAD_FIELD", "Invalid actor document."));
     }
     let seq = int(&b["seq"], "seq", 1, 1_000_000_000)?;
@@ -161,15 +208,28 @@ fn proto_publish(ctx: &mut Ctx) -> Result<Value> {
     if devices.is_empty() || devices.len() > 10 {
         return Err(ApiError::new(400, "BAD_FIELD", "Invalid device list."));
     }
-    let sealed = str_field(&data["sealed_account"], "sealed account key", SEALED_CHARS, 16)?;
+    let sealed = str_field(
+        &data["sealed_account"],
+        "sealed account key",
+        SEALED_CHARS,
+        16,
+    )?;
     let sealed_version = int(&data["sealed_version"], "key version", 1, 100_000)?;
     let prev = actor_of(&sr, &uid)?;
     if let Some(p) = &prev {
         if p["actor_id"] != b["id"] {
-            return Err(ApiError::new(409, "ACTOR_EXISTS", "This account already has a protocol identity. Turn it off first to start again."));
+            return Err(ApiError::new(
+                409,
+                "ACTOR_EXISTS",
+                "This account already has a protocol identity. Turn it off first to start again.",
+            ));
         }
         if seq as f64 <= to_number(p.get("seq")) {
-            return Err(ApiError::new(409, "STALE", "A newer version is already published."));
+            return Err(ApiError::new(
+                409,
+                "STALE",
+                "A newer version is already published.",
+            ));
         }
     }
     let row = json!({ "user_id": uid, "actor_id": b["id"], "handle": b["handle"], "seq": seq, "document": js_stringify(&doc), "sealed_account": sealed, "sealed_version": sealed_version });
@@ -180,7 +240,12 @@ fn proto_publish(ctx: &mut Ctx) -> Result<Value> {
     // Prekeys and mail of devices no longer on the list go with them.
     let keep: HashSet<&String> = devices.iter().collect();
     let mut stale: Vec<String> = Vec::new();
-    for r in sr.filter("ProtoPrekey", json!({ "user_id": uid, "slot": "signed" }), "created_date", 50)? {
+    for r in sr.filter(
+        "ProtoPrekey",
+        json!({ "user_id": uid, "slot": "signed" }),
+        "created_date",
+        50,
+    )? {
         let d = to_js_string(r.get("device"));
         if !keep.contains(&d) && !stale.contains(&d) {
             stale.push(d);
@@ -188,37 +253,78 @@ fn proto_publish(ctx: &mut Ctx) -> Result<Value> {
     }
     for d in stale {
         remove_all(&sr, "ProtoPrekey", json!({ "user_id": uid, "device": d }))?;
-        remove_all(&sr, "ProtoMail", json!({ "to_user_id": uid, "to_device": d }))?;
+        remove_all(
+            &sr,
+            "ProtoMail",
+            json!({ "to_user_id": uid, "to_device": d }),
+        )?;
     }
     Ok(json!({ "ok": true, "seq": seq }))
 }
 
 fn proto_prekeys(ctx: &mut Ctx) -> Result<Value> {
-    let (_, data) = signed_by_active_device(ctx, "proto_prekeys", crate::api::Limits::MAX_BODY_BYTES)?;
+    let (_, data) =
+        signed_by_active_device(ctx, "proto_prekeys", crate::api::Limits::MAX_BODY_BYTES)?;
     let (sr, uid) = (ctx.sr(), ctx.user_id().to_string());
     let device = kid(&data["device"], "device")?;
     let actor = actor_of(&sr, &uid)?;
-    if !actor.as_ref().is_some_and(|a| devices_in(&document_of(a)).contains(&device)) {
-        return Err(ApiError::new(409, "NOT_LISTED", "Publish the actor document with this device first."));
+    if !actor
+        .as_ref()
+        .is_some_and(|a| devices_in(&document_of(a)).contains(&device))
+    {
+        return Err(ApiError::new(
+            409,
+            "NOT_LISTED",
+            "Publish the actor document with this device first.",
+        ));
     }
     let one = |text: &Value, slot: &str| -> Result<Value> {
         let r = record_of(text, "session.prekey", "prekey", PREKEY_CHARS)?;
-        let body_id_ok = r["body"]["id"].as_str().is_some_and(|s| s.encode_utf16().count() <= 40);
-        if r["body"]["device"] != device.as_str() || r["sig"]["kid"] != device.as_str() || !body_id_ok {
+        let body_id_ok = r["body"]["id"]
+            .as_str()
+            .is_some_and(|s| s.encode_utf16().count() <= 40);
+        if r["body"]["device"] != device.as_str()
+            || r["sig"]["kid"] != device.as_str()
+            || !body_id_ok
+        {
             return Err(ApiError::new(400, "BAD_FIELD", "Invalid prekey."));
         }
-        Ok(json!({ "user_id": uid, "device": device, "slot": slot, "prekey_id": r["body"]["id"], "record": js_stringify(&r) }))
+        Ok(
+            json!({ "user_id": uid, "device": device, "slot": slot, "prekey_id": r["body"]["id"], "record": js_stringify(&r) }),
+        )
     };
-    let list = |v: &Value| -> Vec<Value> { v.as_array().map(|a| a.iter().take(ONE_TIME_PER_KIND).cloned().collect()).unwrap_or_default() };
+    let list = |v: &Value| -> Vec<Value> {
+        v.as_array()
+            .map(|a| a.iter().take(ONE_TIME_PER_KIND).cloned().collect())
+            .unwrap_or_default()
+    };
     let mut rows: Vec<Value> = Vec::new();
     if data.get("signed").is_some() || data.get("lastResort").is_some() {
         rows.push(one(&data["signed"], "signed")?);
         rows.push(one(&data["lastResort"], "last")?);
-        remove_all(&sr, "ProtoPrekey", json!({ "user_id": uid, "device": device, "slot": "signed" }))?;
-        remove_all(&sr, "ProtoPrekey", json!({ "user_id": uid, "device": device, "slot": "last" }))?;
+        remove_all(
+            &sr,
+            "ProtoPrekey",
+            json!({ "user_id": uid, "device": device, "slot": "signed" }),
+        )?;
+        remove_all(
+            &sr,
+            "ProtoPrekey",
+            json!({ "user_id": uid, "device": device, "slot": "last" }),
+        )?;
     }
-    for (slot, items) in [("otk", list(&data["oneTime"])), ("pq", list(&data["pqOneTime"]))] {
-        let have = sr.filter("ProtoPrekey", json!({ "user_id": uid, "device": device, "slot": slot }), "created_date", ONE_TIME_PER_KIND + 1)?.len();
+    for (slot, items) in [
+        ("otk", list(&data["oneTime"])),
+        ("pq", list(&data["pqOneTime"])),
+    ] {
+        let have = sr
+            .filter(
+                "ProtoPrekey",
+                json!({ "user_id": uid, "device": device, "slot": slot }),
+                "created_date",
+                ONE_TIME_PER_KIND + 1,
+            )?
+            .len();
         for text in items.iter().take(ONE_TIME_PER_KIND.saturating_sub(have)) {
             rows.push(one(text, slot)?);
         }
@@ -258,18 +364,33 @@ fn bundle(ctx: &mut Ctx) -> Result<Value> {
     let (sr, uid, now) = (ctx.sr(), ctx.user_id().to_string(), ctx.now);
     let target = id(&ctx.body["user_id"], "user")?;
     let device = kid(&ctx.body["device"], "device")?;
-    brake(&format!("b:{uid}"), BUNDLES_PER_MINUTE, now, "starting sessions")?;
+    brake(
+        &format!("b:{uid}"),
+        BUNDLES_PER_MINUTE,
+        now,
+        "starting sessions",
+    )?;
     let no_device = || ApiError::new(404, "NOT_FOUND", "No such device.");
     if !contacts_of(&sr, &uid)?.contains(&target) {
         return Err(no_device());
     }
     let doc = actor_of(&sr, &target)?.map(|a| document_of(&a));
-    let Some(doc) = doc.filter(|d| devices_in(d).contains(&device)) else { return Err(no_device()) };
-    let first = |slot: &str| sr.first("ProtoPrekey", json!({ "user_id": target, "device": device, "slot": slot }), "created_date");
+    let Some(doc) = doc.filter(|d| devices_in(d).contains(&device)) else {
+        return Err(no_device());
+    };
+    let first = |slot: &str| {
+        sr.first(
+            "ProtoPrekey",
+            json!({ "user_id": target, "device": device, "slot": slot }),
+            "created_date",
+        )
+    };
     // A one-time prekey is handed out only by whoever manages to delete it.
     let take = |slot: &str| -> Result<Option<Value>> {
         for _ in 0..3 {
-            let Some(row) = first(slot)? else { return Ok(None) };
+            let Some(row) = first(slot)? else {
+                return Ok(None);
+            };
             if sr.delete("ProtoPrekey", id_of(&row)).is_ok() {
                 return Ok(Some(row));
             }
@@ -278,7 +399,11 @@ fn bundle(ctx: &mut Ctx) -> Result<Value> {
     };
     let (signed, last) = (first("signed")?, first("last")?);
     let (Some(signed), Some(last)) = (signed, last) else {
-        return Err(ApiError::new(404, "NO_PREKEYS", "That device has no prekeys published."));
+        return Err(ApiError::new(
+            404,
+            "NO_PREKEYS",
+            "That device has no prekeys published.",
+        ));
     };
     let pq = take("pq")?.unwrap_or(last);
     let otk = take("otk")?;
@@ -309,10 +434,22 @@ fn send(ctx: &mut Ctx) -> Result<Value> {
         let to = id(&it["to"], "recipient")?;
         let env = parse(&it["envelope"], "envelope", ENVELOPE_CHARS)?;
         // Only direct envelopes travel here, and nothing rides along on them (CVP-019, section 1).
-        let extra = env.as_object().is_some_and(|o| o.keys().any(|k| !ENVELOPE_KEYS.contains(&k.as_str())));
-        let ok = env["v"].as_f64() == Some(1.0) && env["mode"] == "direct" && !extra && kid_test(env.get("device")) && kid_test(env.get("session")) && env["message"]["v"].as_f64() == Some(1.0) && env["message"]["c"].is_string();
+        let extra = env
+            .as_object()
+            .is_some_and(|o| o.keys().any(|k| !ENVELOPE_KEYS.contains(&k.as_str())));
+        let ok = env["v"].as_f64() == Some(1.0)
+            && env["mode"] == "direct"
+            && !extra
+            && kid_test(env.get("device"))
+            && kid_test(env.get("session"))
+            && env["message"]["v"].as_f64() == Some(1.0)
+            && env["message"]["c"].is_string();
         if !ok {
-            return Err(ApiError::new(400, "BAD_ENVELOPE", "Only direct envelopes can be sent."));
+            return Err(ApiError::new(
+                400,
+                "BAD_ENVELOPE",
+                "Only direct envelopes can be sent.",
+            ));
         }
         if !allowed.contains_key(&to) {
             let mut devices = None;
@@ -330,7 +467,16 @@ fn send(ctx: &mut Ctx) -> Result<Value> {
     }
     let mut stored = 0;
     for r in rows {
-        if sr.filter("ProtoMail", json!({ "to_user_id": r["to_user_id"], "to_device": r["to_device"] }), "-created_date", MAIL_PER_DEVICE)?.len() >= MAIL_PER_DEVICE {
+        if sr
+            .filter(
+                "ProtoMail",
+                json!({ "to_user_id": r["to_user_id"], "to_device": r["to_device"] }),
+                "-created_date",
+                MAIL_PER_DEVICE,
+            )?
+            .len()
+            >= MAIL_PER_DEVICE
+        {
             continue;
         }
         sr.create("ProtoMail", r)?;
@@ -349,17 +495,38 @@ fn collect(ctx: &mut Ctx) -> Result<Value> {
         }
     }
     for mail_id in &ack {
-        if let Some(row) = sr.first("ProtoMail", json!({ "id": mail_id, "to_user_id": uid, "to_device": device }), "created_date")? {
+        if let Some(row) = sr.first(
+            "ProtoMail",
+            json!({ "id": mail_id, "to_user_id": uid, "to_device": device }),
+            "created_date",
+        )? {
             let _ = sr.delete("ProtoMail", id_of(&row));
         }
     }
-    let rows = sr.filter("ProtoMail", json!({ "to_user_id": uid, "to_device": device }), "created_date", COLLECT)?;
-    let count = |slot: &str| sr.filter("ProtoPrekey", json!({ "user_id": uid, "device": device, "slot": slot }), "created_date", ONE_TIME_PER_KIND + 1).map(|r| r.len());
+    let rows = sr.filter(
+        "ProtoMail",
+        json!({ "to_user_id": uid, "to_device": device }),
+        "created_date",
+        COLLECT,
+    )?;
+    let count = |slot: &str| {
+        sr.filter(
+            "ProtoPrekey",
+            json!({ "user_id": uid, "device": device, "slot": slot }),
+            "created_date",
+            ONE_TIME_PER_KIND + 1,
+        )
+        .map(|r| r.len())
+    };
     let mail: Vec<Value> = rows
         .iter()
         .map(|r| {
             let mut o = json!({});
-            for (k, src) in [("id", "id"), ("from", "from_user_id"), ("envelope", "envelope")] {
+            for (k, src) in [
+                ("id", "id"),
+                ("from", "from_user_id"),
+                ("envelope", "envelope"),
+            ] {
                 if let Some(v) = r.get(src) {
                     o[k] = v.clone();
                 }

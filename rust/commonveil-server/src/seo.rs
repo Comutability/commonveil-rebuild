@@ -7,7 +7,8 @@ pub const SITE_NAME: &str = "Commonveil";
 pub const SITE_PLACEHOLDER: &str = "https://commonveil.invalid";
 pub const DEFAULT_DESCRIPTION: &str = "End-to-end encrypted messages, groups, communities and calls. Open source, free, and you can run it yourself.";
 pub const SHARE_IMAGE: &str = "/og-image.png";
-pub const SHARE_IMAGE_ALT: &str = "Commonveil: private messages and communities, end-to-end encrypted.";
+pub const SHARE_IMAGE_ALT: &str =
+    "Commonveil: private messages and communities, end-to-end encrypted.";
 pub const SOURCE_URL: &str = "https://github.com/Comutability/commonveil-rebuild";
 
 pub struct Page {
@@ -50,26 +51,55 @@ pub struct Meta {
 
 /// "/help/" and "/help" are the same page.
 pub fn normal_path(pathname: &str) -> String {
-    let p = pathname.split(['?', '#']).next().filter(|p| !p.is_empty()).unwrap_or("/");
-    if p.len() > 1 { p.trim_end_matches('/').to_string() } else { "/".into() }
+    let p = pathname
+        .split(['?', '#'])
+        .next()
+        .filter(|p| !p.is_empty())
+        .unwrap_or("/");
+    if p.len() > 1 {
+        p.trim_end_matches('/').to_string()
+    } else {
+        "/".into()
+    }
 }
 
 fn full_title(title: &str) -> String {
-    if title.contains(SITE_NAME) { title.into() } else { format!("{title} | {SITE_NAME}") }
+    if title.contains(SITE_NAME) {
+        title.into()
+    } else {
+        format!("{title} | {SITE_NAME}")
+    }
 }
 
 fn moved(path: &str) -> bool {
-    regex::Regex::new(r"^/(blog|guides|paths|wiki)(/[^/]+)?$|^/saved$").unwrap().is_match(path)
+    regex::Regex::new(r"^/(blog|guides|paths|wiki)(/[^/]+)?$|^/saved$")
+        .unwrap()
+        .is_match(path)
 }
 fn private(path: &str) -> bool {
-    ["/app", "/admin"].iter().any(|p| path == *p || path.starts_with(&format!("{p}/"))) || path == "/reset-password" || path.starts_with("/invite/") || path.starts_with("/u/")
+    ["/app", "/admin"]
+        .iter()
+        .any(|p| path == *p || path.starts_with(&format!("{p}/")))
+        || path == "/reset-password"
+        || path.starts_with("/invite/")
+        || path.starts_with("/u/")
 }
 
 pub fn seo_for(pathname: &str, articles: &[Value], site_url: &str) -> Meta {
     let path = normal_path(pathname);
     let base = site_url.trim_end_matches('/').to_string();
     let url = format!("{base}{}", if path == "/" { "/" } else { &path });
-    let meta = |title: String, description: String, noindex, not_found, og_type, json_ld| Meta { path: path.clone(), url: url.clone(), title, description, noindex, not_found, moved_to: String::new(), og_type, json_ld };
+    let meta = |title: String, description: String, noindex, not_found, og_type, json_ld| Meta {
+        path: path.clone(),
+        url: url.clone(),
+        title,
+        description,
+        noindex,
+        not_found,
+        moved_to: String::new(),
+        og_type,
+        json_ld,
+    };
     if let Some(page) = PAGES.iter().find(|p| p.path == path) {
         let mut ld = vec![breadcrumbs(&base, &path, page.title)];
         if path == "/" {
@@ -78,23 +108,66 @@ pub fn seo_for(pathname: &str, articles: &[Value], site_url: &str) -> Meta {
         if path == "/help" {
             ld.push(help_index_data(&base, articles));
         }
-        return meta(full_title(page.title), page.description.into(), false, false, "website", ld);
+        return meta(
+            full_title(page.title),
+            page.description.into(),
+            false,
+            false,
+            "website",
+            ld,
+        );
     }
-    let slug = path.strip_prefix("/help/").filter(|s| !s.is_empty() && s.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-'));
+    let slug = path.strip_prefix("/help/").filter(|s| {
+        !s.is_empty()
+            && s.bytes()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+    });
     if let Some(a) = slug.and_then(|s| articles.iter().find(|a| a["slug"] == s)) {
         let title = a["title"].as_str().unwrap_or("");
-        return meta(full_title(title), a["summary"].as_str().unwrap_or("").into(), false, false, "article", vec![article_data(&base, a), breadcrumbs(&base, &path, title)]);
+        return meta(
+            full_title(title),
+            a["summary"].as_str().unwrap_or("").into(),
+            false,
+            false,
+            "article",
+            vec![article_data(&base, a), breadcrumbs(&base, &path, title)],
+        );
     }
     if moved(&path) {
-        let mut m = meta(full_title("Help Centre"), DEFAULT_DESCRIPTION.into(), true, false, "website", vec![]);
+        let mut m = meta(
+            full_title("Help Centre"),
+            DEFAULT_DESCRIPTION.into(),
+            true,
+            false,
+            "website",
+            vec![],
+        );
         m.moved_to = "/help".into();
         return m;
     }
     if private(&path) {
-        let title = if path == "/reset-password" { format!("Choose a new password | {SITE_NAME}") } else { SITE_NAME.into() };
-        return meta(title, DEFAULT_DESCRIPTION.into(), true, false, "website", vec![]);
+        let title = if path == "/reset-password" {
+            format!("Choose a new password | {SITE_NAME}")
+        } else {
+            SITE_NAME.into()
+        };
+        return meta(
+            title,
+            DEFAULT_DESCRIPTION.into(),
+            true,
+            false,
+            "website",
+            vec![],
+        );
     }
-    meta(format!("Page not found | {SITE_NAME}"), DEFAULT_DESCRIPTION.into(), true, true, "website", vec![])
+    meta(
+        format!("Page not found | {SITE_NAME}"),
+        DEFAULT_DESCRIPTION.into(),
+        true,
+        true,
+        "website",
+        vec![],
+    )
 }
 
 fn home_data(base: &str) -> Vec<Value> {
@@ -123,13 +196,23 @@ fn breadcrumbs(base: &str, path: &str, title: &str) -> Value {
     if path == "/security/report" {
         items.push(("Security".into(), format!("{base}/security")));
     }
-    items.push((title.strip_suffix(" | Commonveil").unwrap_or(title).to_string(), format!("{base}{path}")));
+    items.push((
+        title
+            .strip_suffix(" | Commonveil")
+            .unwrap_or(title)
+            .to_string(),
+        format!("{base}{path}"),
+    ));
     let list: Vec<Value> = items.into_iter().enumerate().map(|(i, (name, url))| json!({ "@type": "ListItem", "position": i + 1, "name": name, "item": url })).collect();
     json!({ "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": list })
 }
 
 pub fn escape_html(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&apos;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 /// JSON for a `<script type="application/ld+json">`, safe to put inside HTML.
@@ -143,8 +226,18 @@ pub fn head_html(meta: &Meta, site_url: &str) -> String {
     let e = escape_html;
     let mut tags = vec![
         format!("<title>{}</title>", e(&meta.title)),
-        format!("<meta name=\"description\" content=\"{}\" />", e(&meta.description)),
-        format!("<meta name=\"robots\" content=\"{}\" />", if meta.noindex { "noindex, nofollow" } else { "index, follow, max-image-preview:large" }),
+        format!(
+            "<meta name=\"description\" content=\"{}\" />",
+            e(&meta.description)
+        ),
+        format!(
+            "<meta name=\"robots\" content=\"{}\" />",
+            if meta.noindex {
+                "noindex, nofollow"
+            } else {
+                "index, follow, max-image-preview:large"
+            }
+        ),
     ];
     if !meta.noindex {
         let image = e(&format!("{base}{SHARE_IMAGE}"));
@@ -153,21 +246,42 @@ pub fn head_html(meta: &Meta, site_url: &str) -> String {
             format!("<meta property=\"og:type\" content=\"{}\" />", meta.og_type),
             format!("<meta property=\"og:site_name\" content=\"{SITE_NAME}\" />"),
             "<meta property=\"og:locale\" content=\"en_GB\" />".into(),
-            format!("<meta property=\"og:title\" content=\"{}\" />", e(&meta.title)),
-            format!("<meta property=\"og:description\" content=\"{}\" />", e(&meta.description)),
+            format!(
+                "<meta property=\"og:title\" content=\"{}\" />",
+                e(&meta.title)
+            ),
+            format!(
+                "<meta property=\"og:description\" content=\"{}\" />",
+                e(&meta.description)
+            ),
             format!("<meta property=\"og:url\" content=\"{}\" />", e(&meta.url)),
             format!("<meta property=\"og:image\" content=\"{image}\" />"),
             "<meta property=\"og:image:width\" content=\"1200\" />".into(),
             "<meta property=\"og:image:height\" content=\"630\" />".into(),
-            format!("<meta property=\"og:image:alt\" content=\"{}\" />", e(SHARE_IMAGE_ALT)),
+            format!(
+                "<meta property=\"og:image:alt\" content=\"{}\" />",
+                e(SHARE_IMAGE_ALT)
+            ),
             "<meta name=\"twitter:card\" content=\"summary_large_image\" />".into(),
-            format!("<meta name=\"twitter:title\" content=\"{}\" />", e(&meta.title)),
-            format!("<meta name=\"twitter:description\" content=\"{}\" />", e(&meta.description)),
+            format!(
+                "<meta name=\"twitter:title\" content=\"{}\" />",
+                e(&meta.title)
+            ),
+            format!(
+                "<meta name=\"twitter:description\" content=\"{}\" />",
+                e(&meta.description)
+            ),
             format!("<meta name=\"twitter:image\" content=\"{image}\" />"),
-            format!("<meta name=\"twitter:image:alt\" content=\"{}\" />", e(SHARE_IMAGE_ALT)),
+            format!(
+                "<meta name=\"twitter:image:alt\" content=\"{}\" />",
+                e(SHARE_IMAGE_ALT)
+            ),
         ]);
         for d in &meta.json_ld {
-            tags.push(format!("<script type=\"application/ld+json\" data-seo>{}</script>", json_ld_text(d)));
+            tags.push(format!(
+                "<script type=\"application/ld+json\" data-seo>{}</script>",
+                json_ld_text(d)
+            ));
         }
     }
     tags.join("\n    ")

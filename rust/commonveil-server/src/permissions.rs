@@ -33,9 +33,37 @@ pub mod p {
 use p::*;
 
 pub const ALL_PERMISSIONS: i64 = ((1 << 26) - 1) | ADMINISTRATOR;
-pub const DEFAULT_EVERYONE: i64 = VIEW_CHANNEL | SEND_MESSAGES | ADD_REACTIONS | CREATE_POSTS | CONNECT | SPEAK | CREATE_INVITES | CHANGE_NICKNAME | READ_HISTORY;
-pub const STAFF_PERMISSIONS: i64 = ADMINISTRATOR | MANAGE_SERVER | MANAGE_ROLES | MANAGE_CHANNELS | MANAGE_MESSAGES | KICK_MEMBERS | BAN_MEMBERS | TIMEOUT_MEMBERS | MANAGE_TICKETS;
-pub const SERVER_ONLY: i64 = ADMINISTRATOR | MANAGE_SERVER | MANAGE_ROLES | KICK_MEMBERS | BAN_MEMBERS | TIMEOUT_MEMBERS | VIEW_AUDIT_LOG | MANAGE_NICKNAMES | CHANGE_NICKNAME | MANAGE_KEYS | MANAGE_INVITES | MANAGE_EXPRESSIONS | MANAGE_EVENTS;
+pub const DEFAULT_EVERYONE: i64 = VIEW_CHANNEL
+    | SEND_MESSAGES
+    | ADD_REACTIONS
+    | CREATE_POSTS
+    | CONNECT
+    | SPEAK
+    | CREATE_INVITES
+    | CHANGE_NICKNAME
+    | READ_HISTORY;
+pub const STAFF_PERMISSIONS: i64 = ADMINISTRATOR
+    | MANAGE_SERVER
+    | MANAGE_ROLES
+    | MANAGE_CHANNELS
+    | MANAGE_MESSAGES
+    | KICK_MEMBERS
+    | BAN_MEMBERS
+    | TIMEOUT_MEMBERS
+    | MANAGE_TICKETS;
+pub const SERVER_ONLY: i64 = ADMINISTRATOR
+    | MANAGE_SERVER
+    | MANAGE_ROLES
+    | KICK_MEMBERS
+    | BAN_MEMBERS
+    | TIMEOUT_MEMBERS
+    | VIEW_AUDIT_LOG
+    | MANAGE_NICKNAMES
+    | CHANGE_NICKNAME
+    | MANAGE_KEYS
+    | MANAGE_INVITES
+    | MANAGE_EXPRESSIONS
+    | MANAGE_EVENTS;
 
 /// `Number.isInteger(v) ? v & ALL_PERMISSIONS : 0` (with JavaScript's 32-bit `&`).
 pub fn to_int(v: &Value) -> i64 {
@@ -50,14 +78,30 @@ pub fn to_int(v: &Value) -> i64 {
 
 fn position(r: &Value) -> f64 {
     let n = crate::js::to_number(r.get("position"));
-    if n.is_nan() || n == 0.0 { 0.0 } else { n }
+    if n.is_nan() || n == 0.0 {
+        0.0
+    } else {
+        n
+    }
 }
 
 fn roles_of<'a>(roles: &'a [Value], member: &Value) -> (Option<&'a Value>, Vec<&'a Value>) {
-    let everyone = roles.iter().find(|r| crate::js::truthy(r.get("is_everyone")));
-    let ids: Vec<&Value> = member["role_ids"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
-    let mut mine: Vec<&Value> = roles.iter().filter(|r| !crate::js::truthy(r.get("is_everyone")) && ids.contains(&&r["id"])).collect();
-    mine.sort_by(|a, b| position(b).partial_cmp(&position(a)).unwrap_or(std::cmp::Ordering::Equal));
+    let everyone = roles
+        .iter()
+        .find(|r| crate::js::truthy(r.get("is_everyone")));
+    let ids: Vec<&Value> = member["role_ids"]
+        .as_array()
+        .map(|a| a.iter().collect())
+        .unwrap_or_default();
+    let mut mine: Vec<&Value> = roles
+        .iter()
+        .filter(|r| !crate::js::truthy(r.get("is_everyone")) && ids.contains(&&r["id"]))
+        .collect();
+    mine.sort_by(|a, b| {
+        position(b)
+            .partial_cmp(&position(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     (everyone, mine)
 }
 
@@ -75,21 +119,34 @@ pub fn base_permissions(server: &Value, roles: &[Value], member: Option<&Value>)
     for r in mine {
         perms |= to_int(&r["permissions"]);
     }
-    if perms & ADMINISTRATOR != 0 { ALL_PERMISSIONS } else { perms }
+    if perms & ADMINISTRATOR != 0 {
+        ALL_PERMISSIONS
+    } else {
+        perms
+    }
 }
 
-pub fn channel_permissions(server: &Value, roles: &[Value], member: Option<&Value>, channel: &Value) -> i64 {
+pub fn channel_permissions(
+    server: &Value,
+    roles: &[Value],
+    member: Option<&Value>,
+    channel: &Value,
+) -> i64 {
     let base = base_permissions(server, roles, member);
     let Some(member) = member else { return base };
     if base == ALL_PERMISSIONS {
         return base;
     }
     let (everyone, mine) = roles_of(roles, member);
-    let overwrites: Vec<&Value> = channel["overwrites"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
+    let overwrites: Vec<&Value> = channel["overwrites"]
+        .as_array()
+        .map(|a| a.iter().collect())
+        .unwrap_or_default();
     let channel_bits = ALL_PERMISSIONS & !SERVER_ONLY;
     let mut perms = base;
     if let Some(ev) = everyone.and_then(|e| overwrites.iter().find(|o| o["role_id"] == e["id"])) {
-        perms = (perms & !(to_int(&ev["deny"]) & channel_bits)) | (to_int(&ev["allow"]) & channel_bits);
+        perms =
+            (perms & !(to_int(&ev["deny"]) & channel_bits)) | (to_int(&ev["allow"]) & channel_bits);
     }
     let (mut allow, mut deny) = (0, 0);
     let my_ids: Vec<&Value> = mine.iter().map(|r| &r["id"]).collect();
@@ -101,7 +158,11 @@ pub fn channel_permissions(server: &Value, roles: &[Value], member: Option<&Valu
         deny |= to_int(&o["deny"]);
     }
     perms = (perms & !(deny & channel_bits)) | (allow & channel_bits);
-    if perms & VIEW_CHANNEL == 0 { 0 } else { perms }
+    if perms & VIEW_CHANNEL == 0 {
+        0
+    } else {
+        perms
+    }
 }
 
 pub fn has(perms: i64, bit: i64) -> bool {
@@ -113,7 +174,10 @@ pub fn top_position(server: &Value, roles: &[Value], member: Option<&Value>) -> 
     if is_owner(server, member) {
         return 9_007_199_254_740_991.0;
     }
-    roles_of(roles, member).1.first().map_or(0.0, |r| position(r))
+    roles_of(roles, member)
+        .1
+        .first()
+        .map_or(0.0, |r| position(r))
 }
 
 pub fn is_staff(server: &Value, roles: &[Value], member: Option<&Value>) -> bool {
@@ -124,17 +188,27 @@ pub fn channel_is_private(roles: &[Value], channel: &Value) -> bool {
     if channel["kind"] == "category" {
         return false;
     }
-    let Some(everyone) = roles.iter().find(|r| crate::js::truthy(r.get("is_everyone"))) else { return true };
+    let Some(everyone) = roles
+        .iter()
+        .find(|r| crate::js::truthy(r.get("is_everyone")))
+    else {
+        return true;
+    };
     let mut perms = to_int(&everyone["permissions"]);
     if perms & ADMINISTRATOR != 0 {
         return false;
     }
-    let overwrites: Vec<&Value> = channel["overwrites"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
+    let overwrites: Vec<&Value> = channel["overwrites"]
+        .as_array()
+        .map(|a| a.iter().collect())
+        .unwrap_or_default();
     if let Some(ev) = overwrites.iter().find(|o| o["role_id"] == everyone["id"]) {
         perms = (perms & !to_int(&ev["deny"])) | to_int(&ev["allow"]);
     }
     if perms & VIEW_CHANNEL == 0 {
         return true;
     }
-    overwrites.iter().any(|o| o["role_id"] != everyone["id"] && to_int(&o["deny"]) & VIEW_CHANNEL != 0)
+    overwrites
+        .iter()
+        .any(|o| o["role_id"] != everyone["id"] && to_int(&o["deny"]) & VIEW_CHANNEL != 0)
 }

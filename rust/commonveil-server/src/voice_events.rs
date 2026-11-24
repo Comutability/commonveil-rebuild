@@ -37,7 +37,10 @@ pub fn call_room_id(conversation_id: &str, call_id: &str) -> String {
 
 fn call_id_ok(v: &Value) -> Option<String> {
     let s = v.as_str()?;
-    ((8..=32).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')).then(|| s.to_string())
+    ((8..=32).contains(&s.len())
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
+    .then(|| s.to_string())
 }
 
 fn deny(status: u16, code: &str, message: &str) -> ApiError {
@@ -48,14 +51,30 @@ fn parse_ms(v: Option<&Value>) -> f64 {
     crate::dates::parse(&to_js_string(v)).unwrap_or(f64::NAN)
 }
 
-fn issue(ctx: &Ctx, device: &Value, room: &str, can_speak: bool, can_moderate: bool, stage: bool) -> Result<Value> {
+fn issue(
+    ctx: &Ctx,
+    device: &Value,
+    room: &str,
+    can_speak: bool,
+    can_moderate: bool,
+    stage: bool,
+) -> Result<Value> {
     let (sr, uid, now) = (ctx.sr(), ctx.user_id().to_string(), ctx.now as f64);
     // Old passes are useless after a minute: clear this account's, and slow down floods.
-    let mine = sr.filter("VoiceTicket", json!({ "user_id": uid }), "-created_date", 50)?;
+    let mine = sr.filter(
+        "VoiceTicket",
+        json!({ "user_id": uid }),
+        "-created_date",
+        50,
+    )?;
     let recent = mine
         .iter()
         .filter(|t| {
-            let at = if truthy(t.get("created_date")) { platform_ms(&t["created_date"]) } else { parse_ms(t.get("expires_at")) };
+            let at = if truthy(t.get("created_date")) {
+                platform_ms(&t["created_date"])
+            } else {
+                parse_ms(t.get("expires_at"))
+            };
             now - at < 60_000.0
         })
         .count();
@@ -89,26 +108,58 @@ fn voice_ticket(ctx: &mut Ctx) -> Result<Value> {
     }
     let perms = perms_of(&parts, &member, Some(channel));
     if !has(perms, p::VIEW_CHANNEL) || !has(perms, p::CONNECT) {
-        return Err(deny(403, "MISSING_PERMISSION", "You don't have permission to join this call."));
+        return Err(deny(
+            403,
+            "MISSING_PERMISSION",
+            "You don't have permission to join this call.",
+        ));
     }
-    if truthy(member.get("timeout_until")) && parse_ms(member.get("timeout_until")) > ctx.now as f64 {
-        return Err(deny(403, "TIMED_OUT", "You're timed out in this server, so you can't join calls for now."));
+    if truthy(member.get("timeout_until")) && parse_ms(member.get("timeout_until")) > ctx.now as f64
+    {
+        return Err(deny(
+            403,
+            "TIMED_OUT",
+            "You're timed out in this server, so you can't join calls for now.",
+        ));
     }
     let stage = channel["kind"] == "stage";
     // On a stage, moderators speak; everyone else listens until a moderator brings them up.
     let can_moderate = has(perms, p::MUTE_MEMBERS);
-    let can_speak = if stage { can_moderate } else { has(perms, p::SPEAK) };
-    issue(ctx, &device, &voice_room_id(&server_id, id_of(channel)), can_speak, can_moderate, stage)
+    let can_speak = if stage {
+        can_moderate
+    } else {
+        has(perms, p::SPEAK)
+    };
+    issue(
+        ctx,
+        &device,
+        &voice_room_id(&server_id, id_of(channel)),
+        can_speak,
+        can_moderate,
+        stage,
+    )
 }
 
 fn call_ticket(ctx: &mut Ctx) -> Result<Value> {
     let (device, data) = signed_by_active_device(ctx, "call_ticket", Limits::MAX_BODY_BYTES)?;
-    let conv = ctx.sr().get("Conversation", &id(&data["conversation_id"], "conversation")?);
-    let Some(conv) = conv.filter(|c| ids_of(&c["member_ids"]).iter().any(|m| m == ctx.user_id())) else {
+    let conv = ctx.sr().get(
+        "Conversation",
+        &id(&data["conversation_id"], "conversation")?,
+    );
+    let Some(conv) = conv.filter(|c| ids_of(&c["member_ids"]).iter().any(|m| m == ctx.user_id()))
+    else {
         return Err(deny(404, "NOT_FOUND", "Conversation not found."));
     };
-    let call_id = call_id_ok(&data["call_id"]).ok_or_else(|| deny(400, "BAD_FIELD", "Invalid call."))?;
-    issue(ctx, &device, &call_room_id(id_of(&conv), &call_id), true, false, false)
+    let call_id =
+        call_id_ok(&data["call_id"]).ok_or_else(|| deny(400, "BAD_FIELD", "Invalid call."))?;
+    issue(
+        ctx,
+        &device,
+        &call_room_id(id_of(&conv), &call_id),
+        true,
+        false,
+        false,
+    )
 }
 
 pub fn voice_actions() -> Actions {
@@ -122,7 +173,11 @@ pub fn voice_actions() -> Actions {
 
 fn event_out(e: &Value) -> Value {
     let mut o = json!({});
-    for (k, src) in [("event_id", "event_id"), ("creator_id", "creator_id"), ("created_date", "created_date")] {
+    for (k, src) in [
+        ("event_id", "event_id"),
+        ("creator_id", "creator_id"),
+        ("created_date", "created_date"),
+    ] {
         if let Some(v) = e.get(src) {
             o[k] = v.clone();
         }
@@ -143,12 +198,28 @@ fn rsvp_out(r: &Value) -> Value {
 }
 
 fn event_row(sr: &Db, server_id: &str, event_id: &str) -> Result<Value> {
-    sr.first("ServerEvent", json!({ "server_id": server_id, "event_id": event_id }), "created_date")?.ok_or_else(|| deny(404, "NOT_FOUND", "That event isn't here any more."))
+    sr.first(
+        "ServerEvent",
+        json!({ "server_id": server_id, "event_id": event_id }),
+        "created_date",
+    )?
+    .ok_or_else(|| deny(404, "NOT_FOUND", "That event isn't here any more."))
 }
 
 fn accept_event_item(ctx: &Ctx, kind: &str, server_id: &str, item: &Value) -> Result<Value> {
     let gens = generations_of(&ctx.sr(), server_id, None)?;
-    accept_item(&ctx.own(), ctx.user_id(), ctx.now, kind, server_id, "", item, &gens, None, MAX_ITEM_ENVELOPE_CHARS)
+    accept_item(
+        &ctx.own(),
+        ctx.user_id(),
+        ctx.now,
+        kind,
+        server_id,
+        "",
+        item,
+        &gens,
+        None,
+        MAX_ITEM_ENVELOPE_CHARS,
+    )
 }
 
 fn merge(mut a: Value, b: &Value) -> Value {
@@ -162,71 +233,200 @@ fn list(ctx: &mut Ctx) -> Result<Value> {
     let own = ctx.own();
     let server_id = id(&ctx.body["server_id"], "server")?;
     require_member(&own, &server_id, ctx.user_id())?;
-    let events = own.filter("ServerEvent", json!({ "audience_id": server_id }), "created_date", EVENTS_PER_SERVER)?;
-    let rsvps = if events.is_empty() { vec![] } else { own.filter("EventRsvp", json!({ "audience_id": server_id }), "created_date", RSVPS_LISTED)? };
-    Ok(json!({ "events": events.iter().map(event_out).collect::<Vec<_>>(), "rsvps": rsvps.iter().map(rsvp_out).collect::<Vec<_>>() }))
+    let events = own.filter(
+        "ServerEvent",
+        json!({ "audience_id": server_id }),
+        "created_date",
+        EVENTS_PER_SERVER,
+    )?;
+    let rsvps = if events.is_empty() {
+        vec![]
+    } else {
+        own.filter(
+            "EventRsvp",
+            json!({ "audience_id": server_id }),
+            "created_date",
+            RSVPS_LISTED,
+        )?
+    };
+    Ok(
+        json!({ "events": events.iter().map(event_out).collect::<Vec<_>>(), "rsvps": rsvps.iter().map(rsvp_out).collect::<Vec<_>>() }),
+    )
 }
 
 fn shared_event(ctx: &mut Ctx) -> Result<Value> {
     let event_id = random_id_field(&ctx.body["event_id"], "event")?;
-    let row = ctx.own().first("ServerEvent", json!({ "event_id": event_id }), "created_date")?;
-    let row = row.ok_or_else(|| deny(404, "NOT_FOUND", "That event isn't here any more, or it's in a server you're not in."))?;
-    Ok(json!({ "server_id": row.get("server_id").cloned().unwrap_or(Value::Null), "event": event_out(&row) }))
+    let row = ctx.own().first(
+        "ServerEvent",
+        json!({ "event_id": event_id }),
+        "created_date",
+    )?;
+    let row = row.ok_or_else(|| {
+        deny(
+            404,
+            "NOT_FOUND",
+            "That event isn't here any more, or it's in a server you're not in.",
+        )
+    })?;
+    Ok(
+        json!({ "server_id": row.get("server_id").cloned().unwrap_or(Value::Null), "event": event_out(&row) }),
+    )
 }
 
 fn create_event(ctx: &mut Ctx) -> Result<Value> {
-    let Signed { data, server_id, parts, perms, .. } = signed_member(ctx, "create_event")?;
+    let Signed {
+        data,
+        server_id,
+        parts,
+        perms,
+        ..
+    } = signed_member(ctx, "create_event")?;
     let (sr, uid, now) = (ctx.sr(), ctx.user_id().to_string(), ctx.now);
     if !has(perms, p::MANAGE_EVENTS) {
-        return Err(deny(403, "MISSING_PERMISSION", "You can't schedule events here."));
+        return Err(deny(
+            403,
+            "MISSING_PERMISSION",
+            "You can't schedule events here.",
+        ));
     }
-    if sr.filter("ServerEvent", json!({ "server_id": server_id }), "created_date", EVENTS_PER_SERVER + 1)?.len() >= EVENTS_PER_SERVER {
-        return Err(deny(409, "LIMIT_REACHED", &format!("A server can have up to {EVENTS_PER_SERVER} events. Cancel an old one first.")));
+    if sr
+        .filter(
+            "ServerEvent",
+            json!({ "server_id": server_id }),
+            "created_date",
+            EVENTS_PER_SERVER + 1,
+        )?
+        .len()
+        >= EVENTS_PER_SERVER
+    {
+        return Err(deny(
+            409,
+            "LIMIT_REACHED",
+            &format!(
+                "A server can have up to {EVENTS_PER_SERVER} events. Cancel an old one first."
+            ),
+        ));
     }
     let accepted = accept_event_item(ctx, "event", &server_id, &data["item"])?;
     let fields = item_fields("event", &accepted);
     let row = sr.create("ServerEvent", merge(json!({ "server_id": server_id, "audience_id": server_id, "event_id": accepted["item_id"], "creator_id": uid }), &fields))?;
-    audit(&sr, &parts.server, &uid, "event_create", "server", &server_id, "", now)?;
+    audit(
+        &sr,
+        &parts.server,
+        &uid,
+        "event_create",
+        "server",
+        &server_id,
+        "",
+        now,
+    )?;
     Ok(json!({ "event": event_out(&row) }))
 }
 
 fn update_event(ctx: &mut Ctx) -> Result<Value> {
-    let Signed { data, server_id, parts, perms, .. } = signed_member(ctx, "update_event")?;
+    let Signed {
+        data,
+        server_id,
+        parts,
+        perms,
+        ..
+    } = signed_member(ctx, "update_event")?;
     let (sr, uid, now) = (ctx.sr(), ctx.user_id().to_string(), ctx.now);
     if !has(perms, p::MANAGE_EVENTS) {
-        return Err(deny(403, "MISSING_PERMISSION", "You can't change events here."));
+        return Err(deny(
+            403,
+            "MISSING_PERMISSION",
+            "You can't change events here.",
+        ));
     }
-    let row = event_row(&sr, &server_id, &random_id_field(&data["event_id"], "event")?)?;
+    let row = event_row(
+        &sr,
+        &server_id,
+        &random_id_field(&data["event_id"], "event")?,
+    )?;
     let accepted = accept_event_item(ctx, "event", &server_id, &data["item"])?;
     // The event keeps its id; the new item's own id is only for its signature.
     let fields = item_fields("event", &accepted);
     sr.update("ServerEvent", id_of(&row), fields.clone())?;
-    audit(&sr, &parts.server, &uid, "event_update", "server", &server_id, "", now)?;
+    audit(
+        &sr,
+        &parts.server,
+        &uid,
+        "event_update",
+        "server",
+        &server_id,
+        "",
+        now,
+    )?;
     Ok(json!({ "event": event_out(&merge(row, &fields)) }))
 }
 
 fn cancel_event(ctx: &mut Ctx) -> Result<Value> {
-    let Signed { data, server_id, parts, perms, .. } = signed_member(ctx, "cancel_event")?;
+    let Signed {
+        data,
+        server_id,
+        parts,
+        perms,
+        ..
+    } = signed_member(ctx, "cancel_event")?;
     let (sr, uid, now) = (ctx.sr(), ctx.user_id().to_string(), ctx.now);
     if !has(perms, p::MANAGE_EVENTS) {
-        return Err(deny(403, "MISSING_PERMISSION", "You can't cancel events here."));
+        return Err(deny(
+            403,
+            "MISSING_PERMISSION",
+            "You can't cancel events here.",
+        ));
     }
-    let row = event_row(&sr, &server_id, &random_id_field(&data["event_id"], "event")?)?;
-    sr.delete_many("EventRsvp", json!({ "server_id": server_id, "event_id": row["event_id"] }))?;
+    let row = event_row(
+        &sr,
+        &server_id,
+        &random_id_field(&data["event_id"], "event")?,
+    )?;
+    sr.delete_many(
+        "EventRsvp",
+        json!({ "server_id": server_id, "event_id": row["event_id"] }),
+    )?;
     sr.update("ServerEvent", id_of(&row), cleared_item("event"))?;
     sr.delete("ServerEvent", id_of(&row))?;
-    audit(&sr, &parts.server, &uid, "event_cancel", "server", &server_id, "", now)?;
+    audit(
+        &sr,
+        &parts.server,
+        &uid,
+        "event_cancel",
+        "server",
+        &server_id,
+        "",
+        now,
+    )?;
     Ok(json!({ "ok": true }))
 }
 
 fn rsvp(ctx: &mut Ctx) -> Result<Value> {
-    let Signed { data, server_id, perms, .. } = signed_member(ctx, "rsvp")?;
+    let Signed {
+        data,
+        server_id,
+        perms,
+        ..
+    } = signed_member(ctx, "rsvp")?;
     let (sr, uid) = (ctx.sr(), ctx.user_id().to_string());
     if !has(perms, p::VIEW_CHANNEL) {
-        return Err(deny(403, "MISSING_PERMISSION", "You can't answer events here."));
+        return Err(deny(
+            403,
+            "MISSING_PERMISSION",
+            "You can't answer events here.",
+        ));
     }
-    let row = event_row(&sr, &server_id, &random_id_field(&data["event_id"], "event")?)?;
-    for r in sr.filter("EventRsvp", json!({ "server_id": server_id, "event_id": row["event_id"], "user_id": uid }), "created_date", 5)? {
+    let row = event_row(
+        &sr,
+        &server_id,
+        &random_id_field(&data["event_id"], "event")?,
+    )?;
+    for r in sr.filter(
+        "EventRsvp",
+        json!({ "server_id": server_id, "event_id": row["event_id"], "user_id": uid }),
+        "created_date",
+        5,
+    )? {
         sr.delete("EventRsvp", id_of(&r))?;
     }
     if data.get("item") == Some(&Value::Null) {
@@ -239,7 +439,14 @@ fn rsvp(ctx: &mut Ctx) -> Result<Value> {
 
 pub fn event_actions() -> Actions {
     let mut a = Actions::new();
-    for (name, f) in [("list", list as crate::api::Action), ("shared_event", shared_event), ("create_event", create_event), ("update_event", update_event), ("cancel_event", cancel_event), ("rsvp", rsvp)] {
+    for (name, f) in [
+        ("list", list as crate::api::Action),
+        ("shared_event", shared_event),
+        ("create_event", create_event),
+        ("update_event", update_event),
+        ("cancel_event", cancel_event),
+        ("rsvp", rsvp),
+    ] {
         a.insert(name, f);
     }
     a

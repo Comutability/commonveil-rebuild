@@ -28,7 +28,11 @@ impl FileStore {
     pub fn new(dir: &Path, secret: &str, site_url: &str) -> Self {
         let _ = std::fs::create_dir_all(dir);
         set_mode(dir, 0o700);
-        Self { dir: dir.to_path_buf(), secret: secret.to_string(), site_url: site_url.to_string() }
+        Self {
+            dir: dir.to_path_buf(),
+            secret: secret.to_string(),
+            site_url: site_url.to_string(),
+        }
     }
 
     fn path(&self, name: &str) -> PathBuf {
@@ -36,14 +40,18 @@ impl FileStore {
     }
 
     fn sign(&self, name: &str, exp: &str) -> String {
-        let mut mac = Hmac::<Sha256>::new_from_slice(self.secret.as_bytes()).expect("any key length");
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(self.secret.as_bytes()).expect("any key length");
         mac.update(format!("file:{name}:{exp}").as_bytes());
         URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
     }
 
     /// Store a file; returns its `private://` uri.
     pub fn upload(&self, bytes: &[u8]) -> std::io::Result<String> {
-        let name: String = crate::crypto::random_bytes(24).iter().map(|b| format!("{b:02x}")).collect();
+        let name: String = crate::crypto::random_bytes(24)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         let p = self.path(&name);
         let parent = p.parent().expect("has a folder");
         std::fs::create_dir_all(parent)?;
@@ -56,15 +64,27 @@ impl FileStore {
     /// A link that works for `expires_in` seconds (10 to 3600, 300 if not given).
     pub fn signed_url(&self, uri: &str, expires_in: f64, now_ms: i64) -> Option<String> {
         let name = name_of(uri)?;
-        let wanted = if expires_in.is_nan() || expires_in == 0.0 { 300.0 } else { expires_in };
+        let wanted = if expires_in.is_nan() || expires_in == 0.0 {
+            300.0
+        } else {
+            expires_in
+        };
         let exp = (now_ms as f64 / 1000.0).floor() as i64 + wanted.clamp(10.0, 3600.0) as i64;
         let exp = exp.to_string();
-        Some(format!("{}/api/files/{name}?exp={exp}&sig={}", self.site_url, self.sign(name, &exp)))
+        Some(format!(
+            "{}/api/files/{name}?exp={exp}&sig={}",
+            self.site_url,
+            self.sign(name, &exp)
+        ))
     }
 
     /// The file for a signed link, or None if the link is wrong or has run out.
     pub fn open(&self, name: &str, exp: &str, sig: &str, now_ms: i64) -> Option<PathBuf> {
-        if !hex_name(name) || exp.is_empty() || exp.len() > 12 || !exp.bytes().all(|b| b.is_ascii_digit()) {
+        if !hex_name(name)
+            || exp.is_empty()
+            || exp.len() > 12
+            || !exp.bytes().all(|b| b.is_ascii_digit())
+        {
             return None;
         }
         if (exp.parse::<i64>().ok()? as f64) < now_ms as f64 / 1000.0 {
@@ -116,7 +136,14 @@ mod tests {
         assert!(fs.open(name, exp, sig, now).is_some());
         assert!(fs.open(name, exp, sig, now + 61_000).is_none());
         assert!(fs.open(name, exp, "x", now).is_none());
-        assert!(fs.open(name, &(exp.parse::<i64>().unwrap() + 1).to_string(), sig, now).is_none());
+        assert!(fs
+            .open(
+                name,
+                &(exp.parse::<i64>().unwrap() + 1).to_string(),
+                sig,
+                now
+            )
+            .is_none());
         fs.remove(&uri);
         assert!(fs.open(name, exp, sig, now).is_none());
         assert!(fs.signed_url("private://nope", 60.0, now).is_none());

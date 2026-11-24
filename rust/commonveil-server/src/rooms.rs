@@ -20,7 +20,9 @@ fn now() -> i64 {
 }
 
 fn id_ok(s: &str, min: usize, max: usize) -> bool {
-    (min..=max).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+    (min..=max).contains(&s.len())
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
 }
 
 fn str_id(v: &Value) -> Option<String> {
@@ -38,7 +40,9 @@ impl SignIn {
         c.user_id.clone().or_else(|| self.0.get(conn_id).cloned())
     }
     fn sign_in(&mut self, cx: &Cx, conn_id: &str, msg: &Value) -> bool {
-        let Some(c) = cx.conn(conn_id) else { return false };
+        let Some(c) = cx.conn(conn_id) else {
+            return false;
+        };
         if c.user_id.is_some() {
             return true;
         }
@@ -140,12 +144,26 @@ impl Presence {
     }
 
     fn is_member(cx: &Cx, user_id: &str) -> bool {
-        let Some((kind, id)) = Self::room(cx) else { return false };
+        let Some((kind, id)) = Self::room(cx) else {
+            return false;
+        };
         let sr = Db::service(&cx.app.store);
         if kind == 's' {
-            return sr.first("ServerMember", json!({ "server_id": id, "user_id": user_id }), "created_date").ok().flatten().is_some();
+            return sr
+                .first(
+                    "ServerMember",
+                    json!({ "server_id": id, "user_id": user_id }),
+                    "created_date",
+                )
+                .ok()
+                .flatten()
+                .is_some();
         }
-        sr.get("Conversation", &id).is_some_and(|c| crate::shared::ids_of(&c["member_ids"]).iter().any(|m| m == user_id))
+        sr.get("Conversation", &id).is_some_and(|c| {
+            crate::shared::ids_of(&c["member_ids"])
+                .iter()
+                .any(|m| m == user_id)
+        })
     }
 
     fn admit(&mut self, cx: &Cx, conn_id: &str) -> Option<Here> {
@@ -164,8 +182,16 @@ impl Presence {
             return None;
         }
         let entry = match known.as_ref().filter(|k| k.user_id == user) {
-            Some(k) => Here { checked_at: now(), ..k.clone() },
-            None => Here { user_id: user, status: "online".into(), checked_at: now(), typed_at: 0 },
+            Some(k) => Here {
+                checked_at: now(),
+                ..k.clone()
+            },
+            None => Here {
+                user_id: user,
+                status: "online".into(),
+                checked_at: now(),
+                typed_at: 0,
+            },
         };
         if known.is_none() && self.people.len() >= PRESENCE_MAX_PEOPLE {
             if let Some(c) = cx.conn(conn_id) {
@@ -185,7 +211,11 @@ impl Presence {
                 by.set(&p.user_id, p.status.clone());
             }
         }
-        json!(by.0.iter().map(|(u, s)| json!({ "user_id": u, "status": s })).collect::<Vec<_>>())
+        json!(by
+            .0
+            .iter()
+            .map(|(u, s)| json!({ "user_id": u, "status": s }))
+            .collect::<Vec<_>>())
     }
 
     fn broadcast_people(&self, cx: &Cx) {
@@ -218,7 +248,10 @@ impl Room for Presence {
     }
 
     fn message(&mut self, cx: &mut Cx, conn_id: &str, msg: &Value) {
-        if !msg.is_object() || !msg["type"].is_string() || self.flood.flooding(conn_id, PRESENCE_MESSAGES_PER_10S) {
+        if !msg.is_object()
+            || !msg["type"].is_string()
+            || self.flood.flooding(conn_id, PRESENCE_MESSAGES_PER_10S)
+        {
             return;
         }
         if msg["type"] == "__auth" {
@@ -228,9 +261,15 @@ impl Room for Presence {
             return;
         }
         let fresh = !self.people.has(conn_id);
-        let Some(me) = self.admit(cx, conn_id) else { return };
+        let Some(me) = self.admit(cx, conn_id) else {
+            return;
+        };
         if msg["type"] == "hello" {
-            let status = msg["status"].as_str().filter(|s| *s == "online" || *s == "idle").unwrap_or("online").to_string();
+            let status = msg["status"]
+                .as_str()
+                .filter(|s| *s == "online" || *s == "idle")
+                .unwrap_or("online")
+                .to_string();
             let changed = fresh || status != me.status;
             if let Some(p) = self.people.get_mut(conn_id) {
                 p.status = status;
@@ -245,7 +284,11 @@ impl Room for Presence {
             }
         } else if msg["type"] == "typing" {
             // Where: a channel id in a server, nothing in a conversation. Throttled.
-            let channel = if Self::room(cx).is_some_and(|(k, _)| k == 's') { str_id(&msg["channel_id"]) } else { Some(String::new()) };
+            let channel = if Self::room(cx).is_some_and(|(k, _)| k == 's') {
+                str_id(&msg["channel_id"])
+            } else {
+                Some(String::new())
+            };
             let Some(channel) = channel else { return };
             if now() - me.typed_at < TYPING_EVERY_MS {
                 return;
@@ -255,7 +298,11 @@ impl Room for Presence {
             }
             let thread = str_id(&msg["thread_id"]).unwrap_or_default();
             let out = json!({ "type": "typing", "user_id": me.user_id, "channel_id": channel, "thread_id": thread });
-            for c in cx.conns.iter().filter(|c| c.id != conn_id && self.people.has(&c.id)) {
+            for c in cx
+                .conns
+                .iter()
+                .filter(|c| c.id != conn_id && self.people.has(&c.id))
+            {
                 c.send(&out);
             }
         }
@@ -288,10 +335,21 @@ fn clean_hello(h: &Value) -> Option<Value> {
     let call_id = str_id(&h["call_id"])?;
     let fp = h["fingerprint"].as_str().filter(|f| {
         let parts: Vec<&str> = f.split(':').collect();
-        parts.len() == 32 && parts.iter().all(|p| p.len() == 2 && p.bytes().all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b)))
+        parts.len() == 32
+            && parts.iter().all(|p| {
+                p.len() == 2
+                    && p.bytes()
+                        .all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b))
+            })
     })?;
-    let issued = h["issued_at"].as_str().filter(|s| s.encode_utf16().count() <= 40)?;
-    let sig = h["signature"].as_str().filter(|s| (1..=400).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"+/=_-".contains(&b)))?;
+    let issued = h["issued_at"]
+        .as_str()
+        .filter(|s| s.encode_utf16().count() <= 40)?;
+    let sig = h["signature"].as_str().filter(|s| {
+        (1..=400).contains(&s.len())
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"+/=_-".contains(&b))
+    })?;
     // Every part must be there (an empty issued_at counts as missing, as `&&` does in JavaScript).
     if issued.is_empty() {
         return None;
@@ -315,7 +373,15 @@ fn b(v: &Value, k: &str) -> bool {
 
 impl VoiceRoom {
     fn save(&self, cx: &Cx) {
-        cx.storage_put("people", &json!(self.people.0.iter().map(|(id, p)| json!([id, p])).collect::<Vec<_>>()));
+        cx.storage_put(
+            "people",
+            &json!(self
+                .people
+                .0
+                .iter()
+                .map(|(id, p)| json!([id, p]))
+                .collect::<Vec<_>>()),
+        );
     }
 
     fn public_of(p: &Value) -> Value {
@@ -326,7 +392,11 @@ impl VoiceRoom {
     }
 
     fn send_to_members(&self, cx: &Cx, data: &Value, except: Option<&str>) {
-        for c in cx.conns.iter().filter(|c| Some(c.id.as_str()) != except && self.people.has(&c.id)) {
+        for c in cx
+            .conns
+            .iter()
+            .filter(|c| Some(c.id.as_str()) != except && self.people.has(&c.id))
+        {
             c.send(data);
         }
     }
@@ -336,7 +406,13 @@ impl VoiceRoom {
     }
 
     fn welcome(&self, cx: &Cx, conn_id: &str, me: &Value) {
-        let peers: Vec<Value> = self.people.0.iter().filter(|(id, _)| id != conn_id).map(|(_, p)| Self::public_of(p)).collect();
+        let peers: Vec<Value> = self
+            .people
+            .0
+            .iter()
+            .filter(|(id, _)| id != conn_id)
+            .map(|(_, p)| Self::public_of(p))
+            .collect();
         let stage = b(me, "stage");
         if let Some(c) = cx.conn(conn_id) {
             c.send(&json!({ "type": "welcome", "seat": me["seat"], "can_speak": me["canSpeak"], "can_moderate": b(me, "canModerate"), "stage": stage, "peers": peers, "max_people": if stage { VOICE_MAX_STAGE } else { VOICE_MAX_PEOPLE } }));
@@ -344,7 +420,9 @@ impl VoiceRoom {
     }
 
     fn remove(&mut self, cx: &Cx, conn_id: &str) {
-        let Some(p) = self.people.delete(conn_id) else { return };
+        let Some(p) = self.people.delete(conn_id) else {
+            return;
+        };
         self.save(cx);
         self.send_to_members(cx, &json!({ "type": "peer-left", "seat": p["seat"] }), None);
     }
@@ -358,23 +436,44 @@ impl VoiceRoom {
         let room = cx.instance_id;
         let sr = Db::service(&cx.app.store);
         let parts: Vec<&str> = room.split('.').collect();
-        if parts.len() == 3 && parts[0] == "dm" && id_ok(parts[1], 8, 64) && id_ok(parts[2], 8, 32) {
-            return sr.get("Conversation", parts[1]).is_some_and(|c| crate::shared::ids_of(&c["member_ids"]).iter().any(|m| m == user_id));
+        if parts.len() == 3 && parts[0] == "dm" && id_ok(parts[1], 8, 64) && id_ok(parts[2], 8, 32)
+        {
+            return sr.get("Conversation", parts[1]).is_some_and(|c| {
+                crate::shared::ids_of(&c["member_ids"])
+                    .iter()
+                    .any(|m| m == user_id)
+            });
         }
         if parts.len() != 2 || !id_ok(parts[0], 8, 64) || !id_ok(parts[1], 8, 64) {
             return false;
         }
-        match sr.first("ServerMember", json!({ "server_id": parts[0], "user_id": user_id }), "created_date") {
-            Ok(Some(m)) => !(truthy(m.get("timeout_until")) && crate::dates::parse(&to_js_string(m.get("timeout_until"))).unwrap_or(f64::NAN) > now() as f64),
+        match sr.first(
+            "ServerMember",
+            json!({ "server_id": parts[0], "user_id": user_id }),
+            "created_date",
+        ) {
+            Ok(Some(m)) => {
+                !(truthy(m.get("timeout_until"))
+                    && crate::dates::parse(&to_js_string(m.get("timeout_until")))
+                        .unwrap_or(f64::NAN)
+                        > now() as f64)
+            }
             _ => false,
         }
     }
 
     fn recheck(&mut self, cx: &mut Cx) {
         let mut users: HashMap<String, bool> = HashMap::new();
-        let snapshot: Vec<(String, String)> = self.people.0.iter().map(|(id, p)| (id.clone(), to_js_string(p.get("userId")))).collect();
+        let snapshot: Vec<(String, String)> = self
+            .people
+            .0
+            .iter()
+            .map(|(id, p)| (id.clone(), to_js_string(p.get("userId"))))
+            .collect();
         for (id, user) in snapshot {
-            let ok = *users.entry(user.clone()).or_insert_with(|| Self::still_allowed(cx, &user));
+            let ok = *users
+                .entry(user.clone())
+                .or_insert_with(|| Self::still_allowed(cx, &user));
             if ok {
                 continue;
             }
@@ -406,7 +505,12 @@ impl VoiceRoom {
         };
         let sr = Db::service(&cx.app.store);
         let ticket = sr.get("VoiceTicket", &ticket_id);
-        let valid = ticket.as_ref().is_some_and(|t| t["room"] == cx.instance_id && t["user_id"] == user_id.as_str() && crate::dates::parse(&to_js_string(t.get("expires_at"))).unwrap_or(f64::NAN) > now() as f64);
+        let valid = ticket.as_ref().is_some_and(|t| {
+            t["room"] == cx.instance_id
+                && t["user_id"] == user_id.as_str()
+                && crate::dates::parse(&to_js_string(t.get("expires_at"))).unwrap_or(f64::NAN)
+                    > now() as f64
+        });
         if ticket.is_some() && sr.delete("VoiceTicket", &ticket_id).is_err() {
             // Single use, valid or not. Already gone: someone else used it first.
             c.send(&json!({ "type": "error", "code": "PASS_USED", "message": "That pass was already used. Try joining again." }));
@@ -417,7 +521,17 @@ impl VoiceRoom {
             return;
         };
         // The same device joining again (a reload, say) replaces its old place, connected or not.
-        let replaced: Vec<String> = self.people.0.iter().filter(|(id, p)| id != conn_id && p["userId"] == user_id.as_str() && p["deviceId"] == ticket["device_id"]).map(|(id, _)| id.clone()).collect();
+        let replaced: Vec<String> = self
+            .people
+            .0
+            .iter()
+            .filter(|(id, p)| {
+                id != conn_id
+                    && p["userId"] == user_id.as_str()
+                    && p["deviceId"] == ticket["device_id"]
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
         for id in replaced {
             self.remove(cx, &id);
             cx.cancel(&format!("drop:{id}"));
@@ -426,7 +540,11 @@ impl VoiceRoom {
             }
         }
         let stage = ticket["stage"] == true;
-        let max = if stage { VOICE_MAX_STAGE } else { VOICE_MAX_PEOPLE };
+        let max = if stage {
+            VOICE_MAX_STAGE
+        } else {
+            VOICE_MAX_PEOPLE
+        };
         if self.people.len() as i64 >= max {
             if let Some(c) = cx.conn(conn_id) {
                 c.send(&json!({ "type": "error", "code": "CALL_FULL", "message": format!("This call is full: up to {max} people can be in it.") }));
@@ -446,7 +564,11 @@ impl VoiceRoom {
             cx.schedule("recheck", now() + VOICE_RECHECK_MS);
         }
         self.welcome(cx, conn_id, &me);
-        self.send_to_members(cx, &json!({ "type": "peer-joined", "peer": Self::public_of(&me) }), Some(conn_id));
+        self.send_to_members(
+            cx,
+            &json!({ "type": "peer-joined", "peer": Self::public_of(&me) }),
+            Some(conn_id),
+        );
     }
 }
 
@@ -454,7 +576,14 @@ impl Room for VoiceRoom {
     fn start(&mut self, cx: &mut Cx) {
         // Any wake: reload who's in the call, then drop anyone whose connection is gone.
         if let Some(saved) = cx.storage_get("people") {
-            self.people = Ordered(saved.as_array().into_iter().flatten().filter_map(|e| Some((e[0].as_str()?.to_string(), e[1].clone()))).collect());
+            self.people = Ordered(
+                saved
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|e| Some((e[0].as_str()?.to_string(), e[1].clone())))
+                    .collect(),
+            );
         }
         let mut changed = false;
         let ids: Vec<String> = self.people.0.iter().map(|(id, _)| id.clone()).collect();
@@ -462,7 +591,11 @@ impl Room for VoiceRoom {
             if cx.conn(&id).is_some() {
                 continue;
             }
-            let gone = self.people.get(&id).and_then(|p| p.get("goneAt")).map(|g| to_number(Some(g)));
+            let gone = self
+                .people
+                .get(&id)
+                .and_then(|p| p.get("goneAt"))
+                .map(|g| to_number(Some(g)));
             match gone {
                 None => {
                     let t = now();
@@ -479,7 +612,13 @@ impl Room for VoiceRoom {
                 _ => {}
             }
         }
-        self.next_seat = self.people.0.iter().map(|(_, p)| Self::seat_of(&p["seat"]) as i64).fold(0, i64::max) + 1;
+        self.next_seat = self
+            .people
+            .0
+            .iter()
+            .map(|(_, p)| Self::seat_of(&p["seat"]) as i64)
+            .fold(0, i64::max)
+            + 1;
         if changed {
             self.save(cx);
         }
@@ -492,7 +631,12 @@ impl Room for VoiceRoom {
             }
             return;
         };
-        if let Some(me) = self.people.get(conn_id).cloned().filter(|m| m["userId"] == user.as_str()) {
+        if let Some(me) = self
+            .people
+            .get(conn_id)
+            .cloned()
+            .filter(|m| m["userId"] == user.as_str())
+        {
             // A reconnect of someone already in: same place, if they're still allowed.
             if !Self::still_allowed(cx, &user) {
                 self.remove(cx, conn_id);
@@ -519,7 +663,10 @@ impl Room for VoiceRoom {
     }
 
     fn message(&mut self, cx: &mut Cx, conn_id: &str, msg: &Value) {
-        if !msg.is_object() || !msg["type"].is_string() || self.flood.flooding(conn_id, VOICE_MESSAGES_PER_10S) {
+        if !msg.is_object()
+            || !msg["type"].is_string()
+            || self.flood.flooding(conn_id, VOICE_MESSAGES_PER_10S)
+        {
             return;
         }
         if msg["type"] == "__auth" {
@@ -534,7 +681,9 @@ impl Room for VoiceRoom {
             return;
         }
         // A connection id is chosen by the app: it only ever speaks for the account let in with it.
-        let Some(me) = self.people.get(conn_id).cloned() else { return };
+        let Some(me) = self.people.get(conn_id).cloned() else {
+            return;
+        };
         if user.as_deref() != me["userId"].as_str() {
             return;
         }
@@ -542,8 +691,14 @@ impl Room for VoiceRoom {
         match kind {
             "signal" => {
                 let to = to_number(msg.get("to"));
-                let target = cx.conns.iter().find(|c| self.people.get(&c.id).is_some_and(|p| Self::seat_of(&p["seat"]) == to));
-                let Some(target) = target.filter(|t| t.id != conn_id) else { return };
+                let target = cx.conns.iter().find(|c| {
+                    self.people
+                        .get(&c.id)
+                        .is_some_and(|p| Self::seat_of(&p["seat"]) == to)
+                });
+                let Some(target) = target.filter(|t| t.id != conn_id) else {
+                    return;
+                };
                 let data = msg.get("data").cloned().unwrap_or(Value::Null);
                 if crate::protocol::js_stringify(&data).encode_utf16().count() > MAX_SIGNAL_CHARS {
                     return;
@@ -570,9 +725,19 @@ impl Room for VoiceRoom {
                 self.save(cx);
                 self.broadcast_state(cx, &p);
             }
-            "set-speaker" | "mute-peer" | "unmute-peer" if b(&me, "canModerate") && (kind != "set-speaker" || b(&me, "stage")) => {
+            "set-speaker" | "mute-peer" | "unmute-peer"
+                if b(&me, "canModerate") && (kind != "set-speaker" || b(&me, "stage")) =>
+            {
                 let seat = to_number(msg.get("seat"));
-                let Some(target_id) = self.people.0.iter().find(|(_, p)| Self::seat_of(&p["seat"]) == seat).map(|(id, _)| id.clone()) else { return };
+                let Some(target_id) = self
+                    .people
+                    .0
+                    .iter()
+                    .find(|(_, p)| Self::seat_of(&p["seat"]) == seat)
+                    .map(|(id, _)| id.clone())
+                else {
+                    return;
+                };
                 let t = self.people.get_mut(&target_id).expect("present");
                 match kind {
                     "set-speaker" => {
@@ -622,8 +787,14 @@ impl Room for VoiceRoom {
             self.recheck(cx);
             return;
         }
-        let Some(id) = key.strip_prefix("drop:") else { return };
-        if !self.people.get(id).is_some_and(|p| p.get("goneAt").is_some()) {
+        let Some(id) = key.strip_prefix("drop:") else {
+            return;
+        };
+        if !self
+            .people
+            .get(id)
+            .is_some_and(|p| p.get("goneAt").is_some())
+        {
             return;
         }
         if cx.conn(id).is_some() {
@@ -646,7 +817,12 @@ mod tests {
         let fp = vec!["AB"; 32].join(":");
         let ok = json!({ "call_id": "abcdefgh12", "fingerprint": fp, "issued_at": "2026-01-01T00:00:00Z", "signature": "c2ln" });
         assert!(clean_hello(&ok).is_some());
-        for (k, v) in [("call_id", json!("short")), ("fingerprint", json!("ab:cd")), ("issued_at", json!("")), ("signature", json!("not base64!"))] {
+        for (k, v) in [
+            ("call_id", json!("short")),
+            ("fingerprint", json!("ab:cd")),
+            ("issued_at", json!("")),
+            ("signature", json!("not base64!")),
+        ] {
             let mut bad = ok.clone();
             bad[k] = v;
             assert!(clean_hello(&bad).is_none(), "{k}");

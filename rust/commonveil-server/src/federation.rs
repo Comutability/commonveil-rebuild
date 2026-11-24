@@ -31,17 +31,38 @@ use tokio_tungstenite::tungstenite::Message as UpstreamMessage;
 
 use crate::api::ApiError;
 use crate::db::{id_of, Db};
-use crate::fed_net::{b64u, fed_err, js_slice, norm_host, strip_port, unb64u, FedResult, Signer, Transport};
+use crate::fed_net::{
+    b64u, fed_err, js_slice, norm_host, strip_port, unb64u, FedResult, Signer, Transport,
+};
 use crate::http;
 use crate::js::{to_js_string, truthy};
 use crate::protocol::js_stringify;
 use crate::shared::{blocked_either_way, peer_device_out, statement_out};
 use crate::App;
 
-const ID_KEYS: [&str; 13] = ["conversation_id", "server_id", "channel_id", "event_id", "report_id", "case_id", "message_id", "thread_id", "ticket_id", "invite_id", "role_id", "id", "parent_id"];
+const ID_KEYS: [&str; 13] = [
+    "conversation_id",
+    "server_id",
+    "channel_id",
+    "event_id",
+    "report_id",
+    "case_id",
+    "message_id",
+    "thread_id",
+    "ticket_id",
+    "invite_id",
+    "role_id",
+    "id",
+    "parent_id",
+];
 // Not file ids: a message's list of file parts is chosen by its sender, so a request routed by them
 // could be steered to the sender's site. A file is found by where it was posted (docs/FEDERATION.md).
-const ID_LIST_KEYS: [&str; 4] = ["conversation_ids", "server_ids", "channel_ids", "message_ids"];
+const ID_LIST_KEYS: [&str; 4] = [
+    "conversation_ids",
+    "server_ids",
+    "channel_ids",
+    "message_ids",
+];
 pub const MAX_ACT_BODY: usize = 9 * 1024 * 1024;
 // Held messages (docs/OFFLINE.md): tried again after 30 seconds, then less and less often (at
 // most every 30 minutes), for up to a week; the same week a message written offline may wait.
@@ -49,7 +70,14 @@ const HELD_EVERY_MS: u64 = 30_000;
 const HELD_FIRST_RETRY_MS: i64 = 30_000;
 const HELD_MAX_WAIT_MS: i64 = 30 * 60_000;
 const HELD_MAX_AGE_MS: i64 = 7 * 24 * 3_600_000;
-const SHADOW_FIELDS: [&str; 6] = ["display_name", "bio", "pronouns", "accent_color", "avatar_emoji", "avatar_image"];
+const SHADOW_FIELDS: [&str; 6] = [
+    "display_name",
+    "bio",
+    "pronouns",
+    "accent_color",
+    "avatar_emoji",
+    "avatar_image",
+];
 const ACTOR_NAMES: [&str; 2] = ["VoiceRoom", "Presence"];
 /// Actions that, with no conversation or server named, mean "everything of mine", here and
 /// elsewhere (base44/shared/federation/merge.ts).
@@ -63,9 +91,23 @@ const FAN_OUT: [(&str, &str); 7] = [
     ("profile.get_many", "people"),
 ];
 /// Request cursor field, and the reply field it comes back in.
-const CURSOR_FIELDS: [(&str, &str); 4] = [("since", "cursor"), ("conversations_since", "conversations_cursor"), ("servers_since", "servers_cursor"), ("server_changes_since", "server_changes_cursor")];
+const CURSOR_FIELDS: [(&str, &str); 4] = [
+    ("since", "cursor"),
+    ("conversations_since", "conversations_cursor"),
+    ("servers_since", "servers_cursor"),
+    ("server_changes_since", "server_changes_cursor"),
+];
 /// JavaScript's encodeURIComponent leaves these as they are.
-const URI_COMPONENT: &AsciiSet = &NON_ALPHANUMERIC.remove(b'-').remove(b'_').remove(b'.').remove(b'!').remove(b'~').remove(b'*').remove(b'\'').remove(b'(').remove(b')');
+const URI_COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'!')
+    .remove(b'~')
+    .remove(b'*')
+    .remove(b'\'')
+    .remove(b'(')
+    .remove(b')');
 const IDENTITY_PATH: &str = "/.well-known/commonveil/identity";
 
 fn now_ms() -> i64 {
@@ -73,7 +115,9 @@ fn now_ms() -> i64 {
 }
 
 fn id24(s: &str) -> bool {
-    s.len() == 24 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    s.len() == 24
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn enc(s: &str) -> String {
@@ -88,12 +132,20 @@ fn dec(s: &str) -> String {
 pub fn handle_ok(v: &str) -> bool {
     let mut parts = v.split('.');
     let first = parts.next().unwrap_or("").as_bytes();
-    let first_ok = (2..=20).contains(&first.len()) && (first[0].is_ascii_lowercase() || first[0].is_ascii_digit()) && first.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-');
+    let first_ok = (2..=20).contains(&first.len())
+        && (first[0].is_ascii_lowercase() || first[0].is_ascii_digit())
+        && first
+            .iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-');
     let rest: Vec<&str> = parts.collect();
     let label = |l: &str| {
         let b = l.as_bytes();
         let edge = |c: u8| c.is_ascii_lowercase() || c.is_ascii_digit();
-        !b.is_empty() && b.len() <= 63 && edge(b[0]) && edge(b[b.len() - 1]) && b.iter().all(|c| edge(*c) || *c == b'-')
+        !b.is_empty()
+            && b.len() <= 63
+            && edge(b[0])
+            && edge(b[b.len() - 1])
+            && b.iter().all(|c| edge(*c) || *c == b'-')
     };
     first_ok && !rest.is_empty() && rest.iter().all(|l| label(l))
 }
@@ -130,13 +182,23 @@ pub struct Federation {
 impl Federation {
     /// The site's address, its signer and the federation tables: everything that can fail, done
     /// before the app is made.
-    pub fn prepare(config: &crate::config::Config, store: &crate::store::Store, transport: Option<Transport>) -> Result<(String, Signer), String> {
-        let port = url::Url::parse(&config.site_url).ok().and_then(|u| u.port());
+    pub fn prepare(
+        config: &crate::config::Config,
+        store: &crate::store::Store,
+        transport: Option<Transport>,
+    ) -> Result<(String, Signer), String> {
+        let port = url::Url::parse(&config.site_url)
+            .ok()
+            .and_then(|u| u.port());
         let host = match port {
             Some(p) => format!("{}:{p}", config.host),
             None => config.host.clone(),
         };
-        let signer = Signer::new(&host, store, transport.unwrap_or_else(|| Transport::new(config.allow_private_federation)))?;
+        let signer = Signer::new(
+            &host,
+            store,
+            transport.unwrap_or_else(|| Transport::new(config.allow_private_federation)),
+        )?;
         store
             .with_db(|db| {
                 db.execute_batch(
@@ -151,8 +213,21 @@ impl Federation {
         Ok((host, signer))
     }
 
-    pub fn new(app: Weak<App>, enabled: bool, host: String, signer: Signer, jobs: Receiver<Job>) -> Self {
-        Self { app, enabled, host, signer, jobs: Mutex::new(Some(jobs)), soon: Mutex::new(HashMap::new()) }
+    pub fn new(
+        app: Weak<App>,
+        enabled: bool,
+        host: String,
+        signer: Signer,
+        jobs: Receiver<Job>,
+    ) -> Self {
+        Self {
+            app,
+            enabled,
+            host,
+            signer,
+            jobs: Mutex::new(Some(jobs)),
+            soon: Mutex::new(HashMap::new()),
+        }
     }
 
     fn app(&self) -> Arc<App> {
@@ -166,34 +241,84 @@ impl Federation {
     }
 
     fn route_of(&self, id: &str) -> Option<String> {
-        self.sql(|db| db.query_row("SELECT host FROM fed_routes WHERE id = ?", [id], |r| r.get(0)).optional()).flatten()
+        self.sql(|db| {
+            db.query_row("SELECT host FROM fed_routes WHERE id = ?", [id], |r| {
+                r.get(0)
+            })
+            .optional()
+        })
+        .flatten()
     }
     fn put_route(&self, id: &str, host: &str, now: i64) {
         self.sql(|db| db.execute("INSERT INTO fed_routes (id, host, seen) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET seen = excluded.seen", params![id, host, now]));
     }
     pub fn hosts_of(&self, user_id: &str) -> Vec<String> {
-        self.sql(|db| db.prepare("SELECT host FROM fed_user_hosts WHERE user_id = ?")?.query_map([user_id], |r| r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()).unwrap_or_default()
+        self.sql(|db| {
+            db.prepare("SELECT host FROM fed_user_hosts WHERE user_id = ?")?
+                .query_map([user_id], |r| r.get(0))?
+                .collect::<rusqlite::Result<Vec<String>>>()
+        })
+        .unwrap_or_default()
     }
     fn put_host(&self, user_id: &str, host: &str, now: i64) {
         self.sql(|db| db.execute("INSERT INTO fed_user_hosts (user_id, host, seen) VALUES (?, ?, ?) ON CONFLICT(user_id, host) DO UPDATE SET seen = excluded.seen", params![user_id, host, now]));
     }
     fn drop_host(&self, user_id: &str, host: &str) {
-        self.sql(|db| db.execute("DELETE FROM fed_user_hosts WHERE user_id = ? AND host = ?", params![user_id, host]));
+        self.sql(|db| {
+            db.execute(
+                "DELETE FROM fed_user_hosts WHERE user_id = ? AND host = ?",
+                params![user_id, host],
+            )
+        });
     }
     fn shadow(&self, user_id: &str) -> Option<Shadow> {
-        self.sql(|db| db.query_row("SELECT home, digest FROM fed_shadows WHERE user_id = ?", [user_id], |r| Ok(Shadow { home: r.get(0)?, digest: r.get(1)? })).optional()).flatten()
+        self.sql(|db| {
+            db.query_row(
+                "SELECT home, digest FROM fed_shadows WHERE user_id = ?",
+                [user_id],
+                |r| {
+                    Ok(Shadow {
+                        home: r.get(0)?,
+                        digest: r.get(1)?,
+                    })
+                },
+            )
+            .optional()
+        })
+        .flatten()
     }
     fn shadow_by_handle(&self, handle: &str) -> Option<(String, String)> {
-        self.sql(|db| db.query_row("SELECT user_id, home FROM fed_shadows WHERE handle = ?", [handle], |r| Ok((r.get(0)?, r.get(1)?))).optional()).flatten()
+        self.sql(|db| {
+            db.query_row(
+                "SELECT user_id, home FROM fed_shadows WHERE handle = ?",
+                [handle],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+        })
+        .flatten()
     }
     fn put_shadow(&self, user_id: &str, home: &str, handle: &str, digest: &str, now: i64) {
         self.sql(|db| db.execute("INSERT INTO fed_shadows (user_id, home, handle, digest, updated) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET handle = excluded.handle, digest = excluded.digest, updated = excluded.updated", params![user_id, home, handle, digest, now]));
     }
     fn notified(&self, user_id: &str, room: &str) -> bool {
-        self.sql(|db| db.query_row("SELECT 1 FROM fed_notified WHERE user_id = ? AND room = ?", [user_id, room], |_| Ok(())).optional()).flatten().is_some()
+        self.sql(|db| {
+            db.query_row(
+                "SELECT 1 FROM fed_notified WHERE user_id = ? AND room = ?",
+                [user_id, room],
+                |_| Ok(()),
+            )
+            .optional()
+        })
+        .flatten()
+        .is_some()
     }
     fn set_notified(&self, user_id: &str, room: &str, on: bool) {
-        let q = if on { "INSERT OR IGNORE INTO fed_notified (user_id, room) VALUES (?, ?)" } else { "DELETE FROM fed_notified WHERE user_id = ? AND room = ?" };
+        let q = if on {
+            "INSERT OR IGNORE INTO fed_notified (user_id, room) VALUES (?, ?)"
+        } else {
+            "DELETE FROM fed_notified WHERE user_id = ? AND room = ?"
+        };
         self.sql(|db| db.execute(q, [user_id, room]));
     }
 
@@ -291,19 +416,32 @@ impl Federation {
 
     /// A local person's handle: their username (underscores become hyphens), then the handle domain.
     pub fn handle_for(&self, username: &str) -> String {
-        format!("{}.{}", username.to_lowercase().replace('_', "-"), self.app().config.handle_domain)
+        format!(
+            "{}.{}",
+            username.to_lowercase().replace('_', "-"),
+            self.app().config.handle_domain
+        )
     }
 
     /// The local username a handle names, if it's one of ours.
     fn local_username(&self, handle: &str) -> Option<String> {
         let suffix = format!(".{}", self.app().config.handle_domain);
         let label = handle.strip_suffix(&suffix)?;
-        ((3..=20).contains(&label.len()) && label.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')).then(|| label.replace('-', "_"))
+        ((3..=20).contains(&label.len())
+            && label
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'))
+        .then(|| label.replace('-', "_"))
     }
 
     fn local_profile(&self, username: &str) -> FedResult<Option<Value>> {
         let app = self.app();
-        let rows = Db::service(&app.store).filter("Profile", json!({ "username_key": username.to_lowercase() }), "created_date", 1)?;
+        let rows = Db::service(&app.store).filter(
+            "Profile",
+            json!({ "username_key": username.to_lowercase() }),
+            "created_date",
+            1,
+        )?;
         Ok(rows.into_iter().next().filter(|p| !truthy(p.get("remote"))))
     }
 
@@ -317,24 +455,67 @@ impl Federation {
     pub fn card(&self, user_id: &str) -> FedResult<Option<Value>> {
         let app = self.app();
         let sr = Db::service(&app.store);
-        let Some(profile) = sr.filter("Profile", json!({ "user_id": user_id }), "created_date", 1)?.into_iter().next().filter(|p| !truthy(p.get("remote"))) else { return Ok(None) };
-        let statements: Vec<Value> = sr.filter("AccountKey", json!({ "user_id": user_id }), "version", 500)?.iter().map(statement_out).collect();
-        let devices: Vec<Value> = sr.filter("Device", json!({ "user_id": user_id }), "created_date", 200)?.iter().filter(|d| d["status"] == "active" || d["status"] == "revoked").map(peer_device_out).collect();
-        let visibility = if truthy(profile.get("profile_visibility")) { to_js_string(profile.get("profile_visibility")) } else { "shared".into() };
+        let Some(profile) = sr
+            .filter("Profile", json!({ "user_id": user_id }), "created_date", 1)?
+            .into_iter()
+            .next()
+            .filter(|p| !truthy(p.get("remote")))
+        else {
+            return Ok(None);
+        };
+        let statements: Vec<Value> = sr
+            .filter("AccountKey", json!({ "user_id": user_id }), "version", 500)?
+            .iter()
+            .map(statement_out)
+            .collect();
+        let devices: Vec<Value> = sr
+            .filter("Device", json!({ "user_id": user_id }), "created_date", 200)?
+            .iter()
+            .filter(|d| d["status"] == "active" || d["status"] == "revoked")
+            .map(peer_device_out)
+            .collect();
+        let visibility = if truthy(profile.get("profile_visibility")) {
+            to_js_string(profile.get("profile_visibility"))
+        } else {
+            "shared".into()
+        };
         let mut shown = Map::new();
         for f in SHADOW_FIELDS {
-            shown.insert(f.into(), if visibility == "nobody" { json!("") } else if truthy(profile.get(f)) { profile[f].clone() } else { json!("") });
+            shown.insert(
+                f.into(),
+                if visibility == "nobody" {
+                    json!("")
+                } else if truthy(profile.get(f)) {
+                    profile[f].clone()
+                } else {
+                    json!("")
+                },
+            );
         }
         shown.insert("profile_visibility".into(), json!(visibility));
-        shown.insert("dm_policy".into(), if truthy(profile.get("dm_policy")) { profile["dm_policy"].clone() } else { json!("anyone") });
-        Ok(Some(json!({ "id": user_id, "handle": self.handle_for(&to_js_string(profile.get("username"))), "profile": shown, "directory": { "statements": statements, "devices": devices } })))
+        shown.insert(
+            "dm_policy".into(),
+            if truthy(profile.get("dm_policy")) {
+                profile["dm_policy"].clone()
+            } else {
+                json!("anyone")
+            },
+        );
+        Ok(Some(
+            json!({ "id": user_id, "handle": self.handle_for(&to_js_string(profile.get("username"))), "profile": shown, "directory": { "statements": statements, "devices": devices } }),
+        ))
     }
 
     /// For the handlers: find someone by handle, check they accept a conversation from `me`, keep
     /// a copy of their public keys here, and answer their id. Anything that goes wrong on the way
     /// is the handler's "something went wrong", as on the Node.js server.
-    pub fn resolve_for_handler(self: &Arc<Self>, handle: &str, me: &str) -> crate::api::Result<Option<String>> {
-        self.resolve_handle(handle, me).map_err(|e| ApiError::new(500, "INTERNAL", &e.message))
+    pub fn resolve_for_handler(
+        self: &Arc<Self>,
+        handle: &str,
+        me: &str,
+    ) -> crate::api::Result<Option<String>> {
+        self.resolve_handle(handle, me)
+            .map_err(|e| ApiError::new(500, "INTERNAL", &e.message))
     }
 
     pub fn resolve_handle(self: &Arc<Self>, handle: &str, me: &str) -> FedResult<Option<String>> {
@@ -346,15 +527,21 @@ impl Federation {
             return Ok(None);
         }
         if let Some(local) = self.local_username(&handle) {
-            return Ok(self.local_profile(&local)?.map(|p| to_js_string(p.get("user_id"))));
+            return Ok(self
+                .local_profile(&local)?
+                .map(|p| to_js_string(p.get("user_id"))));
         }
         let ident = match self.shadow_by_handle(&handle) {
             Some(known) => Some(known),
             None => self.lookup_handle(&handle),
         };
-        let Some((user_id, home)) = ident else { return Ok(None) };
+        let Some((user_id, home)) = ident else {
+            return Ok(None);
+        };
         let me_card = self.card(me)?;
-        let requester = me_card.as_ref().map_or(Value::Null, |c| json!({ "id": me, "handle": c["handle"] }));
+        let requester = me_card
+            .as_ref()
+            .map_or(Value::Null, |c| json!({ "id": me, "handle": c["handle"] }));
         let app = self.app();
         let r = self.signer.send(&app.store, &home, "directory", &json!({ "user_id": user_id, "handle": handle, "requester": requester, "purpose": "conversation" }), None)?;
         if r.status != 200 || !truthy(r.data.get("user")) {
@@ -369,22 +556,40 @@ impl Federation {
     fn lookup_handle(&self, handle: &str) -> Option<(String, String)> {
         let app = self.app();
         let parent = handle.split_once('.').map_or("", |(_, p)| p).to_string();
-        let identity_default = DEFAULT_ENDPOINTS.iter().find(|(k, _)| *k == "identity").map_or(IDENTITY_PATH, |(_, v)| v).to_string();
+        let identity_default = DEFAULT_ENDPOINTS
+            .iter()
+            .find(|(k, _)| *k == "identity")
+            .map_or(IDENTITY_PATH, |(_, v)| v)
+            .to_string();
         for way in 0..2 {
             let (host, path) = if way == 0 {
                 (handle.to_string(), identity_default.clone())
             } else {
                 // A site that can't answer at the usual address says where it does in its site document.
-                let path = self.signer.endpoint(&app.store, &parent, "identity").unwrap_or_else(|_| identity_default.clone());
+                let path = self
+                    .signer
+                    .endpoint(&app.store, &parent, "identity")
+                    .unwrap_or_else(|_| identity_default.clone());
                 (parent.clone(), format!("{path}?handle={}", enc(handle)))
             };
-            let Ok(r) = self.signer.transport.request(&host, &path, "GET", &[], None) else { continue };
+            let Ok(r) = self
+                .signer
+                .transport
+                .request(&host, &path, "GET", &[], None)
+            else {
+                continue;
+            };
             let d = &r.data;
-            if r.status != 200 || d["handle"] != handle || !d["user_id"].as_str().is_some_and(id24) {
+            if r.status != 200 || d["handle"] != handle || !d["user_id"].as_str().is_some_and(id24)
+            {
                 continue;
             }
-            let Ok(home) = norm_host(&str_of(d.get("home"))) else { continue };
-            let Ok(doc) = self.signer.site_doc(&app.store, &home) else { continue };
+            let Ok(home) = norm_host(&str_of(d.get("home"))) else {
+                continue;
+            };
+            let Ok(doc) = self.signer.site_doc(&app.store, &home) else {
+                continue;
+            };
             // A site can only speak for handles under its own handle domain.
             if !handle.ends_with(&format!(".{}", to_js_string(doc.get("handle_domain")))) {
                 continue;
@@ -399,21 +604,66 @@ impl Federation {
     /// Keep a copy of another site's person here: account, profile, public keys and devices.
     fn mirror(&self, home: &str, card: &Value) -> FedResult<String> {
         let id = card["id"].as_str().filter(|i| id24(i)).map(String::from);
-        let handle = card["handle"].as_str().filter(|h| handle_ok(h)).map(String::from);
-        let (Some(id), Some(handle)) = (id, handle) else { return Err(fed_err(400, "BAD_PERSON", "That person's details didn't make sense.")) };
+        let handle = card["handle"]
+            .as_str()
+            .filter(|h| handle_ok(h))
+            .map(String::from);
+        let (Some(id), Some(handle)) = (id, handle) else {
+            return Err(fed_err(
+                400,
+                "BAD_PERSON",
+                "That person's details didn't make sense.",
+            ));
+        };
         let app = self.app();
         let doc = self.signer.site_doc(&app.store, home)?;
         if !handle.ends_with(&format!(".{}", to_js_string(doc.get("handle_domain")))) {
-            return Err(fed_err(403, "WRONG_SITE", "A site can only speak for its own people."));
+            return Err(fed_err(
+                403,
+                "WRONG_SITE",
+                "A site can only speak for its own people.",
+            ));
         }
-        let existing = self.sql(|db| db.query_row("SELECT home FROM fed_shadows WHERE user_id = ?", [&id], |r| r.get::<_, String>(0)).optional()).flatten();
+        let existing = self
+            .sql(|db| {
+                db.query_row(
+                    "SELECT home FROM fed_shadows WHERE user_id = ?",
+                    [&id],
+                    |r| r.get::<_, String>(0),
+                )
+                .optional()
+            })
+            .flatten();
         if existing.as_ref().is_some_and(|h| h != home) {
-            return Err(fed_err(403, "WRONG_SITE", "That person belongs to another site."));
+            return Err(fed_err(
+                403,
+                "WRONG_SITE",
+                "That person belongs to another site.",
+            ));
         }
-        if existing.is_none() && app.store.table_of(&id).is_some_and(|t| t == "User" || t == "Person") {
-            return Err(fed_err(409, "ID_TAKEN", "That id belongs to someone on this site."));
+        if existing.is_none()
+            && app
+                .store
+                .table_of(&id)
+                .is_some_and(|t| t == "User" || t == "Person")
+        {
+            return Err(fed_err(
+                409,
+                "ID_TAKEN",
+                "That id belongs to someone on this site.",
+            ));
         }
-        let digest = Sha256::digest(js_stringify(&json!([card["handle"], card.get("profile").cloned().unwrap_or(Value::Null), card.get("directory").cloned().unwrap_or(Value::Null)])).as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let digest = Sha256::digest(
+            js_stringify(&json!([
+                card["handle"],
+                card.get("profile").cloned().unwrap_or(Value::Null),
+                card.get("directory").cloned().unwrap_or(Value::Null)
+            ]))
+            .as_bytes(),
+        )
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
         if existing.is_some() && self.shadow(&id).is_some_and(|s| s.digest == digest) {
             return Ok(id);
         }
@@ -421,8 +671,17 @@ impl Federation {
         if existing.is_none() {
             app.store.create("User", &json!({ "email": "", "role": "user", "full_name": "", "remote": true, "home": home }), Some(&id))?;
         }
-        let p = if truthy(card.get("profile")) { card["profile"].clone() } else { json!({}) };
-        let choose = |v: &Value, allowed: &[&str], default: &str| v.as_str().filter(|s| allowed.contains(s)).unwrap_or(default).to_string();
+        let p = if truthy(card.get("profile")) {
+            card["profile"].clone()
+        } else {
+            json!({})
+        };
+        let choose = |v: &Value, allowed: &[&str], default: &str| {
+            v.as_str()
+                .filter(|s| allowed.contains(s))
+                .unwrap_or(default)
+                .to_string()
+        };
         let mut row = json!({
             "user_id": id, "username": handle, "username_key": handle, "remote": true, "home": home,
             "profile_visibility": choose(&p["profile_visibility"], &["shared", "conversations", "nobody"], "shared"),
@@ -430,7 +689,10 @@ impl Federation {
             "default_listed": false,
         });
         for f in SHADOW_FIELDS {
-            row[f] = json!(p[f].as_str().map_or(String::new(), |s| js_slice(s, if f == "avatar_image" { 48_000 } else { 300 })));
+            row[f] = json!(p[f].as_str().map_or(String::new(), |s| js_slice(
+                s,
+                if f == "avatar_image" { 48_000 } else { 300 }
+            )));
         }
         match sr.first("Profile", json!({ "user_id": id }), "created_date")? {
             Some(prof) => {
@@ -441,8 +703,14 @@ impl Federation {
             }
         }
         // Public keys and devices: replaced as a whole with the home site's current list.
-        let statements: Vec<Value> = card["directory"]["statements"].as_array().map(|a| a.iter().take(500).cloned().collect()).unwrap_or_default();
-        let devices: Vec<Value> = card["directory"]["devices"].as_array().map(|a| a.iter().take(200).cloned().collect()).unwrap_or_default();
+        let statements: Vec<Value> = card["directory"]["statements"]
+            .as_array()
+            .map(|a| a.iter().take(500).cloned().collect())
+            .unwrap_or_default();
+        let devices: Vec<Value> = card["directory"]["devices"]
+            .as_array()
+            .map(|a| a.iter().take(200).cloned().collect())
+            .unwrap_or_default();
         for k in sr.filter("AccountKey", json!({ "user_id": id }), "version", 500)? {
             sr.delete("AccountKey", id_of(&k))?;
         }
@@ -455,7 +723,10 @@ impl Federation {
         }
         let before = sr.filter("Device", json!({ "user_id": id }), "created_date", 200)?;
         for d in &before {
-            if !devices.iter().any(|x| x.get("device_id").is_some() && x.get("device_id") == d.get("device_id")) {
+            if !devices
+                .iter()
+                .any(|x| x.get("device_id").is_some() && x.get("device_id") == d.get("device_id"))
+            {
                 sr.delete("Device", id_of(d))?;
             }
         }
@@ -463,7 +734,10 @@ impl Federation {
             let mut out = peer_device_out(d);
             out["user_id"] = json!(id);
             out["label"] = json!("");
-            match before.iter().find(|x| x.get("device_id").is_some() && x.get("device_id") == d.get("device_id")) {
+            match before
+                .iter()
+                .find(|x| x.get("device_id").is_some() && x.get("device_id") == d.get("device_id"))
+            {
                 Some(old) => {
                     sr.update("Device", id_of(old), out)?;
                 }
@@ -481,7 +755,12 @@ impl Federation {
     fn watch_membership(self: &Arc<Self>, entity: &str, row: &Value, old: Option<&Value>) {
         let ids = |v: Option<&Value>| -> Vec<String> {
             let mut out: Vec<String> = Vec::new();
-            for x in v.and_then(|m| m.get("member_ids")).and_then(Value::as_array).into_iter().flatten() {
+            for x in v
+                .and_then(|m| m.get("member_ids"))
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
                 let s = to_js_string(Some(x));
                 if !out.contains(&s) {
                     out.push(s);
@@ -493,10 +772,19 @@ impl Federation {
             "Conversation" => {
                 let (now, was) = (ids(Some(row)), ids(old));
                 let added: Vec<String> = now.iter().filter(|u| !was.contains(u)).cloned().collect();
-                let removed: Vec<String> = was.iter().filter(|u| !now.contains(u)).cloned().collect();
+                let removed: Vec<String> =
+                    was.iter().filter(|u| !now.contains(u)).cloned().collect();
                 (format!("c:{}", to_js_string(row.get("id"))), added, removed)
             }
-            "ServerMember" => (format!("s:{}", to_js_string(row.get("server_id"))), if old.is_none() { vec![to_js_string(row.get("user_id"))] } else { vec![] }, vec![]),
+            "ServerMember" => (
+                format!("s:{}", to_js_string(row.get("server_id"))),
+                if old.is_none() {
+                    vec![to_js_string(row.get("user_id"))]
+                } else {
+                    vec![]
+                },
+                vec![],
+            ),
             _ => return,
         };
         for (list, joined) in [(added, true), (removed, false)] {
@@ -506,7 +794,11 @@ impl Federation {
                     continue;
                 }
                 self.set_notified(&uid, &room, joined);
-                let kind = if room.starts_with('c') { "conversation" } else { "server" };
+                let kind = if room.starts_with('c') {
+                    "conversation"
+                } else {
+                    "server"
+                };
                 self.notify(s.home, "inbox", json!({ "type": "membership", "user_id": uid, "room": { "kind": kind, "id": &room[2..] }, "joined": joined }));
             }
         }
@@ -514,7 +806,9 @@ impl Federation {
 
     /// After a local person's keys or devices change, the sites hosting their rooms get the new list.
     pub fn keys_changed(self: &Arc<Self>, user_id: &str) {
-        let Ok(Some(card)) = self.card(user_id) else { return };
+        let Ok(Some(card)) = self.card(user_id) else {
+            return;
+        };
         for host in self.hosts_of(user_id) {
             self.notify(host, "inbox", json!({ "type": "keys", "user": card }));
         }
@@ -541,8 +835,15 @@ impl Federation {
                 return;
             }
             match v {
-                Value::String(s) if (ID_KEYS.contains(&key) || ID_LIST_KEYS.contains(&key)) && id24(s) => out.push(s.clone()),
-                Value::Array(a) => a.iter().take(5000).for_each(|x| visit(x, key, depth + 1, out)),
+                Value::String(s)
+                    if (ID_KEYS.contains(&key) || ID_LIST_KEYS.contains(&key)) && id24(s) =>
+                {
+                    out.push(s.clone())
+                }
+                Value::Array(a) => a
+                    .iter()
+                    .take(5000)
+                    .for_each(|x| visit(x, key, depth + 1, out)),
                 Value::Object(o) => o.iter().for_each(|(k, x)| visit(x, k, depth + 1, out)),
                 _ => {}
             }
@@ -577,7 +878,11 @@ impl Federation {
                     return;
                 }
                 match v {
-                    Value::String(s) if (ID_KEYS.contains(&key) || ID_LIST_KEYS.contains(&key)) && id24(s) => out.push(s.clone()),
+                    Value::String(s)
+                        if (ID_KEYS.contains(&key) || ID_LIST_KEYS.contains(&key)) && id24(s) =>
+                    {
+                        out.push(s.clone())
+                    }
                     Value::Array(a) => a.iter().take(500).for_each(|x| go(x, key, depth + 1, out)),
                     Value::Object(o) => o.iter().for_each(|(k, x)| go(x, k, depth + 1, out)),
                     _ => {}
@@ -586,7 +891,11 @@ impl Federation {
             let mut ids = Vec::new();
             go(v, key, depth, &mut ids);
             for id in ids {
-                let h = if app.store.has(&id) { Some(self.host.clone()) } else { self.route_of(&id) };
+                let h = if app.store.has(&id) {
+                    Some(self.host.clone())
+                } else {
+                    self.route_of(&id)
+                };
                 if let Some(h) = h {
                     if !hosts.contains(&h) {
                         hosts.push(h);
@@ -610,16 +919,38 @@ impl Federation {
         }
         hosts.retain(|h| *h != self.host);
         if hosts.len() > 1 {
-            return Err(fed_err(400, "MIXED_SITES", "That request names things on more than one site."));
+            return Err(fed_err(
+                400,
+                "MIXED_SITES",
+                "That request names things on more than one site.",
+            ));
         }
         Ok(hosts.into_iter().next())
     }
 
     /// Run one call on another site, as this person: (status, reply).
-    pub fn act(&self, host: &str, user_id: &str, function: &str, body: &Value) -> FedResult<(u16, Value)> {
-        let card = self.card(user_id)?.ok_or_else(|| fed_err(409, "SETUP_REQUIRED", "Finish setting up your account first."))?;
+    pub fn act(
+        &self,
+        host: &str,
+        user_id: &str,
+        function: &str,
+        body: &Value,
+    ) -> FedResult<(u16, Value)> {
+        let card = self.card(user_id)?.ok_or_else(|| {
+            fed_err(
+                409,
+                "SETUP_REQUIRED",
+                "Finish setting up your account first.",
+            )
+        })?;
         let app = self.app();
-        let r = self.signer.send(&app.store, host, "act", &json!({ "user": card, "function": function, "request": js_stringify(body) }), Some(user_id))?;
+        let r = self.signer.send(
+            &app.store,
+            host,
+            "act",
+            &json!({ "user": card, "function": function, "request": js_stringify(body) }),
+            Some(user_id),
+        )?;
         let mut data = r.data;
         if r.status == 200 {
             self.learn_routes(host, &data, Some(user_id));
@@ -627,17 +958,34 @@ impl Federation {
         if function == "files" && truthy(Some(&data)) {
             rewrite_file_links(host, &mut data);
         }
-        Ok((r.status, if data.is_null() { json!({ "error": format!("{host} didn't answer properly."), "code": "SITE_ERROR" }) } else { data }))
+        Ok((
+            r.status,
+            if data.is_null() {
+                json!({ "error": format!("{host} didn't answer properly."), "code": "SITE_ERROR" })
+            } else {
+                data
+            },
+        ))
     }
 
     /// For /api/functions: relay a call that's about something on another site, or gather "all of
     /// mine" from every site this person has things on. None means: run it here, as it is.
-    pub fn relay_function(self: &Arc<Self>, function: &str, raw: &str, user: &Value, run_local: &(dyn Fn(&str) -> (u16, Value) + Sync)) -> Option<(u16, Value)> {
+    pub fn relay_function(
+        self: &Arc<Self>,
+        function: &str,
+        raw: &str,
+        user: &Value,
+        run_local: &(dyn Fn(&str) -> (u16, Value) + Sync),
+    ) -> Option<(u16, Value)> {
         // Signing in is always your own site's business.
         if !self.enabled || function == "identity" {
             return None;
         }
-        let Ok(Value::Object(mut body)) = serde_json::from_str::<Value>(if raw.is_empty() { "{}" } else { raw }) else { return None };
+        let Ok(Value::Object(mut body)) =
+            serde_json::from_str::<Value>(if raw.is_empty() { "{}" } else { raw })
+        else {
+            return None;
+        };
         let target = match self.target_of(&Value::Object(body.clone())) {
             Ok(t) => t,
             Err(e) => return Some((e.status, json!({ "error": e.message, "code": e.code }))),
@@ -649,10 +997,19 @@ impl Federation {
         if let Some(target) = target {
             return Some(match self.act(&target, &user_id, function, &body_value) {
                 // The site answered, but isn't well: hold the message rather than lose it.
-                Ok((status, _)) if matches!(status, 502..=504) && holdable(function, &body_value) => self.hold(&target, &user_id, function, &body_value),
+                Ok((status, _))
+                    if matches!(status, 502..=504) && holdable(function, &body_value) =>
+                {
+                    self.hold(&target, &user_id, function, &body_value)
+                }
                 Ok(r) => r,
-                Err(e) if e.code == "SITE_UNREACHABLE" && holdable(function, &body_value) => self.hold(&target, &user_id, function, &body_value),
-                Err(e) if e.status == 500 && e.code == "INTERNAL" => (502, json!({ "error": "Something went wrong.", "code": "SITE_ERROR" })),
+                Err(e) if e.code == "SITE_UNREACHABLE" && holdable(function, &body_value) => {
+                    self.hold(&target, &user_id, function, &body_value)
+                }
+                Err(e) if e.status == 500 && e.code == "INTERNAL" => (
+                    502,
+                    json!({ "error": "Something went wrong.", "code": "SITE_ERROR" }),
+                ),
                 Err(e) => (e.status, json!({ "error": e.message, "code": e.code })),
             });
         }
@@ -669,18 +1026,29 @@ impl Federation {
         }
     }
 
-    fn fan_out_merge(self: &Arc<Self>, function: &str, body: &Map<String, Value>, user_id: &str, hosts: &[String], run_local: &(dyn Fn(&str) -> (u16, Value) + Sync)) -> (u16, Value) {
+    fn fan_out_merge(
+        self: &Arc<Self>,
+        function: &str,
+        body: &Map<String, Value>,
+        user_id: &str,
+        hosts: &[String],
+        run_local: &(dyn Fn(&str) -> (u16, Value) + Sync),
+    ) -> (u16, Value) {
         // Cursors become "<this site's>~<base64 JSON of each other site's>", so apps keep one cursor each.
         let mut remote: HashMap<String, Map<String, Value>> = HashMap::new();
         let mut local_body = body.clone();
         for (field, _) in CURSOR_FIELDS {
-            let Some(cursor) = body.get(field).and_then(Value::as_str) else { continue };
+            let Some(cursor) = body.get(field).and_then(Value::as_str) else {
+                continue;
+            };
             let mut parts = cursor.split('~');
             local_body.insert(field.into(), json!(parts.next().unwrap_or("")));
             if let Some(rest) = parts.next().filter(|r| !r.is_empty()) {
                 // A damaged cursor just starts that site afresh.
                 let decoded = unb64u(rest).map(|b| String::from_utf8_lossy(&b).into_owned());
-                if let Some(Value::Object(map)) = decoded.and_then(|t| serde_json::from_str::<Value>(&t).ok()) {
+                if let Some(Value::Object(map)) =
+                    decoded.and_then(|t| serde_json::from_str::<Value>(&t).ok())
+                {
                     for (h, c) in map {
                         remote.entry(h).or_default().insert(field.into(), c);
                     }
@@ -707,7 +1075,12 @@ impl Federation {
                             }
                         }
                     }
-                    scope.spawn(move || (h.clone(), self.act(h, user_id, function, &Value::Object(b)).ok()))
+                    scope.spawn(move || {
+                        (
+                            h.clone(),
+                            self.act(h, user_id, function, &Value::Object(b)).ok(),
+                        )
+                    })
                 })
                 .collect();
             jobs.into_iter().filter_map(|j| j.join().ok()).collect()
@@ -717,7 +1090,9 @@ impl Federation {
                 Some((200, data)) => results.push((h, data, Value::Null)),
                 Some((401 | 403 | 404, _)) => self.drop_host(user_id, &h),
                 _ => {
-                    let keep = remote.get(&h).map_or(Value::Null, |m| Value::Object(m.clone()));
+                    let keep = remote
+                        .get(&h)
+                        .map_or(Value::Null, |m| Value::Object(m.clone()));
                     results.push((h, Value::Null, keep));
                 }
             }
@@ -725,27 +1100,56 @@ impl Federation {
         (200, merge_results(&results))
     }
 
-    fn fan_out_people(self: &Arc<Self>, function: &str, body: &Map<String, Value>, user_id: &str, hosts: &[String], run_local: &(dyn Fn(&str) -> (u16, Value) + Sync)) -> Option<(u16, Value)> {
-        let ids: Vec<String> = body.get("user_ids").and_then(Value::as_array).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+    fn fan_out_people(
+        self: &Arc<Self>,
+        function: &str,
+        body: &Map<String, Value>,
+        user_id: &str,
+        hosts: &[String],
+        run_local: &(dyn Fn(&str) -> (u16, Value) + Sync),
+    ) -> Option<(u16, Value)> {
+        let ids: Vec<String> = body
+            .get("user_ids")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
         let app = self.app();
-        let remote: Vec<String> = ids.into_iter().filter(|id| self.shadow(id).is_some() || !app.store.has(id)).collect();
+        let remote: Vec<String> = ids
+            .into_iter()
+            .filter(|id| self.shadow(id).is_some() || !app.store.has(id))
+            .collect();
         if remote.is_empty() {
             return None;
         }
         let (status, data) = run_local(&js_stringify(&Value::Object(body.clone())));
-        let mut out = if status == 200 { data } else if function == "keys" { json!({ "keys": {} }) } else { json!({ "profiles": [] }) };
+        let mut out = if status == 200 {
+            data
+        } else if function == "keys" {
+            json!({ "keys": {} })
+        } else {
+            json!({ "profiles": [] })
+        };
         let mut b = body.clone();
         b.insert("user_ids".into(), json!(remote));
         let b = Value::Object(b);
         let answers: Vec<Option<(u16, Value)>> = std::thread::scope(|scope| {
-            let jobs: Vec<_> = hosts.iter().map(|h| scope.spawn(|| self.act(h, user_id, function, &b).ok())).collect();
+            let jobs: Vec<_> = hosts
+                .iter()
+                .map(|h| scope.spawn(|| self.act(h, user_id, function, &b).ok()))
+                .collect();
             jobs.into_iter().filter_map(|j| j.join().ok()).collect()
         });
         for answer in answers {
             let Some((200, data)) = answer else { continue };
             if let Some(keys) = data["keys"].as_object() {
                 // That site is unreachable or odd: its people stay unknown for now.
-                let Some(mine) = out.get_mut("keys").and_then(Value::as_object_mut) else { continue };
+                let Some(mine) = out.get_mut("keys").and_then(Value::as_object_mut) else {
+                    continue;
+                };
                 for (k, v) in keys {
                     if !mine.get(k).is_some_and(|x| truthy(Some(x))) {
                         mine.insert(k.clone(), v.clone());
@@ -753,7 +1157,9 @@ impl Federation {
                 }
             }
             if let Some(profiles) = data["profiles"].as_array() {
-                let Some(list) = out.get_mut("profiles").and_then(Value::as_array_mut) else { continue };
+                let Some(list) = out.get_mut("profiles").and_then(Value::as_array_mut) else {
+                    continue;
+                };
                 for p in profiles {
                     if !list.iter().any(|x| x.get("user_id") == p.get("user_id")) {
                         list.push(p.clone());
@@ -772,13 +1178,21 @@ impl Federation {
         let mut held = body.clone();
         held["queued"] = json!(true);
         self.sql(|db| db.execute("INSERT INTO fed_outbox (host, msg_id, user_id, fn, body, attempts, next_at, created) VALUES (?, ?, ?, ?, ?, 0, ?, ?) ON CONFLICT(host, msg_id) DO NOTHING", params![host, msg_id, user_id, function, js_stringify(&held), now + HELD_FIRST_RETRY_MS, now]));
-        (202, json!({ "queued": true, "held_by": self.host, "site": host, "msg_id": msg_id }))
+        (
+            202,
+            json!({ "queued": true, "held_by": self.host, "site": host, "msg_id": msg_id }),
+        )
     }
 
     /// Try held messages that are due. Answers how many went out.
     pub fn deliver_held(&self, now: i64) -> usize {
         type Held = (String, String, String, String, String, i64);
-        self.sql(|db| db.execute("DELETE FROM fed_outbox WHERE created < ?", [now - HELD_MAX_AGE_MS]));
+        self.sql(|db| {
+            db.execute(
+                "DELETE FROM fed_outbox WHERE created < ?",
+                [now - HELD_MAX_AGE_MS],
+            )
+        });
         let due: Vec<Held> = self
             .sql(|db| {
                 db.prepare("SELECT host, msg_id, user_id, fn, body, attempts FROM fed_outbox WHERE next_at <= ? ORDER BY created LIMIT 100")?
@@ -790,9 +1204,17 @@ impl Federation {
         let mut sent = 0;
         let mut down: Vec<String> = Vec::new();
         for (host, msg_id, user_id, function, body, attempts) in due {
-            let drop = || self.sql(|db| db.execute("DELETE FROM fed_outbox WHERE host = ? AND msg_id = ?", [&host, &msg_id]));
+            let drop = || {
+                self.sql(|db| {
+                    db.execute(
+                        "DELETE FROM fed_outbox WHERE host = ? AND msg_id = ?",
+                        [&host, &msg_id],
+                    )
+                })
+            };
             let later = || {
-                let wait = HELD_MAX_WAIT_MS.min(HELD_FIRST_RETRY_MS.saturating_mul(1i64 << (attempts + 1).clamp(0, 40)));
+                let wait = HELD_MAX_WAIT_MS
+                    .min(HELD_FIRST_RETRY_MS.saturating_mul(1i64 << (attempts + 1).clamp(0, 40)));
                 self.sql(|db| db.execute("UPDATE fed_outbox SET attempts = attempts + 1, next_at = ? WHERE host = ? AND msg_id = ?", params![now + wait, host, msg_id]))
             };
             if down.contains(&host) {
@@ -827,10 +1249,19 @@ impl Federation {
 
     // ---------- host side: other sites' people acting here ----------
 
-    fn inbound_act(&self, from: &str, payload: &Value, signed_user: &str) -> FedResult<(u16, Value)> {
+    fn inbound_act(
+        &self,
+        from: &str,
+        payload: &Value,
+        signed_user: &str,
+    ) -> FedResult<(u16, Value)> {
         let card = &payload["user"];
         if !truthy(Some(card)) || card["id"].as_str() != Some(signed_user) {
-            return Err(fed_err(400, "BAD_PERSON", "The request's person doesn't match its signature."));
+            return Err(fed_err(
+                400,
+                "BAD_PERSON",
+                "The request's person doesn't match its signature.",
+            ));
         }
         let function = str_of(payload.get("function"));
         let app = self.app();
@@ -839,16 +1270,39 @@ impl Federation {
         }
         self.mirror(from, card)?;
         let user = app.store.get("User", signed_user)?;
-        let raw = if truthy(payload.get("request")) { to_js_string(payload.get("request")) } else { "{}".into() };
+        let raw = if truthy(payload.get("request")) {
+            to_js_string(payload.get("request"))
+        } else {
+            "{}".into()
+        };
         let parsed: Value = serde_json::from_str(&raw).unwrap_or(json!({}));
         // Things that only make sense on a person's own site.
-        if ["keys", "profile", "safety"].contains(&function.as_str()) && !["peer_keys", "get_many", "find"].contains(&parsed["action"].as_str().unwrap_or("")) {
-            return Err(fed_err(403, "HOME_ONLY", "That's done on the person's own site."));
+        if ["keys", "profile", "safety"].contains(&function.as_str())
+            && !["peer_keys", "get_many", "find"].contains(&parsed["action"].as_str().unwrap_or(""))
+        {
+            return Err(fed_err(
+                403,
+                "HOME_ONLY",
+                "That's done on the person's own site.",
+            ));
         }
         let mut user = user;
-        user["role"] = if truthy(user.get("role")) { user["role"].clone() } else { json!("user") };
-        user["email"] = if truthy(user.get("email")) { user["email"].clone() } else { json!("") };
-        Ok(app.run_function(&function, Some(user), None, &raw).unwrap_or((404, json!({ "error": "Unknown function.", "code": "NOT_FOUND" }))))
+        user["role"] = if truthy(user.get("role")) {
+            user["role"].clone()
+        } else {
+            json!("user")
+        };
+        user["email"] = if truthy(user.get("email")) {
+            user["email"].clone()
+        } else {
+            json!("")
+        };
+        Ok(app
+            .run_function(&function, Some(user), None, &raw)
+            .unwrap_or((
+                404,
+                json!({ "error": "Unknown function.", "code": "NOT_FOUND" }),
+            )))
     }
 
     fn inbound_directory(&self, from: &str, payload: &Value) -> FedResult<Value> {
@@ -858,18 +1312,34 @@ impl Federation {
             None => None,
         };
         let nobody = || fed_err(404, "NOT_FOUND", "Nobody here by that name.");
-        let Some(profile) = profile.filter(|p| p["user_id"] == payload["user_id"]) else { return Err(nobody()) };
+        let Some(profile) = profile.filter(|p| p["user_id"] == payload["user_id"]) else {
+            return Err(nobody());
+        };
         let user_id = to_js_string(profile.get("user_id"));
         if payload["purpose"] == "conversation" {
-            let policy = if truthy(profile.get("dm_policy")) { to_js_string(profile.get("dm_policy")) } else { "anyone".into() };
+            let policy = if truthy(profile.get("dm_policy")) {
+                to_js_string(profile.get("dm_policy"))
+            } else {
+                "anyone".into()
+            };
             // "Only people I share a server with" can't be checked for people on other sites, so it means no.
             if policy != "anyone" {
-                return Err(fed_err(403, "NOT_ACCEPTING", format!("{handle} isn't accepting new conversations from other sites.")));
+                return Err(fed_err(
+                    403,
+                    "NOT_ACCEPTING",
+                    format!("{handle} isn't accepting new conversations from other sites."),
+                ));
             }
             let requester = &payload["requester"]["id"];
             if truthy(Some(requester)) {
                 let app = self.app();
-                if blocked_either_way(&Db::service(&app.store), &user_id, &to_js_string(Some(requester))).unwrap_or(false) {
+                if blocked_either_way(
+                    &Db::service(&app.store),
+                    &user_id,
+                    &to_js_string(Some(requester)),
+                )
+                .unwrap_or(false)
+                {
                     return Err(nobody());
                 }
             }
@@ -885,7 +1355,13 @@ impl Federation {
         match payload["type"].as_str() {
             Some("membership") => {
                 let uid = str_of(payload.get("user_id"));
-                if !id24(&uid) || !app.store.table_of(&uid).is_some_and(|t| t == "User" || t == "Person") || self.shadow(&uid).is_some() {
+                if !id24(&uid)
+                    || !app
+                        .store
+                        .table_of(&uid)
+                        .is_some_and(|t| t == "User" || t == "Person")
+                    || self.shadow(&uid).is_some()
+                {
                     return Ok(json!({ "ok": false }));
                 }
                 let room_id = str_of(payload["room"].get("id"));
@@ -911,9 +1387,17 @@ impl Federation {
                     return Ok(json!({ "ok": false }));
                 }
                 let sr = Db::service(&app.store);
-                let exists = sr.filter("Block", json!({ "user_id": uid, "blocked_user_id": blocked_id }), "created_date", 1)?;
+                let exists = sr.filter(
+                    "Block",
+                    json!({ "user_id": uid, "blocked_user_id": blocked_id }),
+                    "created_date",
+                    1,
+                )?;
                 if truthy(payload.get("blocked")) && exists.is_empty() {
-                    sr.create("Block", json!({ "user_id": uid, "blocked_user_id": blocked_id }))?;
+                    sr.create(
+                        "Block",
+                        json!({ "user_id": uid, "blocked_user_id": blocked_id }),
+                    )?;
                 }
                 if !truthy(payload.get("blocked")) {
                     for b in &exists {
@@ -927,12 +1411,33 @@ impl Federation {
     }
 
     /// A signed request to /cvp/v1/act, /directory or /inbox: (status, reply).
-    fn inbound(&self, p: &str, method: &str, headers: &HeaderMap, body: &str, full_path: &str) -> (u16, Value) {
-        let h = |n: &str| headers.get_all(n).iter().filter_map(|v| v.to_str().ok()).collect::<Vec<_>>().join(", ");
+    fn inbound(
+        &self,
+        p: &str,
+        method: &str,
+        headers: &HeaderMap,
+        body: &str,
+        full_path: &str,
+    ) -> (u16, Value) {
+        let h = |n: &str| {
+            headers
+                .get_all(n)
+                .iter()
+                .filter_map(|v| v.to_str().ok())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
         let app = self.app();
         let result = (|| -> FedResult<(u16, Value)> {
-            let checked = self.signer.verify(&app.store, method, &h, body, full_path)?;
-            let payload: Value = serde_json::from_str(if checked.body.is_empty() { "{}" } else { &checked.body }).map_err(|_| fed_err(500, "INTERNAL", "Something went wrong."))?;
+            let checked = self
+                .signer
+                .verify(&app.store, method, &h, body, full_path)?;
+            let payload: Value = serde_json::from_str(if checked.body.is_empty() {
+                "{}"
+            } else {
+                &checked.body
+            })
+            .map_err(|_| fed_err(500, "INTERNAL", "Something went wrong."))?;
             let (status, data) = match p {
                 "/cvp/v1/act" => {
                     let (s, d) = self.inbound_act(&checked.from, &payload, &checked.user)?;
@@ -949,7 +1454,10 @@ impl Federation {
             Ok(r) => r,
             Err(e) if e.status == 500 && e.code == "INTERNAL" => {
                 eprintln!("[federation] something went wrong");
-                (500, json!({ "error": "Something went wrong.", "code": "INTERNAL" }))
+                (
+                    500,
+                    json!({ "error": "Something went wrong.", "code": "INTERNAL" }),
+                )
             }
             Err(e) => (e.status, json!({ "error": e.message, "code": e.code })),
         }
@@ -963,7 +1471,14 @@ impl Federation {
         let mut endpoints = Map::new();
         // The site document itself and file links stay where they are; the rest can move under a prefix.
         for (k, v) in DEFAULT_ENDPOINTS {
-            endpoints.insert(k.into(), json!(if k == "files" { v.to_string() } else { format!("{}{v}", c.federation_prefix) }));
+            endpoints.insert(
+                k.into(),
+                json!(if k == "files" {
+                    v.to_string()
+                } else {
+                    format!("{}{v}", c.federation_prefix)
+                }),
+            );
         }
         Ok(json!({
             "protocol": PROTOCOL, "host": self.host, "name": c.site_name, "software": { "name": "commonveil", "version": c.version },
@@ -975,8 +1490,14 @@ impl Federation {
     fn discover(&self, tag: &str) -> Value {
         let app = self.app();
         let tag = js_slice(tag, 40);
-        let q = if tag.is_empty() { json!({ "discoverable": true }) } else { json!({ "discoverable": true, "public_tags": tag }) };
-        let rows = Db::service(&app.store).filter("Server", q, "-member_count", 100).unwrap_or_default();
+        let q = if tag.is_empty() {
+            json!({ "discoverable": true })
+        } else {
+            json!({ "discoverable": true, "public_tags": tag })
+        };
+        let rows = Db::service(&app.store)
+            .filter("Server", q, "-member_count", 100)
+            .unwrap_or_default();
         let servers: Vec<Value> = rows
             .iter()
             .filter(|s| s["status"] != "deleting" && truthy(s.get("public_name")))
@@ -992,16 +1513,38 @@ impl Federation {
     }
 
     fn profile_page(&self, username: &str) -> FedResult<(u16, Value)> {
-        let ok = (3..=20).contains(&username.len()) && username.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
-        let Some(profile) = (if ok { self.local_profile(username)? } else { None }) else { return Ok((404, json!({ "error": "Nobody here by that name." }))) };
-        let visible = profile["profile_visibility"].as_str().filter(|v| !v.is_empty()).unwrap_or("shared") == "shared";
-        let shown = |f: &str| if visible && truthy(profile.get(f)) { profile[f].clone() } else { json!("") };
-        Ok((200, json!({
-            "username": profile["username"], "handle": if self.enabled { json!(self.handle_for(&to_js_string(profile.get("username")))) } else { Value::Null },
-            "display_name": shown("display_name"), "avatar_image": shown("avatar_image"), "avatar_emoji": shown("avatar_emoji"),
-            "accent_color": if truthy(profile.get("accent_color")) { profile["accent_color"].clone() } else { json!("") },
-            "accepts_new": profile["dm_policy"].as_str().filter(|v| !v.is_empty()).unwrap_or("anyone") == "anyone",
-        })))
+        let ok = (3..=20).contains(&username.len())
+            && username
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_');
+        let Some(profile) = (if ok {
+            self.local_profile(username)?
+        } else {
+            None
+        }) else {
+            return Ok((404, json!({ "error": "Nobody here by that name." })));
+        };
+        let visible = profile["profile_visibility"]
+            .as_str()
+            .filter(|v| !v.is_empty())
+            .unwrap_or("shared")
+            == "shared";
+        let shown = |f: &str| {
+            if visible && truthy(profile.get(f)) {
+                profile[f].clone()
+            } else {
+                json!("")
+            }
+        };
+        Ok((
+            200,
+            json!({
+                "username": profile["username"], "handle": if self.enabled { json!(self.handle_for(&to_js_string(profile.get("username")))) } else { Value::Null },
+                "display_name": shown("display_name"), "avatar_image": shown("avatar_image"), "avatar_emoji": shown("avatar_emoji"),
+                "accent_color": if truthy(profile.get("accent_color")) { profile["accent_color"].clone() } else { json!("") },
+                "accepts_new": profile["dm_policy"].as_str().filter(|v| !v.is_empty()).unwrap_or("anyone") == "anyone",
+            }),
+        ))
     }
 
     fn resolve_home(&self, q: &str) -> (u16, Value) {
@@ -1017,12 +1560,23 @@ impl Federation {
         if let Some(i) = q.find('/') {
             q.truncate(i);
         }
-        let mut home = if handle_ok(&q) { self.lookup_handle(&q).map(|(_, h)| h) } else { None };
+        let mut home = if handle_ok(&q) {
+            self.lookup_handle(&q).map(|(_, h)| h)
+        } else {
+            None
+        };
         if home.is_none() {
-            home = self.signer.site_doc(&app.store, &q).ok().map(|d| to_js_string(d.get("host")));
+            home = self
+                .signer
+                .site_doc(&app.store, &q)
+                .ok()
+                .map(|d| to_js_string(d.get("host")));
         }
         match home {
-            Some(h) => (200, json!({ "home": h, "home_url": self.signer.transport.url(&h, "", false) })),
+            Some(h) => (
+                200,
+                json!({ "home": h, "home_url": self.signer.transport.url(&h, "", false) }),
+            ),
             None => (404, json!({ "error": "Not found" })),
         }
     }
@@ -1034,7 +1588,10 @@ impl Federation {
             return (403, json!({ "error": "Admins only." }));
         }
         if method == "GET" {
-            return (200, json!({ "enabled": self.enabled, "host": self.host, "handle_domain": app.config.handle_domain, "key": self.signer.key.public, "sites": self.signer.sites(&app.store) }));
+            return (
+                200,
+                json!({ "enabled": self.enabled, "host": self.host, "handle_domain": app.config.handle_domain, "key": self.signer.key.public, "sites": self.signer.sites(&app.store) }),
+            );
         }
         let b: Value = match serde_json::from_str(if body.is_empty() { "{}" } else { body }) {
             Ok(v) => v,
@@ -1042,12 +1599,17 @@ impl Federation {
         };
         let host = str_of(b.get("host"));
         let done = match b["action"].as_str() {
-            Some(a @ ("block" | "unblock")) => self.signer.set_blocked(&app.store, &host, a == "block"),
+            Some(a @ ("block" | "unblock")) => {
+                self.signer.set_blocked(&app.store, &host, a == "block")
+            }
             Some("accept_new_key") => self.signer.forget(&app.store, &host),
             _ => return (400, json!({ "error": "Unknown action." })),
         };
         match done {
-            Ok(()) => (200, json!({ "ok": true, "sites": self.signer.sites(&app.store) })),
+            Ok(()) => (
+                200,
+                json!({ "ok": true, "sites": self.signer.sites(&app.store) }),
+            ),
             Err(e) => (e.status, json!({ "error": e.message })),
         }
     }
@@ -1072,26 +1634,53 @@ impl Federation {
     }
 
     /// A person here connects to a room on another site: this site carries their connection there.
-    pub async fn proxy_actor(self: Arc<Self>, client: WebSocket, host: String, name: String, room: String, conn_id: String, user_id: String) {
+    pub async fn proxy_actor(
+        self: Arc<Self>,
+        client: WebSocket,
+        host: String,
+        name: String,
+        room: String,
+        conn_id: String,
+        user_id: String,
+    ) {
         let me = self.clone();
         let target = host.clone();
-        let prepared = tokio::task::spawn_blocking(move || -> FedResult<(String, Vec<(String, String)>)> {
-            let app = me.app();
-            let template = me.signer.endpoint(&app.store, &target, "actors")?;
-            let path = format!("{}?id={}", template.replace("{name}", &enc(&name)).replace("{room}", &enc(&room)), enc(&conn_id));
-            let card = me.card(&user_id)?.unwrap_or(Value::Null);
-            let mut headers = me.signer.headers(&app.store, "GET", &target, &path, "", Some(&user_id))?;
-            headers.push(("CV-Person".into(), b64u(js_stringify(&card).as_bytes())));
-            Ok((path, headers))
-        })
-        .await;
+        let prepared =
+            tokio::task::spawn_blocking(move || -> FedResult<(String, Vec<(String, String)>)> {
+                let app = me.app();
+                let template = me.signer.endpoint(&app.store, &target, "actors")?;
+                let path = format!(
+                    "{}?id={}",
+                    template
+                        .replace("{name}", &enc(&name))
+                        .replace("{room}", &enc(&room)),
+                    enc(&conn_id)
+                );
+                let card = me.card(&user_id)?.unwrap_or(Value::Null);
+                let mut headers =
+                    me.signer
+                        .headers(&app.store, "GET", &target, &path, "", Some(&user_id))?;
+                headers.push(("CV-Person".into(), b64u(js_stringify(&card).as_bytes())));
+                Ok((path, headers))
+            })
+            .await;
         let (mut client_tx, mut client_rx) = client.split();
-        let close = |code: u16, reason: &str| ClientMessage::Close(Some(CloseFrame { code, reason: reason.to_string().into() }));
+        let close = |code: u16, reason: &str| {
+            ClientMessage::Close(Some(CloseFrame {
+                code,
+                reason: reason.to_string().into(),
+            }))
+        };
         let Ok(Ok((path, headers))) = prepared else {
             let _ = client_tx.send(close(1011, "Can't reach that site")).await;
             return;
         };
-        let upstream = match self.signer.transport.websocket(&host, &path, &headers).await {
+        let upstream = match self
+            .signer
+            .transport
+            .websocket(&host, &path, &headers)
+            .await
+        {
             Ok(u) => u,
             Err(_) => {
                 let _ = client_tx.send(close(1011, "Can't reach that site")).await;
@@ -1107,7 +1696,11 @@ impl Federation {
                     ClientMessage::Close(_) => break,
                     _ => continue,
                 };
-                if up_tx.send(UpstreamMessage::Text(text.into())).await.is_err() {
+                if up_tx
+                    .send(UpstreamMessage::Text(text.into()))
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -1118,12 +1711,22 @@ impl Federation {
             while let Some(m) = up_rx.next().await {
                 match m {
                     Ok(UpstreamMessage::Text(t)) => {
-                        if client_tx.send(ClientMessage::Text(t.as_str().into())).await.is_err() {
+                        if client_tx
+                            .send(ClientMessage::Text(t.as_str().into()))
+                            .await
+                            .is_err()
+                        {
                             return;
                         }
                     }
                     Ok(UpstreamMessage::Binary(b)) => {
-                        if client_tx.send(ClientMessage::Text(String::from_utf8_lossy(&b).into_owned().into())).await.is_err() {
+                        if client_tx
+                            .send(ClientMessage::Text(
+                                String::from_utf8_lossy(&b).into_owned().into(),
+                            ))
+                            .await
+                            .is_err()
+                        {
                             return;
                         }
                     }
@@ -1149,7 +1752,9 @@ impl Federation {
 
 /// Is this an upgrade request for a room here, from another site (`/cvp/v1/actors/...`)?
 pub fn is_actor_path(config: &crate::config::Config, path: &str) -> bool {
-    path.starts_with("/cvp/v1/actors/") || (!config.federation_prefix.is_empty() && path.starts_with(&format!("{}/cvp/v1/actors/", config.federation_prefix)))
+    path.starts_with("/cvp/v1/actors/")
+        || (!config.federation_prefix.is_empty()
+            && path.starts_with(&format!("{}/cvp/v1/actors/", config.federation_prefix)))
 }
 
 /// Another site carries one of its people into a room here.
@@ -1158,24 +1763,48 @@ pub async fn accept_actor(app: Arc<App>, req: Request) -> Response<Body> {
     let status_only = |status: u16| http::response(status, Body::empty(), &[]);
     let path = req.uri().path().to_string();
     let query = req.uri().query().unwrap_or("").to_string();
-    let after = path.find("/cvp/v1/actors/").map_or("", |i| &path[i + "/cvp/v1/actors/".len()..]).to_string();
+    let after = path
+        .find("/cvp/v1/actors/")
+        .map_or("", |i| &path[i + "/cvp/v1/actors/".len()..])
+        .to_string();
     let mut segs = after.split('/');
-    let (name, room_enc) = (segs.next().unwrap_or("").to_string(), segs.next().unwrap_or("").to_string());
-    let full_path = if query.is_empty() { path.clone() } else { format!("{path}?{query}") };
-    let conn_id = url::form_urlencoded::parse(query.as_bytes()).find(|(k, _)| k == "id").map(|(_, v)| v.into_owned()).unwrap_or_default();
+    let (name, room_enc) = (
+        segs.next().unwrap_or("").to_string(),
+        segs.next().unwrap_or("").to_string(),
+    );
+    let full_path = if query.is_empty() {
+        path.clone()
+    } else {
+        format!("{path}?{query}")
+    };
+    let conn_id = url::form_urlencoded::parse(query.as_bytes())
+        .find(|(k, _)| k == "id")
+        .map(|(_, v)| v.into_owned())
+        .unwrap_or_default();
     let headers = req.headers().clone();
     let (mut parts, _) = req.into_parts();
-    let Ok(ws) = axum::extract::ws::WebSocketUpgrade::from_request_parts(&mut parts, &()).await else { return status_only(400) };
+    let Ok(ws) = axum::extract::ws::WebSocketUpgrade::from_request_parts(&mut parts, &()).await
+    else {
+        return status_only(400);
+    };
     let fed = app.federation.clone();
     let n = name.clone();
     let checked = tokio::task::spawn_blocking(move || -> FedResult<(String, String)> {
         if !fed.enabled || !ACTOR_NAMES.contains(&n.as_str()) {
             return Err(fed_err(404, "NOT_FOUND", "Not found"));
         }
-        let h = |k: &str| headers.get(k).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+        let h = |k: &str| {
+            headers
+                .get(k)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string()
+        };
         let app = fed.app();
         let c = fed.signer.verify(&app.store, "GET", &h, "", &full_path)?;
-        let card: Value = unb64u(&h("cv-person")).and_then(|b| serde_json::from_slice(&b).ok()).ok_or_else(|| fed_err(403, "BAD_PERSON", "Person mismatch"))?;
+        let card: Value = unb64u(&h("cv-person"))
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .ok_or_else(|| fed_err(403, "BAD_PERSON", "Person mismatch"))?;
         if card["id"].as_str() != Some(c.user.as_str()) {
             return Err(fed_err(400, "BAD_PERSON", "Person mismatch"));
         }
@@ -1186,7 +1815,8 @@ pub async fn accept_actor(app: Arc<App>, req: Request) -> Response<Body> {
     match checked {
         Ok(Ok((user, room))) => {
             let host = app.actors.clone();
-            ws.max_message_size(64 * 1024).on_upgrade(move |socket| host.attach(socket, name, room, conn_id, Some(user)))
+            ws.max_message_size(64 * 1024)
+                .on_upgrade(move |socket| host.attach(socket, name, room, conn_id, Some(user)))
         }
         Ok(Err(e)) => status_only(if e.status == 0 { 403 } else { e.status }),
         Err(_) => status_only(500),
@@ -1195,7 +1825,13 @@ pub async fn accept_actor(app: Arc<App>, req: Request) -> Response<Body> {
 
 /// Could a message waiting for another site be held and sent later?
 fn holdable(function: &str, body: &Value) -> bool {
-    (function == "messages" || function == "channels") && body["action"] == "send" && body["msg_id"].as_str().is_some_and(|m| (8..=64).contains(&m.len()) && m.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
+    (function == "messages" || function == "channels")
+        && body["action"] == "send"
+        && body["msg_id"].as_str().is_some_and(|m| {
+            (8..=64).contains(&m.len())
+                && m.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        })
 }
 
 /// File links in another site's answers become links through this site, so apps only ever talk
@@ -1206,13 +1842,26 @@ fn rewrite_file_links(host: &str, data: &mut Value) {
         let tail = &v[at + "/api/files/".len()..];
         let (name, query) = tail.split_once("?exp=")?;
         let (exp, sig) = query.split_once("&sig=")?;
-        let ok = name.len() == 48 && name.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) && !exp.is_empty() && exp.bytes().all(|b| b.is_ascii_digit()) && !sig.is_empty() && sig.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+        let ok = name.len() == 48
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            && !exp.is_empty()
+            && exp.bytes().all(|b| b.is_ascii_digit())
+            && !sig.is_empty()
+            && sig
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
         ok.then_some(at)
     }
     match data {
         Value::String(s) => {
             if let Some(at) = link(s) {
-                *s = format!("/api/fed/files/{}/{}", enc(host), &s[at + "/api/files/".len()..]);
+                *s = format!(
+                    "/api/fed/files/{}/{}",
+                    enc(host),
+                    &s[at + "/api/files/".len()..]
+                );
             }
         }
         Value::Array(a) => a.iter_mut().for_each(|x| rewrite_file_links(host, x)),
@@ -1236,7 +1885,9 @@ pub fn merge_results(results: &[(String, Value, Value)]) -> Value {
                     if !out.get(k).is_some_and(|x| truthy(Some(x))) {
                         out.insert(k.clone(), json!([]));
                     }
-                    let Some(list) = out.get_mut(k).and_then(Value::as_array_mut) else { continue };
+                    let Some(list) = out.get_mut(k).and_then(Value::as_array_mut) else {
+                        continue;
+                    };
                     for x in items {
                         let add = if x.is_object() && x["id"].is_string() {
                             !list.iter().any(|y| y.get("id") == Some(&x["id"]))
@@ -1273,15 +1924,29 @@ pub fn merge_results(results: &[(String, Value, Value)]) -> Value {
         }
     }
     for (field, cursor_key) in CURSOR_FIELDS {
-        let Some(local) = results.first().and_then(|r| r.1.get(cursor_key)) else { continue };
+        let Some(local) = results.first().and_then(|r| r.1.get(cursor_key)) else {
+            continue;
+        };
         let mut others = Map::new();
         for (host, data, keep) in results.iter().skip(1) {
-            let c = if truthy(Some(data)) { data.get(cursor_key) } else { keep.get(field) };
+            let c = if truthy(Some(data)) {
+                data.get(cursor_key)
+            } else {
+                keep.get(field)
+            };
             if let Some(Value::String(s)) = c {
                 others.insert(host.clone(), json!(s));
             }
         }
-        let value = if others.is_empty() { local.clone() } else { json!(format!("{}~{}", to_js_string(Some(local)), b64u(js_stringify(&Value::Object(others)).as_bytes()))) };
+        let value = if others.is_empty() {
+            local.clone()
+        } else {
+            json!(format!(
+                "{}~{}",
+                to_js_string(Some(local)),
+                b64u(js_stringify(&Value::Object(others)).as_bytes())
+            ))
+        };
         out.insert(cursor_key.into(), value);
     }
     Value::Object(out)
@@ -1289,14 +1954,34 @@ pub fn merge_results(results: &[(String, Value, Value)]) -> Value {
 
 /// Where a request was sent: the forwarded host behind a trusted proxy, else the Host header.
 fn request_host(headers: &HeaderMap, trust_proxy: bool) -> String {
-    let get = |k: &str| headers.get(k).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    let forwarded = if trust_proxy { get("x-forwarded-host") } else { String::new() };
-    let raw = if forwarded.is_empty() { get("host") } else { forwarded };
+    let get = |k: &str| {
+        headers
+            .get(k)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string()
+    };
+    let forwarded = if trust_proxy {
+        get("x-forwarded-host")
+    } else {
+        String::new()
+    };
+    let raw = if forwarded.is_empty() {
+        get("host")
+    } else {
+        forwarded
+    };
     raw.split(',').next().unwrap_or("").trim().to_lowercase()
 }
 
 fn reply(status: u16, body: &Value, extra: &[(&str, String)]) -> Response<Body> {
-    let mut headers = vec![("Cache-Control", "no-store".to_string()), ("Content-Type", "application/json; charset=utf-8".to_string())];
+    let mut headers = vec![
+        ("Cache-Control", "no-store".to_string()),
+        (
+            "Content-Type",
+            "application/json; charset=utf-8".to_string(),
+        ),
+    ];
     headers.extend_from_slice(extra);
     http::response(status, body.to_string(), &headers)
 }
@@ -1317,13 +2002,27 @@ pub async fn route(app: Arc<App>, req: Request) -> Routed {
     let c = &app.config;
     let path = req.uri().path().to_string();
     let query = req.uri().query().unwrap_or("").to_string();
-    let param = |k: &str| url::form_urlencoded::parse(query.as_bytes()).find(|(n, _)| n == k).map(|(_, v)| v.into_owned()).unwrap_or_default();
+    let param = |k: &str| {
+        url::form_urlencoded::parse(query.as_bytes())
+            .find(|(n, _)| n == k)
+            .map(|(_, v)| v.into_owned())
+            .unwrap_or_default()
+    };
     let prefix = &c.federation_prefix;
-    let moved = if !prefix.is_empty() && path.starts_with(&format!("{prefix}/")) { path[prefix.len()..].to_string() } else { String::new() };
-    let p = if moved.starts_with("/cvp/v1/") || moved == IDENTITY_PATH { moved } else { path.clone() };
+    let moved = if !prefix.is_empty() && path.starts_with(&format!("{prefix}/")) {
+        path[prefix.len()..].to_string()
+    } else {
+        String::new()
+    };
+    let p = if moved.starts_with("/cvp/v1/") || moved == IDENTITY_PATH {
+        moved
+    } else {
+        path.clone()
+    };
     let req_host = request_host(req.headers(), c.trust_proxy);
     let host_only = strip_port(&req_host).to_string();
-    let on_handle_host = fed.enabled && host_only != c.host && host_only.ends_with(&format!(".{}", c.handle_domain));
+    let on_handle_host =
+        fed.enabled && host_only != c.host && host_only.ends_with(&format!(".{}", c.handle_domain));
     let mine = p == "/api/tls-check"
         || on_handle_host
         || p == "/.well-known/commonveil"
@@ -1340,8 +2039,18 @@ pub async fn route(app: Arc<App>, req: Request) -> Routed {
         return Routed::Pass(req);
     }
     let method = req.method().as_str().to_string();
-    let full_path = if query.is_empty() { path.clone() } else { format!("{path}?{query}") };
-    let token = req.headers().get("authorization").and_then(|v| v.to_str().ok()).and_then(|h| h.strip_prefix("Bearer ")).map(|t| t.trim().to_string()).unwrap_or_default();
+    let full_path = if query.is_empty() {
+        path.clone()
+    } else {
+        format!("{path}?{query}")
+    };
+    let token = req
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .map(|t| t.trim().to_string())
+        .unwrap_or_default();
     let headers = req.headers().clone();
     // Bodies, for the two things that take one.
     let mut body = String::new();
@@ -1350,15 +2059,33 @@ pub async fn route(app: Arc<App>, req: Request) -> Routed {
             Ok(b) => body = String::from_utf8_lossy(&b).into_owned(),
             Err(_) => return Routed::Done(reply(413, &json!({ "error": "too large" }), &[])),
         }
-    } else if p.starts_with("/cvp/v1/") && fed.enabled && method == "POST" && !on_handle_host && p != "/api/tls-check" {
+    } else if p.starts_with("/cvp/v1/")
+        && fed.enabled
+        && method == "POST"
+        && !on_handle_host
+        && p != "/api/tls-check"
+    {
         match axum::body::to_bytes(req.into_body(), MAX_ACT_BODY).await {
             Ok(b) => body = String::from_utf8_lossy(&b).into_owned(),
-            Err(_) => return Routed::Done(reply(413, &json!({ "error": "Something went wrong.", "code": "INTERNAL" }), &[])),
+            Err(_) => {
+                return Routed::Done(reply(
+                    413,
+                    &json!({ "error": "Something went wrong.", "code": "INTERNAL" }),
+                    &[],
+                ))
+            }
         }
     }
     let tag = param("tag");
-    let (q, handle_param, resource, domain) = (param("q"), param("handle"), param("resource"), param("domain"));
-    let pairs: Vec<(String, String)> = url::form_urlencoded::parse(query.as_bytes()).into_owned().collect();
+    let (q, handle_param, resource, domain) = (
+        param("q"),
+        param("handle"),
+        param("resource"),
+        param("domain"),
+    );
+    let pairs: Vec<(String, String)> = url::form_urlencoded::parse(query.as_bytes())
+        .into_owned()
+        .collect();
     let out = tokio::task::spawn_blocking(move || {
         let app = fed.app();
         let c = &app.config;
@@ -1480,7 +2207,13 @@ pub async fn route(app: Arc<App>, req: Request) -> Routed {
         reply(status, &v, &[])
     })
     .await;
-    Routed::Done(out.unwrap_or_else(|_| reply(500, &json!({ "error": "Something went wrong.", "code": "INTERNAL" }), &[])))
+    Routed::Done(out.unwrap_or_else(|_| {
+        reply(
+            500,
+            &json!({ "error": "Something went wrong.", "code": "INTERNAL" }),
+            &[],
+        )
+    }))
 }
 
 fn wire_host(h: &str) -> Option<String> {
@@ -1493,7 +2226,16 @@ mod tests {
 
     #[test]
     fn handles_are_checked_as_the_typescript_does() {
-        for (h, ok) in [("alice.example.com", true), ("a.example.com", false), ("al-.example.com", true), ("-al.example.com", false), ("alice.example-.com", false), ("alice", false), ("alice..com", false), ("ALICE.example.com", false)] {
+        for (h, ok) in [
+            ("alice.example.com", true),
+            ("a.example.com", false),
+            ("al-.example.com", true),
+            ("-al.example.com", false),
+            ("alice.example-.com", false),
+            ("alice", false),
+            ("alice..com", false),
+            ("ALICE.example.com", false),
+        ] {
             assert_eq!(handle_ok(h), ok, "{h}");
         }
     }
@@ -1501,8 +2243,16 @@ mod tests {
     #[test]
     fn answers_from_several_sites_merge_as_merge_ts_does() {
         let results = vec![
-            ("a.test".to_string(), json!({ "conversations": [{ "id": "1" }], "cursor": "c-a", "more": false, "keys": { "x": 1 } }), Value::Null),
-            ("b.test".to_string(), json!({ "conversations": [{ "id": "1" }, { "id": "2" }], "cursor": "c-b", "more": true, "keys": { "y": 2 } }), Value::Null),
+            (
+                "a.test".to_string(),
+                json!({ "conversations": [{ "id": "1" }], "cursor": "c-a", "more": false, "keys": { "x": 1 } }),
+                Value::Null,
+            ),
+            (
+                "b.test".to_string(),
+                json!({ "conversations": [{ "id": "1" }, { "id": "2" }], "cursor": "c-b", "more": true, "keys": { "y": 2 } }),
+                Value::Null,
+            ),
             ("c.test".to_string(), Value::Null, json!({ "since": "c-c" })),
         ];
         let out = merge_results(&results);
@@ -1521,7 +2271,10 @@ mod tests {
         let name = "a".repeat(48);
         let mut v = json!({ "links": { "f": format!("http://b.test/api/files/{name}?exp=123&sig=ab_-") }, "other": "x" });
         rewrite_file_links("b.test", &mut v);
-        assert_eq!(v["links"]["f"], format!("/api/fed/files/b.test/{name}?exp=123&sig=ab_-"));
+        assert_eq!(
+            v["links"]["f"],
+            format!("/api/fed/files/b.test/{name}?exp=123&sig=ab_-")
+        );
         assert_eq!(v["other"], "x");
     }
 }

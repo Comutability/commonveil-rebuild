@@ -15,7 +15,10 @@ use crate::permissions::{has, p, top_position};
 use crate::servers::{case_reason, signed_member, Signed};
 use crate::servers_build::{clean_policy, log_case, policy_of, threshold_for, MOD_PERMS};
 use crate::servers_core::*;
-use crate::shared::{assert_wraps_match_members, count_since, ids_of, iso, latest_keys_for, or, rate_limited, require_active_device};
+use crate::shared::{
+    assert_wraps_match_members, count_since, ids_of, iso, latest_keys_for, or, rate_limited,
+    require_active_device,
+};
 use crate::verify::{check_clock, iso_time, parse_envelope_shape, verify_item_signature};
 
 pub const MODERATORS_PER_REPORT: usize = 31;
@@ -23,7 +26,18 @@ pub const REPORTS_PER_DAY: usize = 10;
 pub const REPORT_ENVELOPE_CHARS: usize = 64 * 1024;
 pub const ESCALATIONS_PER_DAY: usize = 20;
 const STATUSES: [&str; 4] = ["open", "resolved", "dismissed", "escalated"];
-const REASONS: [&str; 10] = ["spam", "harassment", "hate", "sexual", "violence", "self_harm", "scam", "illegal", "under_16", "other"];
+const REASONS: [&str; 10] = [
+    "spam",
+    "harassment",
+    "hate",
+    "sexual",
+    "violence",
+    "self_harm",
+    "scam",
+    "illegal",
+    "under_16",
+    "other",
+];
 
 fn deny(status: u16, code: &str, message: &str) -> ApiError {
     ApiError::new(status, code, message)
@@ -37,7 +51,11 @@ fn require_mod(perms: i64) -> Result<()> {
     if is_mod(perms) {
         Ok(())
     } else {
-        Err(deny(403, "MISSING_PERMISSION", "Only moderators can do that."))
+        Err(deny(
+            403,
+            "MISSING_PERMISSION",
+            "Only moderators can do that.",
+        ))
     }
 }
 
@@ -45,7 +63,11 @@ fn require_perm_mod(perms: i64, bit: i64) -> Result<()> {
     if has(perms, bit) {
         Ok(())
     } else {
-        Err(deny(403, "MISSING_PERMISSION", "You don't have permission to do that."))
+        Err(deny(
+            403,
+            "MISSING_PERMISSION",
+            "You don't have permission to do that.",
+        ))
     }
 }
 
@@ -58,15 +80,36 @@ fn one_of<'a>(v: &Value, list: &[&'a str]) -> Option<&'a str> {
 /// Who a report goes to: moderators (by permission, highest roles first) who have finished
 /// setting up encryption, never the excluded people, at most 31.
 fn moderators_of(sr: &Db, parts: &Parts, exclude: &[String]) -> Result<Vec<String>> {
-    let mod_roles: Vec<Value> = parts.roles.iter().filter(|r| !truthy(r.get("is_everyone")) && (to_number(r.get("permissions")) as i64 & MOD_PERMS) != 0).map(|r| r["id"].clone()).collect();
-    let mut rows = if mod_roles.is_empty() { vec![] } else { sr.filter("ServerMember", json!({ "server_id": parts.server["id"], "role_ids": { "$in": mod_roles } }), "joined_at", 300)? };
+    let mod_roles: Vec<Value> = parts
+        .roles
+        .iter()
+        .filter(|r| {
+            !truthy(r.get("is_everyone"))
+                && (to_number(r.get("permissions")) as i64 & MOD_PERMS) != 0
+        })
+        .map(|r| r["id"].clone())
+        .collect();
+    let mut rows = if mod_roles.is_empty() {
+        vec![]
+    } else {
+        sr.filter(
+            "ServerMember",
+            json!({ "server_id": parts.server["id"], "role_ids": { "$in": mod_roles } }),
+            "joined_at",
+            300,
+        )?
+    };
     let owner = to_js_string(parts.server.get("owner_id"));
-    if truthy(parts.server.get("owner_id")) && !rows.iter().any(|m| m["user_id"] == owner.as_str()) {
+    if truthy(parts.server.get("owner_id")) && !rows.iter().any(|m| m["user_id"] == owner.as_str())
+    {
         if let Some(o) = member_row(sr, &to_js_string(parts.server.get("id")), &owner)? {
             rows.push(o);
         }
     }
-    let ids: Vec<String> = rows.iter().map(|m| to_js_string(m.get("user_id"))).collect();
+    let ids: Vec<String> = rows
+        .iter()
+        .map(|m| to_js_string(m.get("user_id")))
+        .collect();
     let ready = latest_keys_for(sr, &ids)?;
     let mut mods: Vec<&Value> = rows
         .iter()
@@ -76,8 +119,16 @@ fn moderators_of(sr: &Db, parts: &Parts, exclude: &[String]) -> Result<Vec<Strin
         })
         .collect();
     let top = |m: &Value| top_position(&parts.server, &parts.roles, Some(m));
-    mods.sort_by(|a, b| top(b).partial_cmp(&top(a)).unwrap_or(std::cmp::Ordering::Equal));
-    Ok(mods.into_iter().take(MODERATORS_PER_REPORT).map(|m| to_js_string(m.get("user_id"))).collect())
+    mods.sort_by(|a, b| {
+        top(b)
+            .partial_cmp(&top(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(mods
+        .into_iter()
+        .take(MODERATORS_PER_REPORT)
+        .map(|m| to_js_string(m.get("user_id")))
+        .collect())
 }
 
 fn copy(o: &mut Value, key: &str, row: &Value, src: &str) {
@@ -88,7 +139,14 @@ fn copy(o: &mut Value, key: &str, row: &Value, src: &str) {
 
 fn report_out(r: &Value, full: bool) -> Value {
     let mut o = json!({});
-    for k in ["report_id", "server_id", "reporter_id", "target_id", "status", "created_date"] {
+    for k in [
+        "report_id",
+        "server_id",
+        "reporter_id",
+        "target_id",
+        "status",
+        "created_date",
+    ] {
         copy(&mut o, k, r, k);
     }
     o["handled_by"] = or(&r["handled_by"], json!(""));
@@ -112,7 +170,10 @@ fn case_out(c: &Value) -> Value {
     o["minutes"] = num0(c.get("minutes"));
     o["active"] = json!(truthy(c.get("active")));
     o["report_id"] = or(&c["report_id"], json!(""));
-    let at = or(&c["created_at"], c.get("created_date").cloned().unwrap_or(Value::Null));
+    let at = or(
+        &c["created_at"],
+        c.get("created_date").cloned().unwrap_or(Value::Null),
+    );
     if !(at.is_null() && c.get("created_date").is_none()) {
         o["created_at"] = at;
     }
@@ -127,14 +188,26 @@ fn punish(ctx: &Ctx, parts: &Parts, target: &Value, action: &str, minutes: f64) 
     let user_id = to_js_string(target.get("user_id"));
     match action {
         "timeout" => {
-            sr.update("ServerMember", id_of(target), json!({ "timeout_until": iso(now + (minutes * 60_000.0) as i64) }))?;
+            sr.update(
+                "ServerMember",
+                id_of(target),
+                json!({ "timeout_until": iso(now + (minutes * 60_000.0) as i64) }),
+            )?;
         }
         "kick" => {
             remove_member(&sr, ctx.store(), &server_id, &user_id, "kicked")?;
         }
         "ban" => {
-            let existing = sr.first("ServerBan", json!({ "server_id": server_id, "user_id": user_id }), "created_date")?;
-            let expires = if minutes != 0.0 { iso(now + (minutes * 60_000.0) as i64) } else { String::new() };
+            let existing = sr.first(
+                "ServerBan",
+                json!({ "server_id": server_id, "user_id": user_id }),
+                "created_date",
+            )?;
+            let expires = if minutes != 0.0 {
+                iso(now + (minutes * 60_000.0) as i64)
+            } else {
+                String::new()
+            };
             if existing.is_none() {
                 sr.create("ServerBan", json!({ "server_id": server_id, "user_id": user_id, "banned_by": "system", "expires_at": expires }))?;
             }
@@ -151,9 +224,16 @@ fn report_recipients(ctx: &mut Ctx) -> Result<Value> {
     let (sr, uid) = (ctx.sr(), ctx.user_id().to_string());
     let server_id = id(&ctx.body["server_id"], "server")?;
     require_member(&ctx.own(), &server_id, &uid)?;
-    let target = if truthy(ctx.body.get("target_id")) { id(&ctx.body["target_id"], "member")? } else { String::new() };
+    let target = if truthy(ctx.body.get("target_id")) {
+        id(&ctx.body["target_id"], "member")?
+    } else {
+        String::new()
+    };
     let parts = server_parts(&sr, &server_id)?;
-    let exclude: Vec<String> = [uid.clone(), target].into_iter().filter(|s| !s.is_empty()).collect();
+    let exclude: Vec<String> = [uid.clone(), target]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect();
     let mods = moderators_of(&sr, &parts, &exclude)?;
     let mut recipients = vec![uid];
     recipients.extend(mods.iter().cloned());
@@ -161,13 +241,25 @@ fn report_recipients(ctx: &mut Ctx) -> Result<Value> {
 }
 
 fn report(ctx: &mut Ctx) -> Result<Value> {
-    let Signed { data, server_id, parts, .. } = signed_member(ctx, "report")?;
+    let Signed {
+        data,
+        server_id,
+        parts,
+        ..
+    } = signed_member(ctx, "report")?;
     let (sr, uid, now) = (ctx.sr(), ctx.user_id().to_string(), ctx.now);
     let target_id = id(&data["target_id"], "member")?;
     if target_id == uid {
         return Err(deny(400, "BAD_FIELD", "You can't report yourself."));
     }
-    if count_since(&sr, "ServerReport", json!({ "server_id": server_id, "reporter_id": uid }), now - 86_400_000, REPORTS_PER_DAY)? >= REPORTS_PER_DAY {
+    if count_since(
+        &sr,
+        "ServerReport",
+        json!({ "server_id": server_id, "reporter_id": uid }),
+        now - 86_400_000,
+        REPORTS_PER_DAY,
+    )? >= REPORTS_PER_DAY
+    {
         return Err(rate_limited("sending reports"));
     }
     let mods = moderators_of(&sr, &parts, &[uid.clone(), target_id.clone()])?;
@@ -176,19 +268,45 @@ fn report(ctx: &mut Ctx) -> Result<Value> {
     }
     let mut recipients = vec![uid.clone()];
     recipients.extend(mods.iter().cloned());
-    let item = if truthy(data.get("item")) { data["item"].clone() } else { json!({}) };
+    let item = if truthy(data.get("item")) {
+        data["item"].clone()
+    } else {
+        json!({})
+    };
     let report_id = random_id_field(&item["item_id"], "report id")?;
-    let device = require_active_device(&ctx.own(), &uid, &random_id_field(&item["device_id"], "device id")?)?;
+    let device = require_active_device(
+        &ctx.own(),
+        &uid,
+        &random_id_field(&item["device_id"], "device id")?,
+    )?;
     let sent_at = iso_time(&item["sent_at"], "sent time")?;
     check_clock(&sent_at, now)?;
     let envelope = str_field(&item["envelope"], "report", REPORT_ENVELOPE_CHARS, 1)?;
     let wraps = parse_envelope_shape(&envelope, REPORT_ENVELOPE_CHARS)?;
     assert_wraps_match_members(&sr, &wraps, &recipients)?;
     let signature = item.get("signature").cloned().unwrap_or(Value::Null);
-    if !verify_item_signature("report", &server_id, &report_id, &uid, device["device_id"].as_str().unwrap_or(""), &envelope, &sent_at, &signature, device["sign_pub"].as_str().unwrap_or(""))? {
-        return Err(deny(403, "SIGNATURE_INVALID", "The report's signature didn't verify."));
+    if !verify_item_signature(
+        "report",
+        &server_id,
+        &report_id,
+        &uid,
+        device["device_id"].as_str().unwrap_or(""),
+        &envelope,
+        &sent_at,
+        &signature,
+        device["sign_pub"].as_str().unwrap_or(""),
+    )? {
+        return Err(deny(
+            403,
+            "SIGNATURE_INVALID",
+            "The report's signature didn't verify.",
+        ));
     }
-    if let Some(dup) = sr.first("ServerReport", json!({ "server_id": server_id, "report_id": report_id }), "created_date")? {
+    if let Some(dup) = sr.first(
+        "ServerReport",
+        json!({ "server_id": server_id, "report_id": report_id }),
+        "created_date",
+    )? {
         return Ok(json!({ "report": report_out(&dup, false) }));
     }
     let mut row = json!({
@@ -199,7 +317,16 @@ fn report(ctx: &mut Ctx) -> Result<Value> {
         row.as_object_mut().unwrap().remove("signature");
     }
     let row = sr.create("ServerReport", row)?;
-    audit(&sr, &parts.server, &uid, "report_sent", "member", &target_id, "", now)?;
+    audit(
+        &sr,
+        &parts.server,
+        &uid,
+        "report_sent",
+        "member",
+        &target_id,
+        "",
+        now,
+    )?;
     Ok(json!({ "report": report_out(&row, false), "moderators": mods.len() }))
 }
 
@@ -216,19 +343,49 @@ fn reports(ctx: &mut Ctx) -> Result<Value> {
         }
     }
     let rows = sr.filter("ServerReport", q, "-created_date", 200)?;
-    let mine: Vec<Value> = rows.iter().filter(|r| ids_of(&r["recipient_ids"]).contains(&uid) && (moderator || r["reporter_id"] == uid.as_str())).map(|r| report_out(r, true)).collect();
+    let mine: Vec<Value> = rows
+        .iter()
+        .filter(|r| {
+            ids_of(&r["recipient_ids"]).contains(&uid)
+                && (moderator || r["reporter_id"] == uid.as_str())
+        })
+        .map(|r| report_out(r, true))
+        .collect();
     Ok(json!({ "reports": mine, "moderator": moderator }))
 }
 
 fn set_report_status(ctx: &mut Ctx) -> Result<Value> {
-    let Signed { data, server_id, parts, perms, .. } = signed_member(ctx, "set_report_status")?;
+    let Signed {
+        data,
+        server_id,
+        parts,
+        perms,
+        ..
+    } = signed_member(ctx, "set_report_status")?;
     let (sr, uid, now) = (ctx.sr(), ctx.user_id().to_string(), ctx.now);
     require_mod(perms)?;
-    let status = one_of(&data["status"], &STATUSES).filter(|s| *s != "escalated").ok_or_else(|| deny(400, "BAD_FIELD", "Invalid status."))?;
+    let status = one_of(&data["status"], &STATUSES)
+        .filter(|s| *s != "escalated")
+        .ok_or_else(|| deny(400, "BAD_FIELD", "Invalid status."))?;
     let row = sr.first("ServerReport", json!({ "server_id": server_id, "report_id": random_id_field(&data["report_id"], "report")? }), "created_date")?;
-    let row = row.filter(|r| ids_of(&r["recipient_ids"]).contains(&uid)).ok_or_else(|| deny(404, "NOT_FOUND", "Report not found."))?;
-    sr.update("ServerReport", id_of(&row), json!({ "status": status, "handled_by": uid, "handled_at": iso(now) }))?;
-    audit(&sr, &parts.server, &uid, &format!("report_{status}"), "member", &to_js_string(row.get("target_id")), "", now)?;
+    let row = row
+        .filter(|r| ids_of(&r["recipient_ids"]).contains(&uid))
+        .ok_or_else(|| deny(404, "NOT_FOUND", "Report not found."))?;
+    sr.update(
+        "ServerReport",
+        id_of(&row),
+        json!({ "status": status, "handled_by": uid, "handled_at": iso(now) }),
+    )?;
+    audit(
+        &sr,
+        &parts.server,
+        &uid,
+        &format!("report_{status}"),
+        "member",
+        &to_js_string(row.get("target_id")),
+        "",
+        now,
+    )?;
     Ok(json!({ "ok": true }))
 }
 
@@ -239,24 +396,50 @@ fn js_slice(s: &str, n: usize) -> String {
 }
 
 fn escalate(ctx: &mut Ctx) -> Result<Value> {
-    let Signed { data, server_id, parts, perms, .. } = signed_member(ctx, "escalate")?;
+    let Signed {
+        data,
+        server_id,
+        parts,
+        perms,
+        ..
+    } = signed_member(ctx, "escalate")?;
     let (sr, uid, now) = (ctx.sr(), ctx.user_id().to_string(), ctx.now);
     require_mod(perms)?;
     let has_report = truthy(data.get("report_id"));
-    let row = if has_report { sr.first("ServerReport", json!({ "server_id": server_id, "report_id": random_id_field(&data["report_id"], "report")? }), "created_date")? } else { None };
-    if has_report && !row.as_ref().is_some_and(|r| ids_of(&r["recipient_ids"]).contains(&uid)) {
+    let row = if has_report {
+        sr.first("ServerReport", json!({ "server_id": server_id, "report_id": random_id_field(&data["report_id"], "report")? }), "created_date")?
+    } else {
+        None
+    };
+    if has_report
+        && !row
+            .as_ref()
+            .is_some_and(|r| ids_of(&r["recipient_ids"]).contains(&uid))
+    {
         return Err(deny(404, "NOT_FOUND", "Report not found."));
     }
     let target_id = match &row {
         Some(r) => to_js_string(r.get("target_id")),
         None => id(&data["target_id"], "member")?,
     };
-    let reason = one_of(&data["reason"], &REASONS).ok_or_else(|| deny(400, "BAD_FIELD", "Choose a reason."))?;
+    let reason = one_of(&data["reason"], &REASONS)
+        .ok_or_else(|| deny(400, "BAD_FIELD", "Choose a reason."))?;
     let details = clean_text(&data["details"], 4000)?;
     if details.trim().is_empty() {
-        return Err(deny(400, "BAD_FIELD", "Say what happened, so the Commonveil team can act."));
+        return Err(deny(
+            400,
+            "BAD_FIELD",
+            "Say what happened, so the Commonveil team can act.",
+        ));
     }
-    if count_since(&sr, "Report", json!({ "escalated_by": uid }), now - 86_400_000, ESCALATIONS_PER_DAY)? >= ESCALATIONS_PER_DAY {
+    if count_since(
+        &sr,
+        "Report",
+        json!({ "escalated_by": uid }),
+        now - 86_400_000,
+        ESCALATIONS_PER_DAY,
+    )? >= ESCALATIONS_PER_DAY
+    {
         return Err(rate_limited("escalating reports"));
     }
     sr.create(
@@ -271,42 +454,121 @@ fn escalate(ctx: &mut Ctx) -> Result<Value> {
         }),
     )?;
     if let Some(r) = &row {
-        sr.update("ServerReport", id_of(r), json!({ "status": "escalated", "handled_by": uid, "handled_at": iso(now) }))?;
+        sr.update(
+            "ServerReport",
+            id_of(r),
+            json!({ "status": "escalated", "handled_by": uid, "handled_at": iso(now) }),
+        )?;
     }
-    audit(&sr, &parts.server, &uid, "report_escalated", "member", &target_id, "", now)?;
+    audit(
+        &sr,
+        &parts.server,
+        &uid,
+        "report_escalated",
+        "member",
+        &target_id,
+        "",
+        now,
+    )?;
     Ok(json!({ "ok": true }))
 }
 
 // ---------- cases ----------
 
 fn warn(ctx: &mut Ctx) -> Result<Value> {
-    let Signed { data, server_id, member, parts, perms, .. } = signed_member(ctx, "warn")?;
+    let Signed {
+        data,
+        server_id,
+        member,
+        parts,
+        perms,
+        ..
+    } = signed_member(ctx, "warn")?;
     let (sr, uid, now) = (ctx.sr(), ctx.user_id().to_string(), ctx.now);
-    if !has(perms, p::TIMEOUT_MEMBERS) && !has(perms, p::KICK_MEMBERS) && !has(perms, p::BAN_MEMBERS) {
-        return Err(deny(403, "MISSING_PERMISSION", "You can't warn members here."));
+    if !has(perms, p::TIMEOUT_MEMBERS)
+        && !has(perms, p::KICK_MEMBERS)
+        && !has(perms, p::BAN_MEMBERS)
+    {
+        return Err(deny(
+            403,
+            "MISSING_PERMISSION",
+            "You can't warn members here.",
+        ));
     }
     let target_id = id(&data["user_id"], "member")?;
-    let target = member_row(&sr, &server_id, &target_id)?.ok_or_else(|| deny(404, "NOT_MEMBER", "That person isn't in this server."))?;
+    let target = member_row(&sr, &server_id, &target_id)?
+        .ok_or_else(|| deny(404, "NOT_MEMBER", "That person isn't in this server."))?;
     require_above(&parts, &member, &target, "warn")?;
     let reason = case_reason(ctx, &server_id, &data["reason"])?;
-    let report_id = if truthy(data.get("report_id")) { random_id_field(&data["report_id"], "report")? } else { String::new() };
-    let c = log_case(&sr, &parts.server, "warn", &target_id, &uid, json!(0), &reason, &report_id, now)?;
-    audit(&sr, &parts.server, &uid, "member_warn", "member", &target_id, &format!("case {}", to_js_string(c.get("case_number"))), now)?;
+    let report_id = if truthy(data.get("report_id")) {
+        random_id_field(&data["report_id"], "report")?
+    } else {
+        String::new()
+    };
+    let c = log_case(
+        &sr,
+        &parts.server,
+        "warn",
+        &target_id,
+        &uid,
+        json!(0),
+        &reason,
+        &report_id,
+        now,
+    )?;
+    audit(
+        &sr,
+        &parts.server,
+        &uid,
+        "member_warn",
+        "member",
+        &target_id,
+        &format!("case {}", to_js_string(c.get("case_number"))),
+        now,
+    )?;
     let (warns, step) = threshold_for(&sr, &parts.server, &target_id, now)?;
     let mut applied = Value::Null;
     if let Some(step) = step {
         let action = to_js_string(step.get("action"));
         let minutes = to_number(step.get("minutes"));
         punish(ctx, &parts, &target, &action, minutes)?;
-        let auto = log_case(&sr, &parts.server, &action, &target_id, "system", step.get("minutes").cloned().unwrap_or(json!(0)), &json!({}), "", now)?;
-        audit(&sr, &parts.server, "system", &format!("member_{action}"), "member", &target_id, &format!("{warns} warnings (case {})", to_js_string(auto.get("case_number"))), now)?;
+        let auto = log_case(
+            &sr,
+            &parts.server,
+            &action,
+            &target_id,
+            "system",
+            step.get("minutes").cloned().unwrap_or(json!(0)),
+            &json!({}),
+            "",
+            now,
+        )?;
+        audit(
+            &sr,
+            &parts.server,
+            "system",
+            &format!("member_{action}"),
+            "member",
+            &target_id,
+            &format!(
+                "{warns} warnings (case {})",
+                to_js_string(auto.get("case_number"))
+            ),
+            now,
+        )?;
         applied = json!({ "action": step["action"], "minutes": step["minutes"] });
     }
     Ok(json!({ "case": case_out(&c), "warnings": warns, "applied": applied }))
 }
 
 fn note(ctx: &mut Ctx) -> Result<Value> {
-    let Signed { data, server_id, parts, perms, .. } = signed_member(ctx, "note")?;
+    let Signed {
+        data,
+        server_id,
+        parts,
+        perms,
+        ..
+    } = signed_member(ctx, "note")?;
     let (sr, uid, now) = (ctx.sr(), ctx.user_id().to_string(), ctx.now);
     require_mod(perms)?;
     let target_id = id(&data["user_id"], "member")?;
@@ -314,7 +576,17 @@ fn note(ctx: &mut Ctx) -> Result<Value> {
         return Err(deny(400, "BAD_FIELD", "Write the note."));
     }
     let reason = case_reason(ctx, &server_id, &data["reason"])?;
-    let c = log_case(&sr, &parts.server, "note", &target_id, &uid, json!(0), &reason, "", now)?;
+    let c = log_case(
+        &sr,
+        &parts.server,
+        "note",
+        &target_id,
+        &uid,
+        json!(0),
+        &reason,
+        "",
+        now,
+    )?;
     Ok(json!({ "case": case_out(&c) }))
 }
 
@@ -324,8 +596,15 @@ fn cases(ctx: &mut Ctx) -> Result<Value> {
     let member = require_member(&ctx.own(), &server_id, &uid)?;
     let parts = server_parts(&sr, &server_id)?;
     if !is_mod(perms_of(&parts, &member, None)) {
-        let rows = sr.filter("ModCase", json!({ "server_id": server_id, "target_id": uid, "action": "warn" }), "-created_date", 100)?;
-        return Ok(json!({ "cases": rows.iter().map(case_out).collect::<Vec<_>>(), "moderator": false }));
+        let rows = sr.filter(
+            "ModCase",
+            json!({ "server_id": server_id, "target_id": uid, "action": "warn" }),
+            "-created_date",
+            100,
+        )?;
+        return Ok(
+            json!({ "cases": rows.iter().map(case_out).collect::<Vec<_>>(), "moderator": false }),
+        );
     }
     let mut q = json!({ "server_id": server_id });
     if truthy(ctx.body.get("user_id")) {
@@ -336,11 +615,21 @@ fn cases(ctx: &mut Ctx) -> Result<Value> {
 }
 
 fn pardon(ctx: &mut Ctx) -> Result<Value> {
-    let Signed { data, server_id, parts, perms, .. } = signed_member(ctx, "pardon")?;
+    let Signed {
+        data,
+        server_id,
+        parts,
+        perms,
+        ..
+    } = signed_member(ctx, "pardon")?;
     let (sr, uid, now) = (ctx.sr(), ctx.user_id().to_string(), ctx.now);
     require_mod(perms)?;
     let c = sr.get("ModCase", &id(&data["case_id"], "case")?);
-    let c = c.filter(|c| c["server_id"] == server_id.as_str() && (c["action"] == "warn" || c["action"] == "note")).ok_or_else(|| deny(404, "NOT_FOUND", "Case not found."))?;
+    let c = c
+        .filter(|c| {
+            c["server_id"] == server_id.as_str() && (c["action"] == "warn" || c["action"] == "note")
+        })
+        .ok_or_else(|| deny(404, "NOT_FOUND", "Case not found."))?;
     let mut change = json!({ "active": false });
     if c["action"] == "note" {
         for (k, v) in cleared_item("reason").as_object().into_iter().flatten() {
@@ -348,20 +637,41 @@ fn pardon(ctx: &mut Ctx) -> Result<Value> {
         }
     }
     sr.update("ModCase", id_of(&c), change)?;
-    audit(&sr, &parts.server, &uid, "case_pardon", "member", &to_js_string(c.get("target_id")), &format!("case {}", to_js_string(c.get("case_number"))), now)?;
+    audit(
+        &sr,
+        &parts.server,
+        &uid,
+        "case_pardon",
+        "member",
+        &to_js_string(c.get("target_id")),
+        &format!("case {}", to_js_string(c.get("case_number"))),
+        now,
+    )?;
     Ok(json!({ "ok": true }))
 }
 
 fn purge(ctx: &mut Ctx) -> Result<Value> {
-    let Signed { data, server_id, member, parts, perms, .. } = signed_member(ctx, "purge")?;
+    let Signed {
+        data,
+        server_id,
+        member,
+        parts,
+        perms,
+        ..
+    } = signed_member(ctx, "purge")?;
     let (sr, uid, now) = (ctx.sr(), ctx.user_id().to_string(), ctx.now);
     require_perm_mod(perms, p::MANAGE_MESSAGES)?;
     let target_id = id(&data["user_id"], "member")?;
     if let Some(target) = member_row(&sr, &server_id, &target_id)? {
         require_above(&parts, &member, &target, "delete messages from")?;
     }
-    let seconds = data["seconds"].as_f64().filter(|s| [3600.0, 21_600.0, 86_400.0, 604_800.0].contains(s)).ok_or_else(|| deny(400, "BAD_FIELD", "Choose how far back."))?;
-    let since = iso(now - (seconds * 1000.0) as i64).trim_end_matches('Z').to_string();
+    let seconds = data["seconds"]
+        .as_f64()
+        .filter(|s| [3600.0, 21_600.0, 86_400.0, 604_800.0].contains(s))
+        .ok_or_else(|| deny(400, "BAD_FIELD", "Choose how far back."))?;
+    let since = iso(now - (seconds * 1000.0) as i64)
+        .trim_end_matches('Z')
+        .to_string();
     // Only channels this moderator can see and manage messages in, as for an ordinary delete
     // (CV-12): a server-wide permission doesn't reach into channels hidden from them.
     let manageable: Vec<Value> = parts
@@ -383,15 +693,37 @@ fn purge(ctx: &mut Ctx) -> Result<Value> {
     }
     let rows = sr.filter("ServerMessage", q, "created_date", 1000)?;
     let mut n = 0;
-    for m in rows.iter().filter(|m| manageable.contains(&m["channel_id"])) {
+    for m in rows
+        .iter()
+        .filter(|m| manageable.contains(&m["channel_id"]))
+    {
         if truthy(m.get("deleted")) {
             continue;
         }
         sr.update("ServerMessage", id_of(m), json!({ "envelope": "", "signature": "", "deleted": true, "deleted_by": uid, "deleted_at": iso(now) }))?;
         n += 1;
     }
-    log_case(&sr, &parts.server, "purge", &target_id, &uid, number_value((seconds / 60.0).round()), &json!({}), "", now)?;
-    audit(&sr, &parts.server, &uid, "messages_purge", "member", &target_id, &format!("{n} messages"), now)?;
+    log_case(
+        &sr,
+        &parts.server,
+        "purge",
+        &target_id,
+        &uid,
+        number_value((seconds / 60.0).round()),
+        &json!({}),
+        "",
+        now,
+    )?;
+    audit(
+        &sr,
+        &parts.server,
+        &uid,
+        "messages_purge",
+        "member",
+        &target_id,
+        &format!("{n} messages"),
+        now,
+    )?;
     Ok(json!({ "deleted": n }))
 }
 
@@ -402,20 +734,36 @@ fn policy(ctx: &mut Ctx) -> Result<Value> {
     let server_id = id(&ctx.body["server_id"], "server")?;
     require_member(&ctx.own(), &server_id, &uid)?;
     let parts = server_parts(&sr, &server_id)?;
-    Ok(json!({ "policy": policy_of(&parts.server), "raid_detected_at": or(&parts.server["raid_detected_at"], json!("")) }))
+    Ok(
+        json!({ "policy": policy_of(&parts.server), "raid_detected_at": or(&parts.server["raid_detected_at"], json!("")) }),
+    )
 }
 
 fn set_policy(ctx: &mut Ctx) -> Result<Value> {
-    let Signed { data, parts, perms, .. } = signed_member(ctx, "set_policy")?;
+    let Signed {
+        data, parts, perms, ..
+    } = signed_member(ctx, "set_policy")?;
     let (sr, uid, now) = (ctx.sr(), ctx.user_id().to_string(), ctx.now);
     if !has(perms, p::MANAGE_SERVER) {
-        return Err(deny(403, "MISSING_PERMISSION", "You can't change moderation settings."));
+        return Err(deny(
+            403,
+            "MISSING_PERMISSION",
+            "You can't change moderation settings.",
+        ));
     }
-    let raw = if truthy(data.get("policy")) { data["policy"].clone() } else { json!({}) };
+    let raw = if truthy(data.get("policy")) {
+        data["policy"].clone()
+    } else {
+        json!({})
+    };
     let policy = clean_policy(&raw);
     // Only the owner can turn staff limits off, since they're what stops a rogue admin.
     if !truthy(policy["nuke"].get("enabled")) && parts.server["owner_id"] != uid.as_str() {
-        return Err(deny(403, "OWNER_ONLY", "Only the owner can turn off staff limits."));
+        return Err(deny(
+            403,
+            "OWNER_ONLY",
+            "Only the owner can turn off staff limits.",
+        ));
     }
     let mut change = json!({ "mod_policy": policy });
     if truthy(data.get("clear_raid")) {
@@ -423,7 +771,16 @@ fn set_policy(ctx: &mut Ctx) -> Result<Value> {
     }
     let server_row = to_js_string(parts.server.get("id"));
     sr.update("Server", &server_row, change)?;
-    audit(&sr, &parts.server, &uid, "mod_policy", "server", &server_row, "", now)?;
+    audit(
+        &sr,
+        &parts.server,
+        &uid,
+        "mod_policy",
+        "server",
+        &server_row,
+        "",
+        now,
+    )?;
     Ok(json!({ "policy": policy }))
 }
 

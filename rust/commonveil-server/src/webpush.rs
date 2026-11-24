@@ -13,18 +13,54 @@ use crate::crypto::{b64url, from_b64url, random_bytes};
 
 /// Browser push services. A subscription must point at one of these.
 fn push_host_ok(host: &str) -> bool {
-    let labels = |suffix: &str| host.strip_suffix(suffix).is_some_and(|p| p.is_empty() || (p.ends_with('.') && p[..p.len() - 1].split('.').all(|l| !l.is_empty() && l.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-'))));
-    let one_label = |suffix: &str| host.strip_suffix(suffix).is_some_and(|p| p.is_empty() || (p.ends_with('.') && { let l = &p[..p.len() - 1]; !l.is_empty() && !l.contains('.') && l.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-') }));
-    matches!(host, "fcm.googleapis.com" | "android.googleapis.com" | "updates.push.services.mozilla.com" | "web.push.apple.com")
-        || one_label("push.services.mozilla.com")
+    let labels = |suffix: &str| {
+        host.strip_suffix(suffix).is_some_and(|p| {
+            p.is_empty()
+                || (p.ends_with('.')
+                    && p[..p.len() - 1].split('.').all(|l| {
+                        !l.is_empty()
+                            && l.bytes()
+                                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+                    }))
+        })
+    };
+    let one_label = |suffix: &str| {
+        host.strip_suffix(suffix).is_some_and(|p| {
+            p.is_empty()
+                || (p.ends_with('.') && {
+                    let l = &p[..p.len() - 1];
+                    !l.is_empty()
+                        && !l.contains('.')
+                        && l.bytes()
+                            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+                })
+        })
+    };
+    matches!(
+        host,
+        "fcm.googleapis.com"
+            | "android.googleapis.com"
+            | "updates.push.services.mozilla.com"
+            | "web.push.apple.com"
+    ) || one_label("push.services.mozilla.com")
         || labels("notify.windows.com")
         || labels("push.apple.com")
 }
 
 pub fn endpoint_ok(endpoint: &Value) -> bool {
-    let Some(e) = endpoint.as_str().filter(|e| e.encode_utf16().count() <= 1000) else { return false };
+    let Some(e) = endpoint
+        .as_str()
+        .filter(|e| e.encode_utf16().count() <= 1000)
+    else {
+        return false;
+    };
     match url::Url::parse(e) {
-        Ok(u) => u.scheme() == "https" && u.port().is_none() && u.username().is_empty() && u.host_str().is_some_and(push_host_ok),
+        Ok(u) => {
+            u.scheme() == "https"
+                && u.port().is_none()
+                && u.username().is_empty()
+                && u.host_str().is_some_and(push_host_ok)
+        }
         Err(_) => false,
     }
 }
@@ -45,7 +81,12 @@ fn hkdf(salt: &[u8], ikm: &[u8], info: &[u8], len: usize) -> Vec<u8> {
 
 /// Encrypt a payload for one subscription (RFC 8291, aes128gcm). `fixed`: the sender's secret key
 /// and the salt, for the RFC's test vector only.
-pub fn encrypt_payload(payload: &[u8], p256dh: &str, auth: &str, fixed: Option<(&[u8], &[u8])>) -> Option<Vec<u8>> {
+pub fn encrypt_payload(
+    payload: &[u8],
+    p256dh: &str,
+    auth: &str,
+    fixed: Option<(&[u8], &[u8])>,
+) -> Option<Vec<u8>> {
     let ua_public = from_b64url(p256dh)?;
     let auth_secret = from_b64url(auth)?;
     if ua_public.len() != 65 || ua_public[0] != 4 || auth_secret.len() != 16 {
@@ -56,7 +97,10 @@ pub fn encrypt_payload(payload: &[u8], p256dh: &str, auth: &str, fixed: Option<(
         Some((sk, _)) => p256::SecretKey::from_slice(sk).ok()?,
         None => p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng),
     };
-    let sender_public = p256::elliptic_curve::sec1::ToEncodedPoint::to_encoded_point(&secret.public_key(), false).as_bytes().to_vec();
+    let sender_public =
+        p256::elliptic_curve::sec1::ToEncodedPoint::to_encoded_point(&secret.public_key(), false)
+            .as_bytes()
+            .to_vec();
     let shared = p256::ecdh::diffie_hellman(secret.to_nonzero_scalar(), ua_key.as_affine());
     let mut info = b"WebPush: info\0".to_vec();
     info.extend(&ua_public);
@@ -71,7 +115,9 @@ pub fn encrypt_payload(payload: &[u8], p256dh: &str, auth: &str, fixed: Option<(
     let cipher = aes_gcm::Aes128Gcm::new_from_slice(&cek).ok()?;
     let mut plain = payload.to_vec();
     plain.push(2);
-    let sealed = cipher.encrypt(aes_gcm::Nonce::from_slice(&nonce), plain.as_slice()).ok()?;
+    let sealed = cipher
+        .encrypt(aes_gcm::Nonce::from_slice(&nonce), plain.as_slice())
+        .ok()?;
     let mut out = salt;
     out.extend(4096u32.to_be_bytes());
     out.push(65);
@@ -85,7 +131,8 @@ pub fn encrypt_payload(payload: &[u8], p256dh: &str, auth: &str, fixed: Option<(
 /// The site's push key, stored as the Node.js server stores it: `{ publicKey, privateJwk }`.
 pub fn make_vapid_keys() -> Value {
     let sk = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
-    let point = p256::elliptic_curve::sec1::ToEncodedPoint::to_encoded_point(&sk.public_key(), false);
+    let point =
+        p256::elliptic_curve::sec1::ToEncodedPoint::to_encoded_point(&sk.public_key(), false);
     json!({
         "publicKey": b64url(point.as_bytes()),
         "privateJwk": { "key_ops": ["sign"], "ext": true, "kty": "EC", "x": b64url(point.x().unwrap()), "y": b64url(point.y().unwrap()), "crv": "P-256", "d": b64url(&sk.to_bytes()) },
@@ -96,11 +143,19 @@ fn vapid_header(endpoint: &str, keys: &Value, subject: &str, now_ms: i64) -> Opt
     let u = url::Url::parse(endpoint).ok()?;
     let aud = u.origin().ascii_serialization();
     let enc = |v: Value| b64url(v.to_string().as_bytes());
-    let unsigned = format!("{}.{}", enc(json!({ "typ": "JWT", "alg": "ES256" })), enc(json!({ "aud": aud, "exp": now_ms / 1000 + 12 * 3600, "sub": subject })));
+    let unsigned = format!(
+        "{}.{}",
+        enc(json!({ "typ": "JWT", "alg": "ES256" })),
+        enc(json!({ "aud": aud, "exp": now_ms / 1000 + 12 * 3600, "sub": subject }))
+    );
     let d = from_b64url(keys["privateJwk"]["d"].as_str()?)?;
     let key = p256::ecdsa::SigningKey::from_slice(&d).ok()?;
     let sig: p256::ecdsa::Signature = key.sign(unsigned.as_bytes());
-    Some(format!("vapid t={unsigned}.{}, k={}", b64url(&sig.to_bytes()), keys["publicKey"].as_str()?))
+    Some(format!(
+        "vapid t={unsigned}.{}, k={}",
+        b64url(&sig.to_bytes()),
+        keys["publicKey"].as_str()?
+    ))
 }
 
 pub enum Sent {
@@ -113,14 +168,29 @@ pub enum Sent {
 }
 
 /// Send one push.
-pub fn send_push(endpoint: &str, p256dh: &str, auth: &str, payload: &Value, keys: &Value, subject: &str, urgency: &str) -> Sent {
+pub fn send_push(
+    endpoint: &str,
+    p256dh: &str,
+    auth: &str,
+    payload: &Value,
+    keys: &Value,
+    subject: &str,
+    urgency: &str,
+) -> Sent {
     if !endpoint_ok(&json!(endpoint)) {
         return Sent::Gone(0);
     }
     // A subscription with bad keys throws in the JavaScript, and the whole notification stops.
-    let Some(body) = encrypt_payload(payload.to_string().as_bytes(), p256dh, auth, None) else { return Sent::Unsendable };
-    let Some(authz) = vapid_header(endpoint, keys, subject, crate::sessions::now_ms()) else { return Sent::Unsendable };
-    let agent = crate::tls::agent().redirects(0).timeout(std::time::Duration::from_secs(5)).build();
+    let Some(body) = encrypt_payload(payload.to_string().as_bytes(), p256dh, auth, None) else {
+        return Sent::Unsendable;
+    };
+    let Some(authz) = vapid_header(endpoint, keys, subject, crate::sessions::now_ms()) else {
+        return Sent::Unsendable;
+    };
+    let agent = crate::tls::agent()
+        .redirects(0)
+        .timeout(std::time::Duration::from_secs(5))
+        .build();
     let res = agent
         .post(endpoint)
         .set("Authorization", &authz)
@@ -156,22 +226,55 @@ mod tests {
     fn vapid_headers_verify_under_the_site_key() {
         use p256::ecdsa::signature::Verifier;
         let keys = make_vapid_keys();
-        let h = vapid_header("https://fcm.googleapis.com/fcm/send/x", &keys, "https://cv.example", 1_800_000_000_000).unwrap();
-        let t = h.strip_prefix("vapid t=").unwrap().split(", k=").next().unwrap();
+        let h = vapid_header(
+            "https://fcm.googleapis.com/fcm/send/x",
+            &keys,
+            "https://cv.example",
+            1_800_000_000_000,
+        )
+        .unwrap();
+        let t = h
+            .strip_prefix("vapid t=")
+            .unwrap()
+            .split(", k=")
+            .next()
+            .unwrap();
         let (unsigned, sig) = t.rsplit_once('.').unwrap();
-        let claims: Value = serde_json::from_slice(&from_b64url(unsigned.split('.').nth(1).unwrap()).unwrap()).unwrap();
-        assert_eq!(claims, json!({ "aud": "https://fcm.googleapis.com", "exp": 1_800_043_200, "sub": "https://cv.example" }));
-        let key = p256::ecdsa::VerifyingKey::from_sec1_bytes(&from_b64url(keys["publicKey"].as_str().unwrap()).unwrap()).unwrap();
+        let claims: Value =
+            serde_json::from_slice(&from_b64url(unsigned.split('.').nth(1).unwrap()).unwrap())
+                .unwrap();
+        assert_eq!(
+            claims,
+            json!({ "aud": "https://fcm.googleapis.com", "exp": 1_800_043_200, "sub": "https://cv.example" })
+        );
+        let key = p256::ecdsa::VerifyingKey::from_sec1_bytes(
+            &from_b64url(keys["publicKey"].as_str().unwrap()).unwrap(),
+        )
+        .unwrap();
         let sig = p256::ecdsa::Signature::from_slice(&from_b64url(sig).unwrap()).unwrap();
         assert!(key.verify(unsigned.as_bytes(), &sig).is_ok());
     }
 
     #[test]
     fn only_browser_push_services_are_accepted() {
-        for ok in ["https://fcm.googleapis.com/fcm/send/abc", "https://updates.push.services.mozilla.com/wpush/v2/x", "https://web.push.apple.com/x", "https://wns2-db5p.notify.windows.com/w/?token=x", "https://a.push.services.mozilla.com/x"] {
+        for ok in [
+            "https://fcm.googleapis.com/fcm/send/abc",
+            "https://updates.push.services.mozilla.com/wpush/v2/x",
+            "https://web.push.apple.com/x",
+            "https://wns2-db5p.notify.windows.com/w/?token=x",
+            "https://a.push.services.mozilla.com/x",
+        ] {
             assert!(endpoint_ok(&json!(ok)), "{ok}");
         }
-        for bad in ["http://fcm.googleapis.com/x", "https://fcm.googleapis.com:8443/x", "https://evil.example/x", "https://user@fcm.googleapis.com/x", "https://a.b.push.services.mozilla.com/x", "https://notify.windows.com.evil.example/x", "nope"] {
+        for bad in [
+            "http://fcm.googleapis.com/x",
+            "https://fcm.googleapis.com:8443/x",
+            "https://evil.example/x",
+            "https://user@fcm.googleapis.com/x",
+            "https://a.b.push.services.mozilla.com/x",
+            "https://notify.windows.com.evil.example/x",
+            "nope",
+        ] {
             assert!(!endpoint_ok(&json!(bad)), "{bad}");
         }
     }

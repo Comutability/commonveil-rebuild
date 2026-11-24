@@ -45,7 +45,13 @@ pub struct Config {
 }
 
 fn list(v: Option<&String>) -> Vec<String> {
-    v.map(|s| s.split(',').map(|x| x.trim().to_lowercase()).filter(|x| !x.is_empty()).collect()).unwrap_or_default()
+    v.map(|s| {
+        s.split(',')
+            .map(|x| x.trim().to_lowercase())
+            .filter(|x| !x.is_empty())
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 fn boolean(v: Option<&String>, fallback: bool) -> bool {
@@ -56,7 +62,8 @@ fn boolean(v: Option<&String>, fallback: bool) -> bool {
 }
 
 fn number(v: Option<&String>) -> Option<f64> {
-    v.filter(|s| !s.is_empty()).map(|s| crate::js::string_to_number(s))
+    v.filter(|s| !s.is_empty())
+        .map(|s| crate::js::string_to_number(s))
 }
 
 /// The hostname of a URL, lower case (enough of `new URL(...).hostname` for site addresses).
@@ -64,13 +71,27 @@ fn hostname(url: &str) -> String {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
     let authority = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
-    let host = if authority.starts_with('[') { authority.split(']').next().map(|h| format!("{h}]")).unwrap_or_default() } else { authority.split(':').next().unwrap_or("").to_string() };
+    let host = if authority.starts_with('[') {
+        authority
+            .split(']')
+            .next()
+            .map(|h| format!("{h}]"))
+            .unwrap_or_default()
+    } else {
+        authority.split(':').next().unwrap_or("").to_string()
+    };
     host.to_lowercase()
 }
 
 fn valid_prefix(s: &str) -> bool {
     let segs: Vec<&str> = s.split('/').collect();
-    s.starts_with('/') && (2..=5).contains(&segs.len()) && segs[1..].iter().all(|p| !p.is_empty() && p.bytes().all(|c| c.is_ascii_alphanumeric() || b"._~-".contains(&c)))
+    s.starts_with('/')
+        && (2..=5).contains(&segs.len())
+        && segs[1..].iter().all(|p| {
+            !p.is_empty()
+                && p.bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || b"._~-".contains(&c))
+        })
 }
 
 /// Where the server's own files are (package.json, and base44/entities when ENTITIES_DIR isn't
@@ -120,11 +141,20 @@ impl Config {
             secret = std::fs::read_to_string(&secret_file)?.trim().to_string();
         }
         let port_text = get("PORT").cloned().unwrap_or_else(|| "8080".into());
-        let site_url = get("SITE_URL").filter(|s| !s.is_empty()).cloned().unwrap_or_else(|| format!("http://localhost:{port_text}")).trim_end_matches('/').to_string();
+        let site_url = get("SITE_URL")
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .unwrap_or_else(|| format!("http://localhost:{port_text}"))
+            .trim_end_matches('/')
+            .to_string();
         let host = hostname(&site_url);
         let version = match get("COMMONVEIL_VERSION").filter(|s| !s.is_empty()) {
             Some(v) => v.clone(),
-            None => std::fs::read_to_string(app_root.join("package.json")).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).and_then(|p| p["version"].as_str().map(String::from)).unwrap_or_default(),
+            None => std::fs::read_to_string(app_root.join("package.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+                .and_then(|p| p["version"].as_str().map(String::from))
+                .unwrap_or_default(),
         };
         let prefix = get("FEDERATION_PATH_PREFIX").cloned().unwrap_or_default();
         Ok(Self {
@@ -168,23 +198,56 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut env = HashMap::new();
         env.insert("DATA_DIR".to_string(), dir.path().display().to_string());
-        env.insert("SITE_URL".to_string(), "https://Chat.Example.org/".to_string());
-        env.insert("DEFAULT_SERVER_ADMINS".to_string(), " Alice, ,bob ".to_string());
+        env.insert(
+            "SITE_URL".to_string(),
+            "https://Chat.Example.org/".to_string(),
+        );
+        env.insert(
+            "DEFAULT_SERVER_ADMINS".to_string(),
+            " Alice, ,bob ".to_string(),
+        );
         env.insert("PASSWORD_ROUNDS".to_string(), "10".to_string());
         env.insert("FEDERATION_PATH_PREFIX".to_string(), "/a/b".to_string());
         env.insert("TRUST_PROXY".to_string(), "Yes".to_string());
         env.insert("COMMONVEIL_VERSION".to_string(), "9.9.9".to_string());
         let c = Config::load(&env, dir.path()).unwrap();
-        assert_eq!((c.site_url.as_str(), c.host.as_str(), c.secure), ("https://Chat.Example.org", "chat.example.org", true));
+        assert_eq!(
+            (c.site_url.as_str(), c.host.as_str(), c.secure),
+            ("https://Chat.Example.org", "chat.example.org", true)
+        );
         assert_eq!(c.default_server_admins, vec!["alice", "bob"]);
-        assert_eq!((c.password_rounds, c.port, c.federation_prefix.as_str(), c.trust_proxy), (1000, 8080, "/a/b", true));
-        assert_eq!((c.handle_domain.as_str(), c.version.as_str(), c.open_registration, c.federation), ("chat.example.org", "9.9.9", true, true));
+        assert_eq!(
+            (
+                c.password_rounds,
+                c.port,
+                c.federation_prefix.as_str(),
+                c.trust_proxy
+            ),
+            (1000, 8080, "/a/b", true)
+        );
+        assert_eq!(
+            (
+                c.handle_domain.as_str(),
+                c.version.as_str(),
+                c.open_registration,
+                c.federation
+            ),
+            ("chat.example.org", "9.9.9", true, true)
+        );
         let secret = std::fs::read_to_string(dir.path().join("secret")).unwrap();
         assert_eq!(secret.len(), 43);
-        assert_eq!(Config::load(&env, dir.path()).unwrap().secret, secret, "made once and kept");
+        assert_eq!(
+            Config::load(&env, dir.path()).unwrap().secret,
+            secret,
+            "made once and kept"
+        );
         for bad in ["/a b", "a/b", "/a//b", "/1/2/3/4/5", "/"] {
             env.insert("FEDERATION_PATH_PREFIX".to_string(), bad.to_string());
-            assert_eq!(Config::load(&env, dir.path()).unwrap().federation_prefix, "", "{bad}");
+            assert_eq!(
+                Config::load(&env, dir.path()).unwrap().federation_prefix,
+                "",
+                "{bad}"
+            );
         }
     }
 }

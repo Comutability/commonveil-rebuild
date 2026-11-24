@@ -10,7 +10,16 @@ fn staff_only() -> Value {
     json!([{ "role": "everyone", "deny": p::VIEW_CHANNEL }, { "role": "moderator", "allow": p::VIEW_CHANNEL }, { "role": "support", "allow": p::VIEW_CHANNEL }])
 }
 fn moderator() -> i64 {
-    p::MANAGE_MESSAGES | p::KICK_MEMBERS | p::BAN_MEMBERS | p::TIMEOUT_MEMBERS | p::VIEW_AUDIT_LOG | p::MANAGE_NICKNAMES | p::MANAGE_TICKETS | p::MANAGE_KEYS | p::MENTION_EVERYONE | p::MANAGE_INVITES
+    p::MANAGE_MESSAGES
+        | p::KICK_MEMBERS
+        | p::BAN_MEMBERS
+        | p::TIMEOUT_MEMBERS
+        | p::VIEW_AUDIT_LOG
+        | p::MANAGE_NICKNAMES
+        | p::MANAGE_TICKETS
+        | p::MANAGE_KEYS
+        | p::MENTION_EVERYONE
+        | p::MANAGE_INVITES
 }
 
 /// The Commonveil community server everyone joins.

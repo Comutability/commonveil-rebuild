@@ -43,7 +43,14 @@ pub fn send(status: u16, body: &str, headers: &[(&str, String)]) -> Response<Bod
 
 /// `json`: a JSON reply, no caching.
 pub fn json(status: u16, body: &Value) -> Response<Body> {
-    response(status, body.to_string(), &[("Cache-Control", "no-store".into()), ("Content-Type", "application/json; charset=utf-8".into())])
+    response(
+        status,
+        body.to_string(),
+        &[
+            ("Cache-Control", "no-store".into()),
+            ("Content-Type", "application/json; charset=utf-8".into()),
+        ],
+    )
 }
 
 fn content_type(ext: &str) -> &'static str {
@@ -87,8 +94,15 @@ fn seo_assets(dist: &Path) -> std::sync::Arc<SeoAssets> {
     if let Some((_, a)) = c.iter().find(|(p, _)| p == dist) {
         return a.clone();
     }
-    let articles = std::fs::read_to_string(dist.join("help-index.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).and_then(|v| v.as_array().cloned()).unwrap_or_default();
-    let a = std::sync::Arc::new(SeoAssets { html: std::fs::read_to_string(dist.join("index.html")).unwrap_or_default(), articles });
+    let articles = std::fs::read_to_string(dist.join("help-index.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    let a = std::sync::Arc::new(SeoAssets {
+        html: std::fs::read_to_string(dist.join("index.html")).unwrap_or_default(),
+        articles,
+    });
     c.push((dist.to_path_buf(), a.clone()));
     a
 }
@@ -99,7 +113,13 @@ pub fn page_for(dist: &Path, pathname: &str, site_url: &str) -> (String, seo::Me
     let meta = seo::seo_for(pathname, &assets.articles, site_url);
     let block = regex::Regex::new(r"<!-- seo:[^>]*-->[\s\S]*?<!-- /seo -->").unwrap();
     let head = seo::head_html(&meta, site_url);
-    let body = if block.is_match(&assets.html) { block.replacen(&assets.html, 1, regex::NoExpand(&head)).into_owned() } else { assets.html.clone() };
+    let body = if block.is_match(&assets.html) {
+        block
+            .replacen(&assets.html, 1, regex::NoExpand(&head))
+            .into_owned()
+    } else {
+        assets.html.clone()
+    };
     (body, meta)
 }
 
@@ -122,14 +142,26 @@ fn safe_join(root: &Path, rel: &str) -> Option<PathBuf> {
 }
 
 /// Serve the built site, falling back to index.html for the app's own routes.
-pub fn serve_static(method: &Method, path_and_query: &str, dist: &Path, site_url: &str) -> Response<Body> {
+pub fn serve_static(
+    method: &Method,
+    path_and_query: &str,
+    dist: &Path,
+    site_url: &str,
+) -> Response<Body> {
     let raw = path_and_query.split('?').next().unwrap_or("/");
-    let Ok(rel) = percent_encoding::percent_decode_str(raw).decode_utf8().map(|s| s.into_owned()) else { return send(400, "Bad path", &[]) };
+    let Ok(rel) = percent_encoding::percent_decode_str(raw)
+        .decode_utf8()
+        .map(|s| s.into_owned())
+    else {
+        return send(400, "Bad path", &[]);
+    };
     if rel.contains('\0') {
         return send(400, "Bad path", &[]);
     }
     let root = std::path::absolute(dist).unwrap_or_else(|_| dist.to_path_buf());
-    let Some(mut file) = safe_join(&root, &rel) else { return send(404, "Not found", &[]) };
+    let Some(mut file) = safe_join(&root, &rel) else {
+        return send(404, "Not found", &[]);
+    };
     let mut is_index = false;
     if !file.is_file() {
         // A missing asset is a 404; anything else is a page of the app.
@@ -141,14 +173,21 @@ pub fn serve_static(method: &Method, path_and_query: &str, dist: &Path, site_url
     }
     let fname = file.to_string_lossy().replace('\\', "/");
     let ext = ext_of(&fname);
-    let cache = if is_index || ext == ".html" || fname.ends_with("/sw.js") || fname.ends_with("/manifest.webmanifest") {
+    let cache = if is_index
+        || ext == ".html"
+        || fname.ends_with("/sw.js")
+        || fname.ends_with("/manifest.webmanifest")
+    {
         "no-cache"
     } else if fname.contains("/assets/") {
         "public, max-age=31536000, immutable"
     } else {
         "public, max-age=3600"
     };
-    let mut headers = vec![("Content-Type", content_type(&ext).to_string()), ("Cache-Control", cache.to_string())];
+    let mut headers = vec![
+        ("Content-Type", content_type(&ext).to_string()),
+        ("Cache-Control", cache.to_string()),
+    ];
     if ext == ".html" {
         headers.push(("Content-Security-Policy", CSP.into()));
         headers.push(("X-Frame-Options", "DENY".into()));
@@ -157,20 +196,45 @@ pub fn serve_static(method: &Method, path_and_query: &str, dist: &Path, site_url
     if is_index && !site_url.is_empty() {
         let (body, meta) = page_for(&root, &rel, site_url);
         if !meta.moved_to.is_empty() {
-            return response(301, Body::empty(), &[("Location", meta.moved_to), ("Cache-Control", "public, max-age=86400".into())]);
+            return response(
+                301,
+                Body::empty(),
+                &[
+                    ("Location", meta.moved_to),
+                    ("Cache-Control", "public, max-age=86400".into()),
+                ],
+            );
         }
         if meta.noindex {
             headers.push(("X-Robots-Tag", "noindex, nofollow".into()));
         }
-        return response(if meta.not_found { 404 } else { 200 }, if head { Body::empty() } else { Body::from(body) }, &headers);
+        return response(
+            if meta.not_found { 404 } else { 200 },
+            if head {
+                Body::empty()
+            } else {
+                Body::from(body)
+            },
+            &headers,
+        );
     }
     // The sitemap and robots file are written for the usual address; this site's own goes in.
     if !site_url.is_empty() && (fname.ends_with("/sitemap.xml") || fname.ends_with("/robots.txt")) {
-        let text = std::fs::read_to_string(&file).unwrap_or_default().replace(seo::SITE_PLACEHOLDER, site_url.trim_end_matches('/'));
+        let text = std::fs::read_to_string(&file)
+            .unwrap_or_default()
+            .replace(seo::SITE_PLACEHOLDER, site_url.trim_end_matches('/'));
         if fname.ends_with(".xml") {
             headers[0].1 = "application/xml; charset=utf-8".into();
         }
-        return response(200, if head { Body::empty() } else { Body::from(text) }, &headers);
+        return response(
+            200,
+            if head {
+                Body::empty()
+            } else {
+                Body::from(text)
+            },
+            &headers,
+        );
     }
     if head {
         return response(200, Body::empty(), &headers);

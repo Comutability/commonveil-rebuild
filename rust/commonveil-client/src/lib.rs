@@ -81,8 +81,12 @@ mod tests {
 
     #[test]
     fn answers_as_secure_net_does() {
-        assert_eq!(ok(json!({ "op": "canonical", "value": { "b": 1, "a": 2 } })), json!("{\"a\":2,\"b\":1}"));
-        let text = ok(json!({ "op": "cv.canonical", "context": "test/v1", "fields": ["a", "b|c"] }));
+        assert_eq!(
+            ok(json!({ "op": "canonical", "value": { "b": 1, "a": 2 } })),
+            json!("{\"a\":2,\"b\":1}")
+        );
+        let text =
+            ok(json!({ "op": "cv.canonical", "context": "test/v1", "fields": ["a", "b|c"] }));
         assert_eq!(text, json!("commonveil/test/v1\n2\na\nb|c"));
     }
 
@@ -90,27 +94,36 @@ mod tests {
     fn bad_requests_are_errors_not_panics() {
         let reply: Value = serde_json::from_str(&call("not json")).unwrap();
         assert_eq!(reply["error"]["code"], "BAD_INPUT");
-        let reply: Value = serde_json::from_str(&call(&json!({ "op": "cv.noSuchThing" }).to_string())).unwrap();
+        let reply: Value =
+            serde_json::from_str(&call(&json!({ "op": "cv.noSuchThing" }).to_string())).unwrap();
         assert_eq!(reply["error"]["code"], "BAD_INPUT");
     }
 
     #[test]
     fn raw_device_and_lock_keys_are_refused() {
         for op in REFUSED_OPS {
-            let reply: Value = serde_json::from_str(&call(&json!({ "op": op, "device": {}, "passcode": "x" }).to_string())).unwrap();
+            let reply: Value = serde_json::from_str(&call(
+                &json!({ "op": op, "device": {}, "passcode": "x" }).to_string(),
+            ))
+            .unwrap();
             assert_eq!(reply["error"]["code"], "NOT_IN_BROWSER", "{op}");
         }
         // Naming one inside the data refuses nothing.
-        let text = ok(json!({ "op": "cv.canonical", "context": "test/v1", "fields": ["cv.unlock"] }));
+        let text =
+            ok(json!({ "op": "cv.canonical", "context": "test/v1", "fields": ["cv.unlock"] }));
         assert_eq!(text, json!("commonveil/test/v1\n1\ncv.unlock"));
         // Nor does spelling the operation with JSON escapes get past the refusal.
-        let reply: Value = serde_json::from_str(&call(r#"{"op":"cv.create\u0044eviceKeys"}"#)).unwrap();
+        let reply: Value =
+            serde_json::from_str(&call(r#"{"op":"cv.create\u0044eviceKeys"}"#)).unwrap();
         assert_eq!(reply["error"]["code"], "NOT_IN_BROWSER");
     }
 
     #[test]
     fn versions() {
-        assert_eq!(secure_net_version(), secure_net_core::wire::features::SECURE_NET_VERSION);
+        assert_eq!(
+            secure_net_version(),
+            secure_net_core::wire::features::SECURE_NET_VERSION
+        );
         assert_eq!(version(), env!("CARGO_PKG_VERSION"));
     }
 }

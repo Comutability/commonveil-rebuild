@@ -54,12 +54,20 @@ struct Settings {
 
 impl Settings {
     fn from_env() -> Self {
-        let get = |k: &str, default: &str| std::env::var(k).ok().filter(|v| !v.is_empty()).unwrap_or_else(|| default.to_string());
+        let get = |k: &str, default: &str| {
+            std::env::var(k)
+                .ok()
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| default.to_string())
+        };
         let service = get("APP_SERVICE", "app");
         Self {
             project: get("PROJECT_DIR", "/project"),
             token: std::env::var("UPDATER_TOKEN").unwrap_or_default(),
-            health_url: get("APP_HEALTH_URL", &format!("http://{service}:8080/api/health")),
+            health_url: get(
+                "APP_HEALTH_URL",
+                &format!("http://{service}:8080/api/health"),
+            ),
             service,
             allow_downgrade: std::env::var("UPDATER_ALLOW_DOWNGRADE").is_ok_and(|v| v == "true"),
             health_wait: Duration::from_secs(120),
@@ -94,12 +102,19 @@ impl Updater {
 /// x.y.z, as /^\d{1,4}\.\d{1,4}\.\d{1,6}$/ (ASCII digits only, nothing after).
 fn is_version(v: &str) -> bool {
     let p: Vec<&str> = v.split('.').collect();
-    p.len() == 3 && p.iter().zip([4, 4, 6]).all(|(x, max)| !x.is_empty() && x.len() <= max && x.bytes().all(|b| b.is_ascii_digit()))
+    p.len() == 3
+        && p.iter().zip([4, 4, 6]).all(|(x, max)| {
+            !x.is_empty() && x.len() <= max && x.bytes().all(|b| b.is_ascii_digit())
+        })
 }
 
 /// a > b, for versions that passed `is_version`.
 fn newer(a: &str, b: &str) -> bool {
-    let parts = |v: &str| v.split('.').map(|x| x.parse::<u64>().unwrap_or(0)).collect::<Vec<_>>();
+    let parts = |v: &str| {
+        v.split('.')
+            .map(|x| x.parse::<u64>().unwrap_or(0))
+            .collect::<Vec<_>>()
+    };
     parts(a) > parts(b)
 }
 
@@ -115,7 +130,11 @@ fn js_text(v: Option<&Value>) -> String {
             },
             Value::String(s) => s.clone(),
             // Arrays join their items (null as nothing); objects say so.
-            Value::Array(a) => a.iter().map(|x| if x.is_null() { String::new() } else { text(x) }).collect::<Vec<_>>().join(","),
+            Value::Array(a) => a
+                .iter()
+                .map(|x| if x.is_null() { String::new() } else { text(x) })
+                .collect::<Vec<_>>()
+                .join(","),
             Value::Object(_) => "[object Object]".into(),
         }
     }
@@ -203,14 +222,19 @@ fn write_env(s: &Settings, text: &str) -> std::io::Result<()> {
 
 /// The app's health answer: (status, body).
 fn health(url: &str) -> Result<(u16, Value), String> {
-    let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(4)).build();
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(4))
+        .build();
     let (status, response) = match agent.get(url).call() {
         Ok(r) => (r.status(), r),
         Err(ureq::Error::Status(code, r)) => (code, r),
         Err(e) => return Err(e.to_string()),
     };
     let text = response.into_string().map_err(|e| e.to_string())?;
-    Ok((status, serde_json::from_str(&text).map_err(|e| e.to_string())?))
+    Ok((
+        status,
+        serde_json::from_str(&text).map_err(|e| e.to_string())?,
+    ))
 }
 
 /// The version the site runs now, as it says itself ("" if it can't be asked).
@@ -225,7 +249,9 @@ fn healthy(s: &Settings, version: &str) -> bool {
     let until = Instant::now() + s.health_wait;
     while Instant::now() < until {
         if let Ok((status, body)) = health(&s.health_url) {
-            if (200..300).contains(&status) && body.get("version").and_then(Value::as_str) == Some(version) {
+            if (200..300).contains(&status)
+                && body.get("version").and_then(Value::as_str) == Some(version)
+            {
                 return true;
             }
         }
@@ -235,7 +261,10 @@ fn healthy(s: &Settings, version: &str) -> bool {
 }
 
 /// Read one of a command's outputs, up to MAX_OUTPUT; `over` says it went past that.
-fn collect(mut from: impl Read + Send + 'static, over: Arc<AtomicBool>) -> std::thread::JoinHandle<Vec<u8>> {
+fn collect(
+    mut from: impl Read + Send + 'static,
+    over: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<Vec<u8>> {
     std::thread::spawn(move || {
         let (mut out, mut buf) = (Vec::new(), [0u8; 8192]);
         loop {
@@ -264,8 +293,17 @@ fn compose(s: &Settings, args: &[&str]) -> Result<(), String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| if e.kind() == std::io::ErrorKind::NotFound { "spawn docker ENOENT".to_string() } else { format!("spawn docker {e}") })?;
-    let (out_over, err_over) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "spawn docker ENOENT".to_string()
+            } else {
+                format!("spawn docker {e}")
+            }
+        })?;
+    let (out_over, err_over) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
     let stdout = collect(child.stdout.take().expect("piped"), out_over.clone());
     let stderr = collect(child.stderr.take().expect("piped"), err_over.clone());
     let started = Instant::now();
@@ -273,14 +311,20 @@ fn compose(s: &Settings, args: &[&str]) -> Result<(), String> {
         if let Ok(Some(status)) = child.try_wait() {
             break Some(status);
         }
-        if started.elapsed() > COMPOSE_TIMEOUT || out_over.load(Ordering::Relaxed) || err_over.load(Ordering::Relaxed) {
+        if started.elapsed() > COMPOSE_TIMEOUT
+            || out_over.load(Ordering::Relaxed)
+            || err_over.load(Ordering::Relaxed)
+        {
             let _ = child.kill();
             let _ = child.wait();
             break None;
         }
         std::thread::sleep(Duration::from_millis(50));
     };
-    let (_, err_text) = (stdout.join().unwrap_or_default(), String::from_utf8_lossy(&stderr.join().unwrap_or_default()).to_string());
+    let (_, err_text) = (
+        stdout.join().unwrap_or_default(),
+        String::from_utf8_lossy(&stderr.join().unwrap_or_default()).to_string(),
+    );
     if out_over.load(Ordering::Relaxed) {
         return Err("stdout maxBuffer length exceeded".into());
     }
@@ -289,12 +333,17 @@ fn compose(s: &Settings, args: &[&str]) -> Result<(), String> {
     }
     match status {
         Some(status) if status.success() => Ok(()),
-        _ => Err(format!("Command failed: docker {}\n{err_text}", all.join(" "))),
+        _ => Err(format!(
+            "Command failed: docker {}\n{err_text}",
+            all.join(" ")
+        )),
     }
 }
 
 fn now_iso() -> String {
-    iso(SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64))
+    iso(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64))
 }
 
 /// Milliseconds since 1970 as 2026-01-02T03:04:05.678Z (JavaScript's toISOString).
@@ -310,7 +359,12 @@ fn iso(ms: i64) -> String {
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
-    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{milli:03}Z", rem / 3600, rem % 3600 / 60, rem % 60)
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{milli:03}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
 }
 
 // ---------- updating ----------
@@ -328,12 +382,24 @@ fn update(s: &Settings, version: &str) -> Value {
         Ok(text) => text,
         Err(e) => return unchanged(e),
     };
-    let previous = version_line(&before).map(|(a, b)| &before[a + "COMMONVEIL_VERSION=".len()..b]).filter(|v| !v.is_empty()).unwrap_or("latest").to_string();
+    let previous = version_line(&before)
+        .map(|(a, b)| &before[a + "COMMONVEIL_VERSION=".len()..b])
+        .filter(|v| !v.is_empty())
+        .unwrap_or("latest")
+        .to_string();
     let was = running_version(&s.health_url);
     if let Err(e) = write_env(s, &set_version(&before, version)) {
         return unchanged(e);
     }
-    let attempt = compose(s, &["pull", service]).and_then(|()| compose(s, &["up", "-d", "--no-deps", service])).and_then(|()| if healthy(s, version) { Ok(()) } else { Err(format!("{version} didn't start properly")) });
+    let attempt = compose(s, &["pull", service])
+        .and_then(|()| compose(s, &["up", "-d", "--no-deps", service]))
+        .and_then(|()| {
+            if healthy(s, version) {
+                Ok(())
+            } else {
+                Err(format!("{version} didn't start properly"))
+            }
+        });
     match attempt {
         Ok(()) => {
             println!("Updated to {version}");
@@ -342,7 +408,10 @@ fn update(s: &Settings, version: &str) -> Value {
         Err(error) => {
             eprintln!("Update to {version} failed: {error}. Going back to {previous}.");
             let (mut rolled_back, mut rollback_error) = (false, String::new());
-            match write_env(s, &before).map_err(|e| e.to_string()).and_then(|()| compose(s, &["up", "-d", "--no-deps", service])) {
+            match write_env(s, &before)
+                .map_err(|e| e.to_string())
+                .and_then(|()| compose(s, &["up", "-d", "--no-deps", service]))
+            {
                 // Back only counts if the old version really is running again.
                 Ok(()) => {
                     rolled_back = was.is_empty() || healthy(s, &was);
@@ -373,15 +442,27 @@ fn reply(status: u16, body: Value) -> Response {
 /// The Authorization header is exactly "Bearer <token>", compared in constant time.
 fn authorised(got: &[u8], token: &str) -> bool {
     let want = format!("Bearer {token}");
-    got.len() == want.len() && std::hint::black_box(got.iter().zip(want.as_bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b))) == 0
+    got.len() == want.len()
+        && std::hint::black_box(
+            got.iter()
+                .zip(want.as_bytes())
+                .fold(0u8, |acc, (a, b)| acc | (a ^ b)),
+        ) == 0
 }
 
 async fn handle(State(u): State<Arc<Updater>>, req: Request) -> Response {
-    let auth = req.headers().get(header::AUTHORIZATION).map_or(&b""[..], |v| v.as_bytes());
+    let auth = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .map_or(&b""[..], |v| v.as_bytes());
     if !authorised(auth, &u.settings.token) {
         return reply(401, json!({ "error": "Not allowed" }));
     }
-    let target = req.uri().path_and_query().map_or("", |p| p.as_str()).to_string();
+    let target = req
+        .uri()
+        .path_and_query()
+        .map_or("", |p| p.as_str())
+        .to_string();
     if req.method() == Method::GET && target == "/status" {
         let job = u.job();
         return reply(200, json!({ "busy": job.busy, "last": job.last }));
@@ -407,10 +488,15 @@ async fn handle(State(u): State<Arc<Updater>>, req: Request) -> Response {
         job.busy = true;
     }
     let url = u.settings.health_url.clone();
-    let current = tokio::task::spawn_blocking(move || running_version(&url)).await.unwrap_or_default();
+    let current = tokio::task::spawn_blocking(move || running_version(&url))
+        .await
+        .unwrap_or_default();
     if is_version(&current) && !newer(&version, &current) && !u.settings.allow_downgrade {
         u.job().busy = false;
-        return reply(409, json!({ "error": format!("{version} isn't newer than {current}. Going back needs UPDATER_ALLOW_DOWNGRADE=true on the server.") }));
+        return reply(
+            409,
+            json!({ "error": format!("{version} isn't newer than {current}. Going back needs UPDATER_ALLOW_DOWNGRADE=true on the server.") }),
+        );
     }
     let (worker, v) = (u.clone(), version.clone());
     std::thread::spawn(move || {
@@ -428,9 +514,22 @@ fn main() {
         eprintln!("UPDATER_TOKEN must be set (at least 24 characters). See docs/SELF_HOSTING.md.");
         std::process::exit(1);
     }
-    let port: u16 = std::env::var("UPDATER_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(8090);
-    let updater = Arc::new(Updater { settings, state: Mutex::new(Job { busy: false, last: Value::Null }) });
-    let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("a runtime");
+    let port: u16 = std::env::var("UPDATER_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8090);
+    let updater = Arc::new(Updater {
+        settings,
+        state: Mutex::new(Job {
+            busy: false,
+            last: Value::Null,
+        }),
+    });
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("a runtime");
     let served: std::io::Result<()> = runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
         println!("Commonveil updater ready");
@@ -441,7 +540,9 @@ fn main() {
             .with_graceful_shutdown(async {
                 #[cfg(unix)]
                 {
-                    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("a signal handler");
+                    let mut term =
+                        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                            .expect("a signal handler");
                     tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = term.recv() => {} }
                 }
                 #[cfg(not(unix))]
@@ -464,18 +565,45 @@ mod tests {
         for v in ["0.24.0", "1.2.3", "9999.9999.999999", "01.2.3"] {
             assert!(is_version(v), "{v}");
         }
-        for v in ["", "0.24", "v0.24.0", "0.24.0 ", "0.24.0\n", "1.2.3.4", "12345.0.0", "0.0.1234567", "1.2.x", "١.٢.٣", "+1.2.3"] {
+        for v in [
+            "",
+            "0.24",
+            "v0.24.0",
+            "0.24.0 ",
+            "0.24.0\n",
+            "1.2.3.4",
+            "12345.0.0",
+            "0.0.1234567",
+            "1.2.x",
+            "١.٢.٣",
+            "+1.2.3",
+        ] {
             assert!(!is_version(v), "{v}");
         }
         assert!(newer("0.24.0", "0.23.1") && newer("1.0.0", "0.99.99") && newer("0.10.0", "0.9.0"));
-        assert!(!newer("0.23.1", "0.23.1") && !newer("0.23.0", "0.23.1") && !newer("0.9.0", "0.10.0"));
+        assert!(
+            !newer("0.23.1", "0.23.1") && !newer("0.23.0", "0.23.1") && !newer("0.9.0", "0.10.0")
+        );
     }
 
     #[test]
     fn what_javascript_makes_of_a_version() {
         let t = |v: Value| js_text(Some(&v));
         assert_eq!(js_text(None), "");
-        for (v, want) in [(json!(null), ""), (json!(false), ""), (json!(0), ""), (json!(""), ""), (json!("0.24.0"), "0.24.0"), (json!(true), "true"), (json!(12), "12"), (json!(1.5), "1.5"), (json!({}), "[object Object]"), (json!([]), ""), (json!(["0.24.0"]), "0.24.0"), (json!([[1, null], "a"]), "1,,a")] {
+        for (v, want) in [
+            (json!(null), ""),
+            (json!(false), ""),
+            (json!(0), ""),
+            (json!(""), ""),
+            (json!("0.24.0"), "0.24.0"),
+            (json!(true), "true"),
+            (json!(12), "12"),
+            (json!(1.5), "1.5"),
+            (json!({}), "[object Object]"),
+            (json!([]), ""),
+            (json!(["0.24.0"]), "0.24.0"),
+            (json!([[1, null], "a"]), "1,,a"),
+        ] {
             assert_eq!(t(v.clone()), want, "{v}");
         }
         assert_eq!(js_slice("abcdef", 3), "abc");
@@ -485,19 +613,46 @@ mod tests {
 
     #[test]
     fn setting_the_version_in_env() {
-        assert_eq!(set_version("A=1\nCOMMONVEIL_VERSION=0.23.1\nB=2\n", "0.24.0"), "A=1\nCOMMONVEIL_VERSION=0.24.0\nB=2\n");
+        assert_eq!(
+            set_version("A=1\nCOMMONVEIL_VERSION=0.23.1\nB=2\n", "0.24.0"),
+            "A=1\nCOMMONVEIL_VERSION=0.24.0\nB=2\n"
+        );
         // Only the first line that sets it, and nothing that merely mentions it.
-        assert_eq!(set_version("X_COMMONVEIL_VERSION=1\nCOMMONVEIL_VERSION=a\nCOMMONVEIL_VERSION=b", "0.24.0"), "X_COMMONVEIL_VERSION=1\nCOMMONVEIL_VERSION=0.24.0\nCOMMONVEIL_VERSION=b");
+        assert_eq!(
+            set_version(
+                "X_COMMONVEIL_VERSION=1\nCOMMONVEIL_VERSION=a\nCOMMONVEIL_VERSION=b",
+                "0.24.0"
+            ),
+            "X_COMMONVEIL_VERSION=1\nCOMMONVEIL_VERSION=0.24.0\nCOMMONVEIL_VERSION=b"
+        );
         // Windows line ends stay as they were.
-        assert_eq!(set_version("A=1\r\nCOMMONVEIL_VERSION=latest\r\n", "0.24.0"), "A=1\r\nCOMMONVEIL_VERSION=0.24.0\r\n");
-        assert_eq!(set_version("A=1\rCOMMONVEIL_VERSION=latest", "1.0.0"), "A=1\rCOMMONVEIL_VERSION=1.0.0");
+        assert_eq!(
+            set_version("A=1\r\nCOMMONVEIL_VERSION=latest\r\n", "0.24.0"),
+            "A=1\r\nCOMMONVEIL_VERSION=0.24.0\r\n"
+        );
+        assert_eq!(
+            set_version("A=1\rCOMMONVEIL_VERSION=latest", "1.0.0"),
+            "A=1\rCOMMONVEIL_VERSION=1.0.0"
+        );
         // Added when it isn't there, on a line of its own.
-        assert_eq!(set_version("A=1", "0.24.0"), "A=1\nCOMMONVEIL_VERSION=0.24.0\n");
-        assert_eq!(set_version("A=1\n", "0.24.0"), "A=1\nCOMMONVEIL_VERSION=0.24.0\n");
+        assert_eq!(
+            set_version("A=1", "0.24.0"),
+            "A=1\nCOMMONVEIL_VERSION=0.24.0\n"
+        );
+        assert_eq!(
+            set_version("A=1\n", "0.24.0"),
+            "A=1\nCOMMONVEIL_VERSION=0.24.0\n"
+        );
         assert_eq!(set_version("", "0.24.0"), "\nCOMMONVEIL_VERSION=0.24.0\n");
-        assert_eq!(set_version("# COMMONVEIL_VERSION=1\n", "2.0.0"), "# COMMONVEIL_VERSION=1\nCOMMONVEIL_VERSION=2.0.0\n");
+        assert_eq!(
+            set_version("# COMMONVEIL_VERSION=1\n", "2.0.0"),
+            "# COMMONVEIL_VERSION=1\nCOMMONVEIL_VERSION=2.0.0\n"
+        );
         let text = "A=1\nCOMMONVEIL_VERSION=0.23.1\n";
-        assert_eq!(version_line(text).map(|(a, b)| &text[a..b]), Some("COMMONVEIL_VERSION=0.23.1"));
+        assert_eq!(
+            version_line(text).map(|(a, b)| &text[a..b]),
+            Some("COMMONVEIL_VERSION=0.23.1")
+        );
     }
 
     #[test]
@@ -513,20 +668,41 @@ mod tests {
     fn only_the_exact_token() {
         let token = "t".repeat(32);
         assert!(authorised(format!("Bearer {token}").as_bytes(), &token));
-        for got in [String::new(), token.clone(), format!("bearer {token}"), format!("Bearer {token}x"), format!("Bearer {}", "t".repeat(31))] {
+        for got in [
+            String::new(),
+            token.clone(),
+            format!("bearer {token}"),
+            format!("Bearer {token}x"),
+            format!("Bearer {}", "t".repeat(31)),
+        ] {
             assert!(!authorised(got.as_bytes(), &token), "{got}");
         }
     }
 
     fn settings(project: &str, health_url: &str) -> Settings {
-        Settings { project: project.into(), token: "t".repeat(32), service: "app".into(), health_url: health_url.into(), allow_downgrade: false, health_wait: Duration::from_millis(300), health_every: Duration::from_millis(50) }
+        Settings {
+            project: project.into(),
+            token: "t".repeat(32),
+            service: "app".into(),
+            health_url: health_url.into(),
+            allow_downgrade: false,
+            health_wait: Duration::from_millis(300),
+            health_every: Duration::from_millis(50),
+        }
     }
 
     #[test]
     fn a_version_that_never_answers_counts_as_failed() {
         // Nothing listens there, so the app never comes up healthy.
-        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-        let s = settings("/nonexistent", &format!("http://127.0.0.1:{port}/api/health"));
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let s = settings(
+            "/nonexistent",
+            &format!("http://127.0.0.1:{port}/api/health"),
+        );
         let started = Instant::now();
         assert!(!healthy(&s, "0.24.0"));
         assert!(started.elapsed() >= Duration::from_millis(300));
@@ -536,10 +712,23 @@ mod tests {
     #[test]
     fn docker_that_cant_run_reads_as_node_said_it() {
         let dir = tempfile::tempdir().unwrap();
-        let s = settings(&format!("{}/missing", dir.path().display()), "http://127.0.0.1:9/");
-        assert_eq!(compose(&s, &["pull", "app"]), Err("spawn docker ENOENT".to_string()));
+        let s = settings(
+            &format!("{}/missing", dir.path().display()),
+            "http://127.0.0.1:9/",
+        );
+        assert_eq!(
+            compose(&s, &["pull", "app"]),
+            Err("spawn docker ENOENT".to_string())
+        );
         // .env can't be written there either: nothing changed, and that's what the status says.
         let outcome = update(&s, "0.24.0");
-        assert_eq!((outcome["ok"].clone(), outcome["rolled_back"].clone(), outcome["version"].clone()), (json!(false), json!(true), json!("0.24.0")));
+        assert_eq!(
+            (
+                outcome["ok"].clone(),
+                outcome["rolled_back"].clone(),
+                outcome["version"].clone()
+            ),
+            (json!(false), json!(true), json!("0.24.0"))
+        );
     }
 }

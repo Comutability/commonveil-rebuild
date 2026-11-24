@@ -9,12 +9,16 @@ use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, STANDARD, URL_SAFE_NO_PAD};
+use base64::engine::general_purpose::{
+    GeneralPurpose, GeneralPurposeConfig, STANDARD, URL_SAFE_NO_PAD,
+};
 use base64::engine::DecodePaddingMode;
 use base64::Engine;
 use ed25519_dalek::{Signature, Signer as _, SigningKey, Verifier, VerifyingKey};
 use rusqlite::{params, OptionalExtension};
-use secure_net_core::wire::federation::{self as wire, RequestFields, PROTOCOL, SITE_DOCUMENT, SKEW_MS};
+use secure_net_core::wire::federation::{
+    self as wire, RequestFields, PROTOCOL, SITE_DOCUMENT, SKEW_MS,
+};
 use secure_net_core::wire::sealed;
 use serde_json::{json, Value};
 
@@ -29,9 +33,16 @@ const DOC_TTL_MS: i64 = 60 * 60_000;
 /// At most this many reads from other sites at once; the rest wait their turn.
 const MAX_OUTBOUND: usize = 16;
 /// The DER header of an Ed25519 private key in PKCS #8, as the Node.js server stores it.
-const ED25519_PKCS8_PREFIX: [u8; 16] = [0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20];
+const ED25519_PKCS8_PREFIX: [u8; 16] = [
+    0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
+];
 /// Node.js's `Buffer.from(s, "base64url")`: padding or not, stray bits allowed.
-const B64U_LOOSE: GeneralPurpose = GeneralPurpose::new(&base64::alphabet::URL_SAFE, GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true).with_decode_padding_mode(DecodePaddingMode::Indifferent));
+const B64U_LOOSE: GeneralPurpose = GeneralPurpose::new(
+    &base64::alphabet::URL_SAFE,
+    GeneralPurposeConfig::new()
+        .with_decode_allow_trailing_bits(true)
+        .with_decode_padding_mode(DecodePaddingMode::Indifferent),
+);
 
 pub type FedResult<T> = std::result::Result<T, ApiError>;
 
@@ -87,10 +98,20 @@ impl SiteKey {
 /// The site's Ed25519 key, made once and kept with the data, in the form the Node.js server keeps
 /// it: `{ private: base64 PKCS #8, public: base64url raw, created }`.
 pub fn site_key(store: &Store) -> Result<SiteKey, String> {
-    if let Some(saved) = store.get_setting("federation:site-key").filter(|v| truthy(Some(v))) {
-        let der = saved["private"].as_str().and_then(|p| STANDARD.decode(p).ok()).filter(|d| d.len() == 48 && d[..16] == ED25519_PKCS8_PREFIX).ok_or("The site's federation key is damaged, so the server can't start.")?;
+    if let Some(saved) = store
+        .get_setting("federation:site-key")
+        .filter(|v| truthy(Some(v)))
+    {
+        let der = saved["private"]
+            .as_str()
+            .and_then(|p| STANDARD.decode(p).ok())
+            .filter(|d| d.len() == 48 && d[..16] == ED25519_PKCS8_PREFIX)
+            .ok_or("The site's federation key is damaged, so the server can't start.")?;
         let seed: [u8; 32] = der[16..].try_into().expect("32 bytes");
-        return Ok(SiteKey { public: to_js_string(saved.get("public")), signing: SigningKey::from_bytes(&seed) });
+        return Ok(SiteKey {
+            public: to_js_string(saved.get("public")),
+            signing: SigningKey::from_bytes(&seed),
+        });
     }
     let random = crate::crypto::random_bytes(32);
     let seed: [u8; 32] = random[..32].try_into().expect("32 bytes");
@@ -102,10 +123,18 @@ pub fn site_key(store: &Store) -> Result<SiteKey, String> {
 }
 
 pub fn verify_ed25519(public_raw: &str, data: &str, signature: &str) -> bool {
-    let (Some(pk), Some(sig)) = (unb64u(public_raw), unb64u(signature)) else { return false };
-    let Ok(pk) = <[u8; 32]>::try_from(pk.as_slice()) else { return false };
-    let Ok(vk) = VerifyingKey::from_bytes(&pk) else { return false };
-    let Ok(sig) = Signature::from_slice(&sig) else { return false };
+    let (Some(pk), Some(sig)) = (unb64u(public_raw), unb64u(signature)) else {
+        return false;
+    };
+    let Ok(pk) = <[u8; 32]>::try_from(pk.as_slice()) else {
+        return false;
+    };
+    let Ok(vk) = VerifyingKey::from_bytes(&pk) else {
+        return false;
+    };
+    let Ok(sig) = Signature::from_slice(&sig) else {
+        return false;
+    };
     vk.verify(data.as_bytes(), &sig).is_ok()
 }
 
@@ -147,8 +176,13 @@ impl Drop for Slot<'_> {
 /// reach a private address.
 fn public_addrs(netloc: &str, allow_private: bool) -> std::io::Result<Vec<SocketAddr>> {
     let addrs: Vec<SocketAddr> = netloc.to_socket_addrs()?.collect();
-    if !allow_private && (addrs.is_empty() || addrs.iter().any(|a| wire::is_private(&a.ip().to_string()))) {
-        return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, format!("{netloc} points at a private address")));
+    if !allow_private
+        && (addrs.is_empty() || addrs.iter().any(|a| wire::is_private(&a.ip().to_string())))
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("{netloc} points at a private address"),
+        ));
     }
     Ok(addrs)
 }
@@ -161,7 +195,11 @@ fn local_name(host: &str) -> bool {
             rest.is_empty() || rest.starts_with(':')
         })
     };
-    host.starts_with("localhost") || host.starts_with("127.") || host.starts_with("[::1]") || tail(".localhost") || tail(".test")
+    host.starts_with("localhost")
+        || host.starts_with("127.")
+        || host.starts_with("[::1]")
+        || tail(".localhost")
+        || tail(".test")
 }
 
 pub trait Io: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
@@ -180,8 +218,22 @@ impl Transport {
     }
 
     fn build(allow_private: bool, host_header: bool, url_for: Option<UrlFor>) -> Self {
-        let agent = |secs: u64| crate::tls::agent().redirects(0).timeout(Duration::from_secs(secs)).resolver(move |netloc: &str| public_addrs(netloc, allow_private)).build();
-        Self { allow_private, host_header, url_for, agent: agent(15), bytes_agent: agent(30), busy: Mutex::new(0), freed: Condvar::new() }
+        let agent = |secs: u64| {
+            crate::tls::agent()
+                .redirects(0)
+                .timeout(Duration::from_secs(secs))
+                .resolver(move |netloc: &str| public_addrs(netloc, allow_private))
+                .build()
+        };
+        Self {
+            allow_private,
+            host_header,
+            url_for,
+            agent: agent(15),
+            bytes_agent: agent(30),
+            busy: Mutex::new(0),
+            freed: Condvar::new(),
+        }
     }
 
     fn slot(&self) -> Slot<'_> {
@@ -201,13 +253,24 @@ impl Transport {
         let name = strip_port(host);
         let ips: Vec<IpAddr> = match name.parse::<IpAddr>() {
             Ok(ip) => vec![ip],
-            Err(_) => (name, 0u16).to_socket_addrs().map(|a| a.map(|s| s.ip()).collect()).unwrap_or_default(),
+            Err(_) => (name, 0u16)
+                .to_socket_addrs()
+                .map(|a| a.map(|s| s.ip()).collect())
+                .unwrap_or_default(),
         };
         if ips.is_empty() {
-            return Err(fed_err(502, "SITE_UNREACHABLE", format!("Can't find {host}.")));
+            return Err(fed_err(
+                502,
+                "SITE_UNREACHABLE",
+                format!("Can't find {host}."),
+            ));
         }
         if ips.iter().any(|ip| wire::is_private(&ip.to_string())) {
-            return Err(fed_err(403, "PRIVATE_ADDRESS", format!("{host} points at a private address.")));
+            return Err(fed_err(
+                403,
+                "PRIVATE_ADDRESS",
+                format!("{host} points at a private address."),
+            ));
         }
         Ok(())
     }
@@ -227,10 +290,20 @@ impl Transport {
     }
 
     /// One request to another site: `{ status, data }`, data being the JSON reply or null.
-    pub fn request(&self, host: &str, path: &str, method: &str, headers: &[(String, String)], body: Option<&str>) -> FedResult<Reply> {
+    pub fn request(
+        &self,
+        host: &str,
+        path: &str,
+        method: &str,
+        headers: &[(String, String)],
+        body: Option<&str>,
+    ) -> FedResult<Reply> {
         let _slot = self.slot();
         self.check(host)?;
-        let mut req = self.agent.request(method, &self.url(host, path, false)).set("User-Agent", &format!("Commonveil ({PROTOCOL})"));
+        let mut req = self
+            .agent
+            .request(method, &self.url(host, path, false))
+            .set("User-Agent", &format!("Commonveil ({PROTOCOL})"));
         if self.host_header {
             req = req.set("X-Forwarded-Host", host);
         }
@@ -245,22 +318,50 @@ impl Transport {
             Ok(r) | Err(ureq::Error::Status(_, r)) => r,
             Err(ureq::Error::Transport(t)) => {
                 let slow = t.to_string().to_lowercase().contains("timed out");
-                return Err(fed_err(502, "SITE_UNREACHABLE", format!("Can't reach {host} right now.{}", if slow { " It took too long to answer." } else { "" })));
+                return Err(fed_err(
+                    502,
+                    "SITE_UNREACHABLE",
+                    format!(
+                        "Can't reach {host} right now.{}",
+                        if slow {
+                            " It took too long to answer."
+                        } else {
+                            ""
+                        }
+                    ),
+                ));
             }
         };
         let status = res.status();
         let too_large = || fed_err(502, "TOO_LARGE", format!("{host} sent too much."));
-        if res.header("content-length").and_then(|v| v.trim().parse::<f64>().ok()).is_some_and(|n| n > MAX_RESPONSE as f64) {
+        if res
+            .header("content-length")
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .is_some_and(|n| n > MAX_RESPONSE as f64)
+        {
             return Err(too_large());
         }
         // Counted as it arrives and cut off at the limit, whatever the length header said (CV-17).
         let mut raw = Vec::new();
-        res.into_reader().take(MAX_RESPONSE as u64 + 1).read_to_end(&mut raw).map_err(|_| fed_err(502, "SITE_UNREACHABLE", format!("Can't reach {host} right now.")))?;
+        res.into_reader()
+            .take(MAX_RESPONSE as u64 + 1)
+            .read_to_end(&mut raw)
+            .map_err(|_| {
+                fed_err(
+                    502,
+                    "SITE_UNREACHABLE",
+                    format!("Can't reach {host} right now."),
+                )
+            })?;
         if raw.len() > MAX_RESPONSE {
             return Err(too_large());
         }
         let text = String::from_utf8_lossy(&raw);
-        let data = if text.is_empty() { Value::Null } else { serde_json::from_str(&text).unwrap_or(Value::Null) };
+        let data = if text.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_str(&text).unwrap_or(Value::Null)
+        };
         Ok(Reply { status, data })
     }
 
@@ -277,43 +378,82 @@ impl Transport {
             return None;
         }
         let mut raw = Vec::new();
-        res.into_reader().take(MAX_FILE_PART as u64 + 1).read_to_end(&mut raw).ok()?;
+        res.into_reader()
+            .take(MAX_FILE_PART as u64 + 1)
+            .read_to_end(&mut raw)
+            .ok()?;
         (raw.len() <= MAX_FILE_PART).then_some(raw)
     }
 
     /// A WebSocket to a room on another site, with these headers (signed by the caller).
-    pub async fn websocket(&self, host: &str, path: &str, headers: &[(String, String)]) -> FedResult<Upstream> {
+    pub async fn websocket(
+        &self,
+        host: &str,
+        path: &str,
+        headers: &[(String, String)],
+    ) -> FedResult<Upstream> {
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-        let unreachable = || fed_err(502, "SITE_UNREACHABLE", format!("Can't reach {host} right now."));
+        let unreachable = || {
+            fed_err(
+                502,
+                "SITE_UNREACHABLE",
+                format!("Can't reach {host} right now."),
+            )
+        };
         let url = self.url(host, path, true);
         let parsed = url::Url::parse(&url).map_err(|_| unreachable())?;
         let secure = parsed.scheme() == "wss";
         let name = parsed.host_str().ok_or_else(unreachable)?.to_string();
         let port = parsed.port_or_known_default().ok_or_else(unreachable)?;
-        let (allow, host_owned, netloc) = (self.allow_private, host.to_string(), format!("{name}:{port}"));
+        let (allow, host_owned, netloc) = (
+            self.allow_private,
+            host.to_string(),
+            format!("{name}:{port}"),
+        );
         let me_check = Transport::new(allow);
         let addrs = tokio::task::spawn_blocking(move || -> FedResult<Vec<SocketAddr>> {
             me_check.check(&host_owned)?;
-            public_addrs(&netloc, allow).map_err(|_| fed_err(403, "PRIVATE_ADDRESS", format!("{host_owned} points at a private address.")))
+            public_addrs(&netloc, allow).map_err(|_| {
+                fed_err(
+                    403,
+                    "PRIVATE_ADDRESS",
+                    format!("{host_owned} points at a private address."),
+                )
+            })
         })
         .await
         .map_err(|_| unreachable())??;
         let mut tcp = None;
         for addr in addrs {
-            if let Ok(Ok(s)) = tokio::time::timeout(Duration::from_secs(10), tokio::net::TcpStream::connect(addr)).await {
+            if let Ok(Ok(s)) = tokio::time::timeout(
+                Duration::from_secs(10),
+                tokio::net::TcpStream::connect(addr),
+            )
+            .await
+            {
                 tcp = Some(s);
                 break;
             }
         }
         let tcp = tcp.ok_or_else(unreachable)?;
         let stream: Box<dyn Io> = if secure {
-            let server = rustls::pki_types::ServerName::try_from(name.clone()).map_err(|_| unreachable())?;
-            let tls = tokio::time::timeout(Duration::from_secs(10), tokio_rustls::TlsConnector::from(crate::tls::client_config()).connect(server, tcp)).await.map_err(|_| unreachable())?.map_err(|_| unreachable())?;
+            let server =
+                rustls::pki_types::ServerName::try_from(name.clone()).map_err(|_| unreachable())?;
+            let tls = tokio::time::timeout(
+                Duration::from_secs(10),
+                tokio_rustls::TlsConnector::from(crate::tls::client_config()).connect(server, tcp),
+            )
+            .await
+            .map_err(|_| unreachable())?
+            .map_err(|_| unreachable())?;
             Box::new(tls)
         } else {
             Box::new(tcp)
         };
-        let mut request = url.as_str().into_client_request().map_err(|_| unreachable())?;
+        let mut request = url
+            .as_str()
+            .into_client_request()
+            .map_err(|_| unreachable())?;
         let h = request.headers_mut();
         let mut all: Vec<(String, String)> = Vec::new();
         if self.host_header {
@@ -321,12 +461,23 @@ impl Transport {
         }
         all.extend_from_slice(headers);
         for (k, v) in all {
-            if let (Ok(k), Ok(v)) = (axum::http::HeaderName::from_bytes(k.as_bytes()), axum::http::HeaderValue::from_str(&v)) {
+            if let (Ok(k), Ok(v)) = (
+                axum::http::HeaderName::from_bytes(k.as_bytes()),
+                axum::http::HeaderValue::from_str(&v),
+            ) {
                 h.insert(k, v);
             }
         }
-        let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default().max_message_size(Some(64 * 1024)).max_frame_size(Some(64 * 1024));
-        let (ws, _) = tokio::time::timeout(Duration::from_secs(10), tokio_tungstenite::client_async_with_config(request, stream, Some(config))).await.map_err(|_| unreachable())?.map_err(|_| unreachable())?;
+        let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+            .max_message_size(Some(64 * 1024))
+            .max_frame_size(Some(64 * 1024));
+        let (ws, _) = tokio::time::timeout(
+            Duration::from_secs(10),
+            tokio_tungstenite::client_async_with_config(request, stream, Some(config)),
+        )
+        .await
+        .map_err(|_| unreachable())?
+        .map_err(|_| unreachable())?;
         Ok(ws)
     }
 }
@@ -355,7 +506,8 @@ impl Checked {
         match &self.reply {
             None => Ok(data.clone()),
             Some((key, context)) => {
-                let sealed = sealed::seal_reply(key, &js_stringify(data), context).map_err(|_| fed_err(500, "INTERNAL", "Something went wrong."))?;
+                let sealed = sealed::seal_reply(key, &js_stringify(data), context)
+                    .map_err(|_| fed_err(500, "INTERNAL", "Something went wrong."))?;
                 Ok(json!({ "sealed": sealed }))
             }
         }
@@ -383,12 +535,33 @@ impl Signer {
             Ok(())
         })
         .map_err(|e| e.to_string())?;
-        Ok(Self { host: host.into(), key: site_key(store)?, transport, relay: Mutex::new(None), nonces: Mutex::new(HashMap::new()), docs: Mutex::new(HashMap::new()) })
+        Ok(Self {
+            host: host.into(),
+            key: site_key(store)?,
+            transport,
+            relay: Mutex::new(None),
+            nonces: Mutex::new(HashMap::new()),
+            docs: Mutex::new(HashMap::new()),
+        })
     }
 
     fn site_row(&self, store: &Store, host: &str) -> Option<SiteRow> {
         store.with_db(|db| {
-            db.query_row("SELECT key, first_seen, blocked, pq FROM fed_sites WHERE host = ?", [host], |r| Ok(SiteRow { key: r.get(0)?, first_seen: r.get(1)?, blocked: r.get::<_, i64>(2)? != 0, pq: r.get(3)? })).optional().ok().flatten()
+            db.query_row(
+                "SELECT key, first_seen, blocked, pq FROM fed_sites WHERE host = ?",
+                [host],
+                |r| {
+                    Ok(SiteRow {
+                        key: r.get(0)?,
+                        first_seen: r.get(1)?,
+                        blocked: r.get::<_, i64>(2)? != 0,
+                        pq: r.get(3)?,
+                    })
+                },
+            )
+            .optional()
+            .ok()
+            .flatten()
         })
     }
 
@@ -396,10 +569,14 @@ impl Signer {
     pub fn relay_keys(&self, store: &Store) -> FedResult<Value> {
         let mut made = self.relay.lock().unwrap_or_else(|e| e.into_inner());
         if made.is_none() {
-            let saved = match store.get_setting("federation:relay-keys").filter(|v| truthy(Some(v))) {
+            let saved = match store
+                .get_setting("federation:relay-keys")
+                .filter(|v| truthy(Some(v)))
+            {
                 Some(s) => s,
                 None => {
-                    let k = sealed::generate_keys().map_err(|_| fed_err(500, "INTERNAL", "Something went wrong."))?;
+                    let k = sealed::generate_keys()
+                        .map_err(|_| fed_err(500, "INTERNAL", "Something went wrong."))?;
                     store.set_setting("federation:relay-keys", Some(&k));
                     k
                 }
@@ -416,14 +593,32 @@ impl Signer {
     }
 
     /// The headers of a signed request: Ed25519 and ML-DSA-65 over the same base.
-    pub fn headers(&self, store: &Store, method: &str, to: &str, path: &str, body: &str, user: Option<&str>) -> FedResult<Vec<(String, String)>> {
+    pub fn headers(
+        &self,
+        store: &Store,
+        method: &str,
+        to: &str,
+        path: &str,
+        body: &str,
+        user: Option<&str>,
+    ) -> FedResult<Vec<(String, String)>> {
         let date = crate::shared::iso(now_ms());
         let nonce = b64u(&crate::crypto::random_bytes(16));
         let digest = wire::digest_of(body.as_bytes());
         let user = user.unwrap_or("");
-        let base = wire::signature_base(&RequestFields { method, to, path, from: &self.host, date: &date, nonce: &nonce, digest: &digest, user });
+        let base = wire::signature_base(&RequestFields {
+            method,
+            to,
+            path,
+            from: &self.host,
+            date: &date,
+            nonce: &nonce,
+            digest: &digest,
+            user,
+        });
         let relay = self.relay_keys(store)?;
-        let pq = sealed::sign(relay["sig"]["secret"].as_str().unwrap_or(""), &base).map_err(|_| fed_err(500, "INTERNAL", "Something went wrong."))?;
+        let pq = sealed::sign(relay["sig"]["secret"].as_str().unwrap_or(""), &base)
+            .map_err(|_| fed_err(500, "INTERNAL", "Something went wrong."))?;
         let mut out = vec![
             ("CV-From".to_string(), self.host.clone()),
             ("CV-Date".into(), date),
@@ -439,14 +634,24 @@ impl Signer {
     }
 
     /// POST JSON to another site, signed, and sealed for it if it publishes relay keys.
-    pub fn post(&self, store: &Store, to: &str, path: &str, payload: &Value, user: Option<&str>) -> FedResult<Reply> {
+    pub fn post(
+        &self,
+        store: &Store,
+        to: &str,
+        path: &str,
+        payload: &Value,
+        user: Option<&str>,
+    ) -> FedResult<Reply> {
         self.refuse_blocked(store, to)?;
         let mut body = js_stringify(payload);
         let peer = sealed::relay_keys_of(&self.site_doc(store, to)?);
         let context = sealed::relay_context(&self.host, to, path);
         let mut reply_key = None;
         if let Some(p) = &peer {
-            let (s, key) = sealed::seal(p["kem"].as_str().unwrap_or(""), &body, &context).map_err(|_| fed_err(502, "SITE_ERROR", format!("{to}'s relay key isn't usable.")))?;
+            let (s, key) =
+                sealed::seal(p["kem"].as_str().unwrap_or(""), &body, &context).map_err(|_| {
+                    fed_err(502, "SITE_ERROR", format!("{to}'s relay key isn't usable."))
+                })?;
             body = json!({ "sealed": s }).to_string();
             reply_key = Some(key);
         }
@@ -455,36 +660,65 @@ impl Signer {
             headers.push(("CV-Sealed".into(), "1".into()));
         }
         headers.extend(self.headers(store, "POST", to, path, &body, user)?);
-        let r = self.transport.request(to, path, "POST", &headers, Some(&body))?;
+        let r = self
+            .transport
+            .request(to, path, "POST", &headers, Some(&body))?;
         let Some(key) = reply_key else { return Ok(r) };
         if let Some(s) = r.data.get("sealed").and_then(Value::as_str) {
-            let opened = sealed::open_reply(&key, s, &context).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
+            let opened = sealed::open_reply(&key, s, &context)
+                .ok()
+                .and_then(|t| serde_json::from_str::<Value>(&t).ok());
             return match opened {
-                Some(data) => Ok(Reply { status: r.status, data }),
-                None => Err(fed_err(502, "SITE_ERROR", format!("{to}'s reply couldn't be opened."))),
+                Some(data) => Ok(Reply {
+                    status: r.status,
+                    data,
+                }),
+                None => Err(fed_err(
+                    502,
+                    "SITE_ERROR",
+                    format!("{to}'s reply couldn't be opened."),
+                )),
             };
         }
         // A refusal before the request was opened comes back plain; an answer never does.
         if r.status < 400 {
-            return Err(fed_err(502, "SITE_ERROR", format!("{to} answered a sealed request in the clear.")));
+            return Err(fed_err(
+                502,
+                "SITE_ERROR",
+                format!("{to} answered a sealed request in the clear."),
+            ));
         }
         Ok(r)
     }
 
     /// Where one of a site's endpoints is, from its site document (act, directory, inbox, ...).
     pub fn endpoint(&self, store: &Store, host: &str, name: &str) -> FedResult<String> {
-        Ok(wire::endpoints_of(&self.site_doc(store, host)?)[name].as_str().unwrap_or("").to_string())
+        Ok(wire::endpoints_of(&self.site_doc(store, host)?)[name]
+            .as_str()
+            .unwrap_or("")
+            .to_string())
     }
 
     /// POST to one of a site's endpoints by name, wherever that site keeps it.
-    pub fn send(&self, store: &Store, to: &str, name: &str, payload: &Value, user: Option<&str>) -> FedResult<Reply> {
+    pub fn send(
+        &self,
+        store: &Store,
+        to: &str,
+        name: &str,
+        payload: &Value,
+        user: Option<&str>,
+    ) -> FedResult<Reply> {
         let path = self.endpoint(store, to, name)?;
         self.post(store, to, &path, payload, user)
     }
 
     fn refuse_blocked(&self, store: &Store, host: &str) -> FedResult<()> {
         if self.site_row(store, host).is_some_and(|r| r.blocked) {
-            return Err(fed_err(403, "SITE_BLOCKED", format!("This site doesn't talk to {host}.")));
+            return Err(fed_err(
+                403,
+                "SITE_BLOCKED",
+                format!("This site doesn't talk to {host}."),
+            ));
         }
         Ok(())
     }
@@ -493,29 +727,61 @@ impl Signer {
     pub fn site_doc(&self, store: &Store, host: &str) -> FedResult<Value> {
         let host = norm_host(host)?;
         let now = now_ms();
-        if let Some((doc, at)) = self.docs.lock().unwrap_or_else(|e| e.into_inner()).get(&host) {
+        if let Some((doc, at)) = self
+            .docs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&host)
+        {
             if now - at < DOC_TTL_MS {
                 return Ok(doc.clone());
             }
         }
-        let r = self.transport.request(&host, SITE_DOCUMENT, "GET", &[], None)?;
+        let r = self
+            .transport
+            .request(&host, SITE_DOCUMENT, "GET", &[], None)?;
         let d = &r.data;
-        if r.status != 200 || d["protocol"] != PROTOCOL || d["host"] != host.as_str() || !d["key"]["public"].is_string() {
-            return Err(fed_err(502, "NOT_A_SITE", format!("{host} isn't a Commonveil site, or doesn't talk to other sites.")));
+        if r.status != 200
+            || d["protocol"] != PROTOCOL
+            || d["host"] != host.as_str()
+            || !d["key"]["public"].is_string()
+        {
+            return Err(fed_err(
+                502,
+                "NOT_A_SITE",
+                format!("{host} isn't a Commonveil site, or doesn't talk to other sites."),
+            ));
         }
         let pinned = self.site_row(store, &host);
         let relay_now = sealed::relay_keys_of(d).unwrap_or(Value::Null);
-        let relay_was: Value = pinned.as_ref().and_then(|p| p.pq.as_deref()).and_then(|t| serde_json::from_str(t).ok()).unwrap_or(Value::Null);
+        let relay_was: Value = pinned
+            .as_ref()
+            .and_then(|p| p.pq.as_deref())
+            .and_then(|t| serde_json::from_str(t).ok())
+            .unwrap_or(Value::Null);
         let public = d["key"]["public"].as_str().unwrap_or("").to_string();
         if let Some(p) = &pinned {
-            if p.key != "-" && (p.key != public || !sealed::relay_keys_acceptable(&relay_was, &relay_now)) {
+            if p.key != "-"
+                && (p.key != public || !sealed::relay_keys_acceptable(&relay_was, &relay_now))
+            {
                 eprintln!("[federation] {host} now presents a different key; refusing it until an admin accepts the change");
                 return Err(fed_err(403, "SITE_KEY_CHANGED", format!("{host}'s key changed. An admin of this site has to accept the change first.")));
             }
         }
         let at = crate::shared::iso(now);
-        let name = js_slice(&if truthy(d.get("name")) { to_js_string(d.get("name")) } else { String::new() }, 80);
-        let handle_domain = if truthy(d.get("handle_domain")) { to_js_string(d.get("handle_domain")) } else { host.clone() };
+        let name = js_slice(
+            &if truthy(d.get("name")) {
+                to_js_string(d.get("name"))
+            } else {
+                String::new()
+            },
+            80,
+        );
+        let handle_domain = if truthy(d.get("handle_domain")) {
+            to_js_string(d.get("handle_domain"))
+        } else {
+            host.clone()
+        };
         let first_seen = pinned.as_ref().map_or(at.clone(), |p| p.first_seen.clone());
         store.with_db(|db| -> rusqlite::Result<()> {
             db.execute("INSERT INTO fed_sites (host, key, name, handle_domain, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(host) DO UPDATE SET name = excluded.name, handle_domain = excluded.handle_domain, last_seen = excluded.last_seen", params![host, public, name, handle_domain, first_seen, at])?;
@@ -529,12 +795,22 @@ impl Signer {
             Ok(())
         })
         .map_err(|_| fed_err(500, "INTERNAL", "Something went wrong."))?;
-        self.docs.lock().unwrap_or_else(|e| e.into_inner()).insert(host, (r.data.clone(), now));
+        self.docs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(host, (r.data.clone(), now));
         Ok(r.data)
     }
 
     /// Check a signed request from another site. `h` reads a request header (lower-case name).
-    pub fn verify(&self, store: &Store, method: &str, h: &dyn Fn(&str) -> String, body: &str, path: &str) -> FedResult<Checked> {
+    pub fn verify(
+        &self,
+        store: &Store,
+        method: &str,
+        h: &dyn Fn(&str) -> String,
+        body: &str,
+        path: &str,
+    ) -> FedResult<Checked> {
         let from = norm_host(&h("cv-from"))?;
         if from == self.host {
             return Err(fed_err(400, "SELF", "A site doesn't talk to itself."));
@@ -547,32 +823,74 @@ impl Signer {
             return Err(fed_err(401, "STALE", "The request's time is off."));
         }
         let nonce = h("cv-nonce");
-        if !(16..=64).contains(&nonce.len()) || !nonce.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+        if !(16..=64).contains(&nonce.len())
+            || !nonce
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        {
             return Err(fed_err(401, "BAD_SIGNATURE", "Missing nonce."));
         }
         let seen = format!("{from}:{nonce}");
-        if self.nonces.lock().unwrap_or_else(|e| e.into_inner()).contains_key(&seen) {
+        if self
+            .nonces
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(&seen)
+        {
             return Err(fed_err(401, "REPLAY", "That request was already used."));
         }
         let digest = h("cv-digest");
         if digest != wire::digest_of(body.as_bytes()) {
-            return Err(fed_err(401, "BAD_DIGEST", "The body doesn't match its digest."));
+            return Err(fed_err(
+                401,
+                "BAD_DIGEST",
+                "The body doesn't match its digest.",
+            ));
         }
         let doc = self.site_doc(store, &from)?;
         let user = h("cv-user");
-        let base = wire::signature_base(&RequestFields { method, to: &self.host, path, from: &from, date: &date, nonce: &nonce, digest: &digest, user: &user });
-        if !verify_ed25519(doc["key"]["public"].as_str().unwrap_or(""), &base, &h("cv-signature")) {
-            return Err(fed_err(401, "BAD_SIGNATURE", "The signature didn't verify."));
+        let base = wire::signature_base(&RequestFields {
+            method,
+            to: &self.host,
+            path,
+            from: &from,
+            date: &date,
+            nonce: &nonce,
+            digest: &digest,
+            user: &user,
+        });
+        if !verify_ed25519(
+            doc["key"]["public"].as_str().unwrap_or(""),
+            &base,
+            &h("cv-signature"),
+        ) {
+            return Err(fed_err(
+                401,
+                "BAD_SIGNATURE",
+                "The signature didn't verify.",
+            ));
         }
         // A site that publishes relay keys is held to them: both signatures, and sealed bodies.
         let peer = sealed::relay_keys_of(&doc);
         let is_sealed = h("cv-sealed") == "1";
         if let Some(p) = &peer {
-            if !sealed::verify(p["sig"].as_str().unwrap_or(""), &base, &h("cv-pq-signature")) {
-                return Err(fed_err(401, "BAD_SIGNATURE", "The post-quantum signature didn't verify."));
+            if !sealed::verify(
+                p["sig"].as_str().unwrap_or(""),
+                &base,
+                &h("cv-pq-signature"),
+            ) {
+                return Err(fed_err(
+                    401,
+                    "BAD_SIGNATURE",
+                    "The post-quantum signature didn't verify.",
+                ));
             }
             if method == "POST" && !is_sealed {
-                return Err(fed_err(401, "UNSEALED", "This site only takes sealed requests from that site."));
+                return Err(fed_err(
+                    401,
+                    "UNSEALED",
+                    "This site only takes sealed requests from that site.",
+                ));
             }
         }
         {
@@ -583,15 +901,34 @@ impl Signer {
             }
         }
         if !is_sealed {
-            return Ok(Checked { from, user, body: body.into(), reply: None });
+            return Ok(Checked {
+                from,
+                user,
+                body: body.into(),
+                reply: None,
+            });
         }
         // Opened only now that it's known who sent it. The reply goes back under the request's own key.
         let context = sealed::relay_context(&from, &self.host, path);
         let relay = self.relay_keys(store)?;
-        let opened = serde_json::from_str::<Value>(body).ok().and_then(|outer| outer["sealed"].as_str().map(String::from)).and_then(|s| sealed::open(relay["kem"]["secret"].as_str().unwrap_or(""), &s, &context).ok());
+        let opened = serde_json::from_str::<Value>(body)
+            .ok()
+            .and_then(|outer| outer["sealed"].as_str().map(String::from))
+            .and_then(|s| {
+                sealed::open(relay["kem"]["secret"].as_str().unwrap_or(""), &s, &context).ok()
+            });
         match opened {
-            Some((text, key)) => Ok(Checked { from, user, body: text, reply: Some((key, context)) }),
-            None => Err(fed_err(400, "CANNOT_OPEN", "That request wasn't sealed for this site.")),
+            Some((text, key)) => Ok(Checked {
+                from,
+                user,
+                body: text,
+                reply: Some((key, context)),
+            }),
+            None => Err(fed_err(
+                400,
+                "CANNOT_OPEN",
+                "That request wasn't sealed for this site.",
+            )),
         }
     }
 
@@ -621,15 +958,26 @@ impl Signer {
             Ok(())
         })
         .map_err(|_| fed_err(500, "INTERNAL", "Something went wrong."))?;
-        self.docs.lock().unwrap_or_else(|e| e.into_inner()).remove(&host);
+        self.docs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&host);
         Ok(())
     }
 
     /// Accept a site's new key (after an admin checked the change was expected).
     pub fn forget(&self, store: &Store, host: &str) -> FedResult<()> {
         let host = norm_host(host)?;
-        store.with_db(|db| db.execute("DELETE FROM fed_sites WHERE host = ?", [&host]).map(|_| ())).map_err(|_| fed_err(500, "INTERNAL", "Something went wrong."))?;
-        self.docs.lock().unwrap_or_else(|e| e.into_inner()).remove(&host);
+        store
+            .with_db(|db| {
+                db.execute("DELETE FROM fed_sites WHERE host = ?", [&host])
+                    .map(|_| ())
+            })
+            .map_err(|_| fed_err(500, "INTERNAL", "Something went wrong."))?;
+        self.docs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&host);
         Ok(())
     }
 }
@@ -640,12 +988,23 @@ mod tests {
 
     #[test]
     fn local_names_get_plain_http_only_when_private_addresses_are_allowed() {
-        for (host, local) in [("localhost:3000", true), ("127.0.0.1", true), ("a.test", true), ("a.test:80", true), ("a.testing", false), ("x.localhost", true), ("example.org", false)] {
+        for (host, local) in [
+            ("localhost:3000", true),
+            ("127.0.0.1", true),
+            ("a.test", true),
+            ("a.test:80", true),
+            ("a.testing", false),
+            ("x.localhost", true),
+            ("example.org", false),
+        ] {
             assert_eq!(local_name(host), local, "{host}");
         }
         let open = Transport::new(true);
         assert_eq!(open.url("a.test:8080", "/x", true), "ws://a.test:8080/x");
-        assert_eq!(Transport::new(false).url("a.test", "/x", false), "https://a.test/x");
+        assert_eq!(
+            Transport::new(false).url("a.test", "/x", false),
+            "https://a.test/x"
+        );
     }
 
     #[test]
@@ -660,7 +1019,10 @@ mod tests {
     #[test]
     fn signatures_check_out() {
         let seed = [7u8; 32];
-        let key = SiteKey { public: b64u(SigningKey::from_bytes(&seed).verifying_key().as_bytes()), signing: SigningKey::from_bytes(&seed) };
+        let key = SiteKey {
+            public: b64u(SigningKey::from_bytes(&seed).verifying_key().as_bytes()),
+            signing: SigningKey::from_bytes(&seed),
+        };
         let sig = key.sign("hello");
         assert!(verify_ed25519(&key.public, "hello", &sig));
         assert!(!verify_ed25519(&key.public, "hellO", &sig));
