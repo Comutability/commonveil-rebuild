@@ -42,7 +42,11 @@ export default function ProtocolIdentitySettings() {
             verification. The browser has an experimental, device-only encrypted reconciliation
             report helper, while the newer signed transfer and reconciliation checks run in the
             Rust development backend. Neither is wired into a live account migration flow.
-            An independently reviewed recipient-device authorisation and importer are still required.
+            The self-hosted experimental staging backend can now check and store a separately
+            signed recipient-device request and identity-owner approval, but both private-test
+            switches are off by default. The device's private encryption key is not proven
+            by these signatures, and neither a device enrolment nor an importer is available.
+            Independent review and a secure recipient-key possession test are still required.
           </p>
           <p className="text-muted-foreground">
             Your existing messages, contacts, keys and routing are not changed by viewing

@@ -59,12 +59,44 @@ requires Authorization: Bearer with the secret token returned by prepare.
 10. POST /stages/{id}/abort deletes only staged data and its signed receipt.
     Existing source accounts, keys and inbox routes are never changed.
 
+11. POST /stages/{id}/recipient-consent is exposed only when both
+    EXPERIMENTAL_TRANSFER_STAGING=true and EXPERIMENTAL_RECIPIENT_CONSENT=true
+    on a **private, disposable test server**. It requires all opaque archive
+    chunks to have been staged. A bearer-authorised client submits exactly
+    owner_public, a hybrid-signed transfer.recipient-request and a separately
+    hybrid-signed transfer.recipient-grant. The independent Secure Net
+    verifier checks the actual actor owner, destination, stage, root,
+    challenge, signed request, recipient ID, MLKEM768-P256 **public** key,
+    lifetimes and rejection of extra fields. The service stores only the
+    signed public authorisation records, not private KEM seeds.
+12. GET /stages/{id}/recipient-consent returns the two signed records to
+    the stage bearer, including after a server restart. Repeating identical
+    records is idempotent; a different recipient, device key or grant cannot
+    overwrite an existing stage. Aborting staging removes the records.
+    Status uses recipient_consent_staged, recipient_key_proven=false and
+    device_enrolled=false. The public site advertises **no** migration
+    capability. Signed owner consent is NOT device enrolment or recipient
+    KEM-key possession, and no history key has been wrapped or transferred.
+
 The separate SQLite staging database uses FULL synchronous transactions,
 foreign-key cascade cleanup and restricted 0600 file permissions in a
 private data directory. Bounds: 64 chunks of 256 KiB, 16 MiB total archive
 ciphertext, one 64 KiB private report, eight active stages, 32 pending
 challenges, two per actor and one-hour stage expiry. This is **not** enough
 for a complete real-world history migration.
+
+## Separate recipient consent feature gate
+
+The Secure Net draft fe44f0d adds a separate one-use KEM private-key
+possession verifier, but that verifier currently retains its challenge
+state only in memory. Commonveil **does not expose** the possession
+offer/proof workflow as a network endpoint. The signed consent store
+above is one step earlier: it records owner-authorised public device keys,
+without claiming that the corresponding private key is present.
+
+Both experiment flags default to false in Docker Compose, the sample
+operator environment and CI. Never enable either on a production site
+or a shared account volume. Neither feature is a working account move.
 
 ## Client-side encrypted reconciliation reports
 

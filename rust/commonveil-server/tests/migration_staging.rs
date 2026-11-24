@@ -600,3 +600,35 @@ fn recipient_and_owner_signatures_are_stored_across_restart_without_migration() 
     let (code, gone) = post(restarted.1, "GET", &path, &token, "");
     assert_eq!(code, 404, "{gone}");
 }
+
+#[test]
+fn recipient_consent_route_requires_separate_explicit_operator_opt_in() {
+    let dir = tempdir().unwrap();
+    let owner = SigningKey::generate(true);
+    let server = start_with(
+        false,
+        dir.path(),
+        &[("EXPERIMENTAL_TRANSFER_STAGING", "true".into())],
+    );
+    let ticket = prepare(server.1, &owner, &["opaque sealed archive"], 1);
+    let id = ticket["stage_id"].as_str().unwrap();
+    let token = ticket["stage_token"].as_str().unwrap();
+    let path = format!("/cvp/v2/experimental-transfer/stages/{id}/recipient-consent");
+    let (code, denied) = post(server.1, "GET", &path, token, "");
+    assert_eq!(code, 404, "{denied}");
+    let (code, denied) = post(server.1, "POST", &path, token, "{}");
+    assert_eq!(code, 404, "{denied}");
+    // Ordinary staging remains functional, and still cannot import or move
+    // an account when the recipient-consent experiment is off.
+    let (code, status) = post(
+        server.1,
+        "POST",
+        &format!("/cvp/v2/experimental-transfer/stages/{id}/status"),
+        token,
+        "{}",
+    );
+    assert_eq!(code, 200, "{status}");
+    assert_eq!(status["recipient_consent_staged"], false);
+    assert_eq!(status["device_enrolled"], false);
+    assert_eq!(status["cutover"], false);
+}

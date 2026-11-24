@@ -142,3 +142,26 @@ is deliberately unchanged. **No public live account migration is enabled**.
 SNIP-0007 is still a draft, and Secure Net's public CVP capability
 advertisement is unchanged. Passing CI does not replace an independent
 cryptographic review or cross-implementation import/decryption tests.
+
+
+## Secure Net recipient-grant draft integration (Commonveil 0.24.16)
+
+The self-hosted Rust server, Rust browser client core and Docker build pin
+experimental Secure Net revision fe44f0d09c77d941a92fbf319a7deaeb6947bf69.
+This includes independently signed transfer.recipient-request,
+transfer.recipient-grant and a prototype KEM possession verifier. Only
+the first two signed public authorisation records are accepted by the
+Commonveil Rust stage service, behind **two separate private-test gates**.
+The service checks the signed recipient public MLKEM768-P256 key with the
+provider-neutral Secure Net verifier, persists identical request/grant
+records in the existing FULL-synchronous SQLite staging database, and
+returns them after restart. Conflicting replacements and unauthorised
+bearer access are refused. Abort removes the records with the stage.
+
+No KEM possession proof is accepted or claimed: that protocol helper is
+still in-memory-only and requires a crash-safe, one-use implementation
+before cross-instance use. No history keys, cryptographic session secrets,
+live account ownership or inbox routing change in this release. Docker
+Compose and its CI require both EXPERIMENTAL_TRANSFER_STAGING=false
+and EXPERIMENTAL_RECIPIENT_CONSENT=false by default. The public hosted
+application only clarifies the protocol readiness status.
