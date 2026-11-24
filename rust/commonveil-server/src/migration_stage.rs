@@ -18,7 +18,7 @@ use secure_net_core::transfer::{
     encrypted_report_digest as protocol_encrypted_report_digest,
     verify_intent as protocol_verify_intent,
     verify_reconciliation as protocol_verify_reconciliation, Chunk as ProtocolChunk,
-    ExpectedReconciliation, MAX_REPORT_BYTES, MIN_REPORT_BYTES,
+    ExpectedReconciliation, MAX_REPORT_BYTES,
 };
 use secure_net_core::wire::federation::norm_host;
 use serde_json::{json, Value};
