@@ -14,7 +14,7 @@ async function find(sr:any) {
 }
 const list=async(sr:any)=>{
   const policy=await find(sr);
-  const domains=await sr.entities.SiteDomainRule.list("created_date",MAX_DOMAINS);
+  const domains=await sr.entities.SiteDomainRule.filter({},"created_date",MAX_DOMAINS);
   return {policy:policyOf(policy),domains:domains.map((d:any)=>({
     domain:d.domain,severity:d.severity,public_reason:d.public_reason||"",private_note:d.private_note||"",updated_at:d.updated_at,
   }))};
@@ -37,7 +37,7 @@ export const sitePolicyActions:Actions={
     manager(user);
     const data=validateDomainRule(body.rule);
     const existing=await sr.entities.SiteDomainRule.filter({domain:data.domain},"created_date",5);
-    if(!existing.length && (await sr.entities.SiteDomainRule.list("created_date",MAX_DOMAINS+1)).length>=MAX_DOMAINS){
+    if(!existing.length && (await sr.entities.SiteDomainRule.filter({},"created_date",MAX_DOMAINS+1)).length>=MAX_DOMAINS){
       throw new ApiError(409,"DOMAIN_LIMIT","This site has reached its domain-rule limit.");
     }
     const row={...data,updated_by:user.id,updated_at:now.toISOString()};
@@ -57,7 +57,7 @@ export const sitePolicyActions:Actions={
 export async function publicSiteRules(sr:any) {
   const policy=policyOf(await find(sr));
   const domains=policy.show_domain_blocks
-    ? (await sr.entities.SiteDomainRule.list("created_date",MAX_DOMAINS)).filter((d:any)=>d.severity==="suspend"||d.severity==="limit")
+    ? (await sr.entities.SiteDomainRule.filter({},"created_date",MAX_DOMAINS)).filter((d:any)=>d.severity==="suspend"||d.severity==="limit")
       .map((d:any)=>({domain:d.domain,severity:d.severity,reason:d.public_reason||""}))
     : [];
   return {rules:policy.public_rules,contact:policy.contact,registration_open:policy.registration_open,
