@@ -7,7 +7,11 @@
 //!
 //! Events: an event's details are one encrypted item, and so is each answer. The service stores
 //! both without reading them; it knows a server has an event, and which members answered.
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
+use hmac::{Hmac, Mac};
 use serde_json::{json, Value};
+use sha1::Sha1;
 
 use crate::api::{id, random_id_field, Actions, ApiError, Ctx, Limits, Result};
 use crate::db::{id_of, Db};
@@ -24,6 +28,41 @@ pub const VOICE_TICKET_SECONDS: i64 = 60;
 pub const VOICE_TICKETS_PER_MINUTE: usize = 6;
 pub const EVENTS_PER_SERVER: usize = 50;
 pub const RSVPS_LISTED: usize = 2000;
+
+/// coturn REST API credentials for configured relay servers. The user ID
+/// contains no name, email or IP; the long operator secret never reaches a
+/// client. Disabled when the operator has not provided a valid configuration.
+fn turn_ice_servers(user_id: &str) -> Value {
+    let secret = std::env::var("VOICE_TURN_SECRET")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let urls_raw = std::env::var("VOICE_TURN_URLS").unwrap_or_default();
+    let urls: Vec<&str> = urls_raw
+        .split(',')
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+        .collect();
+    if secret.len() < 32 || urls.is_empty() {
+        return json!([]);
+    }
+    let url_pattern =
+        regex::Regex::new(r"^turns?:[A-Za-z0-9.-]+(?::[0-9]{1,5})?(?:\?transport=(?:udp|tcp))?$")
+            .expect("static TURN URL pattern");
+    if urls.iter().any(|url| !url_pattern.is_match(url)) {
+        return json!([]);
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let username = format!("{}:{user_id}", now + 6 * 60 * 60);
+    let mut mac =
+        Hmac::<Sha1>::new_from_slice(secret.as_bytes()).expect("HMAC accepts a shared secret");
+    mac.update(username.as_bytes());
+    let credential = STANDARD.encode(mac.finalize().into_bytes());
+    json!([{ "urls": urls, "username": username, "credential": credential }])
+}
 
 /// The actor room for a voice or stage channel's call.
 pub fn voice_room_id(server_id: &str, channel_id: &str) -> String {
@@ -94,6 +133,7 @@ fn issue(
     Ok(json!({
         "ticket": row["id"], "room": room, "can_speak": can_speak, "can_moderate": can_moderate, "stage": stage,
         "max_people": if stage { VOICE_PER_STAGE } else { VOICE_PER_CALL },
+        "turn_servers": turn_ice_servers(&uid),
     }))
 }
 
