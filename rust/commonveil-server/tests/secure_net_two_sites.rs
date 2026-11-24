@@ -39,10 +39,10 @@ fn launch(dir: &Path, port: u16) -> Server {
         .stderr(Stdio::null());
     let server = Server(command.spawn().unwrap(), port);
     for _ in 0..110 {
-        if TcpListener::bind(("127.0.0.1", port)).is_err() {
-            if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-                return server;
-            }
+        if TcpListener::bind(("127.0.0.1", port)).is_err()
+            && std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()
+        {
+            return server;
         }
         std::thread::sleep(Duration::from_millis(80));
     }
