@@ -1296,7 +1296,9 @@ test("the proposals forum: a thread for every SNIP on GitHub, made and closed by
     assert.deepEqual(cachedPlan.map((step) => step.snip.id), ["SNIP-0001"]);
     assert.equal(cachedPlan[0].snip.closed, false);
     assert.equal(cachedPlan[0].cached, true);
-    assert.deepEqual(planSnipSync({ ...stale, threads: { "SNIP-0001": { locked: false }, "SNIP-0002": { locked: false } } }), []);
+    const remaining = planSnipSync({ ...stale, threads: { "SNIP-0001": { locked: false }, "SNIP-0002": { locked: false } } });
+    assert.ok(remaining.every(step => step.do === "post"), "a stale GitHub result can never close a thread");
+    assert.deepEqual(planSnipSync({ ...stale, threads: Object.fromEntries(stale.snips.map(s => [s.id, { locked: false }])) }), []);
     assert.deepEqual(planSnipSync({ ...stale, threads: {}, fetched_at: new Date(Date.now() - 2*24*60*60_000).toISOString() }), []);
     refresh();
     await owner.fails("snips", { action: "status" }, "GITHUB_UNAVAILABLE");
