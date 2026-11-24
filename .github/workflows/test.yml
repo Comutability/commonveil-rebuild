@@ -103,6 +103,8 @@ jobs:
         run: |
           label=$(docker image inspect commonveil:ci --format '{{ index .Config.Labels "org.opencontainers.image.secure-net.transfer" }}')
           test "$label" = experimental-disabled-by-default
+          role=$(docker image inspect commonveil:ci --format '{{ index .Config.Labels "org.opencontainers.image.secure-net.role" }}')
+          test "$role" = commonveil-application-not-generic-cvp-relay
           pinned=$(sed -n 's/^secure-net-core = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' rust/Cargo.toml)
           test "$(printf '%s' "$pinned" | wc -c)" -eq 40
           grep -q "$pinned" rust/Cargo.lock

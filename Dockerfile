@@ -62,7 +62,8 @@ ARG COMMONVEIL_VERSION=""
 # The migration staging service still defaults to disabled in the Rust server.
 ARG SECURE_NET_REV="not-specified"
 LABEL org.opencontainers.image.secure-net.commit="${SECURE_NET_REV}" \
-      org.opencontainers.image.secure-net.transfer="experimental-disabled-by-default"
+      org.opencontainers.image.secure-net.transfer="experimental-disabled-by-default" \
+      org.opencontainers.image.secure-net.role="commonveil-application-not-generic-cvp-relay"
 LABEL org.opencontainers.image.title="Commonveil" \
       org.opencontainers.image.description="End-to-end encrypted chat and communities you can run yourself" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \

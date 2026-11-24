@@ -7,6 +7,13 @@ site gets its own accounts, and can talk to other Commonveil sites (see `docs/FE
 This guide covers: what you need, installing, settings, accounts and admins, updates, backups,
 talking to other sites, running a site with no internet, and troubleshooting.
 
+**Secure Net is independent of Commonveil.** This Docker stack installs
+Commonveil, the first application to adopt the protocol. It is NOT a
+generic Secure Net relay appliance and has not yet demonstrated live,
+third-party CVP-019 outbox/inbox/deliver interoperation. See
+SECURE_NET_INTEGRATION.md for the independent developer and relay model.
+Commonveil's older version 1 federation remains available separately.
+
 ## What you need
 
 - A computer that stays on: a small VPS, a home server or a Raspberry Pi 4 or 5 is plenty for a
@@ -43,7 +50,7 @@ The stack has three containers:
 
 | Container | What it does |
 | --- | --- |
-| `app` | Commonveil: the site, sign-in, the backend, realtime rooms and the Commonveil Protocol, served by one program written in Rust (`commonveil-server`). Data lives in the `data` volume. |
+| App | Commonveil login, messaging, realtime rooms and existing Commonveil federation, backed by independent Secure Net Rust protocol code. Not a generic CVP-019 relay. Data lives in the Docker volume. |
 | `caddy` | HTTPS. Gets and renews certificates by itself, including one for each person's address the first time it's visited (only for accounts that exist: it asks the app). |
 | `updater` | Applies updates when an admin asks, or automatically if you turn that on. It's the only container with access to Docker. |
 

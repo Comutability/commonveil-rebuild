@@ -1,4 +1,16 @@
-# The Commonveil Protocol (`commonveil/1`)
+# Commonveil legacy federation (application compatibility)
+
+> This document describes Commonveil-specific federation between Commonveil
+> sites. The Commonveil version 1 API is NOT Secure Net's independent
+> CVP-019 outbox/deliver/mailbox transport. Secure Net is an open, separately
+> governed protocol that any website or application can implement without
+> Commonveil. Commonveil is its first adopting application.
+> See SECURE_NET_INTEGRATION.md for the protocol integration model.
+>
+> Legacy routes, request signing labels and existing site keys are preserved
+> for compatibility. A brand-neutral discovery path or signature-version
+> change requires a separately reviewed Secure Net Improvement Proposal.
+
 
 How Commonveil sites talk to each other: how people are found by their address, how a
 conversation or a server on one site is used by people from others, and what each site learns.
