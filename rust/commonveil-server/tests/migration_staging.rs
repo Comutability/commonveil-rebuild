@@ -173,6 +173,8 @@ fn owner_signed_reconciliation_over_http_survives_restart_without_cutover() {
     let owner = SigningKey::generate(true);
     let impostor = SigningKey::generate(true);
     let ciphertext = "opaque encrypted report archive";
+    // Test-only opaque data. Real devices must AEAD-encrypt this before upload.
+    let report = "A".repeat(64);
     let prefix = "/cvp/v2/experimental-transfer";
     let (id, token, statement) = {
         let server = start_with(
@@ -185,14 +187,19 @@ fn owner_signed_reconciliation_over_http_survives_restart_without_cutover() {
         let token = ticket["stage_token"].as_str().unwrap().to_owned();
         let (_, root, _) = manifest(&[ciphertext]);
         let now = commonveil_server::sessions::now_ms();
-        let statement = sign("transfer.reconcile", &json!({
-            "v": 1, "actor": owner.kid,
-            "stage_id": id, "to": "cv.example",
-            "ciphertext_root": root,
-            "challenge": ticket["reconcile_challenge"],
-            "encrypted_report_sha256": sha256_b64u(b"encrypted client-private reconciliation report"),
-            "client_checked": true, "issued_ms": now, "expires_ms": now + 120_000
-        }), &owner).unwrap();
+        let statement = sign(
+            "transfer.reconcile",
+            &json!({
+                "v": 1, "actor": owner.kid,
+                "stage_id": id, "to": "cv.example",
+                "ciphertext_root": root,
+                "challenge": ticket["reconcile_challenge"],
+                "encrypted_report_sha256": sha256_b64u(report.as_bytes()),
+                "client_checked": true, "issued_ms": now, "expires_ms": now + 120_000
+            }),
+            &owner,
+        )
+        .unwrap();
         let endpoint = format!("{prefix}/stages/{id}/reconcile");
         let request = json!({"owner_public": owner.public_key, "statement": statement}).to_string();
         let (status, body) = post(server.1, "POST", &endpoint, &token, &request);
@@ -212,6 +219,22 @@ fn owner_signed_reconciliation_over_http_survives_restart_without_cutover() {
         let (code, denied) = post(server.1, "POST", &endpoint, &token, &forbidden_request);
         assert_eq!(code, 403, "{denied}");
         assert_eq!(denied["code"], "WRONG_ACTOR");
+        let (code, missing_report) = post(server.1, "POST", &endpoint, &token, &request);
+        assert_eq!(code, 409, "{missing_report}");
+        assert_eq!(missing_report["code"], "MISSING_ENCRYPTED_REPORT");
+        let report_path = format!("{prefix}/stages/{id}/report");
+        let (code, accepted) = post(server.1, "POST", &report_path, &token, &report);
+        assert_eq!(code, 200, "{accepted}");
+        assert_eq!(accepted["sha256"], sha256_b64u(report.as_bytes()));
+        assert_eq!(accepted["imported"], false);
+        let (code, retry) = post(server.1, "POST", &report_path, &token, &report);
+        assert_eq!(code, 200, "{retry}");
+        assert_eq!(retry["duplicate"], true);
+        let (code, conflict) = post(server.1, "POST", &report_path, &token, &"B".repeat(64));
+        assert_eq!(code, 409, "{conflict}");
+        assert_eq!(conflict["code"], "REPORT_CONFLICT");
+        let (code, denied) = post(server.1, "GET", &report_path, &random_b64u(32), "");
+        assert_eq!(code, 404, "{denied}");
 
         let (code, denied) = post(server.1, "POST", &endpoint, &random_b64u(32), &request);
         assert_eq!(code, 404, "{denied}");
@@ -241,6 +264,17 @@ fn owner_signed_reconciliation_over_http_survives_restart_without_cutover() {
     );
     assert_eq!(code, 200, "{status}");
     assert_eq!(status["client_attested"], true);
+    assert_eq!(status["encrypted_report_staged"], true);
+    let (code, report_copy) = post(
+        restarted.1,
+        "GET",
+        &format!("{endpoint}/report"),
+        &token,
+        "",
+    );
+    assert_eq!(code, 200, "{report_copy}");
+    assert_eq!(report_copy["sha256"], sha256_b64u(report.as_bytes()));
+
     assert_eq!(status["imported"], false);
     assert_eq!(status["cutover"], false);
     let (code, result) = post(

@@ -1238,6 +1238,9 @@ mod tests {
     const NOW: i64 = 1_800_000_000_000;
     const SOURCE: &str = "old.example";
     const DEST: &str = "new.example";
+    // Test-only opaque sample. Actual clients must produce authenticated,
+    // recipient-bound ciphertext before using the report endpoint.
+    const TEST_REPORT: &[u8] = &[0xA5_u8; 64];
 
     fn fixture(parts: &[&[u8]]) -> (Vec<Value>, String, usize) {
         let m: Vec<Value> = parts
@@ -1488,7 +1491,7 @@ mod tests {
                 "v": 1, "actor": owner.kid,
                 "stage_id": ticket["stage_id"], "to": DEST,
                 "ciphertext_root": root, "challenge": ticket["reconcile_challenge"],
-                "encrypted_report_sha256": sha256_b64u(b"client-encrypted reconciliation report"),
+                "encrypted_report_sha256": sha256_b64u(TEST_REPORT),
                 "client_checked": true, "issued_ms": now,
                 "expires_ms": now + RECONCILE_LIFE_MS,
             }),
@@ -1520,6 +1523,46 @@ mod tests {
                 "INCOMPLETE_CIPHERTEXT"
             );
             s.chunk(&id, &token, 0, chunk, NOW + 1000).unwrap();
+            assert_eq!(
+                s.reconcile(&id, &token, &owner.public_key, &receipt, NOW + 1000)
+                    .unwrap_err()
+                    .code,
+                "MISSING_ENCRYPTED_REPORT"
+            );
+            assert_eq!(
+                s.stage_report(&id, &random_b64u(32), TEST_REPORT, NOW + 1000)
+                    .unwrap_err()
+                    .code,
+                "NOT_FOUND"
+            );
+            assert_eq!(
+                s.stage_report(&id, &token, b"too small", NOW + 1000)
+                    .unwrap_err()
+                    .code,
+                "REPORT_SIZE_LIMIT"
+            );
+            let stored = s
+                .stage_report(&id, &token, TEST_REPORT, NOW + 1000)
+                .unwrap();
+            assert_eq!(stored["report_staged"], true);
+            assert_eq!(stored["duplicate"], false);
+            assert_eq!(
+                s.stage_report(&id, &token, TEST_REPORT, NOW + 1000)
+                    .unwrap()["duplicate"],
+                true
+            );
+            assert_eq!(
+                s.stage_report(&id, &token, &[0xAA_u8; 64], NOW + 1000)
+                    .unwrap_err()
+                    .code,
+                "REPORT_CONFLICT"
+            );
+            let downloaded = s.download_report(&id, &token, NOW + 1000).unwrap();
+            assert_eq!(
+                downloaded["ciphertext"],
+                URL_SAFE_NO_PAD.encode(TEST_REPORT)
+            );
+            assert_eq!(downloaded["sha256"], sha256_b64u(TEST_REPORT));
             assert_eq!(
                 s.reconcile(&id, &token, &attacker.public_key, &receipt, NOW + 1000)
                     .unwrap_err()
@@ -1568,6 +1611,12 @@ mod tests {
             let first = s
                 .reconcile(&id, &token, &owner.public_key, &receipt, NOW + 1000)
                 .unwrap();
+            assert_eq!(
+                s.stage_report(&id, &token, TEST_REPORT, NOW + 1000)
+                    .unwrap_err()
+                    .code,
+                "ALREADY_ATTESTED"
+            );
             assert_eq!(first["client_attested"], true);
             assert_eq!(first["imported"], false);
             assert_eq!(first["cutover"], false);
@@ -1589,6 +1638,11 @@ mod tests {
         let mut restarted = Stage::open(dir.path(), DEST).unwrap();
         let status = restarted.status(&id, &token, 0, 64, NOW + 2000).unwrap();
         assert_eq!(status["client_attested"], true);
+        assert_eq!(status["encrypted_report_staged"], true);
+        assert_eq!(
+            restarted.download_report(&id, &token, NOW + 2000).unwrap()["sha256"],
+            sha256_b64u(TEST_REPORT)
+        );
         assert_eq!(status["imported"], false);
         assert_eq!(status["cutover"], false);
         assert_eq!(
@@ -1624,6 +1678,7 @@ mod tests {
         let id = ticket["stage_id"].as_str().unwrap();
         let token = ticket["stage_token"].as_str().unwrap();
         stage.chunk(id, token, 0, ciphertext, NOW).unwrap();
+        stage.stage_report(id, token, TEST_REPORT, NOW).unwrap();
         let old_receipt = signed_reconciliation(&owner, &ticket, &root, NOW);
         assert_eq!(
             stage
@@ -1654,6 +1709,49 @@ mod tests {
                 .unwrap_err()
                 .code,
             "CORRUPT_STAGE"
+        );
+        assert_eq!(
+            stage.status(id, token, 0, 64, NOW + 1000).unwrap()["client_attested"],
+            false
+        );
+    }
+
+    #[test]
+    fn corrupted_stored_report_cannot_be_downloaded_or_attested() {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = SigningKey::generate(true);
+        let ciphertext = b"sealed for device";
+        let (manifest, root, _) = fixture(&[ciphertext]);
+        let mut stage = Stage::open(dir.path(), DEST).unwrap();
+        let (intent, _) = authorise(&owner, &mut stage, 1, &[ciphertext]);
+        let ticket = stage
+            .prepare(&owner.public_key, &intent, &manifest, NOW)
+            .unwrap();
+        let id = ticket["stage_id"].as_str().unwrap();
+        let token = ticket["stage_token"].as_str().unwrap();
+        stage.chunk(id, token, 0, ciphertext, NOW).unwrap();
+        stage.stage_report(id, token, TEST_REPORT, NOW).unwrap();
+        stage
+            .db
+            .execute(
+                "UPDATE reconciliation_reports SET ciphertext=?1 WHERE transfer_id=?2",
+                params![[0x0_u8; 64].as_slice(), id],
+            )
+            .unwrap();
+        let valid = signed_reconciliation(&owner, &ticket, &root, NOW + 1000);
+        assert_eq!(
+            stage
+                .reconcile(id, token, &owner.public_key, &valid, NOW + 1000)
+                .unwrap_err()
+                .code,
+            "REPORT_HASH_MISMATCH"
+        );
+        assert_eq!(
+            stage
+                .download_report(id, token, NOW + 1000)
+                .unwrap_err()
+                .code,
+            "CORRUPT_REPORT"
         );
         assert_eq!(
             stage.status(id, token, 0, 64, NOW + 1000).unwrap()["client_attested"],
