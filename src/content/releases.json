@@ -18,7 +18,7 @@
       "version": "0.24.9",
       "date": "2026-11-23",
       "title": "Protocol identity: your actor, checked; another site, checked",
-      "commit": null,
+      "commit": "2d0a49011ca02b70f7e5b5f1b31d2eec01b483df",
       "notes": [
         "New Settings section, Protocol identity, showing this account's Secure Net actor (CVP-017): handle, actor id, fingerprint, key type, devices, version, and whether it verifies. The check runs in your browser against Secure Net's own rules rather than trusting what the site serves.",
         "You can paste or choose an actor document made with any compatible application and have it checked here: the hybrid signature, an id that must be the account key's id, the signed device list, and a seq that never goes backwards, because this browser remembers the highest it has accepted. Nothing is uploaded and nothing is saved to your account.",
