@@ -54,6 +54,22 @@ async function fetchSnips(repo: string, token: string, fetcher: typeof fetch) {
     return res.ok ? res.text() : null;
   };
   const out = new Map<string, any>();
+  // A recorded rationale must come from GitHub, not our interpretation.
+  const statedPurpose=(pr:any)=> {
+    const body=String(pr.body||"").replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim();
+    return text(body||String(pr.title||""),400);
+  };
+  const declinedReason=async(pr:any)=>{
+    try {
+      const comments:any[]=await gh("/issues/"+pr.number+"/comments?per_page=50");
+      const trusted=comments.filter(c=>["OWNER","MEMBER","COLLABORATOR"].includes(c.author_association)
+        && /(declin|reject|not merging|won't merge|closing because|closed because|not suitable)/i.test(c.body||""));
+      const comment=trusted.at(-1);
+      if(comment)return {reason:text(comment.body,650),reason_source:comment.html_url||pr.html_url};
+    }catch { /* A missing record is not grounds to invent a reason. */ }
+    return {reason:"No maintainer reason recorded on the public GitHub pull request.",reason_source:pr.html_url};
+  };
+
   // 1. Main-branch SNIP files close the forum thread under the requested policy.
   // Their protocol status and human approval remain independent.
   const names: string[] = (await gh("/contents/snips")).map((f: any) => `snips/${f.name}`).filter((n: string) => SNIP_FILE.test(n)).sort().slice(0, MAX_SNIPS);
@@ -69,16 +85,35 @@ async function fetchSnips(repo: string, token: string, fetcher: typeof fetch) {
       const m = SNIP_FILE.exec(f.filename || "");
       if (!m || f.status === "removed" || out.has(m[1])) continue;
       const { title, status } = parseSnip(m[1], await raw(pr.head.sha, f.filename));
+      const source=open?{}:await declinedReason(pr);
       out.set(m[1], {
         id: m[1], title, status: open ? status : "Closed without merging", url: pr.html_url, where: "pull", pull: pr.number,
         closed: !open || isClosedStatus(status), closure: open ? (isClosedStatus(status) ? "status_final" : "") : "closed_unmerged",
+        ...source,
       });
     }
   };
   const open: any[] = await gh(`/pulls?state=open&per_page=${MAX_PRS}&sort=updated&direction=desc`);
   for (const pr of open) await inPull(pr, true);
-  const shut: any[] = (await gh(`/pulls?state=closed&per_page=20&sort=updated&direction=desc`)).filter((p: any) => !p.merged_at).slice(0, 5);
-  for (const pr of shut) await inPull(pr, false);
+  const closedPrs:any[]=await gh("/pulls?state=closed&per_page=30&sort=updated&direction=desc");
+  const shut=closedPrs.filter((p:any)=>!p.merged_at).slice(0,5);
+  for(const pr of shut) await inPull(pr,false);
+  // Add a source-linked author-stated PR purpose to recently merged SNIPs.
+  // This is not a maintainer approval, and GitHub rate limits keep it bounded.
+  for(const pr of closedPrs.filter((p:any)=>Boolean(p.merged_at)).slice(0,4)){
+    const files:any[]=await gh("/pulls/"+pr.number+"/files?per_page=100").catch(()=>[]);
+    for(const file of files){
+      const m=SNIP_FILE.exec(file.filename||"");
+      if(!m||file.status==="removed")continue;
+      const proposal=out.get(m[1]);
+      if(proposal?.where==="main"&&!proposal.merged_pr){
+        proposal.merged_pr=pr.number;
+        proposal.merged_url=pr.html_url;
+        proposal.reason=statedPurpose(pr)||"No separate merge rationale was recorded.";
+        proposal.reason_source=pr.html_url;
+      }
+    }
+  }
   return [...out.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 

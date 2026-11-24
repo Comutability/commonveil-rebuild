@@ -28,9 +28,24 @@ export function snipPost(snip) {
 
 export const snipClosedNote = (snip) => {
   if (snip.closure === "merged_to_main" || snip.where === "main") {
-    return `The SNIP file is now on Secure Net's default GitHub branch. This forum discussion is closed because the proposal was merged into the repository.\n\nSNIP governance status: ${snip.status || "not stated"}. A code merge is NOT approval, ratification or an independent security review.\n\nRead the record and follow further review on GitHub: ${snip.url}`;
+    return [
+      "GitHub outcome: MERGED into the default branch. This Commonveil discussion is closed.",
+      "SNIP governance status: " + (snip.status || "not stated") + ". A source-code merge is NOT standards acceptance, ratification or security review.",
+      "PR author's stated purpose (not a formal approval reason): " + (snip.reason || "No separately recorded merge rationale was found. Consult the GitHub file history."),
+      "Source: " + (snip.reason_source || snip.merged_url || snip.url),
+      "Proposal: " + snip.url,
+    ].join("\n\n");
   }
-  return `This proposal is now: ${snip.status || "closed"}. This forum discussion is closed. A closed pull request is not automatically an approved standard. Read the record on GitHub: ${snip.url}`;
+  if (snip.closure === "closed_unmerged") {
+    return [
+      "GitHub outcome: CLOSED WITHOUT MERGE (declined or withdrawn). This Commonveil discussion is closed.",
+      "Recorded maintainer reason: " + (snip.reason || "No maintainer reason recorded on the public GitHub pull request."),
+      "Reason source: " + (snip.reason_source || snip.url),
+      "This is not an adopted Secure Net standard.",
+    ].join("\n\n");
+  }
+  return "GitHub outcome: proposal finalised as " + (snip.status || "closed") +
+    ". This Commonveil discussion is closed. A GitHub status alone is not a substitute for a recorded community decision. Source: " + snip.url;
 };
 
 /**
