@@ -5,6 +5,16 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.19](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.19): Secure Net SNIP proposals forum reconciliation and GitHub merge tracking
+
+_2026-11-24_
+
+- The default community server SNIP proposals forum now creates missing threads for GitHub SNIP files and tracks whether a proposal file has reached the Secure Net default branch. A merge locks the discussion thread with a signed notice, but the message explicitly states that merging code is not accepting or ratifying a standard.
+- Existing Secure Net proposals SNIP-0001 through SNIP-0008 are eligible for reconciliation, including the missing 0007 and 0008. Posts and locks are still performed only by an authorised Commonveil admin device with the correct encryption keys, not by a backend pretending to be a human sender.
+- The forum checks soon after the authorised admin opens their app, every five minutes while visible, and on focus/connection restoration. The server retains GitHub response caching, fails closed on stale data, respects manually locked threads and uses stable post IDs to prevent duplicate forum posts.
+- The self-hosted Rust SNIP status implementation and hosted TypeScript functions use consistent merge state semantics. Tests cover open proposals, merged-but-still-draft proposals, closing without merge, duplicate IDs, unauthorised users and an unavailable GitHub API.
+- No private server encryption keys, Commonveil historical messages, Secure Net protocol signatures, experimental relay settings or live account-migration behaviour were changed. The existing stable Docker latest was not moved.
+
 ## [0.24.18](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.18): Experimental independent Secure Net inbox, outbox and sealed site transport
 
 _2026-11-24_

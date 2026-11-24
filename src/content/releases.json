@@ -2,10 +2,23 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.24.19",
+      "date": "2026-11-24",
+      "title": "Secure Net SNIP proposals forum reconciliation and GitHub merge tracking",
+      "commit": null,
+      "notes": [
+        "The default community server SNIP proposals forum now creates missing threads for GitHub SNIP files and tracks whether a proposal file has reached the Secure Net default branch. A merge locks the discussion thread with a signed notice, but the message explicitly states that merging code is not accepting or ratifying a standard.",
+        "Existing Secure Net proposals SNIP-0001 through SNIP-0008 are eligible for reconciliation, including the missing 0007 and 0008. Posts and locks are still performed only by an authorised Commonveil admin device with the correct encryption keys, not by a backend pretending to be a human sender.",
+        "The forum checks soon after the authorised admin opens their app, every five minutes while visible, and on focus/connection restoration. The server retains GitHub response caching, fails closed on stale data, respects manually locked threads and uses stable post IDs to prevent duplicate forum posts.",
+        "The self-hosted Rust SNIP status implementation and hosted TypeScript functions use consistent merge state semantics. Tests cover open proposals, merged-but-still-draft proposals, closing without merge, duplicate IDs, unauthorised users and an unavailable GitHub API.",
+        "No private server encryption keys, Commonveil historical messages, Secure Net protocol signatures, experimental relay settings or live account-migration behaviour were changed. The existing stable Docker latest was not moved."
+      ]
+    },
+    {
       "version": "0.24.18",
       "date": "2026-11-24",
       "title": "Experimental independent Secure Net inbox, outbox and sealed site transport",
-      "commit": null,
+      "commit": "cd6e3e7975da0b907c16f837ad1b9f348d874ccf",
       "notes": [
         "Introduced a separate, explicitly disabled-by-default Secure Net CVP-019 direct-message trial within the self-hosted Rust server. It is not built on Commonveil accounts, rooms or original version 1 federation and cannot access their private messages.",
         "The experimental module verifies independently signed CVP-017 actor documents, manually pins trusted remote site public keys, issues high-entropy site-local actor credentials, validates recipient device lists and signed public X25519/ML-KEM-768 prekeys, and consumes one-time keys atomically.",
