@@ -15,6 +15,7 @@ import ResourcesIndex from "@/pages/site/Resources";
 import Releases from "@/pages/site/Releases";
 import Privacy from "@/pages/site/Privacy";
 import Security from "@/pages/site/Security";
+import SecureNet from "@/pages/site/SecureNet";
 import ReportSecurityIssue from "@/pages/site/ReportSecurityIssue";
 import Search from "@/pages/site/Search";
 import { HelpArticle, HelpGuide, HelpIndex } from "@/pages/site/Help";
@@ -61,6 +62,7 @@ function AppRoutes() {
         <Route path="help/guide" element={<HelpGuide />} />
         <Route path="help/:slug" element={<HelpArticle />} />
         <Route path="privacy" element={<Privacy />} />
+        <Route path="secure-net" element={<SecureNet />} />
         <Route path="security" element={<Security />} />
         <Route path="security/report" element={<ReportSecurityIssue />} />
         <Route path="search" element={<Search />} />

@@ -3,6 +3,7 @@ import { SettingsGroup, SettingsTitle } from "@/components/settings/SettingsLayo
 import ProtocolActorCard from "@/components/identity/ProtocolActorCard";
 import ExternalActorVerify from "@/components/identity/ExternalActorVerify";
 import MigrationChecklist from "@/components/identity/MigrationChecklist";
+import { Link } from "react-router-dom";
 
 /**
  * Settings, Protocol identity: the actor this account has on this site, a way to check an actor
@@ -51,6 +52,15 @@ export default function ProtocolIdentitySettings() {
           <p className="text-muted-foreground">
             Your existing messages, contacts, keys and routing are not changed by viewing
             these checks. Do not delete the original account after exporting a passport.
+          </p>
+          <p className="text-muted-foreground">
+            Commonveil uses the independent Secure Net protocol; other applications can
+            implement the same actor, delivery, inbox and outbox contracts. Commonveil's
+            older federation routes are not yet full third-party Secure Net delivery.
+            <span> </span>
+            <Link to="/secure-net" className="text-primary underline">
+              Read the developer and interoperability overview.
+            </Link>
           </p>
         </div>
       </SettingsGroup>

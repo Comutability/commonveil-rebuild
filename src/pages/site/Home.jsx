@@ -104,6 +104,21 @@ export default function Home() {
           </Link>
         </div>
       </section>
+      <section className="container-cv py-12">
+        <div className="rounded-xl border border-border p-6 sm:p-8">
+          <p className="eyebrow">Built on an independent protocol</p>
+          <h2 className="mt-3 text-2xl font-semibold">Commonveil is the first Secure Net application</h2>
+          <p className="mt-3 max-w-3xl text-muted-foreground">
+            Secure Net is a separate open protocol, designed so other sites and apps can
+            build encrypted inbox, outbox and relay communication without depending on
+            Commonveil. Cross-application delivery is still being built and tested.
+          </p>
+          <Link to="/secure-net" className="mt-4 inline-flex items-center gap-2 font-medium text-primary hover:underline">
+            Learn about Secure Net and building your own app
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </Link>
+        </div>
+      </section>
       <Comparison />
     </>
   );
