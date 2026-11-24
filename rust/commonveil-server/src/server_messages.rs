@@ -436,7 +436,7 @@ fn send(ctx: &mut Ctx) -> Result<Value> {
     check_sent_at(&sent_at, now, &body["queued"])?;
     let envelope = str_field(&body["envelope"], "message", MAX_MESSAGE_ENVELOPE_CHARS, 1)?;
     let env = parse_item_envelope(&envelope)?;
-    let chain_id = chain_for_channel(&server_id, &channel);
+    let chain_id = chain_for_channel(&server_id, channel);
     let gens = own.filter(
         "KeyGeneration",
         json!({ "server_id": server_id, "chain_id": chain_id }),
@@ -478,7 +478,7 @@ fn send(ctx: &mut Ctx) -> Result<Value> {
     if !verify_server_item_signature(
         "message",
         &server_id,
-        id_of(&channel),
+        id_of(channel),
         &item,
         device["sign_pub"].as_str().unwrap_or(""),
     )? {
@@ -523,16 +523,16 @@ fn send(ctx: &mut Ctx) -> Result<Value> {
         return Err(rate_limited("sending messages"));
     }
     if !staff && posting {
-        if let Some(flood) = flooded_by(&sr, &server, &uid, now)? {
+        if let Some(flood) = flooded_by(&sr, server, &uid, now)? {
             let minutes = flood["timeout_minutes"].as_f64().unwrap_or(10.0);
             sr.update(
                 "ServerMember",
-                id_of(&member),
+                id_of(member),
                 json!({ "timeout_until": iso(now + (minutes * 60_000.0) as i64) }),
             )?;
             log_case(
                 &sr,
-                &server,
+                server,
                 "timeout",
                 &uid,
                 "system",
@@ -544,7 +544,7 @@ fn send(ctx: &mut Ctx) -> Result<Value> {
             let m = to_js_string(Some(&crate::js::number_value(minutes)));
             audit(
                 &sr,
-                &server,
+                server,
                 "system",
                 "member_timeout",
                 "member",
@@ -586,7 +586,7 @@ fn send(ctx: &mut Ctx) -> Result<Value> {
         json!(crate::api::platform_time(now))
     };
     if posting {
-        sr.update("Channel", id_of(&channel), json!({ "last_message_at": at }))?;
+        sr.update("Channel", id_of(channel), json!({ "last_message_at": at }))?;
     }
     if let (Some(r), "message") = (&root, kind.as_str()) {
         let count = {

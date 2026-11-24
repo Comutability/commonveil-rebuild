@@ -116,7 +116,6 @@ fn body_intent_valid(
     body: &Value,
     actor: &str,
     destination: &str,
-    challenge: &str,
     now: i64,
     root: &str,
     chunk_count: usize,
@@ -130,7 +129,6 @@ fn body_intent_valid(
         || body["v"] != 1
         || body["actor"] != actor
         || body["to"] != destination
-        || body["challenge"] != challenge
         || body["ciphertext_root"] != root
         || body["chunks"].as_u64() != Some(chunk_count as u64)
         || body["bytes"].as_u64() != Some(bytes as u64)
@@ -332,7 +330,6 @@ impl Stage {
             body,
             &actor,
             &self.destination,
-            nonce,
             now,
             &root,
             manifest.len(),
