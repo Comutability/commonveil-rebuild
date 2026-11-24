@@ -140,6 +140,45 @@ fn fetch_snips(repo: &str, token: &str) -> std::result::Result<Vec<Value>, Strin
         token: token.into(),
     };
     let mut out: Vec<(String, Value)> = Vec::new();
+    // Source-backed GitHub closure reasons, never AI-written conclusions.
+    let declined_reason = |pr: &Value| -> (String, String) {
+        let link = to_js_string(pr.get("html_url"));
+        let comments = g.gh(&format!(
+            "/issues/{}/comments?per_page=50",
+            to_js_string(pr.get("number"))
+        ));
+        if let Ok(comments) = comments {
+            if let Some(found) = comments.as_array().and_then(|list| {
+                list.iter().rev().find(|comment| {
+                    ["OWNER", "MEMBER", "COLLABORATOR"]
+                        .contains(&comment["author_association"].as_str().unwrap_or(""))
+                        && {
+                            let body = comment["body"].as_str().unwrap_or("").to_lowercase();
+                            [
+                                "declin",
+                                "reject",
+                                "not merging",
+                                "won't merge",
+                                "closing because",
+                                "closed because",
+                                "not suitable",
+                            ]
+                            .iter()
+                            .any(|word| body.contains(word))
+                        }
+                })
+            }) {
+                return (
+                    text(found["body"].as_str().unwrap_or(""), 650),
+                    to_js_string(found.get("html_url")),
+                );
+            }
+        }
+        (
+            "No maintainer reason recorded on the public GitHub pull request.".into(),
+            link,
+        )
+    };
     // 1. Proposals on the default branch.
     let mut names: Vec<String> = g
         .gh("/contents/snips")?
@@ -191,7 +230,13 @@ fn fetch_snips(repo: &str, token: &str) -> std::result::Result<Vec<Value>, Strin
             } else {
                 ""
             };
-            out.push((id.clone(), json!({ "id": id, "title": title, "status": if open { status } else { "Closed without merging".into() }, "url": pr["html_url"], "where": "pull", "pull": pr["number"], "closed": closed, "closure": closure })));
+            let mut value = json!({ "id": id, "title": title, "status": if open { status } else { "Closed without merging".into() }, "url": pr["html_url"], "where": "pull", "pull": pr["number"], "closed": closed, "closure": closure });
+            if !open {
+                let (reason, reason_source) = declined_reason(pr);
+                value["reason"] = json!(reason);
+                value["reason_source"] = json!(reason_source);
+            }
+            out.push((id.clone(), value));
         }
         Ok(())
     };
@@ -205,7 +250,7 @@ fn fetch_snips(repo: &str, token: &str) -> std::result::Result<Vec<Value>, Strin
     {
         in_pull(&mut out, pr, true)?;
     }
-    let closed = g.gh("/pulls?state=closed&per_page=20&sort=updated&direction=desc")?;
+    let closed = g.gh("/pulls?state=closed&per_page=30&sort=updated&direction=desc")?;
     for pr in closed
         .as_array()
         .into_iter()
@@ -214,6 +259,41 @@ fn fetch_snips(repo: &str, token: &str) -> std::result::Result<Vec<Value>, Strin
         .take(5)
     {
         in_pull(&mut out, pr, false)?;
+    }
+    for pr in closed
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|p| truthy(p.get("merged_at")))
+        .take(4)
+    {
+        let files = g
+            .gh(&format!(
+                "/pulls/{}/files?per_page=100",
+                to_js_string(pr.get("number"))
+            ))
+            .unwrap_or(json!([]));
+        for file in files.as_array().into_iter().flatten() {
+            let Some(id) = snip_file(&to_js_string(file.get("filename"))) else {
+                continue;
+            };
+            if file["status"] == "removed" {
+                continue;
+            }
+            if let Some((_, proposal)) = out
+                .iter_mut()
+                .find(|(k, v)| k == &id && v["where"] == "main" && v.get("merged_pr").is_none())
+            {
+                let reason = pr["body"]
+                    .as_str()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| pr["title"].as_str().unwrap_or(""));
+                proposal["reason"] = json!(text(&reason.replace(['\n', '\r'], " "), 400));
+                proposal["reason_source"] = pr["html_url"].clone();
+                proposal["merged_pr"] = pr["number"].clone();
+                proposal["merged_url"] = pr["html_url"].clone();
+            }
+        }
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(out.into_iter().map(|(_, v)| v).collect())
