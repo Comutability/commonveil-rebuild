@@ -440,3 +440,158 @@ pub fn route(data_dir: &Path, destination: &str, method: &str, path: &str,
         Err(e) => (e.status, json!({"error":e.code,"code":e.code})),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use secure_net_core::signed::{sign, SigningKey};
+
+    const NOW: i64 = 1_800_000_000_000;
+    const SOURCE: &str = "old.example";
+    const DEST: &str = "new.example";
+
+    fn fixture(parts: &[&[u8]]) -> (Vec<Value>, String, usize) {
+        let m: Vec<Value> = parts.iter().enumerate().map(|(i, data)|
+            json!({ "i": i, "bytes": data.len(), "sha256": sha256_b64u(data) })
+        ).collect();
+        let (root, bytes) = envelope_commitment(&m).unwrap();
+        (m, root, bytes)
+    }
+
+    fn authorise(owner: &SigningKey, stage: &mut Stage, seq: u64,
+        chunks: &[&[u8]]) -> (Value, Vec<Value>) {
+        let challenge = stage.challenge(&owner.public_key, NOW).unwrap();
+        let nonce = challenge["challenge"].as_str().unwrap();
+        let (m, root, bytes) = fixture(chunks);
+        let record = sign(PURPOSE, &json!({
+            "v": 1, "actor": owner.kid, "from": SOURCE, "to": DEST,
+            "seq": seq, "challenge": nonce, "ciphertext_root": root,
+            "chunks": chunks.len(), "bytes": bytes, "issued_ms": NOW,
+            "expires_ms": NOW + CHALLENGE_LIFE
+        }), owner).unwrap();
+        (record, m)
+    }
+
+    #[test]
+    fn independent_actor_stages_only_ciphertext_and_resumes_after_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let actor = SigningKey::generate(true);
+        let a = b"opaque AEAD ciphertext A";
+        let b = b"opaque AEAD ciphertext B";
+        let (stage_id, stage_token) = {
+            let mut s = Stage::open(dir.path(), DEST).unwrap();
+            let (intent, m) = authorise(&actor, &mut s, 1, &[a, b]);
+            let ticket = s.prepare(&actor.public_key, &intent, &m, NOW).unwrap();
+            let id = ticket["stage_id"].as_str().unwrap().to_string();
+            let token = ticket["stage_token"].as_str().unwrap().to_string();
+            assert_eq!(ticket["cutover"], false);
+            assert_eq!(ticket["imported"], false);
+            assert_eq!(s.chunk(&id, &token, 1, b, NOW).unwrap()["ciphertext_complete"], false);
+            assert_eq!(s.status(&id, &token, 0, 64, NOW).unwrap()["missing"], json!([0]));
+            (id, token)
+        };
+        // The SQLite file is reopened after the "server" is dropped. Nothing depends on
+        // keeping a transfer in memory and the client can request missing parts.
+        let mut restarted = Stage::open(dir.path(), DEST).unwrap();
+        let status = restarted.status(&stage_id, &stage_token, 0, 64, NOW+1000).unwrap();
+        assert_eq!(status["received"], 1);
+        assert_eq!(status["ciphertext_complete"], false);
+        assert_eq!(restarted.chunk(&stage_id, &stage_token, 1, b, NOW+1000).unwrap()["duplicate"], true);
+        let first = restarted.chunk(&stage_id, &stage_token, 0, a, NOW+1000).unwrap();
+        assert_eq!(first["ciphertext_complete"], true);
+        assert_eq!(first["imported"], false);
+        assert_eq!(first["cutover"], false);
+        assert_eq!(restarted.download_chunk(&stage_id, &stage_token, 0, NOW+1000).unwrap()["ciphertext"],
+            URL_SAFE_NO_PAD.encode(a));
+        assert_eq!(restarted.chunk(&stage_id, &stage_token, 0, a, NOW+1000).unwrap_err().code, "ALREADY_COMPLETE");
+    }
+
+    #[test]
+    fn invalid_signature_wrong_destination_and_replay_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let actor = SigningKey::generate(true);
+        let attacker = SigningKey::generate(true);
+        let mut stage = Stage::open(dir.path(), DEST).unwrap();
+        let (good, m) = authorise(&actor, &mut stage, 5, &[b"sealed"]);
+        let mut forged = good.clone();
+        forged["body"]["to"] = json!("fake.example");
+        assert_eq!(stage.prepare(&actor.public_key, &forged, &m, NOW).unwrap_err().code, "BAD_SIGNATURE");
+        let mut wrong = good.clone();
+        wrong["body"]["ciphertext_root"] = json!(sha256_b64u(b"wrong"));
+        assert_eq!(stage.prepare(&actor.public_key, &wrong, &m, NOW).unwrap_err().code, "BAD_SIGNATURE");
+        assert_eq!(stage.prepare(&attacker.public_key, &good, &m, NOW).unwrap_err().code, "BAD_SIGNATURE");
+
+        let ok = stage.prepare(&actor.public_key, &good, &m, NOW).unwrap();
+        assert_eq!(ok["cutover"], false);
+        assert_eq!(stage.prepare(&actor.public_key, &good, &m, NOW).unwrap_err().code,
+            "CHALLENGE_USED_OR_EXPIRED");
+        let (old_seq, fresh_m) = authorise(&actor, &mut stage, 5, &[b"sealed"]);
+        assert_eq!(stage.prepare(&actor.public_key, &old_seq, &fresh_m, NOW).unwrap_err().code, "STALE_SEQUENCE");
+        let (higher, m2) = authorise(&actor, &mut stage, 6, &[b"new encrypted record"]);
+        assert!(stage.prepare(&actor.public_key, &higher, &m2, NOW).is_ok());
+    }
+
+    #[test]
+    fn bad_nonce_or_signature_never_consumes_challenge() {
+        let dir = tempfile::tempdir().unwrap();
+        let actor = SigningKey::generate(true);
+        let mut stage = Stage::open(dir.path(), DEST).unwrap();
+        let (good, m) = authorise(&actor, &mut stage, 1, &[b"encrypted blob"]);
+        let other_nonce = random_b64u(32);
+        let mut bad_body = good["body"].clone();
+        bad_body["challenge"] = json!(other_nonce);
+        let wrong_nonce = sign(PURPOSE, &bad_body, &actor).unwrap();
+        assert_eq!(stage.prepare(&actor.public_key, &wrong_nonce, &m, NOW).unwrap_err().code,
+            "CHALLENGE_USED_OR_EXPIRED");
+        assert!(stage.prepare(&actor.public_key, &good, &m, NOW).is_ok());
+    }
+
+    #[test]
+    fn corrupt_chunks_and_missing_or_stolen_tokens_are_denied() {
+        let dir = tempfile::tempdir().unwrap();
+        let actor = SigningKey::generate(true);
+        let mut stage = Stage::open(dir.path(), DEST).unwrap();
+        let (good, m) = authorise(&actor, &mut stage, 1, &[b"sealed blob"]);
+        let t = stage.prepare(&actor.public_key, &good, &m, NOW).unwrap();
+        let id = t["stage_id"].as_str().unwrap();
+        let secret = t["stage_token"].as_str().unwrap();
+        assert_eq!(stage.status(id, &random_b64u(32), 0, 64, NOW).unwrap_err().code, "NOT_FOUND");
+        assert_eq!(stage.status(id, "", 0, 64, NOW).unwrap_err().code, "NOT_FOUND");
+        assert_eq!(stage.chunk(id, secret, 0, b"altered blob", NOW).unwrap_err().code, "CORRUPT_CHUNK");
+        assert_eq!(stage.status(id, secret, 0, 64, NOW).unwrap()["received"], 0);
+        assert_eq!(stage.chunk(id, secret, 999, b"sealed blob", NOW).unwrap_err().code, "BAD_INDEX");
+        assert_eq!(stage.status(id, secret, 0, 0, NOW).unwrap_err().code, "BAD_CURSOR");
+        assert_eq!(stage.download_chunk(id, secret, 0, NOW).unwrap_err().code, "NOT_FOUND");
+        assert_eq!(stage.status(id, secret, 0, 64, NOW + TRANSFER_LIFE + 1).unwrap_err().code, "EXPIRED");
+    }
+
+    #[test]
+    fn abort_drops_only_staged_ciphertext_without_releasing_sequence() {
+        let dir = tempfile::tempdir().unwrap();
+        let actor = SigningKey::generate(true);
+        let mut s = Stage::open(dir.path(), DEST).unwrap();
+        let (good, m) = authorise(&actor, &mut s, 1, &[b"sealed"]);
+        let t = s.prepare(&actor.public_key, &good, &m, NOW).unwrap();
+        let id = t["stage_id"].as_str().unwrap();
+        let token = t["stage_token"].as_str().unwrap();
+        s.chunk(id, token, 0, b"sealed", NOW).unwrap();
+        assert_eq!(s.abort(id, token, NOW).unwrap()["source_unchanged"], true);
+        assert_eq!(s.status(id, token, 0, 64, NOW).unwrap_err().code, "NOT_FOUND");
+        let (replay, m2) = authorise(&actor, &mut s, 1, &[b"sealed"]);
+        assert_eq!(s.prepare(&actor.public_key, &replay, &m2, NOW).unwrap_err().code, "STALE_SEQUENCE");
+    }
+
+    #[test]
+    fn disabled_path_is_not_exposed_until_operator_opt_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let (status, reply) = route(dir.path(), DEST, "GET", "/cvp/v2/experimental-transfer/unknown", "", b"", NOW);
+        assert_eq!(status, 404);
+        assert_eq!(reply["code"], "NOT_FOUND");
+        let classical = SigningKey::generate(false);
+        let (status, reply) = route(dir.path(), DEST, "POST",
+            "/cvp/v2/experimental-transfer/challenge", "",
+            json!({"owner_public": classical.public_key}).to_string().as_bytes(), NOW);
+        assert_eq!(status, 400);
+        assert_eq!(reply["code"], "HYBRID_KEY_REQUIRED");
+    }
+}
