@@ -135,6 +135,21 @@ changed from `node server/index.mjs` to `commonveil-server`. If you set `NODE_EX
 it still works; `EXTRA_CA_CERTS` is its new name. To update the updater as well (it's Rust too now),
 run `docker compose pull updater && docker compose up -d updater` once.
 
+### Experimental Docker preview
+
+The continuous-integration workflow builds an explicitly opt-in developer
+image at ghcr.io/comutability/commonveil:edge and a matching updater
+image, only after the website, Rust, WebAssembly and Docker checks pass.
+It also publishes an immutable edge-COMMIT-SHA tag. The stable :latest
+and numbered release tags are not changed by this preview process.
+
+Do not run an edge image on an existing site's production account volume.
+Use a disposable private test site with an independent data volume and
+verified backups. Experimental staging remains disabled by default,
+even in edge. It does not migrate identities, conversation history or inboxes.
+
+The stable Docker release workflow remains separate from these previews.
+
 ## Backups
 
 Everything is in the `data` volume: the database (`commonveil.db`), uploaded files (all

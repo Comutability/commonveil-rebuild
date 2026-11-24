@@ -129,3 +129,57 @@ jobs:
           docker exec cv commonveil-server setup-code
           test "$(docker inspect -f '{{.State.Health.Status}}' cv)" != unhealthy
           docker rm -f cv
+  preview_image:
+    # Deliberately opt-in development images, never stable :latest.
+    # The successful test matrix is a prerequisite for publishing.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [verify, rust, wasm, images]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: commonveil-preview-image
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Identify the pinned protocol
+        id: protocol
+        run: |
+          revision=$(sed -n 's/^secure-net-core = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' rust/Cargo.toml)
+          test "$(printf '%s' "$revision" | wc -c)" -eq 40
+          echo "rev=$revision" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: \${{ github.actor }}
+          password: \${{ github.token }}
+      - name: Publish CI-verified developer preview Docker app
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            COMMONVEIL_VERSION=\${{ steps.protocol.outputs.version }}
+            SECURE_NET_REV=\${{ steps.protocol.outputs.rev }}
+          tags: |
+            ghcr.io/comutability/commonveil:edge
+            ghcr.io/comutability/commonveil:edge-\${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/\${{ github.repository }}
+            org.opencontainers.image.version=\${{ steps.protocol.outputs.version }}
+            org.opencontainers.image.revision=\${{ github.sha }}
+      - name: Publish matching CI-verified developer preview updater
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: updater/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/comutability/commonveil-updater:edge
+            ghcr.io/comutability/commonveil-updater:edge-\${{ github.sha }}
