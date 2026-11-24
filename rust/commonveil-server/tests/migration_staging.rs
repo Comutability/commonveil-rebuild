@@ -476,3 +476,121 @@ fn independently_owned_actor_can_stage_on_two_distinct_hosts_without_a_source_ho
         assert_eq!(status["cutover"], false);
     }
 }
+
+// This live HTTP integration checks signed, independent device consent only.
+// It deliberately does not prove KEM possession, enrol a device or move inboxes.
+#[test]
+fn recipient_and_owner_signatures_are_stored_across_restart_without_migration() {
+    use secure_net_core::transfer::{
+        create_recipient_grant, create_recipient_request, ExpectedRecipient, RecipientRequestInput,
+    };
+    let dir = tempdir().unwrap();
+    let owner = SigningKey::generate(true);
+    let device = SigningKey::generate(true);
+    let attacker = SigningKey::generate(true);
+    let opaque = "opaque ciphertext only";
+    let prefix = "/cvp/v2/experimental-transfer";
+    let (id, token, signed_request, signed_grant) = {
+        let server = start_with(
+            false,
+            dir.path(),
+            &[("EXPERIMENTAL_TRANSFER_STAGING", "true".into())],
+        );
+        let ticket = prepare(server.1, &owner, &[opaque], 4);
+        let id = ticket["stage_id"].as_str().unwrap().to_string();
+        let token = ticket["stage_token"].as_str().unwrap().to_string();
+        let (_, root, _) = manifest(&[opaque]);
+        let kem = secure_net_core::cv::kem::kem_keygen(None).unwrap();
+        let now = commonveil_server::sessions::now_ms();
+        let expected = ExpectedRecipient {
+            actor_id: &owner.kid,
+            stage_id: &id,
+            destination: "cv.example",
+            ciphertext_root: &root,
+            challenge: ticket["reconcile_challenge"].as_str().unwrap(),
+            now_ms: now,
+        };
+        let signed_request = create_recipient_request(
+            &device,
+            &RecipientRequestInput {
+                expected,
+                recipient_kem_public: kem["kem_pub"].as_str().unwrap(),
+                expires_ms: now + 120_000,
+            },
+        )
+        .unwrap();
+        let signed_grant =
+            create_recipient_grant(&owner, &signed_request, &expected, now + 100_000).unwrap();
+        let path = format!("{prefix}/stages/{id}/recipient-consent");
+        let payload = json!({
+            "owner_public": owner.public_key,
+            "request": signed_request,
+            "grant": signed_grant
+        })
+        .to_string();
+        let (code, premature) = post(server.1, "POST", &path, &token, &payload);
+        assert_eq!(code, 409, "{premature}");
+        assert_eq!(premature["code"], "INCOMPLETE_CIPHERTEXT");
+        let (code, chunk) = post(
+            server.1,
+            "POST",
+            &format!("{prefix}/stages/{id}/chunks/0"),
+            &token,
+            opaque,
+        );
+        assert_eq!(code, 200, "{chunk}");
+        let (code, missing) = post(server.1, "GET", &path, &token, "");
+        assert_eq!(code, 404, "{missing}");
+        let (code, denied) = post(server.1, "POST", &path, &random_b64u(32), &payload);
+        assert_eq!(code, 404, "{denied}");
+        let forged = json!({
+            "owner_public": attacker.public_key, "request": signed_request, "grant": signed_grant
+        })
+        .to_string();
+        let (code, wrong_actor) = post(server.1, "POST", &path, &token, &forged);
+        assert_eq!(code, 403, "{wrong_actor}");
+        let (code, stored) = post(server.1, "POST", &path, &token, &payload);
+        assert_eq!(code, 200, "{stored}");
+        assert_eq!(stored["recipient_consent_staged"], true);
+        assert_eq!(stored["recipient_key_proven"], false);
+        assert_eq!(stored["device_enrolled"], false);
+        assert_eq!(stored["cutover"], false);
+        let (code, duplicate) = post(server.1, "POST", &path, &token, &payload);
+        assert_eq!(code, 200, "{duplicate}");
+        assert_eq!(duplicate["duplicate"], true);
+        (id, token, signed_request, signed_grant)
+    };
+    let restarted = start_with(
+        false,
+        dir.path(),
+        &[("EXPERIMENTAL_TRANSFER_STAGING", "true".into())],
+    );
+    let path = format!("{prefix}/stages/{id}/recipient-consent");
+    let (code, status) = post(
+        restarted.1,
+        "POST",
+        &format!("{prefix}/stages/{id}/status"),
+        &token,
+        "{}",
+    );
+    assert_eq!(code, 200, "{status}");
+    assert_eq!(status["recipient_consent_staged"], true);
+    assert_eq!(status["recipient_key_proven"], false);
+    let (code, stored) = post(restarted.1, "GET", &path, &token, "");
+    assert_eq!(code, 200, "{stored}");
+    assert_eq!(stored["request"], signed_request);
+    assert_eq!(stored["grant"], signed_grant);
+    assert_eq!(stored["imported"], false);
+    assert_eq!(stored["cutover"], false);
+    let (code, aborted) = post(
+        restarted.1,
+        "POST",
+        &format!("{prefix}/stages/{id}/abort"),
+        &token,
+        "",
+    );
+    assert_eq!(code, 200, "{aborted}");
+    assert_eq!(aborted["source_unchanged"], true);
+    let (code, gone) = post(restarted.1, "GET", &path, &token, "");
+    assert_eq!(code, 404, "{gone}");
+}
