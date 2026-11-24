@@ -478,7 +478,7 @@ impl Relay {
         for id in ids {
             deleted += from_db(tx.execute(
                 "DELETE FROM mail WHERE id=?1 AND actor=?2 AND device=?3",
-                params![id, actor, device],
+                params![id.as_str().unwrap_or(""), actor, device],
             ))?;
         }
         from_db(tx.commit())?;
@@ -702,13 +702,6 @@ impl Relay {
     }
 
     pub fn actors(&self) -> RelayResult<Value> {
-        let rows = from_db(
-            self.db
-                .prepare("SELECT document FROM actors ORDER BY handle LIMIT 100"),
-        )?
-        .query_map([], |r| r.get::<_, String>(0));
-        // Use a fresh statement below to avoid borrowing a temporary.
-        let _ = rows;
         let mut stmt = from_db(
             self.db
                 .prepare("SELECT document FROM actors ORDER BY handle LIMIT 100"),
