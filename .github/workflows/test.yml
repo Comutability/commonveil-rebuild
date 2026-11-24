@@ -155,8 +155,8 @@ jobs:
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: \${{ github.actor }}
-          password: \${{ github.token }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
       - name: Publish CI-verified developer preview Docker app
         uses: docker/build-push-action@v6
         with:
@@ -164,15 +164,15 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           build-args: |
-            COMMONVEIL_VERSION=\${{ steps.protocol.outputs.version }}
-            SECURE_NET_REV=\${{ steps.protocol.outputs.rev }}
+            COMMONVEIL_VERSION=${{ steps.protocol.outputs.version }}
+            SECURE_NET_REV=${{ steps.protocol.outputs.rev }}
           tags: |
             ghcr.io/comutability/commonveil:edge
-            ghcr.io/comutability/commonveil:edge-\${{ github.sha }}
+            ghcr.io/comutability/commonveil:edge-${{ github.sha }}
           labels: |
-            org.opencontainers.image.source=https://github.com/\${{ github.repository }}
-            org.opencontainers.image.version=\${{ steps.protocol.outputs.version }}
-            org.opencontainers.image.revision=\${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.protocol.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
       - name: Publish matching CI-verified developer preview updater
         uses: docker/build-push-action@v6
         with:
@@ -182,4 +182,4 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: |
             ghcr.io/comutability/commonveil-updater:edge
-            ghcr.io/comutability/commonveil-updater:edge-\${{ github.sha }}
+            ghcr.io/comutability/commonveil-updater:edge-${{ github.sha }}
