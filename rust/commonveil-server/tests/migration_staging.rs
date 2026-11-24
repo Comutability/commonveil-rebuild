@@ -166,3 +166,107 @@ fn opt_in_endpoint_stages_ciphertext_and_recovers_from_process_restart() {
     let (code, _) = post(server.1, "POST", &format!("{prefix}/status"), &token, "{}");
     assert_eq!(code, 404);
 }
+
+#[test]
+fn owner_signed_reconciliation_over_http_survives_restart_without_cutover() {
+    let dir = tempdir().unwrap();
+    let owner = SigningKey::generate(true);
+    let impostor = SigningKey::generate(true);
+    let ciphertext = "opaque encrypted report archive";
+    let prefix = "/cvp/v2/experimental-transfer";
+    let (id, token, statement) = {
+        let server = start_with(
+            false,
+            dir.path(),
+            &[("EXPERIMENTAL_TRANSFER_STAGING", "true".into())],
+        );
+        let ticket = prepare(server.1, &owner, &[ciphertext], 7);
+        let id = ticket["stage_id"].as_str().unwrap().to_owned();
+        let token = ticket["stage_token"].as_str().unwrap().to_owned();
+        let (_, root, _) = manifest(&[ciphertext]);
+        let now = commonveil_server::sessions::now_ms();
+        let statement = sign("transfer.reconcile", &json!({
+            "v": 1, "actor": owner.kid,
+            "stage_id": id, "to": "cv.example",
+            "ciphertext_root": root,
+            "challenge": ticket["reconcile_challenge"],
+            "encrypted_report_sha256": sha256_b64u(b"encrypted client-private reconciliation report"),
+            "client_checked": true, "issued_ms": now, "expires_ms": now + 120_000
+        }), &owner).unwrap();
+        let endpoint = format!("{prefix}/stages/{id}/reconcile");
+        let request = json!({"owner_public": owner.public_key, "statement": statement}).to_string();
+        let (status, body) = post(server.1, "POST", &endpoint, &token, &request);
+        assert_eq!(status, 409, "{body}");
+        assert_eq!(body["code"], "INCOMPLETE_CIPHERTEXT");
+        let (code, chunk) = post(
+            server.1,
+            "POST",
+            &format!("{prefix}/stages/{id}/chunks/0"),
+            &token,
+            ciphertext,
+        );
+        assert_eq!(code, 200, "{chunk}");
+
+        let forbidden_request =
+            json!({"owner_public": impostor.public_key, "statement": statement}).to_string();
+        let (code, denied) = post(server.1, "POST", &endpoint, &token, &forbidden_request);
+        assert_eq!(code, 403, "{denied}");
+        assert_eq!(denied["code"], "WRONG_ACTOR");
+
+        let (code, denied) = post(server.1, "POST", &endpoint, &random_b64u(32), &request);
+        assert_eq!(code, 404, "{denied}");
+
+        let (code, confirmed) = post(server.1, "POST", &endpoint, &token, &request);
+        assert_eq!(code, 200, "{confirmed}");
+        assert_eq!(confirmed["client_attested"], true);
+        assert_eq!(confirmed["imported"], false);
+        assert_eq!(confirmed["cutover"], false);
+        (id, token, statement)
+    };
+
+    // A fresh process must recover the signed statement and keep all
+    // account routing unchanged.
+    let restarted = start_with(
+        false,
+        dir.path(),
+        &[("EXPERIMENTAL_TRANSFER_STAGING", "true".into())],
+    );
+    let endpoint = format!("{prefix}/stages/{id}");
+    let (code, status) = post(
+        restarted.1,
+        "POST",
+        &format!("{endpoint}/status"),
+        &token,
+        "{}",
+    );
+    assert_eq!(code, 200, "{status}");
+    assert_eq!(status["client_attested"], true);
+    assert_eq!(status["imported"], false);
+    assert_eq!(status["cutover"], false);
+    let (code, result) = post(
+        restarted.1,
+        "GET",
+        &format!("{endpoint}/reconcile"),
+        &token,
+        "",
+    );
+    assert_eq!(code, 200, "{result}");
+    assert_eq!(result["client_signed_statement"], statement);
+    let (code, cancelled) = post(
+        restarted.1,
+        "POST",
+        &format!("{endpoint}/abort"),
+        &token,
+        "",
+    );
+    assert_eq!(code, 200, "{cancelled}");
+    assert_eq!(cancelled["source_unchanged"], true);
+    let (code, missing) = post(
+        restarted.1,
+        "GET",
+        &format!("{endpoint}/reconcile"),
+        &token,
+        "",
+    );
+    assert_eq!(code, 404, "{missing}");
+}
