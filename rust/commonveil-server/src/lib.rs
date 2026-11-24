@@ -31,6 +31,7 @@ pub mod federation;
 pub mod files;
 pub mod updates;
 pub mod maintenance;
+pub mod migration_stage;
 pub mod moderation;
 pub mod protocol;
 pub mod snips;
@@ -302,6 +303,28 @@ async fn handle(State(app): State<Arc<App>>, req: Request) -> Response<Body> {
             "public_settings": { "auth_config": { "enable_username_password": true, "mfa_policy": "off" } },
             "site": { "name": c.site_name, "version": c.version, "federation": c.federation, "handle_domain": c.handle_domain, "email": false },
         }));
+    }
+    // Early destination ciphertext staging. Entire endpoint family is absent unless
+    // the self-hosted operator opts in, and never publishes actor moves or relay changes.
+    if path.starts_with("/cvp/v2/experimental-transfer/") {
+        if !app.config.experimental_transfer_staging {
+            return http::json(404, &json!({ "error":"Not found", "code":"NOT_FOUND" }));
+        }
+        let method = req.method().as_str().to_string();
+        let token = req.headers().get("authorization").and_then(|h| h.to_str().ok())
+            .unwrap_or("").to_string();
+        let body = match axum::body::to_bytes(req.into_body(), migration_stage::MAX_CHUNK.max(512*1024)+1).await {
+            Ok(b) => b,
+            Err(_) => return http::json(413, &json!({"code":"TOO_LARGE"})),
+        };
+        let dir = app.config.data_dir.clone();
+        let host = app.config.host.clone();
+        return match tokio::task::spawn_blocking(move ||
+            migration_stage::route(&dir, &host, &method, &path, &token, &body, sessions::now_ms())
+        ).await {
+            Ok((status, v)) => http::json(status, &v),
+            Err(_) => http::json(500, &json!({"code":"STAGE_UNAVAILABLE"})),
+        };
     }
     if path.starts_with("/api/entities/") {
         return entities(app.clone(), req, &path).await;

@@ -35,6 +35,8 @@ pub struct Config {
     pub update_check_hours: f64,
     pub updater_url: String,
     pub updater_token: String,
+    /// Experimental opaque transfer staging. Default off. No account imports or cutovers.
+    pub experimental_transfer_staging: bool,
     pub federation: bool,
     pub federation_prefix: String,
     pub handle_domain: String,
@@ -144,6 +146,7 @@ impl Config {
             update_check_hours: number(get("UPDATE_CHECK_HOURS")).unwrap_or(6.0).max(1.0),
             updater_url: get("UPDATER_URL").cloned().unwrap_or_default(),
             updater_token: get("UPDATER_TOKEN").cloned().unwrap_or_default(),
+            experimental_transfer_staging: boolean(get("EXPERIMENTAL_TRANSFER_STAGING"), false),
             federation: boolean(get("FEDERATION"), true),
             federation_prefix: if valid_prefix(&prefix) { prefix } else { String::new() },
             handle_domain: get("HANDLE_DOMAIN").filter(|s| !s.is_empty()).map_or_else(|| host.clone(), |h| h.to_lowercase()),
