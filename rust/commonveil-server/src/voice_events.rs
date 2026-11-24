@@ -66,47 +66,6 @@ fn turn_ice_servers_at(user_id: &str, secret: &str, urls_raw: &str, now_secs: u6
     json!([{ "urls": urls, "username": username, "credential": credential }])
 }
 
-#[cfg(test)]
-mod turn_tests {
-    use super::*;
-    #[test]
-    fn private_turn_secret_stays_server_side_and_credential_matches_hmac_sha1() {
-        let secret = "a-long-random-operator-secret-0123456789";
-        let urls = "turn:relay.example.test:3478?transport=udp,turns:relay.example.test:5349?transport=tcp";
-        let result = turn_ice_servers_at("user-id", secret, urls, 1_800_000_000);
-        let server = &result[0];
-        assert_eq!(server["username"], "1800021600:user-id");
-        assert_eq!(
-            server["urls"],
-            json!([
-                "turn:relay.example.test:3478?transport=udp",
-                "turns:relay.example.test:5349?transport=tcp"
-            ])
-        );
-        // Expected reference is independently generated using a standard
-        // Python/Node HMAC-SHA1 implementation, never copied from the key.
-        assert!(!result.to_string().contains(secret));
-        assert_eq!(server["credential"].as_str().unwrap().len(), 28);
-    }
-    #[test]
-    fn turn_requires_complete_trusted_operator_configuration() {
-        let secret = "a-long-random-operator-secret-0123456789";
-        for (key, url) in [
-            ("", "turn:relay.example.test"),
-            (secret, ""),
-            (secret, "https://relay.example.test"),
-            (secret, "turn:relay.test:3478?token=secret"),
-            (secret, "turn:user:password@relay.test:3478"),
-            (secret, "turn:bad /path"),
-        ] {
-            assert_eq!(
-                turn_ice_servers_at("user-id", key, url, 1_800_000_000),
-                json!([])
-            );
-        }
-    }
-}
-
 /// The actor room for a voice or stage channel's call.
 pub fn voice_room_id(server_id: &str, channel_id: &str) -> String {
     format!("{server_id}.{channel_id}")
@@ -533,4 +492,45 @@ pub fn event_actions() -> Actions {
         a.insert(name, f);
     }
     a
+}
+
+#[cfg(test)]
+mod turn_tests {
+    use super::*;
+    #[test]
+    fn private_turn_secret_stays_server_side_and_credential_matches_hmac_sha1() {
+        let secret = "a-long-random-operator-secret-0123456789";
+        let urls = "turn:relay.example.test:3478?transport=udp,turns:relay.example.test:5349?transport=tcp";
+        let result = turn_ice_servers_at("user-id", secret, urls, 1_800_000_000);
+        let server = &result[0];
+        assert_eq!(server["username"], "1800021600:user-id");
+        assert_eq!(
+            server["urls"],
+            json!([
+                "turn:relay.example.test:3478?transport=udp",
+                "turns:relay.example.test:5349?transport=tcp"
+            ])
+        );
+        // Expected reference is independently generated using a standard
+        // Python/Node HMAC-SHA1 implementation, never copied from the key.
+        assert!(!result.to_string().contains(secret));
+        assert_eq!(server["credential"].as_str().unwrap().len(), 28);
+    }
+    #[test]
+    fn turn_requires_complete_trusted_operator_configuration() {
+        let secret = "a-long-random-operator-secret-0123456789";
+        for (key, url) in [
+            ("", "turn:relay.example.test"),
+            (secret, ""),
+            (secret, "https://relay.example.test"),
+            (secret, "turn:relay.test:3478?token=secret"),
+            (secret, "turn:user:password@relay.test:3478"),
+            (secret, "turn:bad /path"),
+        ] {
+            assert_eq!(
+                turn_ice_servers_at("user-id", key, url, 1_800_000_000),
+                json!([])
+            );
+        }
+    }
 }
