@@ -708,6 +708,25 @@ impl Stage {
         if state["actor"] != actor {
             return err(403, "WRONG_ACTOR");
         }
+        // Require the complete signed envelope to contain ONLY protocol fields.
+        // The signature covers its body, not arbitrary extra top-level metadata.
+        let Some(envelope) = signed.as_object() else {
+            return err(400, "BAD_RECONCILIATION");
+        };
+        let Some(signature) = signed["sig"].as_object() else {
+            return err(400, "BAD_RECONCILIATION");
+        };
+        if envelope.len() != 3
+            || !["kind", "body", "sig"]
+                .iter()
+                .all(|key| envelope.contains_key(*key))
+            || signature.len() != 4
+            || !["kid", "alg", "value", "pq"]
+                .iter()
+                .all(|key| signature.contains_key(*key))
+        {
+            return err(400, "BAD_RECONCILIATION");
+        }
         let body = verify(
             signed,
             |kid| (kid == actor).then(|| owner_public.to_string()),
@@ -1359,6 +1378,14 @@ mod tests {
                 )
                 .unwrap_err()
                 .code,
+                "BAD_RECONCILIATION"
+            );
+            let mut unsafe_envelope = receipt.clone();
+            unsafe_envelope["contact_name"] = json!("Plaintext must not be admitted");
+            assert_eq!(
+                s.reconcile(&id, &token, &owner.public_key, &unsafe_envelope, NOW + 1000)
+                    .unwrap_err()
+                    .code,
                 "BAD_RECONCILIATION"
             );
             let first = s
