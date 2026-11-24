@@ -1522,6 +1522,12 @@ mod tests {
                     .code,
                 "INCOMPLETE_CIPHERTEXT"
             );
+            assert_eq!(
+                s.stage_report(&id, &token, TEST_REPORT, NOW + 1000)
+                    .unwrap_err()
+                    .code,
+                "INCOMPLETE_CIPHERTEXT"
+            );
             s.chunk(&id, &token, 0, chunk, NOW + 1000).unwrap();
             assert_eq!(
                 s.reconcile(&id, &token, &owner.public_key, &receipt, NOW + 1000)
@@ -1756,6 +1762,45 @@ mod tests {
         assert_eq!(
             stage.status(id, token, 0, 64, NOW + 1000).unwrap()["client_attested"],
             false
+        );
+    }
+
+    #[test]
+    fn validly_signed_reconciliation_cannot_attest_to_a_different_report() {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = SigningKey::generate(true);
+        let ciphertext = b"sealed for one device";
+        let (manifest, root, _) = fixture(&[ciphertext]);
+        let mut stage = Stage::open(dir.path(), DEST).unwrap();
+        let (intent, _) = authorise(&owner, &mut stage, 1, &[ciphertext]);
+        let ticket = stage
+            .prepare(&owner.public_key, &intent, &manifest, NOW)
+            .unwrap();
+        let id = ticket["stage_id"].as_str().unwrap();
+        let token = ticket["stage_token"].as_str().unwrap();
+        stage.chunk(id, token, 0, ciphertext, NOW).unwrap();
+        stage.stage_report(id, token, TEST_REPORT, NOW).unwrap();
+        let mut different_report =
+            signed_reconciliation(&owner, &ticket, &root, NOW + 1000)["body"].clone();
+        different_report["encrypted_report_sha256"] = json!(sha256_b64u(&[0xC0_u8; 64]));
+        let wrong_receipt = sign(RECONCILE_PURPOSE, &different_report, &owner).unwrap();
+        assert_eq!(
+            stage
+                .reconcile(id, token, &owner.public_key, &wrong_receipt, NOW + 1000)
+                .unwrap_err()
+                .code,
+            "REPORT_HASH_MISMATCH"
+        );
+        assert_eq!(
+            stage.status(id, token, 0, 64, NOW + 1000).unwrap()["client_attested"],
+            false
+        );
+        let correct = signed_reconciliation(&owner, &ticket, &root, NOW + 1000);
+        assert_eq!(
+            stage
+                .reconcile(id, token, &owner.public_key, &correct, NOW + 1000)
+                .unwrap()["client_attested"],
+            true
         );
     }
 
