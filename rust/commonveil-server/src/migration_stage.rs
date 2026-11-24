@@ -30,6 +30,18 @@ const PURPOSE: &str = "transfer.intent";
 const RECONCILE_PURPOSE: &str = "transfer.reconcile";
 const RECONCILE_LIFE_MS: i64 = 5 * 60 * 1000;
 
+type StageRow = (
+    Vec<u8>,
+    i64,
+    String,
+    i64,
+    i64,
+    i64,
+    String,
+    String,
+    String,
+    Option<String>,
+);
 type StageResult<T> = Result<T, StageError>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StageError {
@@ -471,18 +483,7 @@ impl Stage {
         {
             return err(404, "NOT_FOUND");
         }
-        let stored: Option<(
-            Vec<u8>,
-            i64,
-            String,
-            i64,
-            i64,
-            i64,
-            String,
-            String,
-            String,
-            Option<String>,
-        )> = self
+        let stored: Option<StageRow> = self
             .db
             .query_row(
                 "SELECT token_hash, expires, manifest, expected_chunks, expected_bytes, complete,
