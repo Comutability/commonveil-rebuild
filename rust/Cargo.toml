@@ -8,11 +8,12 @@ license = "AGPL-3.0-only"
 repository = "https://github.com/Comutability/commonveil-rebuild"
 rust-version = "1.88"
 
-# Secure Net (the protocol and Commonveil's cryptography), pinned to one commit: its 0.7.0 release.
+# Secure Net 0.7.0 with experimental SNIP-0007 transfer *draft* primitives.
+# This is a reviewed-for-build but NOT standards-approved draft commit; staging stays off by default.
 # The server and the client core both use it from here, and the OpenMLS copies below come from the
 # same commit, always. The Secure Net workflow (.github/workflows/secure-net.yml) moves them together.
 [workspace.dependencies]
-secure-net-core = { git = "https://github.com/Comutability/secure-net", rev = "e3b1450d02a7ccfcf0a20f906afbcbdd7109f54a" }
+secure-net-core = { git = "https://github.com/Comutability/secure-net", rev = "12ab6f3e351bb348aed75f864095e50965be9239" }
 
 # The client core as WebAssembly: small rather than fast to build. The server keeps the release profile.
 [profile.wasm]
@@ -26,5 +27,5 @@ strip = true
 # Secure Net's OpenMLS copies (one added ciphersuite; see its rust/vendor/*/SECURE_NET_PATCH.md),
 # from the same release: a dependency's own [patch] doesn't carry over.
 [patch.crates-io]
-openmls_traits = { git = "https://github.com/Comutability/secure-net", rev = "e3b1450d02a7ccfcf0a20f906afbcbdd7109f54a" }
-openmls_rust_crypto = { git = "https://github.com/Comutability/secure-net", rev = "e3b1450d02a7ccfcf0a20f906afbcbdd7109f54a" }
+openmls_traits = { git = "https://github.com/Comutability/secure-net", rev = "12ab6f3e351bb348aed75f864095e50965be9239" }
+openmls_rust_crypto = { git = "https://github.com/Comutability/secure-net", rev = "12ab6f3e351bb348aed75f864095e50965be9239" }
