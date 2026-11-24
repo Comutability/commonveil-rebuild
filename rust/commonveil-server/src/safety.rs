@@ -606,5 +606,9 @@ pub fn disclosure_actions() -> Actions {
     // Public site rules reveal only operator-authored policy and public reasons.
     let mut a = Actions::new();
     a.insert("submit", submit as crate::api::Action);
+    a.insert(
+        "site_rules",
+        crate::site_policy::public_rules as crate::api::Action,
+    );
     a
 }

@@ -113,7 +113,7 @@ pub fn clean_host(value: &Value) -> Result<String> {
 }
 fn list(sr: &Db, owner: bool) -> Result<Value> {
     let policy = policy_of(current(sr)?.as_ref());
-    let domains = sr.list("SiteDomainRule", "created_date", MAX_DOMAINS)?;
+    let domains = sr.filter("SiteDomainRule", json!({}), "created_date", MAX_DOMAINS)?;
     Ok(
         json!({"policy":policy,"domains":domains.iter().map(|r|json!({
         "domain":r["domain"],"severity":r["severity"],"public_reason":r["public_reason"],
@@ -266,7 +266,7 @@ fn upsert(ctx: &mut Ctx) -> Result<Value> {
     )?;
     if existing.is_empty()
         && sr
-            .list("SiteDomainRule", "created_date", MAX_DOMAINS + 1)?
+            .filter("SiteDomainRule", json!({}), "created_date", MAX_DOMAINS + 1)?
             .len()
             >= MAX_DOMAINS
     {
@@ -295,7 +295,7 @@ pub fn public_rules(ctx: &mut Ctx) -> Result<Value> {
     let p = policy_of(current(&sr)?.as_ref());
     let mut blocks = Vec::new();
     if p["show_domain_blocks"] == true {
-        for row in sr.list("SiteDomainRule", "created_date", MAX_DOMAINS)? {
+        for row in sr.filter("SiteDomainRule", json!({}), "created_date", MAX_DOMAINS)? {
             if row["severity"] == "suspend" || row["severity"] == "limit" {
                 blocks.push(json!({"domain":row["domain"],"severity":row["severity"],"reason":row["public_reason"]}));
             }
