@@ -1696,6 +1696,213 @@ mod tests {
         .unwrap()
     }
 
+    fn signed_device_consent(
+        owner: &SigningKey,
+        ticket: &Value,
+        root: &str,
+        now: i64,
+    ) -> (Value, Value) {
+        use secure_net_core::transfer::{
+            create_recipient_grant, create_recipient_request, ExpectedRecipient,
+            RecipientRequestInput,
+        };
+        let device = SigningKey::generate(true);
+        let kem = secure_net_core::cv::kem::kem_keygen(None).unwrap();
+        let expected = ExpectedRecipient {
+            actor_id: &owner.kid,
+            stage_id: ticket["stage_id"].as_str().unwrap(),
+            destination: DEST,
+            ciphertext_root: root,
+            challenge: ticket["reconcile_challenge"].as_str().unwrap(),
+            now_ms: now,
+        };
+        let req = create_recipient_request(
+            &device,
+            &RecipientRequestInput {
+                expected,
+                recipient_kem_public: kem["kem_pub"].as_str().unwrap(),
+                expires_ms: now + 110_000,
+            },
+        )
+        .unwrap();
+        let grant = create_recipient_grant(owner, &req, &expected, now + 90_000).unwrap();
+        (req, grant)
+    }
+
+    #[test]
+    fn signed_recipient_consent_is_durable_immutable_and_not_an_enrolment() {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = SigningKey::generate(true);
+        let attacker = SigningKey::generate(true);
+        let chunk = b"opaque recipient-bound ciphertext";
+        let (manifest, root, _) = fixture(&[chunk]);
+        let (id, token, request, grant) = {
+            let mut stage = Stage::open(dir.path(), DEST).unwrap();
+            let (intent, _) = authorise(&owner, &mut stage, 1, &[chunk]);
+            let ticket = stage
+                .prepare(&owner.public_key, &intent, &manifest, NOW)
+                .unwrap();
+            let id = ticket["stage_id"].as_str().unwrap().to_string();
+            let token = ticket["stage_token"].as_str().unwrap().to_string();
+            let (request, grant) = signed_device_consent(&owner, &ticket, &root, NOW + 1000);
+            assert_eq!(
+                stage
+                    .recipient_consent(&id, &token, &owner.public_key, &request, &grant, NOW + 1000)
+                    .unwrap_err()
+                    .code,
+                "INCOMPLETE_CIPHERTEXT"
+            );
+            stage.chunk(&id, &token, 0, chunk, NOW + 1000).unwrap();
+            assert_eq!(
+                stage
+                    .recipient_consent(
+                        &id,
+                        &random_b64u(32),
+                        &owner.public_key,
+                        &request,
+                        &grant,
+                        NOW + 1000
+                    )
+                    .unwrap_err()
+                    .code,
+                "NOT_FOUND"
+            );
+            assert_eq!(
+                stage
+                    .recipient_consent(
+                        &id,
+                        &token,
+                        &attacker.public_key,
+                        &request,
+                        &grant,
+                        NOW + 1000
+                    )
+                    .unwrap_err()
+                    .code,
+                "WRONG_ACTOR"
+            );
+            let mut altered = grant.clone();
+            altered["body"]["owner_approved"] = json!(false);
+            assert_eq!(
+                stage
+                    .recipient_consent(
+                        &id,
+                        &token,
+                        &owner.public_key,
+                        &request,
+                        &altered,
+                        NOW + 1000
+                    )
+                    .unwrap_err()
+                    .code,
+                "BAD_RECIPIENT_CONSENT"
+            );
+            assert_eq!(
+                stage
+                    .signed_recipient_consent(&id, &token, NOW + 1000)
+                    .unwrap_err()
+                    .code,
+                "NOT_FOUND"
+            );
+            let first = stage
+                .recipient_consent(&id, &token, &owner.public_key, &request, &grant, NOW + 1000)
+                .unwrap();
+            assert_eq!(first["recipient_consent_staged"], true);
+            assert_eq!(first["device_enrolled"], false);
+            assert_eq!(first["recipient_key_proven"], false);
+            assert_eq!(first["duplicate"], false);
+            assert_eq!(
+                stage
+                    .recipient_consent(&id, &token, &owner.public_key, &request, &grant, NOW + 1001)
+                    .unwrap()["duplicate"],
+                true
+            );
+            let (replacement, alternate_grant) =
+                signed_device_consent(&owner, &ticket, &root, NOW + 1000);
+            assert_eq!(
+                stage
+                    .recipient_consent(
+                        &id,
+                        &token,
+                        &owner.public_key,
+                        &replacement,
+                        &alternate_grant,
+                        NOW + 1001
+                    )
+                    .unwrap_err()
+                    .code,
+                "RECIPIENT_CONSENT_CONFLICT"
+            );
+            assert_eq!(
+                stage.status(&id, &token, 0, 64, NOW + 1000).unwrap()["recipient_consent_staged"],
+                true
+            );
+            (id, token, request, grant)
+        };
+        let mut restarted = Stage::open(dir.path(), DEST).unwrap();
+        let copy = restarted
+            .signed_recipient_consent(&id, &token, NOW + 2000)
+            .unwrap();
+        assert_eq!(copy["request"], request);
+        assert_eq!(copy["grant"], grant);
+        assert_eq!(copy["device_enrolled"], false);
+        assert_eq!(copy["recipient_key_proven"], false);
+        assert_eq!(copy["cutover"], false);
+        assert_eq!(
+            restarted.abort(&id, &token, NOW + 2000).unwrap()["source_unchanged"],
+            true
+        );
+        assert_eq!(
+            restarted
+                .signed_recipient_consent(&id, &token, NOW + 2000)
+                .unwrap_err()
+                .code,
+            "NOT_FOUND"
+        );
+    }
+
+    #[test]
+    fn recipient_consent_refuses_cross_stage_replay_and_expired_signatures() {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = SigningKey::generate(true);
+        let blob = b"private sealed frame";
+        let (manifest, root, _) = fixture(&[blob]);
+        let mut stage = Stage::open(dir.path(), DEST).unwrap();
+        let (intent, _) = authorise(&owner, &mut stage, 1, &[blob]);
+        let ticket = stage
+            .prepare(&owner.public_key, &intent, &manifest, NOW)
+            .unwrap();
+        let id = ticket["stage_id"].as_str().unwrap();
+        let token = ticket["stage_token"].as_str().unwrap();
+        stage.chunk(id, token, 0, blob, NOW).unwrap();
+        let (req, grant) = signed_device_consent(&owner, &ticket, &root, NOW);
+        assert_eq!(
+            stage
+                .recipient_consent(id, token, &owner.public_key, &req, &grant, NOW + 111_000)
+                .unwrap_err()
+                .code,
+            "EXPIRED_CONSENT"
+        );
+        let (intent2, _) = authorise(&owner, &mut stage, 2, &[blob]);
+        let ticket2 = stage
+            .prepare(&owner.public_key, &intent2, &manifest, NOW)
+            .unwrap();
+        let id2 = ticket2["stage_id"].as_str().unwrap();
+        let token2 = ticket2["stage_token"].as_str().unwrap();
+        stage.chunk(id2, token2, 0, blob, NOW).unwrap();
+        assert_eq!(
+            stage
+                .recipient_consent(id2, token2, &owner.public_key, &req, &grant, NOW + 1000)
+                .unwrap_err()
+                .code,
+            "BAD_RECIPIENT_CONSENT"
+        );
+        assert_eq!(
+            stage.status(id2, token2, 0, 64, NOW + 1000).unwrap()["recipient_consent_staged"],
+            false
+        );
+    }
+
     #[test]
     fn only_the_original_independent_key_can_attest_after_complete_ciphertext() {
         let dir = tempfile::tempdir().unwrap();
