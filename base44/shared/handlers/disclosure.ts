@@ -3,6 +3,7 @@
 // allowance so the channel can't be used to fill the database; signed-in reporters get
 // their own allowance, so a flood of anonymous reports can't shut them out.
 import { ApiError, cleanText, type Actions } from "../http.ts";
+import { publicSiteRules } from "./sitePolicy.ts";
 import { countSince, withinRate } from "../store.ts";
 
 export const DISCLOSURE_LIMITS = Object.freeze({
@@ -15,6 +16,7 @@ const HOUR = 3600_000;
 const DAY = 24 * HOUR;
 
 export const disclosureActions: Actions = {
+  async site_rules({sr}) { return publicSiteRules(sr); },
   async submit({ sr, user, body, now }) {
     const summary = cleanText(body.summary, 200);
     const details = cleanText(body.details, 8000);

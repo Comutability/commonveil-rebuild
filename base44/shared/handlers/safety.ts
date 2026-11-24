@@ -1,5 +1,6 @@
 // Blocking and reporting, plus the staff side: reports, and erasing what removed sign-ins left behind.
 import { ApiError, LIMITS, cleanText, id, type Actions } from "../http.ts";
+import { sitePolicyActions } from "./sitePolicy.ts";
 import { conversationForMember, enforceRate, profileFor, profileOf, rateLimited, withinRate } from "../store.ts";
 import { purgeAccount } from "../accountDeletion.ts";
 
@@ -143,6 +144,7 @@ function contentData(type: string, data: unknown) {
 }
 
 export const adminActions: Actions = {
+  ...sitePolicyActions,
   // Read and written as the staff member (`own`), so the tables' own rules apply too.
   async content_list({ own, user, body }) {
     requireAdmin(user);
