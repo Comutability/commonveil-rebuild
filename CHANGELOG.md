@@ -5,6 +5,16 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.10](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.10): Fix: Commonveil blank screen caused by Trusted Types clash
+
+_2026-11-23_
+
+- Fixed the published website rendering a blank screen across the homepage, login and app routes. The voice-call diagnostics panel imported react-hot-toast, whose Goober CSS styling engine wrote directly to innerHTML during module initialization. Strict Trusted Types rejected the operation and prevented the whole JavaScript application from loading.
+- Replaced the two call-diagnostics toast notifications with the existing Commonveil Radix-based toast system. Copy success and clipboard-permission error messages remain visible in calls.
+- Added a production-bundle check rejecting Goober's unsafe style injector so this startup regression fails CI rather than reaching the public site.
+- Preserved the existing Content Security Policy and Trusted Types requirements. No security policy downgrades, authentication changes, encryption key changes, account resets, database migrations or protocol wire changes.
+- Verified the built homepage, login page and unauthenticated /app redirect in a Chromium browser with the production Content Security Policy enabled.
+
 ## [0.24.9](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.9): Protocol identity: your actor, checked; another site, checked
 
 _2026-11-23_
