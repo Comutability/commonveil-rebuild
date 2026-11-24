@@ -29,6 +29,11 @@ services:
       # Independent signed recipient request+owner grant storage, private-test only.
       # Neither flag enrols devices or authorises private-history migration.
       EXPERIMENTAL_RECIPIENT_CONSENT: ${EXPERIMENTAL_RECIPIENT_CONSENT:-false}
+      # Independent Secure Net direct-envelope inbox/outbox prototype.
+      # Manual trusted-peer pinning, actor tokens, persisted ciphertext queues.
+      # NEVER on a public production server before third-party security review.
+      EXPERIMENTAL_SECURE_NET_RELAY: ${EXPERIMENTAL_SECURE_NET_RELAY:-false}
+      SECURE_NET_RELAY_ADMIN: ${SECURE_NET_RELAY_ADMIN:-}
       FEDERATION_PATH_PREFIX: ${FEDERATION_PATH_PREFIX:-}
       UPDATER_URL: http://updater:8090
       UPDATER_TOKEN: ${UPDATER_TOKEN:-}

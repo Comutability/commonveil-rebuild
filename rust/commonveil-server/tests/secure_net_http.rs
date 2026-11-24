@@ -7,7 +7,7 @@ use secure_net_core::social::{
     client::SocialClient,
     site::{MemoryNetwork, ReferenceSite},
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use tempfile::tempdir;
 
 const ADMIN: &str = "test-only-admin-credential-0123456789";
