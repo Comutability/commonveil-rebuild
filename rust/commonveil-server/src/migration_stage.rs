@@ -17,8 +17,9 @@ use secure_net_core::transfer::{
     ciphertext_root as protocol_ciphertext_root,
     encrypted_report_digest as protocol_encrypted_report_digest,
     verify_intent as protocol_verify_intent,
+    verify_recipient_grant as protocol_verify_recipient_grant,
     verify_reconciliation as protocol_verify_reconciliation, Chunk as ProtocolChunk,
-    ExpectedReconciliation, MAX_REPORT_BYTES,
+    ExpectedRecipient, ExpectedReconciliation, MAX_REPORT_BYTES,
 };
 use secure_net_core::wire::federation::norm_host;
 use serde_json::{json, Value};
@@ -261,6 +262,12 @@ impl Stage {
                 transfer_id TEXT PRIMARY KEY,
                 digest TEXT NOT NULL,
                 ciphertext BLOB NOT NULL,
+                FOREIGN KEY(transfer_id) REFERENCES transfers(id) ON DELETE CASCADE
+             );
+             CREATE TABLE IF NOT EXISTS recipient_consent (
+                transfer_id TEXT PRIMARY KEY,
+                request_record TEXT NOT NULL,
+                grant_record TEXT NOT NULL,
                 FOREIGN KEY(transfer_id) REFERENCES transfers(id) ON DELETE CASCADE
              );",
         )
@@ -733,14 +740,175 @@ impl Stage {
                 code: "STAGE_UNAVAILABLE",
             })?
             != 0;
+        let recipient_consent_staged: bool = self
+            .db
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM recipient_consent WHERE transfer_id=?1)",
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?
+            != 0;
         Ok(
             json!({ "received": count, "expected": expected, "missing": missing,
             "next_cursor": next, "ciphertext_complete": state["complete"],
             "reconcile_challenge": state["reconcile_nonce"],
             "encrypted_report_staged": report_staged,
+            "recipient_consent_staged": recipient_consent_staged,
+            "recipient_key_proven": false, "device_enrolled": false,
             "client_attested": state["client_attested"],
             "imported": false, "cutover": false }),
         )
+    }
+
+    /// Persist an already signed independent device request and exact actor
+    /// approval. No private KEM key, history key, message or account binding
+    /// is accepted here. A signed public KEM key is not proof of possession.
+    pub fn recipient_consent(
+        &mut self,
+        id: &str,
+        token: &str,
+        owner_public: &str,
+        signed_request: &Value,
+        signed_grant: &Value,
+        now: i64,
+    ) -> StageResult<Value> {
+        let stage = self.authorised(id, token, now)?;
+        if stage["complete"] != true {
+            return err(409, "INCOMPLETE_CIPHERTEXT");
+        }
+        let actor = valid_actor(owner_public)?;
+        if stage["actor"] != actor {
+            return err(403, "WRONG_ACTOR");
+        }
+        if stage["reconcile_nonce"].as_str().unwrap_or("").is_empty() {
+            return err(409, "RESTAGE_REQUIRED");
+        }
+        let expected = ExpectedRecipient {
+            actor_id: &actor,
+            stage_id: id,
+            destination: &self.destination,
+            ciphertext_root: stage["root"].as_str().unwrap_or(""),
+            challenge: stage["reconcile_nonce"].as_str().unwrap_or(""),
+            now_ms: now,
+        };
+        let grant =
+            protocol_verify_recipient_grant(signed_request, signed_grant, owner_public, &expected)
+                .map_err(|error| {
+                    let code = match error.code {
+                        "EXPIRED" => "EXPIRED_CONSENT",
+                        "WRONG_ACTOR" | "UNKNOWN_SIGNER" => "WRONG_ACTOR",
+                        _ => "BAD_RECIPIENT_CONSENT",
+                    };
+                    StageError {
+                        status: if code == "EXPIRED_CONSENT" {
+                            409
+                        } else if code == "WRONG_ACTOR" {
+                            403
+                        } else {
+                            400
+                        },
+                        code,
+                    }
+                })?;
+        let recipient = grant["recipient_id"].as_str().unwrap_or("");
+        // The shared validator checked exact request/grant field sets. Never
+        // blindly persist user-supplied metadata or request plaintext.
+        let request_text = signed_request.to_string();
+        let grant_text = signed_grant.to_string();
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?;
+        let complete: Option<i64> = tx
+            .query_row(
+                "SELECT complete FROM transfers WHERE id=?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?;
+        if complete != Some(1) {
+            return err(409, "INCOMPLETE_CIPHERTEXT");
+        }
+        let previous: Option<(String, String)> = tx
+            .query_row(
+                "SELECT request_record,grant_record FROM recipient_consent WHERE transfer_id=?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?;
+        let duplicate = match previous {
+            Some((request, grant)) => {
+                if request != request_text || grant != grant_text {
+                    return err(409, "RECIPIENT_CONSENT_CONFLICT");
+                }
+                true
+            }
+            None => {
+                tx.execute(
+                    "INSERT INTO recipient_consent(transfer_id,request_record,grant_record) VALUES(?1,?2,?3)",
+                    params![id, request_text, grant_text],
+                ).map_err(|_| StageError { status: 500, code: "STAGE_UNAVAILABLE" })?;
+                false
+            }
+        };
+        tx.commit().map_err(|_| StageError {
+            status: 500,
+            code: "STAGE_UNAVAILABLE",
+        })?;
+        Ok(json!({
+            "recipient_consent_staged": true, "recipient_id": recipient,
+            "duplicate": duplicate, "recipient_key_proven": false,
+            "device_enrolled": false, "imported": false, "cutover": false
+        }))
+    }
+
+    /// Retrieve the two signed *public* authorisation statements. A stage
+    /// bearer cannot use these records to recover history or private keys.
+    pub fn signed_recipient_consent(&self, id: &str, token: &str, now: i64) -> StageResult<Value> {
+        self.authorised(id, token, now)?;
+        let records: Option<(String, String)> = self
+            .db
+            .query_row(
+                "SELECT request_record,grant_record FROM recipient_consent WHERE transfer_id=?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?;
+        let Some((request, grant)) = records else {
+            return err(404, "NOT_FOUND");
+        };
+        let request: Value = serde_json::from_str(&request).map_err(|_| StageError {
+            status: 500,
+            code: "STAGE_UNAVAILABLE",
+        })?;
+        let grant: Value = serde_json::from_str(&grant).map_err(|_| StageError {
+            status: 500,
+            code: "STAGE_UNAVAILABLE",
+        })?;
+        Ok(json!({
+            "request": request, "grant": grant,
+            "recipient_key_proven": false, "device_enrolled": false,
+            "imported": false, "cutover": false
+        }))
     }
 
     /// Stage an opaque, separately device-encrypted reconciliation report.
@@ -1194,6 +1362,37 @@ pub fn route(
                 }
                 ("GET", Some("report"), None, 6) => {
                     return stage.download_report(id, token, now);
+                }
+                ("POST", Some("recipient-consent"), None, 6) => {
+                    if raw.len() > 32 * 1024 {
+                        return err(413, "TOO_LARGE");
+                    }
+                    let data: Value = serde_json::from_slice(raw).map_err(|_| StageError {
+                        status: 400,
+                        code: "BAD_JSON",
+                    })?;
+                    let fields = data.as_object().ok_or(StageError {
+                        status: 400,
+                        code: "BAD_RECIPIENT_CONSENT",
+                    })?;
+                    if fields.len() != 3
+                        || ["owner_public", "request", "grant"]
+                            .iter()
+                            .any(|k| !fields.contains_key(*k))
+                    {
+                        return err(400, "BAD_RECIPIENT_CONSENT");
+                    }
+                    return stage.recipient_consent(
+                        id,
+                        token,
+                        data["owner_public"].as_str().unwrap_or(""),
+                        &data["request"],
+                        &data["grant"],
+                        now,
+                    );
+                }
+                ("GET", Some("recipient-consent"), None, 6) => {
+                    return stage.signed_recipient_consent(id, token, now);
                 }
                 ("POST", Some("reconcile"), None, 6) => {
                     if raw.len() > 12 * 1024 {
