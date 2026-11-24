@@ -1286,9 +1286,10 @@ impl Federation {
             )
         })? == "limit"
             && ((function == "conversations"
-                && ["create", "start"].contains(&parsed["action"].as_str().unwrap_or("")))
+                && ["create_dm", "create_group", "add_members"]
+                    .contains(&parsed["action"].as_str().unwrap_or("")))
                 || (function == "servers"
-                    && ["join", "join_open"].contains(&parsed["action"].as_str().unwrap_or(""))))
+                    && ["join_server"].contains(&parsed["action"].as_str().unwrap_or(""))))
         {
             return Err(fed_err(
                 403,

@@ -538,8 +538,8 @@ export class Federation {
     // A Mastodon-style limit prevents unsolicited new interactions from a
     // remote site but preserves already established encrypted conversations.
     if (siteVerdict(this.store,from)==="limit" &&
-        ((fn==="conversations" && ["create","start"].includes(parsed.action)) ||
-         (fn==="servers" && ["join","join_open"].includes(parsed.action)))) {
+        ((fn==="conversations" && ["create_dm","create_group","add_members"].includes(parsed.action)) ||
+         (fn==="servers" && ["join_server"].includes(parsed.action)))) {
       throw new FederationError(403,"SITE_LIMITED","New interactions from this remote site are limited by local moderation.");
     }
     // Things that only make sense on a person's own site.
