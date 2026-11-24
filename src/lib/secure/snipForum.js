@@ -55,8 +55,9 @@ export const snipClosedNote = (snip) => {
  *   { do: "forum" }               make the forum channel
  *   { do: "post", snip }          start a proposal's thread
  *   { do: "close", snip, note }   leave a closing note (if note) and lock the thread
- * Nothing is done from a stale report (GitHub couldn't be read), and a thread someone locked by
- * hand is never unlocked.
+ * A recent cached main-branch proposal may create a clearly labelled discussion,
+ * but stale data NEVER justifies a new closure or normative outcome. A thread
+ * someone locked by hand is never unlocked.
  */
 export function planSnipSync(report, maxSteps = MAX_STEPS) {
   if (!report?.enabled || !report.manager || !Array.isArray(report.snips)) return [];

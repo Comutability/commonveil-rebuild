@@ -24,7 +24,12 @@ test("rate-limited batches prioritise missing proposals over closures", () => {
   assert.deepEqual(first.map(v=>v.snip.id),["SNIP-0007"]);
   assert.deepEqual(planSnipSync(report,Number.MAX_SAFE_INTEGER).map(v=>v.snip.id),
     ["SNIP-0007","SNIP-0008","SNIP-0002","SNIP-0003","SNIP-0004","SNIP-0005","SNIP-0006"]);
-  assert.deepEqual(planSnipSync({...report,stale:true}),[]);
+  const cached={...report,stale:true,fetched_at:new Date(Date.now()-3600_000).toISOString()};
+  const cachedPlan=planSnipSync(cached,Number.MAX_SAFE_INTEGER);
+  assert.deepEqual(cachedPlan.map(x=>x.snip.id),["SNIP-0007","SNIP-0008"]);
+  assert.ok(cachedPlan.every(x=>x.do==="post"&&x.cached&&x.snip.closed===false));
+  assert.deepEqual(planSnipSync({...cached,fetched_at:new Date(Date.now()-13*3600_000).toISOString()}),[]);
+  assert.deepEqual(planSnipSync({...cached,snips:[{...mk(9),where:"pull"}]}),[]);
 });
 
 test("a failure after encrypted posting resumes the closing lock without duplicating a thread or note", async () => {
@@ -56,4 +61,27 @@ test("a failure after encrypted posting resumes the closing lock without duplica
   assert.deepEqual(await runSnipSync(io),{forum:false,posted:[],closed:[]});
   assert.equal(posted.size,2);
   assert.equal(locked.has(snipThreadId(snip.id)),true);
+});
+
+test("stale GitHub cannot automatically add closure note or lock a cached proposal", async()=>{
+  const snip=mk(7);
+  const operations=[];
+  await runSnipSync({
+    status:async()=>({enabled:true,manager:true,stale:true,
+      fetched_at:new Date(Date.now()-3*3600_000).toISOString(),
+      channel:{id:"forum"},snips:[snip],threads:{},notes:{}}),
+    channelOf:async()=>({id:"forum"}),
+    post:async(_ch,payload,opts)=>operations.push({type:"post",payload,opts}),
+    lock:async()=>operations.push({type:"lock"}),
+  });
+  assert.equal(operations.length,1);
+  assert.equal(operations[0].opts.itemId,snipThreadId("SNIP-0007"));
+  assert.match(operations[0].payload.text,/last-known GitHub snapshot/);
+});
+test("missing local forum channel is a visible failure, not a silent successful sync",async()=>{
+  await assert.rejects(()=>runSnipSync({
+    status:async()=>({enabled:true,manager:true,stale:false,channel:{id:"forum"},
+      snips:[mk(7)],threads:{},notes:{}}),
+    channelOf:async()=>null,
+  }),{code:"SNIP_FORUM_CHANNEL_NOT_LOADED"});
 });

@@ -1290,7 +1290,14 @@ test("the proposals forum: a thread for every SNIP on GitHub, made and closed by
     w.rows("SnipCache")[0].fetched_at = new Date(Date.now() - 3_600_000).toISOString();
     const stale = await owner.ok("snips", { action: "status" });
     assert.equal(stale.stale, true);
-    assert.deepEqual(planSnipSync({ ...stale, threads: {} }), []);
+    // A recent cached file which was already on main may open a clearly
+    // labelled discussion, but stale information must never close a thread.
+    const cachedPlan = planSnipSync({ ...stale, threads: {} });
+    assert.deepEqual(cachedPlan.map((step) => step.snip.id), ["SNIP-0001"]);
+    assert.equal(cachedPlan[0].snip.closed, false);
+    assert.equal(cachedPlan[0].cached, true);
+    assert.deepEqual(planSnipSync({ ...stale, threads: { "SNIP-0001": { locked: false }, "SNIP-0002": { locked: false } } }), []);
+    assert.deepEqual(planSnipSync({ ...stale, threads: {}, fetched_at: new Date(Date.now() - 2*24*60*60_000).toISOString() }), []);
     refresh();
     await owner.fails("snips", { action: "status" }, "GITHUB_UNAVAILABLE");
     gh.down = false;
