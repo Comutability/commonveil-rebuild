@@ -33,11 +33,17 @@ pub const RSVPS_LISTED: usize = 2000;
 /// contains no name, email or IP; the long operator secret never reaches a
 /// client. Disabled when the operator has not provided a valid configuration.
 fn turn_ice_servers(user_id: &str) -> Value {
-    let secret = std::env::var("VOICE_TURN_SECRET")
+    let secret = std::env::var("VOICE_TURN_SECRET").unwrap_or_default();
+    let urls = std::env::var("VOICE_TURN_URLS").unwrap_or_default();
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .trim()
-        .to_string();
-    let urls_raw = std::env::var("VOICE_TURN_URLS").unwrap_or_default();
+        .as_secs();
+    turn_ice_servers_at(user_id, &secret, &urls, now_secs)
+}
+
+fn turn_ice_servers_at(user_id: &str, secret: &str, urls_raw: &str, now_secs: u64) -> Value {
+    let secret = secret.trim();
     let urls: Vec<&str> = urls_raw
         .split(',')
         .map(str::trim)
@@ -52,16 +58,53 @@ fn turn_ice_servers(user_id: &str) -> Value {
     if urls.iter().any(|url| !url_pattern.is_match(url)) {
         return json!([]);
     }
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let username = format!("{}:{user_id}", now + 6 * 60 * 60);
+    let username = format!("{}:{user_id}", now_secs.saturating_add(6 * 60 * 60));
     let mut mac =
         Hmac::<Sha1>::new_from_slice(secret.as_bytes()).expect("HMAC accepts a shared secret");
     mac.update(username.as_bytes());
     let credential = STANDARD.encode(mac.finalize().into_bytes());
     json!([{ "urls": urls, "username": username, "credential": credential }])
+}
+
+#[cfg(test)]
+mod turn_tests {
+    use super::*;
+    #[test]
+    fn private_turn_secret_stays_server_side_and_credential_matches_hmac_sha1() {
+        let secret = "a-long-random-operator-secret-0123456789";
+        let urls = "turn:relay.example.test:3478?transport=udp,turns:relay.example.test:5349?transport=tcp";
+        let result = turn_ice_servers_at("user-id", secret, urls, 1_800_000_000);
+        let server = &result[0];
+        assert_eq!(server["username"], "1800021600:user-id");
+        assert_eq!(
+            server["urls"],
+            json!([
+                "turn:relay.example.test:3478?transport=udp",
+                "turns:relay.example.test:5349?transport=tcp"
+            ])
+        );
+        // Expected reference is independently generated using a standard
+        // Python/Node HMAC-SHA1 implementation, never copied from the key.
+        assert!(!result.to_string().contains(secret));
+        assert_eq!(server["credential"].as_str().unwrap().len(), 28);
+    }
+    #[test]
+    fn turn_requires_complete_trusted_operator_configuration() {
+        let secret = "a-long-random-operator-secret-0123456789";
+        for (key, url) in [
+            ("", "turn:relay.example.test"),
+            (secret, ""),
+            (secret, "https://relay.example.test"),
+            (secret, "turn:relay.test:3478?token=secret"),
+            (secret, "turn:user:password@relay.test:3478"),
+            (secret, "turn:bad /path"),
+        ] {
+            assert_eq!(
+                turn_ice_servers_at("user-id", key, url, 1_800_000_000),
+                json!([])
+            );
+        }
+    }
 }
 
 /// The actor room for a voice or stage channel's call.
