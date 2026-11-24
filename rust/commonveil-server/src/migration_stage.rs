@@ -27,6 +27,8 @@ const MAX_PENDING: i64 = 32;
 const MAX_ACTIVE: i64 = 8;
 const CAP_PER_ACTOR: i64 = 2;
 const PURPOSE: &str = "transfer.intent";
+const RECONCILE_PURPOSE: &str = "transfer.reconcile";
+const RECONCILE_LIFE_MS: i64 = 5 * 60 * 1000;
 
 type StageResult<T> = Result<T, StageError>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -210,7 +212,9 @@ impl Stage {
                 root TEXT NOT NULL, expected_chunks INTEGER NOT NULL,
                 expected_bytes INTEGER NOT NULL, token_hash BLOB NOT NULL,
                 expires INTEGER NOT NULL, complete INTEGER NOT NULL DEFAULT 0,
-                manifest TEXT NOT NULL
+                manifest TEXT NOT NULL,
+                reconcile_nonce TEXT NOT NULL DEFAULT '',
+                reconcile_record TEXT
              );
              CREATE INDEX IF NOT EXISTS transfers_actor ON transfers(actor);
              CREATE TABLE IF NOT EXISTS chunks (
@@ -226,6 +230,35 @@ impl Stage {
             status: 500,
             code: "STAGE_UNAVAILABLE",
         })?;
+        // Earlier experimental databases had no reconciliation columns. Keep staged
+        // ciphertext intact during the schema upgrade. Those older stages must be
+        // re-prepared to receive a unique reconciliation challenge.
+        let columns: Vec<String> = db
+            .prepare("PRAGMA table_info(transfers)")
+            .and_then(|mut stmt| {
+                stmt.query_map([], |row| row.get::<_, String>(1))?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?;
+        if !columns.iter().any(|c| c == "reconcile_nonce") {
+            db.execute_batch(
+                "ALTER TABLE transfers ADD COLUMN reconcile_nonce TEXT NOT NULL DEFAULT '';",
+            )
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?;
+        }
+        if !columns.iter().any(|c| c == "reconcile_record") {
+            db.execute_batch("ALTER TABLE transfers ADD COLUMN reconcile_record TEXT;")
+                .map_err(|_| StageError {
+                    status: 500,
+                    code: "STAGE_UNAVAILABLE",
+                })?;
+        }
         Ok(Self {
             db,
             destination: destination.to_string(),
@@ -404,12 +437,14 @@ impl Stage {
         })?;
         let id = random_b64u(18);
         let token = random_b64u(32);
+        let reconcile_nonce = random_b64u(32);
         let hash = sha256(token.as_bytes());
         tx.execute(
-            "INSERT INTO transfers(id,actor,root,expected_chunks,expected_bytes,token_hash,expires,manifest)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+            "INSERT INTO transfers(id,actor,root,expected_chunks,expected_bytes,token_hash,expires,manifest,reconcile_nonce)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
             params![id, actor, root, manifest.len() as i64, bytes as i64,
-                hash.as_slice(), now + TRANSFER_LIFE, json!({"v":1,"chunks":manifest}).to_string()],
+                hash.as_slice(), now + TRANSFER_LIFE, json!({"v":1,"chunks":manifest}).to_string(),
+                reconcile_nonce],
         ).map_err(|_| StageError { status: 500, code: "STAGE_UNAVAILABLE" })?;
         tx.commit().map_err(|_| StageError {
             status: 500,
@@ -417,8 +452,10 @@ impl Stage {
         })?;
         Ok(json!({
             "stage_id": id, "stage_token": token,
+            "reconcile_challenge": reconcile_nonce,
             "expires_ms": now + TRANSFER_LIFE,
-            "ciphertext_complete": false, "imported": false, "cutover": false
+            "ciphertext_complete": false, "client_attested": false,
+            "imported": false, "cutover": false
         }))
     }
 
@@ -434,10 +471,22 @@ impl Stage {
         {
             return err(404, "NOT_FOUND");
         }
-        let stored: Option<(Vec<u8>, i64, String, i64, i64, i64)> = self
+        let stored: Option<(
+            Vec<u8>,
+            i64,
+            String,
+            i64,
+            i64,
+            i64,
+            String,
+            String,
+            String,
+            Option<String>,
+        )> = self
             .db
             .query_row(
-                "SELECT token_hash, expires, manifest, expected_chunks, expected_bytes, complete
+                "SELECT token_hash, expires, manifest, expected_chunks, expected_bytes, complete,
+                    actor, root, reconcile_nonce, reconcile_record
              FROM transfers WHERE id = ?1",
                 params![id],
                 |r| {
@@ -448,6 +497,10 @@ impl Stage {
                         r.get(3)?,
                         r.get(4)?,
                         r.get(5)?,
+                        r.get(6)?,
+                        r.get(7)?,
+                        r.get(8)?,
+                        r.get(9)?,
                     ))
                 },
             )
@@ -456,7 +509,19 @@ impl Stage {
                 status: 500,
                 code: "STAGE_UNAVAILABLE",
             })?;
-        let Some((hash, expires, manifest, chunks, bytes, complete)) = stored else {
+        let Some((
+            hash,
+            expires,
+            manifest,
+            chunks,
+            bytes,
+            complete,
+            actor,
+            root,
+            reconcile_nonce,
+            reconcile_record,
+        )) = stored
+        else {
             return err(404, "NOT_FOUND");
         };
         if expires < now {
@@ -471,7 +536,11 @@ impl Stage {
             status: 500,
             code: "STAGE_UNAVAILABLE",
         })?;
-        Ok(json!({"manifest":manifest, "chunks":chunks,"bytes":bytes,"complete":complete != 0}))
+        Ok(json!({
+            "manifest": manifest, "chunks":chunks,"bytes":bytes, "complete": complete != 0,
+            "actor": actor, "root": root, "reconcile_nonce": reconcile_nonce,
+            "client_attested": reconcile_record.is_some()
+        }))
     }
 
     /// Accept *only ciphertext* with the expected exact size and SHA-256 hash.
@@ -612,8 +681,195 @@ impl Stage {
         Ok(
             json!({ "received": count, "expected": expected, "missing": missing,
             "next_cursor": next, "ciphertext_complete": state["complete"],
+            "reconcile_challenge": state["reconcile_nonce"],
+            "client_attested": state["client_attested"],
             "imported": false, "cutover": false }),
         )
+    }
+
+    /// The owner's client may sign a bounded statement saying it has checked the
+    /// staged ciphertext and a *separate encrypted* reconciliation report. A signed
+    /// statement is **not** independent proof the inner history was decrypted, and
+    /// never constitutes a transfer commit, account import or inbox handover.
+    pub fn reconcile(
+        &mut self,
+        id: &str,
+        token: &str,
+        owner_public: &str,
+        signed: &Value,
+        now: i64,
+    ) -> StageResult<Value> {
+        let state = self.authorised(id, token, now)?;
+        if state["complete"] != true {
+            return err(409, "INCOMPLETE_CIPHERTEXT");
+        }
+        let actor = valid_actor(owner_public)?;
+        if state["actor"] != actor {
+            return err(403, "WRONG_ACTOR");
+        }
+        let body = verify(
+            signed,
+            |kid| (kid == actor).then(|| owner_public.to_string()),
+            Some(&[RECONCILE_PURPOSE]),
+        )
+        .map_err(|_| StageError {
+            status: 403,
+            code: "BAD_SIGNATURE",
+        })?;
+        // Refuse any extra keys: a relay must not become a covert data-storage
+        // destination for plaintext message descriptions or contact details.
+        let Some(fields) = body.as_object() else {
+            return err(400, "BAD_RECONCILIATION");
+        };
+        const FIELDS: [&str; 10] = [
+            "v",
+            "actor",
+            "stage_id",
+            "to",
+            "ciphertext_root",
+            "challenge",
+            "encrypted_report_sha256",
+            "client_checked",
+            "issued_ms",
+            "expires_ms",
+        ];
+        if fields.len() != FIELDS.len() || !FIELDS.iter().all(|key| fields.contains_key(*key)) {
+            return err(400, "BAD_RECONCILIATION");
+        }
+        if body["v"] != 1
+            || body["actor"] != actor
+            || body["stage_id"] != id
+            || body["to"] != self.destination
+            || body["ciphertext_root"] != state["root"]
+            || body["challenge"] != state["reconcile_nonce"]
+            || body["client_checked"] != true
+            || !body["encrypted_report_sha256"]
+                .as_str()
+                .is_some_and(|hash| from_b64u(hash).is_ok_and(|bytes| bytes.len() == 32))
+        {
+            return err(400, "BAD_RECONCILIATION");
+        }
+        if state["reconcile_nonce"].as_str().unwrap_or("").is_empty() {
+            return err(409, "RESTAGE_REQUIRED");
+        }
+        let issued = body["issued_ms"].as_i64().ok_or(StageError {
+            status: 400,
+            code: "BAD_RECONCILIATION",
+        })?;
+        let expires = body["expires_ms"].as_i64().ok_or(StageError {
+            status: 400,
+            code: "BAD_RECONCILIATION",
+        })?;
+        if issued > now.saturating_add(60_000)
+            || expires < now
+            || expires <= issued
+            || expires - issued > RECONCILE_LIFE_MS
+        {
+            return err(409, "EXPIRED_RECONCILIATION");
+        }
+        // Verify storage again immediately before recording any owner attestation.
+        // The SQLite transaction serialises stage writes and receipt creation.
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?;
+        let previous: Option<String> = tx
+            .query_row(
+                "SELECT reconcile_record FROM transfers WHERE id=?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?;
+        let stored_manifest = state["manifest"]["chunks"].as_array().ok_or(StageError {
+            status: 500,
+            code: "STAGE_UNAVAILABLE",
+        })?;
+        let stored = tx
+            .prepare("SELECT idx, digest, ciphertext FROM chunks WHERE transfer_id=?1 ORDER BY idx")
+            .and_then(|mut st| {
+                st.query_map(params![id], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Vec<u8>>(2)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?;
+        if stored.len() != stored_manifest.len() {
+            return err(409, "INCOMPLETE_CIPHERTEXT");
+        }
+        for (position, (index, digest, ciphertext)) in stored.iter().enumerate() {
+            let entry = &stored_manifest[position];
+            let expected_hash = entry["sha256"].as_str().unwrap_or("");
+            if *index != position as i64
+                || entry["bytes"].as_u64() != Some(ciphertext.len() as u64)
+                || digest != expected_hash
+                || sha256_b64u(ciphertext) != expected_hash
+            {
+                return err(409, "CORRUPT_STAGE");
+            }
+        }
+        let record_text = signed.to_string();
+        let duplicate =
+            if let Some(existing) = previous {
+                if existing != record_text {
+                    return err(409, "RECONCILIATION_CONFLICT");
+                }
+                true
+            } else {
+                tx.execute(
+                "UPDATE transfers SET reconcile_record=?2 WHERE id=?1 AND reconcile_record IS NULL",
+                params![id, record_text],
+            ).map_err(|_| StageError { status: 500, code: "STAGE_UNAVAILABLE" })?;
+                false
+            };
+        tx.commit().map_err(|_| StageError {
+            status: 500,
+            code: "STAGE_UNAVAILABLE",
+        })?;
+        Ok(json!({
+            "client_attested": true, "duplicate": duplicate,
+            "ciphertext_complete": true, "imported": false, "cutover": false,
+            "warning": "The owner signed a statement, not proof of readable history or a site move"
+        }))
+    }
+
+    /// Retrieve the client-authored signed receipt for independent verification.
+    /// This is not a relay signature, a zero-knowledge proof or an import receipt.
+    pub fn signed_reconciliation(&self, id: &str, token: &str, now: i64) -> StageResult<Value> {
+        self.authorised(id, token, now)?;
+        let record: Option<String> = self
+            .db
+            .query_row(
+                "SELECT reconcile_record FROM transfers WHERE id=?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?;
+        let Some(record) = record else {
+            return err(404, "NOT_FOUND");
+        };
+        let statement: Value = serde_json::from_str(&record).map_err(|_| StageError {
+            status: 500,
+            code: "STAGE_UNAVAILABLE",
+        })?;
+        Ok(json!({
+            "client_signed_statement": statement, "imported": false, "cutover": false
+        }))
     }
 
     pub fn abort(&mut self, id: &str, token: &str, now: i64) -> StageResult<Value> {
@@ -745,6 +1001,25 @@ pub fn route(
                     let cursor = data["cursor"].as_u64().unwrap_or(0) as usize;
                     let limit = data["limit"].as_u64().unwrap_or(64) as usize;
                     return stage.status(id, token, cursor, limit, now);
+                }
+                ("POST", Some("reconcile"), None, 6) => {
+                    if raw.len() > 12 * 1024 {
+                        return err(413, "TOO_LARGE");
+                    }
+                    let data: Value = serde_json::from_slice(raw).map_err(|_| StageError {
+                        status: 400,
+                        code: "BAD_JSON",
+                    })?;
+                    return stage.reconcile(
+                        id,
+                        token,
+                        data["owner_public"].as_str().unwrap_or(""),
+                        &data["statement"],
+                        now,
+                    );
+                }
+                ("GET", Some("reconcile"), None, 6) => {
+                    return stage.signed_reconciliation(id, token, now);
                 }
                 ("POST", Some("abort"), None, 6) => return stage.abort(id, token, now),
                 _ => {}
