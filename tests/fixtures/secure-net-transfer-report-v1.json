@@ -1,0 +1,14 @@
+{
+  "draft": "SNIP-0007",
+  "description": "Illustrative format/digest bytes only; body is synthetic, NOT valid AES-GCM ciphertext or an encryption security vector.",
+  "context": {
+    "actor_id": "aaaaaaaaaaaaaaaaaaaaaa",
+    "stage_id": "bbbbbbbbbbbbbbbbbbbbbbbb",
+    "destination": "transfer.example.org",
+    "ciphertext_root": "sRQYinpc4ISZdfsUtUArJ6Qdk4jd3QTdIp5nohQ6Sb4",
+    "recipient_device_id": "dddddddddddddddddddddd"
+  },
+  "aad_utf8": "secure-net/transfer.report/v1\n[\"aaaaaaaaaaaaaaaaaaaaaa\",\"bbbbbbbbbbbbbbbbbbbbbbbb\",\"transfer.example.org\",\"sRQYinpc4ISZdfsUtUArJ6Qdk4jd3QTdIp5nohQ6Sb4\",\"dddddddddddddddddddddd\"]",
+  "synthetic_report_b64url": "Q1ZSUFQBAQIDBAUGBwgJCgsMpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpQ",
+  "synthetic_report_sha256_b64url": "TITny6dlPfpG3C2u5FVJcJGuzlckytMxgnuvcvie5GY"
+}

@@ -38,6 +38,12 @@ function requireContext(context) {
   );
 }
 
+// Byte-for-byte browser representation of the provider-neutral SNIP-0007
+// draft associated-data domain. It deliberately does not expose private keys.
+export function migrationReportAssociatedData(context) {
+  return requireContext(context);
+}
+
 function requireDeviceKey(key, operation) {
   if (key?.type !== "secret" || key.algorithm?.name !== "AES-GCM" ||
       key.algorithm?.length !== 256 || key.extractable !== false ||
@@ -54,6 +60,20 @@ const bytesOf = (bytes) => {
   if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes);
   throw new MigrationReportError("BAD_REPORT", "The encrypted report must be raw bytes.");
 };
+
+// Hash the exact report envelope bytes before the owner signs a report
+// digest. This proves a byte commitment only, not recipient decryption.
+export async function migrationReportCommitment(ciphertext) {
+  const bytes = bytesOf(ciphertext);
+  if (bytes.length < 48 || bytes.length > MAX_CIPHERTEXT ||
+      !MAGIC.every((value, index) => bytes[index] === value)) {
+    throw new MigrationReportError("BAD_REPORT", "Invalid or unsupported reconciliation report frame.");
+  }
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  const sha256 = btoa(String.fromCharCode(...digest))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  return { sha256, bytes: bytes.length };
+}
 
 export async function encryptMigrationReport({ report, recipientKey, context }) {
   requireDeviceKey(recipientKey, "encrypt");
