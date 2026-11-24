@@ -15,6 +15,7 @@ _2026-11-24_
 - Improved Secure Net SNIP forum notes to distinguish merged PRs from declined/withdrawn PRs and link to the actual available GitHub reason or PR author's stated purpose. Notes explicitly separate merging code from adopting a protocol standard, and never invent a maintainer rationale.
 - Added a visible authorised-device Sync now control so default-server administrators can create, close and sign missing encrypted SNIP threads, including SNIP-0007 and SNIP-0008, without impersonating a device from the backend. Server-side code does not forge forum messages; the administrator must open and unlock Commonveil.
 - Documented local governance, domain moderation, security boundaries and the Docker/operator configuration in docs/SITE_POLICY.md and docs/SNIP_FORUM.md. Added tests for site owner/admin access, domain validation and transport enforcement across two independent self-hosted Node installations.
+- New Docker installations now mark the operator's setup-code account as the site owner. Existing Docker operators can assign or transfer ownership from the privileged container console with commonveil-server make-owner <username>, which is not a web API and is tested to maintain a single owner. The public /rules page is included in the sitemap and has source-linked hosting documentation.
 
 ## [0.24.19](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.19): Secure Net SNIP proposals forum reconciliation and GitHub merge tracking
 
