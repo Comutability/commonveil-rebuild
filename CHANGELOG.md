@@ -5,6 +5,17 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.17](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.17): Secure Net as a standalone protocol: application integration and interoperability guidance
+
+_2026-11-24_
+
+- Pinned the self-hosted Commonveil Rust server, client and patched OpenMLS dependencies to the latest CI-passing independent Secure Net draft revision e6128f2, including a private KEM-verifier snapshot and atomic-consume contract. The real Commonveil site does not expose this in-development KEM possession proof as a live API.
+- Added a public /secure-net developer page, a home-page introduction and Settings guidance explaining that Commonveil is Secure Net's first application, not the protocol owner or mandatory relay. Any compatible site or app can implement the independently governed protocol and its inbox/outbox communication model.
+- Published a third-party integration guide covering independent actor/device keys, authenticated client outbox, CVP-015 sealed site-to-site delivery, recipient mailbox, acknowledgements, metadata leakage and test obligations. The separate Commonveil version 1 federation document now explicitly identifies itself as a product-specific compatibility layer, not generic CVP-019.
+- The self-hosted Docker image now carries a label identifying it as a Commonveil application rather than a generic CVP-019 relay. GitHub CI checks this and checks both unreviewed migration gates remain off, with the exact Secure Net commit pinned consistently in Cargo.toml and Cargo.lock.
+- Added independent-protocol regression tests for developer docs, public route and Docker safety. The hosted site does not advertise full third-party Secure Net delivery or account portability until independently deployed implementations and human security reviewers verify them.
+- Existing messaging, user keys, Commonveil version 1 federation, private histories and inbox routes remain unchanged. Secure Net's publicly reviewed specifications and SNIPs, not a Commonveil release, determine new wire-protocol rules.
+
 ## [0.24.16](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.16): Secure Net recipient consent foundation, disabled by default
 
 _2026-11-24_

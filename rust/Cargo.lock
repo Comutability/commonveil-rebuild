@@ -352,7 +352,7 @@ checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
 name = "commonveil-client"
-version = "0.24.16"
+version = "0.24.17"
 dependencies = [
  "secure-net-core",
  "serde_json",
@@ -361,7 +361,7 @@ dependencies = [
 
 [[package]]
 name = "commonveil-server"
-version = "0.24.16"
+version = "0.24.17"
 dependencies = [
  "aes-gcm 0.10.3",
  "axum",
@@ -395,7 +395,7 @@ dependencies = [
 
 [[package]]
 name = "commonveil-updater"
-version = "0.24.16"
+version = "0.24.17"
 dependencies = [
  "axum",
  "serde_json",
