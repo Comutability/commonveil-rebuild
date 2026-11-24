@@ -143,3 +143,13 @@ In the Base44 editor's preview (an iframe), the platform SDK mirrors API request
 Requests never contain private keys or the recovery phrase, only ciphertext, public keys and signatures. The published
 site isn't framed, and iframe embedding of the published app is disabled. Production builds ignore a
 `functions_version` in the page address, so a link can't point members at an older or unfinished backend.
+
+
+### Trusted Types and call notifications (0.24.10)
+
+The voice-call diagnostics screen previously imported react-hot-toast. Its Goober
+CSS runtime initialises with a raw \`innerHTML\` assignment, which violates the
+site-wide Trusted Types policy before React can mount. The user saw a blank screen.
+Call diagnostics now use the existing Radix-based application toast component,
+and the production-bundle guard rejects Goober's stylesheet injector. Do not
+relax \`require-trusted-types-for 'script'\` to fix dependency breakages.

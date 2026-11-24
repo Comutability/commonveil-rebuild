@@ -21,6 +21,11 @@ for (const tag of html.match(/<script\b[^>]*>/gi) || []) {
 const assets = path.join(dist, "assets");
 for (const file of fs.readdirSync(assets).filter((f) => f.endsWith(".js"))) {
   const code = fs.readFileSync(path.join(assets, file), "utf8");
+  // Goober, pulled in by react-hot-toast, uses raw innerHTML when imported.
+  // It aborts the entire app before React mounts under enforced Trusted Types.
+  if (code.includes("_goober")) {
+    problems.push(\`\${file}: Goober CSS injection breaks Trusted Types; use the existing UI toast instead\`);
+  }
   const checks = [
     [/dangerouslySetInnerHTML:\{/g, "a component renders HTML from a string (dangerouslySetInnerHTML)"],
     [/\beval\(/g, "eval()"],

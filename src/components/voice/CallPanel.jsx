@@ -5,7 +5,7 @@ import { ErrorNote } from "@/components/site/bits";
 import { useVoice } from "@/lib/voice/VoiceContext";
 import Avatar from "@/components/chat/Avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import toast from "react-hot-toast";
+import { toast } from "@/components/ui/use-toast";
 
 const STATE_LABEL = {
   checking: "Checking their keys…",
@@ -76,9 +76,9 @@ export default function CallPanel({ nameOf, profileOf }) {
   const copyDiagnostics = async () => {
     try {
       await navigator.clipboard.writeText(JSON.stringify(voice.diagnostics(), null, 2));
-      toast.success("Connection diagnostics copied. No IDs, IP addresses or encryption keys are included.");
+      toast({ title: "Connection diagnostics copied", description: "No IDs, IP addresses or encryption keys are included." });
     } catch {
-      toast.error("Couldn't copy diagnostics. Check clipboard permission.");
+      toast({ title: "Couldn't copy diagnostics", description: "Check clipboard permission.", variant: "destructive" });
     }
   };
   return (
