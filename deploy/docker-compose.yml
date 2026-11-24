@@ -19,6 +19,10 @@ services:
       SNIP_FORUM: ${SNIP_FORUM:-}
       OPEN_REGISTRATION: ${OPEN_REGISTRATION:-true}
       FEDERATION: ${FEDERATION:-true}
+      # Optional coturn relay for calls behind restrictive NAT. The secret
+      # stays server-side; browser credentials expire after six hours.
+      VOICE_TURN_URLS: ${VOICE_TURN_URLS:-}
+      VOICE_TURN_SECRET: ${VOICE_TURN_SECRET:-}
       # Private-test only: NOT a live account, identity or inbox migration service.
       # Stays off even when a newer experimental Secure Net core is inside the image.
       EXPERIMENTAL_TRANSFER_STAGING: ${EXPERIMENTAL_TRANSFER_STAGING:-false}

@@ -14,6 +14,7 @@ _2026-11-24_
 - The self-hosted Docker image records the pinned Secure Net source commit in an OCI label when built by the release workflow. Docker Compose keeps experimental staging disabled by default and CI checks that default and the pinned lockfile.
 - The JavaScript browser and hosted backend continue using the frozen Secure Net 0.5.0 compatibility implementation for existing encrypted messages. No live cryptography, account authentication, stored conversations or inbox routes are replaced by experimental migration routines.
 - Experimental transfer and reconciliation remain unaudited, disabled and not advertised as production CVP features. Full actor/account binding, private-history import, post-quantum recipient key handover, interop cutover and independent security review remain future milestones.
+- Fixed the Rust self-hosted voice-ticket response to include coturn REST relay credentials where configured, matching the Node.js reference server. Docker Compose now passes optional VOICE_TURN_URLS and VOICE_TURN_SECRET securely to the Rust server; a missing or invalid pair leaves direct calls unchanged.
 
 ## [0.24.13](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.13): Experimental migration: encrypted reconciliation report staging
 
