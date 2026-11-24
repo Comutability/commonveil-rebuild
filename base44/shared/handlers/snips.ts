@@ -165,10 +165,29 @@ export function snipActions(config: SnipConfig, { fetcher = fetch }: { fetcher?:
       const threads: Record<string, { locked: boolean }> = {};
       const notes: Record<string, boolean> = {};
       if (channel) {
+        // One indexed $in lookup per bounded batch, not two SDK requests per
+        // proposal. The old N+1 query pattern could hit Base44's global 429
+        // limit halfway through posting and leave only some threads locked.
+        const wanted: string[] = [];
         for (const s of snips) {
-          const [post] = await sr.entities.ServerMessage.filter({ channel_id: channel.id, msg_id: snipThreadId(s.id) }, "created_date", 1);
-          if (post && !post.deleted) threads[s.id] = { locked: Boolean(post.thread_locked) };
-          if (post && s.closed) notes[s.id] = (await sr.entities.ServerMessage.filter({ channel_id: channel.id, msg_id: snipClosedNoteId(s.id) }, "created_date", 1)).length > 0;
+          wanted.push(snipThreadId(s.id));
+          if (s.closed) wanted.push(snipClosedNoteId(s.id));
+        }
+        const found = new Map<string, any>();
+        for (let i = 0; i < wanted.length; i += 100) {
+          const ids = wanted.slice(i, i + 100);
+          const rows = await sr.entities.ServerMessage.filter(
+            { channel_id: channel.id, msg_id: { $in: ids } },
+            "created_date", 250,
+          );
+          for (const record of rows) {
+            if (!record.deleted && !found.has(record.msg_id)) found.set(record.msg_id, record);
+          }
+        }
+        for (const s of snips) {
+          const post = found.get(snipThreadId(s.id));
+          if (post) threads[s.id] = { locked: Boolean(post.thread_locked) };
+          if (post && s.closed) notes[s.id] = found.has(snipClosedNoteId(s.id));
         }
       }
       return { enabled: true, manager: true, server_id: server.id, repo: repo(), fetched_at, stale, channel: channel ? channelOut(channel) : null, snips, threads, notes };

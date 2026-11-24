@@ -11,7 +11,7 @@ export const SNIP_CHANNEL_KEY = "snips";
 export const snipThreadId = (snipId) => `${snipId}-thread-v1`;
 export const snipClosedNoteId = (snipId) => `${snipId}-closed-v1`;
 /** How much one pass does, so a long backlog is spread out and never floods the channel. */
-export const MAX_STEPS = 8;
+export const MAX_STEPS = 1;
 
 const clip = (s, max) => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);
 
@@ -59,13 +59,17 @@ export const snipClosedNote = (snip) => {
 export function planSnipSync(report) {
   if (!report?.enabled || !report.manager || report.stale || !Array.isArray(report.snips)) return [];
   if (!report.channel) return [{ do: "forum" }];
-  const steps = [];
+  const posts = [];
+  const closures = [];
   for (const snip of report.snips) {
     const thread = report.threads?.[snip.id];
-    if (!thread) steps.push({ do: "post", snip });
-    else if (snip.closed && !thread.locked) steps.push({ do: "close", snip, note: !report.notes?.[snip.id] });
+    if (!thread) posts.push({ do: "post", snip });
+    else if (snip.closed && !thread.locked) closures.push({ do: "close", snip, note: !report.notes?.[snip.id] });
   }
-  return steps.slice(0, MAX_STEPS);
+  // Recover missing proposal threads (including 0007 and 0008) before the
+  // older closure backlog. Limit each pass to a single signed operation
+  // group, allowing the host's shared rate limit time to recover.
+  return [...posts, ...closures].slice(0, MAX_STEPS);
 }
 
 /**
