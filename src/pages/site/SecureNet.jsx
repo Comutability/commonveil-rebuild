@@ -81,9 +81,13 @@ export default function SecureNet() {
         </p>
         <p className="mt-3 text-muted-foreground">
           The hosted Commonveil site does <strong>not yet offer verified public CVP-019
-          cross-application inbox/outbox interoperation</strong>. The self-hosted Rust migration
-          staging and signed recipient-consent experiments remain disabled by default in Docker.
-          They do not migrate accounts, export history keys or transfer inbox ownership.
+          cross-application inbox/outbox interoperation</strong>. The self-hosted Rust build
+          now includes a separate experimental direct-message Secure Net transport with independent
+          actor keys, an outbox, signed and post-quantum sealed site delivery, and recipient
+          mailboxes. It is off by default in Docker, supports only a subset of CVP-019, and
+          has only been exercised between two instances of the same Rust implementation.
+          It is not production interoperability or account migration. The separate encrypted
+          history staging and signed recipient-consent experiments also remain disabled.
           No independent cryptographic audit has been completed.
         </p>
       </section>

@@ -5,6 +5,17 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.18](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.18): Experimental independent Secure Net inbox, outbox and sealed site transport
+
+_2026-11-24_
+
+- Introduced a separate, explicitly disabled-by-default Secure Net CVP-019 direct-message trial within the self-hosted Rust server. It is not built on Commonveil accounts, rooms or original version 1 federation and cannot access their private messages.
+- The experimental module verifies independently signed CVP-017 actor documents, manually pins trusted remote site public keys, issues high-entropy site-local actor credentials, validates recipient device lists and signed public X25519/ML-KEM-768 prekeys, and consumes one-time keys atomically.
+- Added actor-authenticated POST /cvp/v2/outbox, signed and hybrid post-quantum sealed POST /cvp/v2/deliver, recipient GET /cvp/v2/mailbox, acknowledgements, pending remote queue, operator-triggered flush, limited actor discovery and a manually pinned experimental site document. SQLite persists queued opaque ciphertext, delivery acknowledgements and replay nonces across server restarts.
+- Verified independent-actor access controls, malformed messages, wrong and missing site signatures, post-quantum sealing, recipient isolation, one-time prekey consumption and replay rejection. A two-server Rust HTTP integration test with separate databases exercises a signed and sealed remote delivery and its encrypted acknowledgement. It does not represent two independent third-party implementations or a fully decrypted end-to-end chat.
+- Added Docker variables EXPERIMENTAL_SECURE_NET_RELAY=false and SECURE_NET_RELAY_ADMIN=, with CI checks preserving the disabled and unset defaults. The relay can only be enabled by an operator on an isolated, disposable test instance.
+- Published detailed docs/SECURE_NET_RELAY.md endpoint descriptions and updated the public protocol guidance. No production CVP-019 capability advertisement, automatic discovery, full group/public messaging, independently reviewed key security, history migration or live inbox cutover is enabled. The hosted Commonveil site keeps the relay disabled and its original messaging unchanged.
+
 ## [0.24.17](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.17): Secure Net as a standalone protocol: application integration and interoperability guidance
 
 _2026-11-24_
