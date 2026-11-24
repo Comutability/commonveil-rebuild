@@ -14,6 +14,7 @@ _2026-11-24_
 - Added an experimental browser WebCrypto AES-256-GCM helper using an already authorised non-extractable device key. Authenticated associated data binds the independent actor, stage, destination, ciphertext root and recipient-device ID. It never exports or silently enrols a new device key.
 - The host cannot prove arbitrary uploaded bytes are encrypted, and a signed reconciliation statement does not prove successful message import, a zero-knowledge proof or permission to switch inbox routing.
 - This remains development-source-only, unadvertised and disabled by default. No live deployment, production image, source account or federation routing is changed. Added Rust server and client encryption tests.
+- Added a staged-only Rust HTTP test with two independent destination servers, confirming the same user-owned actor can prepare on B and C without either host issuing the identity, rejecting wrong-site signatures and crossed bearer tokens. This is not actual mailbox or account migration.
 
 ## [0.24.12](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.12): Experimental migration: independent owner-signed reconciliation
 

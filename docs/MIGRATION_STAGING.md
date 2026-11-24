@@ -83,6 +83,22 @@ sizes and hashes. It cannot prove that arbitrary uploaded bytes are
 encrypted or that a client actually opened the data. Hash verification
 is **not** a zero-knowledge proof or recipient-authentication mechanism.
 
+## Limited cross-host staging test
+
+The Rust HTTP integration test now starts two independent destinations,
+site B and site C, with different private SQLite databases. The user-held
+Secure Net actor key, created without a Commonveil account or identity
+issuer, can authorise an A-to-B staging intent and then a B-to-C staging
+intent. The original A server is intentionally unavailable. Both hosts
+reject another destination's signed statement, classical-only owner keys
+and bearer tokens issued by the other host.
+
+The test confirms **provider-neutral actor signature verification and
+staging only**. It does NOT prove an old server owned the identity, provide
+a verified cross-site key-rotation history, move account state, forward
+any mail, recover unavailable messages or finish migration. The full
+adversarial A-to-B-to-C acceptance test remains open.
+
 ## Remaining work and safety boundaries
 
 Recording a transfer.reconcile receipt does **not** import history,
