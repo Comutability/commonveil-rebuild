@@ -5,6 +5,16 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.12](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.12): Experimental migration: independent owner-signed reconciliation
+
+_2026-11-24_
+
+- Added an owner-signed, stage-bound reconciliation statement to the experimental Rust-only destination service. The actor must be independently held and hybrid-signed with Ed25519 and ML-DSA-65, with no Commonveil identity-issuer requirement.
+- The staging server accepts a reconciliation statement only after all encrypted chunks are staged and the stored ciphertext is rehashed against its signed manifest. The statement binds the actor, stage, destination, root commitment, random per-stage challenge and a digest of a separately encrypted client report.
+- Strict validation rejects unsigned metadata, forged or mismatched statements, expired statements, corrupted ciphertext and conflicting retries. Identical retries are safe, and the bearer-authorised signed receipt is recoverable after Rust process restart.
+- Recording a client statement is not proof that the client decrypted private history, an audited zero-knowledge proof, an account import or a signed cutover. No message routes, account binding, existing encrypted histories, devices, or source data are changed.
+- This is source-only experimental work, disabled by default and unadvertised in production. Added three Rust unit tests and one live-HTTP integration test, updated safe test-only operator documentation, and kept the protocol wire migration incomplete pending independent review.
+
 ## [0.24.11](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.11): Private-test foundation for independently owned account transfers
 
 _2026-11-24_

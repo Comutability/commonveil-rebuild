@@ -46,6 +46,31 @@ All paths begin with /cvp/v2/experimental-transfer.
 6. POST /stages/{id}/abort deletes only the staged ciphertext. Replay floors
    remain in place and all old accounts/routes remain unchanged.
 
+7. POST /stages/{id}/reconcile accepts a client-authored hybrid-signed
+   \`transfer.reconcile\` statement, plus the independently generated actor
+   public key. The stage must first have received every signed ciphertext
+   chunk, and the server re-hashes all stored parts under a durable transaction.
+   The client signs the exact actor ID, stage ID, destination, ciphertext root,
+   one-stage random reconcile challenge, SHA-256 of a separately **encrypted**
+   client reconciliation report, a checked=true statement and short expiry.
+   Unknown or extra top-level, signature or body fields are refused; plaintext
+   contact names, messages and filenames must not be included.
+8. GET /stages/{id}/reconcile returns that signed statement to the bearer,
+   so an independent client can verify it after restart. POSTing the same
+   statement again is idempotent; conflicting later statements are rejected.
+   A statement only records what the client **claims** to have checked. The
+   server cannot verify that encrypted conversation history was readable.
+
+Reconciliation is an **experimental, server-local protocol extension**.
+The independent Secure Net specification must define and approve a compatible
+record kind and interoperation profile before other implementations can rely on
+its exact wire shape. The endpoint does not attach the actor to a Commonveil
+login, grant memberships, authorise a destination move, or accept any cutover
+command. The status remains \`imported=false\` and \`cutover=false\` even after
+a signed statement is accepted. Operators must NOT expose this service on a
+public host, claim zero-knowledge proof verification or weaken the private
+history's forward secrecy.
+
 The service uses a separate SQLite database with FULL synchronous commits,
 transactional one-use challenges, 0600 file permissions and the existing
 private DATA_DIR. Bounds: 64 chunks of 256 KiB (16 MiB), eight active stages,
