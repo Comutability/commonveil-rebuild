@@ -5,7 +5,6 @@ use secure_net_core::social::{
     site::{MemoryNetwork, ReferenceSite},
 };
 use serde_json::{json, Value};
-use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
 use std::process::{Command, Stdio};

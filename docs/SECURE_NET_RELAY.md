@@ -111,8 +111,13 @@ device-sealed message -> outbox queue -> signed + PQ sealed deliver -> mailbox
   proposed brand-neutral well-known discovery endpoint of SNIP-0008.
 - No independent external-app security audit, automated site discovery
   or independently verified real HTTPS exchange between separate vendor
-  implementations. The protocol test suite currently covers a shared
-  reference library and separate operator-controlled Rust staging tests.
+  implementations. A Rust HTTP integration test now exercises two separate
+  server processes, private SQLite databases, manual mutual site trust,
+  authenticated post-quantum sealed delivery, the opaque recipient mailbox
+  and the source's signed receipt. Both servers use the **same Rust
+  implementation**, local test HTTP transport and a structural ciphertext
+  fixture. This does not constitute two independent implementations or an
+  actual end-to-end decrypted conversation.
 - No Commonveil user-login integration. The actor bearer authenticates
   an actor, not the physical presence of a particular device. Never
   confuse it with a private recipient KEM-key possession proof.
