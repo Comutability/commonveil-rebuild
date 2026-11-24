@@ -13,7 +13,7 @@ rust-version = "1.88"
 # The server and the client core both use it from here, and the OpenMLS copies below come from the
 # same commit, always. The Secure Net workflow (.github/workflows/secure-net.yml) moves them together.
 [workspace.dependencies]
-secure-net-core = { git = "https://github.com/Comutability/secure-net", rev = "e82fd9e453f5c145e0f6e7892dd57e958db38ff2" }
+secure-net-core = { git = "https://github.com/Comutability/secure-net", rev = "fe44f0d09c77d941a92fbf319a7deaeb6947bf69" }
 
 # The client core as WebAssembly: small rather than fast to build. The server keeps the release profile.
 [profile.wasm]
@@ -27,5 +27,5 @@ strip = true
 # Secure Net's OpenMLS copies (one added ciphersuite; see its rust/vendor/*/SECURE_NET_PATCH.md),
 # from the same release: a dependency's own [patch] doesn't carry over.
 [patch.crates-io]
-openmls_traits = { git = "https://github.com/Comutability/secure-net", rev = "e82fd9e453f5c145e0f6e7892dd57e958db38ff2" }
-openmls_rust_crypto = { git = "https://github.com/Comutability/secure-net", rev = "e82fd9e453f5c145e0f6e7892dd57e958db38ff2" }
+openmls_traits = { git = "https://github.com/Comutability/secure-net", rev = "fe44f0d09c77d941a92fbf319a7deaeb6947bf69" }
+openmls_rust_crypto = { git = "https://github.com/Comutability/secure-net", rev = "fe44f0d09c77d941a92fbf319a7deaeb6947bf69" }
