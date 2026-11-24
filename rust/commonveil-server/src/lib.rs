@@ -40,6 +40,7 @@ pub mod servers_core;
 pub mod servers_template;
 pub mod sessions;
 pub mod shared;
+pub mod site_policy;
 pub mod snips;
 pub mod store;
 pub mod timsort;

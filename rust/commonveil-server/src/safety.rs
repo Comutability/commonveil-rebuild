@@ -491,6 +491,9 @@ pub fn admin_actions() -> Actions {
     ] {
         a.insert(name, f);
     }
+    for (name, action) in crate::site_policy::admin_actions() {
+        a.insert(name, action);
+    }
     a
 }
 
@@ -600,6 +603,7 @@ fn submit(ctx: &mut Ctx) -> Result<Value> {
 }
 
 pub fn disclosure_actions() -> Actions {
+    // Public site rules reveal only operator-authored policy and public reasons.
     let mut a = Actions::new();
     a.insert("submit", submit as crate::api::Action);
     a
