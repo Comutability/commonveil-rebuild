@@ -26,6 +26,9 @@ services:
       # Private-test only: NOT a live account, identity or inbox migration service.
       # Stays off even when a newer experimental Secure Net core is inside the image.
       EXPERIMENTAL_TRANSFER_STAGING: ${EXPERIMENTAL_TRANSFER_STAGING:-false}
+      # Independent signed recipient request+owner grant storage, private-test only.
+      # Neither flag enrols devices or authorises private-history migration.
+      EXPERIMENTAL_RECIPIENT_CONSENT: ${EXPERIMENTAL_RECIPIENT_CONSENT:-false}
       FEDERATION_PATH_PREFIX: ${FEDERATION_PATH_PREFIX:-}
       UPDATER_URL: http://updater:8090
       UPDATER_TOKEN: ${UPDATER_TOKEN:-}

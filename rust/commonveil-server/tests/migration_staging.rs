@@ -495,9 +495,9 @@ fn recipient_and_owner_signatures_are_stored_across_restart_without_migration() 
             false,
             dir.path(),
             &[
-            ("EXPERIMENTAL_TRANSFER_STAGING", "true".into()),
-            ("EXPERIMENTAL_RECIPIENT_CONSENT", "true".into()),
-        ],
+                ("EXPERIMENTAL_TRANSFER_STAGING", "true".into()),
+                ("EXPERIMENTAL_RECIPIENT_CONSENT", "true".into()),
+            ],
         );
         let ticket = prepare(server.1, &owner, &[opaque], 4);
         let id = ticket["stage_id"].as_str().unwrap().to_string();

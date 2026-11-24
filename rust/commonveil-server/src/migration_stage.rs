@@ -1364,8 +1364,7 @@ pub fn route(
                     return stage.download_report(id, token, now);
                 }
                 ("POST", Some("recipient-consent"), None, 6) => {
-                    if std::env::var("EXPERIMENTAL_RECIPIENT_CONSENT")
-                        .as_deref() != Ok("true") {
+                    if std::env::var("EXPERIMENTAL_RECIPIENT_CONSENT").as_deref() != Ok("true") {
                         return err(404, "NOT_FOUND");
                     }
                     if raw.len() > 32 * 1024 {
@@ -1396,8 +1395,7 @@ pub fn route(
                     );
                 }
                 ("GET", Some("recipient-consent"), None, 6) => {
-                    if std::env::var("EXPERIMENTAL_RECIPIENT_CONSENT")
-                        .as_deref() != Ok("true") {
+                    if std::env::var("EXPERIMENTAL_RECIPIENT_CONSENT").as_deref() != Ok("true") {
                         return err(404, "NOT_FOUND");
                     }
                     return stage.signed_recipient_consent(id, token, now);

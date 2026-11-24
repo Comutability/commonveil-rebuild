@@ -109,7 +109,7 @@ jobs:
           image_pinned=$(docker image inspect commonveil:ci --format '{{ index .Config.Labels "org.opencontainers.image.secure-net.commit" }}')
           test "$image_pinned" = "$pinned"
           # Confirm shipping Compose keeps the dangerous experimental staging switch OFF.
-          SITE_DOMAIN=chat.example.org COMMONVEIL_DIR=/tmp/commonveil-ci UPDATER_TOKEN=test-only-token-not-real-123456789             docker compose -f deploy/docker-compose.yml config --format json             | node -e 'let s="";process.stdin.on("data",x=>s+=x);process.stdin.on("end",()=>{const c=JSON.parse(s); if(c.services.app.environment.EXPERIMENTAL_TRANSFER_STAGING!=="false") process.exit(1)})'
+          SITE_DOMAIN=chat.example.org COMMONVEIL_DIR=/tmp/commonveil-ci UPDATER_TOKEN=test-only-token-not-real-123456789             docker compose -f deploy/docker-compose.yml config --format json             | node -e 'let s="";process.stdin.on("data",x=>s+=x);process.stdin.on("end",()=>{const c=JSON.parse(s); if(c.services.app.environment.EXPERIMENTAL_TRANSFER_STAGING!=="false" || c.services.app.environment.EXPERIMENTAL_RECIPIENT_CONSENT!=="false") process.exit(1)})'
       - name: Neither image has Node.js
         run: |
           docker run --rm --entrypoint sh commonveil:ci -c '! command -v node'
