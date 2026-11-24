@@ -325,7 +325,6 @@ impl Stage {
             status: 403,
             code: "BAD_SIGNATURE",
         })?;
-        let nonce = body["challenge"].as_str().unwrap_or("");
         let seq = body_intent_valid(
             body,
             &actor,
