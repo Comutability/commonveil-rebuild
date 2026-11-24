@@ -2,10 +2,24 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.24.21",
+      "date": "2026-11-24",
+      "title": "Secure Net proposal forum rate-limit recovery and safe incremental synchronisation",
+      "commit": null,
+      "notes": [
+        "Fixed the Secure Net proposals Sync now control overloading Base44 shared backend requests. The hosted snips.status function now loads bounded batches of signed thread and closure metadata using one $in query for the current SNIP list rather than two separate requests for every proposal.",
+        "The authorised admin device now reconciles one proposal at a time, prioritising genuinely missing SNIP posts (including SNIP-0007 and SNIP-0008) before older merged-thread closure work. It pauses between changes while the authorised app is visible, keeping forum end-to-end encryption and signatures on the device.",
+        "When Base44 returns HTTP 429 / UPSTREAM_BUSY or a transient network error, synchronisation now enters a bounded, increasing cooldown and retries automatically without repeatedly hammering the backend. Sync now changes to Retry queued during a rate-limit pause, and the UI retains an explicit error for non-rate-limit failures.",
+        "Removed the redundant second snips.status request after every pass. The interface reports the full backlog instead of only the number scheduled in its current one-step batch and does not act on stale GitHub snapshots.",
+        "Fixed IDs preserve idempotent encrypted proposal posts and notes. If a rate limit interrupts after posting but before locking, the next authorised-device pass closes the existing thread without duplicating the post or its rationale.",
+        "Matched the self-hosted Rust status implementation to the batched lookup contract. Added regression tests for batching, prioritisation, missing-thread recovery and interruption after a signed closing note. This does not enable server-side access to Commonveil private encryption keys or bypass admin approval."
+      ]
+    },
+    {
       "version": "0.24.20",
       "date": "2026-11-24",
       "title": "Host ownership, Mastodon-style domain moderation and transparent SNIP closure reasons",
-      "commit": null,
+      "commit": "3322ccaa1ffd991315449dd44f6e68552367c27b",
       "notes": [
         "Introduced site-level policy distinct from each encrypted community server. The host owner controls registration and federation mode (open, approved sites only, off). Delegated site admins can manage up to 20 public rules, contact and appeals details, local remote-site decisions and publication of public domain block reasons. Private staff notes remain backend-only.",
         "Site administrators can suspend an exact remote hostname, limit new remote interactions, reject media via the remote proxy or explicitly allow the hostname in approved-only federation mode. Changes are enforced by both Node and Rust self-hosted federation verification, including cached site documents. The experimental independently authenticated Secure Net direct outbox/deliver/flush path respects the same host suspension and allowlist.",

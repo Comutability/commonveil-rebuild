@@ -5,6 +5,17 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.21](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.21): Secure Net proposal forum rate-limit recovery and safe incremental synchronisation
+
+_2026-11-24_
+
+- Fixed the Secure Net proposals Sync now control overloading Base44 shared backend requests. The hosted snips.status function now loads bounded batches of signed thread and closure metadata using one $in query for the current SNIP list rather than two separate requests for every proposal.
+- The authorised admin device now reconciles one proposal at a time, prioritising genuinely missing SNIP posts (including SNIP-0007 and SNIP-0008) before older merged-thread closure work. It pauses between changes while the authorised app is visible, keeping forum end-to-end encryption and signatures on the device.
+- When Base44 returns HTTP 429 / UPSTREAM_BUSY or a transient network error, synchronisation now enters a bounded, increasing cooldown and retries automatically without repeatedly hammering the backend. Sync now changes to Retry queued during a rate-limit pause, and the UI retains an explicit error for non-rate-limit failures.
+- Removed the redundant second snips.status request after every pass. The interface reports the full backlog instead of only the number scheduled in its current one-step batch and does not act on stale GitHub snapshots.
+- Fixed IDs preserve idempotent encrypted proposal posts and notes. If a rate limit interrupts after posting but before locking, the next authorised-device pass closes the existing thread without duplicating the post or its rationale.
+- Matched the self-hosted Rust status implementation to the batched lookup contract. Added regression tests for batching, prioritisation, missing-thread recovery and interruption after a signed closing note. This does not enable server-side access to Commonveil private encryption keys or bypass admin approval.
+
 ## [0.24.20](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.20): Host ownership, Mastodon-style domain moderation and transparent SNIP closure reasons
 
 _2026-11-24_
