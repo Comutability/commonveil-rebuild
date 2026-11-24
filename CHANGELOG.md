@@ -5,6 +5,16 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.11](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.11): Private-test foundation for independently owned account transfers
+
+_2026-11-24_
+
+- The self-hosted Rust server now contains an opt-in, test-only destination service for holding already encrypted account-transfer chunks. No Commonveil account is required to issue a Secure Net actor identity.
+- It verifies one-use challenges and hybrid Ed25519/ML-DSA-65 signatures for an independently owned actor, retains monotonic transfer sequences, and stages ciphertext in a private SQLite database.
+- Transfer staging can recover after a server restart, report missing ciphertext, accept identical retries, reject corrupted chunks, and cancel without changing existing accounts, contacts, keys or message routing.
+- The endpoints are completely disabled by default and have strict size and time limits; this is not an actual account import, zero-knowledge proof, mailbox migration, deletion or source-offline recovery.
+- Added Rust unit and HTTP integration tests, operator documentation and a disabled Docker Compose setting. Full migration, interop tests and independent security review remain outstanding.
+
 ## [0.24.10](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.10): Fix: Commonveil blank screen caused by Trusted Types clash
 
 _2026-11-23_

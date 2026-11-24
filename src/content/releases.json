@@ -2,10 +2,23 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.24.11",
+      "date": "2026-11-24",
+      "title": "Private-test foundation for independently owned account transfers",
+      "commit": null,
+      "notes": [
+        "The self-hosted Rust server now contains an opt-in, test-only destination service for holding already encrypted account-transfer chunks. No Commonveil account is required to issue a Secure Net actor identity.",
+        "It verifies one-use challenges and hybrid Ed25519/ML-DSA-65 signatures for an independently owned actor, retains monotonic transfer sequences, and stages ciphertext in a private SQLite database.",
+        "Transfer staging can recover after a server restart, report missing ciphertext, accept identical retries, reject corrupted chunks, and cancel without changing existing accounts, contacts, keys or message routing.",
+        "The endpoints are completely disabled by default and have strict size and time limits; this is not an actual account import, zero-knowledge proof, mailbox migration, deletion or source-offline recovery.",
+        "Added Rust unit and HTTP integration tests, operator documentation and a disabled Docker Compose setting. Full migration, interop tests and independent security review remain outstanding."
+      ]
+    },
+    {
       "version": "0.24.10",
       "date": "2026-11-23",
       "title": "Fix: Commonveil blank screen caused by Trusted Types clash",
-      "commit": null,
+      "commit": "46339bb52706b5a7deab970db1a9ae888c3b47f9",
       "notes": [
         "Fixed the published website rendering a blank screen across the homepage, login and app routes. The voice-call diagnostics panel imported react-hot-toast, whose Goober CSS styling engine wrote directly to innerHTML during module initialization. Strict Trusted Types rejected the operation and prevented the whole JavaScript application from loading.",
         "Replaced the two call-diagnostics toast notifications with the existing Commonveil Radix-based toast system. Copy success and clipboard-permission error messages remain visible in calls.",
