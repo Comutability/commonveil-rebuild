@@ -1,87 +1,104 @@
 # Experimental destination ciphertext staging
 
-This is a **test-only** self-hosted Rust-server foundation for
-[Secure Net SNIP-0007](https://github.com/Comutability/secure-net/pull/16).
-It is not full account migration, an identity issuer, an accepted protocol,
+This is an **opt-in, private-test-only** self-hosted Rust-server foundation for
+Secure Net SNIP-0007: https://github.com/Comutability/secure-net/pull/16.
+It is not full account migration, an identity issuer, an accepted protocol
 or a zero-knowledge proof system. No independent security review has occurred.
 
 **Disabled by default.** On a private development instance only, an operator
-may explicitly set EXPERIMENTAL_TRANSFER_STAGING=true. Do not enable it on
-production sites. This server does not advertise a working CVP transfer.
+may set EXPERIMENTAL_TRANSFER_STAGING=true. Do not enable it on production.
+The site does not advertise transfer capability.
 
-## Independent identities and security limits
+## Independent identities
 
-A user can create their own hybrid Ed25519 and ML-DSA-65 actor key using any
-compatible client, without Commonveil as issuer. The server verifies both
-signatures against the supplied key-derived actor identity, signs nothing
-on the user's behalf, issues a fresh one-use destination challenge, and
-persists monotonically increasing transfer sequences across restarts.
+A user may create a hybrid Ed25519 + ML-DSA-65 actor identity in any
+compatible client. Commonveil does not issue it for the protocol. The
+destination verifies both owner signatures against the key-derived actor ID,
+issues one-use destination challenges and persists the highest transfer
+sequence across restarts.
 
-It does NOT prove the key holder owns an existing account on another site,
-bind that key to a Commonveil account, validate external rotation history,
-import messages, redirect inboxes, grant memberships, escrow keys, or delete
-source accounts. Possession of a signature key is not a general ZK proof.
-
-The client must encrypt every chunk before transmission. A server cannot
-prove submitted bytes are encrypted without a separate verifiable mechanism.
-The outer manifest accepts exactly the fields i, sha256 and bytes, so
-contact names and message contents are not stored in manifest metadata.
+This does not establish ownership of an existing remote account, validate
+external key rotation, bind an actor to Commonveil sign-in, import contacts,
+migrate DM session keys, change mailboxes or delete source accounts.
+Digital signatures are not zero-knowledge proofs.
 
 ## Test-only endpoints
 
-All paths begin with /cvp/v2/experimental-transfer.
+All paths begin with /cvp/v2/experimental-transfer. Every stage operation
+requires Authorization: Bearer with the secret token returned by prepare.
 
-1. POST /challenge accepts owner_public and returns a random 32-byte
-   single-use destination-bound challenge, actor ID and expiry.
-2. POST /prepare accepts owner_public, signed transfer.intent and an ordered
-   manifest array. Both hybrid signatures, destination, nonce, increasing
-   sequence, expiry and ciphertext hash root are checked. It returns a
-   random stage ID and 256-bit bearer stage token. Never log the token.
-3. POST /stages/{id}/chunks/{index} accepts raw already-encrypted bytes with
-   Authorization: Bearer <stage token>; verifies size and SHA-256 before
-   acknowledging. Identical retries are idempotent.
-4. POST /stages/{id}/status uses the token and optional JSON cursor/limit
-   to list missing chunk indices. Complete ciphertext is not an import.
-5. GET /stages/{id}/chunks/{index} returns base64url ciphertext if authorised.
-6. POST /stages/{id}/abort deletes only the staged ciphertext. Replay floors
-   remain in place and all old accounts/routes remain unchanged.
+1. POST /challenge issues a short-lived random challenge to a hybrid actor.
+2. POST /prepare checks a hybrid-signed transfer.intent, fresh challenge,
+   destination, increasing sequence and ordered ciphertext manifest. Returns
+   a stage ID and a random bearer token. Never log or share the token.
+3. POST /stages/{id}/chunks/{index} stores an opaque ciphertext chunk only
+   if its hash and size match the owner-signed manifest. Identical retries
+   are idempotent; corrupted or conflicting chunks are refused.
+4. POST /stages/{id}/status returns missing-chunk cursors and separate
+   ciphertext/report/owner-attested states.
+5. GET /stages/{id}/chunks/{index} returns base64url ciphertext for the
+   authorised device to authenticate and decrypt locally.
+6. POST /stages/{id}/report stages an already device-encrypted private
+   reconciliation report, 48 bytes to 64 KiB, only after all archive chunks
+   arrived. Conflicting uploads are refused; identical retries are safe.
+7. GET /stages/{id}/report returns the staged, hash-verified opaque report
+   as base64url bytes and SHA-256.
+8. POST /stages/{id}/reconcile verifies the independent actor's hybrid
+   signed statement, destination, stage, root, random challenge, expiry and
+   SHA-256 of the **actual staged report**. The server re-hashes the report
+   and all archive ciphertext in a transaction before storing the receipt.
+   Extra unsigned metadata, wrong keys and altered records are refused.
+9. GET /stages/{id}/reconcile returns the signed client statement for
+   independent checking. The exact same statement is idempotent.
+10. POST /stages/{id}/abort deletes only staged data and its signed receipt.
+    Existing source accounts, keys and inbox routes are never changed.
 
-7. POST /stages/{id}/reconcile accepts a client-authored hybrid-signed
-   \`transfer.reconcile\` statement, plus the independently generated actor
-   public key. The stage must first have received every signed ciphertext
-   chunk, and the server re-hashes all stored parts under a durable transaction.
-   The client signs the exact actor ID, stage ID, destination, ciphertext root,
-   one-stage random reconcile challenge, SHA-256 of a separately **encrypted**
-   client reconciliation report, a checked=true statement and short expiry.
-   Unknown or extra top-level, signature or body fields are refused; plaintext
-   contact names, messages and filenames must not be included.
-8. GET /stages/{id}/reconcile returns that signed statement to the bearer,
-   so an independent client can verify it after restart. POSTing the same
-   statement again is idempotent; conflicting later statements are rejected.
-   A statement only records what the client **claims** to have checked. The
-   server cannot verify that encrypted conversation history was readable.
+The separate SQLite staging database uses FULL synchronous transactions,
+foreign-key cascade cleanup and restricted 0600 file permissions in a
+private data directory. Bounds: 64 chunks of 256 KiB, 16 MiB total archive
+ciphertext, one 64 KiB private report, eight active stages, 32 pending
+challenges, two per actor and one-hour stage expiry. This is **not** enough
+for a complete real-world history migration.
 
-Reconciliation is an **experimental, server-local protocol extension**.
-The independent Secure Net specification must define and approve a compatible
-record kind and interoperation profile before other implementations can rely on
-its exact wire shape. The endpoint does not attach the actor to a Commonveil
-login, grant memberships, authorise a destination move, or accept any cutover
-command. The status remains \`imported=false\` and \`cutover=false\` even after
-a signed statement is accepted. Operators must NOT expose this service on a
-public host, claim zero-knowledge proof verification or weaken the private
-history's forward secrecy.
+## Client-side encrypted reconciliation reports
 
-The service uses a separate SQLite database with FULL synchronous commits,
-transactional one-use challenges, 0600 file permissions and the existing
-private DATA_DIR. Bounds: 64 chunks of 256 KiB (16 MiB), eight active stages,
-32 pending challenges, two per actor and one-hour stage expiry. This is
-not enough for a real large-history move. It lacks production IP admission,
-independent identity directory validation, an importer and security review.
+The test-only helper at src/lib/identity/migrationReport.js uses WebCrypto
+AES-256-GCM with a pre-existing, authorised, non-extractable device key.
+It does **not** create, authorise, export, wrap or distribute that key.
+Independent device enrolment and reviewed post-quantum key agreement are
+required before a real recipient can retrieve private history.
 
-## Remaining work
+Envelope layout: ASCII CVRPT, byte 0x01, a fresh 12-byte AES-GCM nonce,
+and authenticated ciphertext with a 128-bit tag. The associated data
+is the domain secure-net/transfer.report/v1 and an ordered array of
+actor ID, stage ID, destination, ciphertext root and recipient device ID.
+The device must independently verify and decrypt this report before
+signing reconciliation. The owner signs the SHA-256 of the entire binary
+envelope, not plaintext report fields.
 
-Reviewed client streaming AEAD, hybrid recipient key wrapping, account-bound
-ownership proof, permission and contact portability, encrypted message/
-attachment import, fresh device history handover, reconciled signed cutover,
-Secure Net independent inbox/outbox redirection, deduplication, reversible
-recovery, cross-instance integration tests and independent cryptography audit.
+Private missing-message identifiers and counts may appear **only inside**
+the encrypted report. Public manifests and receipts must not expose
+contacts, filenames or message bodies. The host sees routing, timing,
+sizes and hashes. It cannot prove that arbitrary uploaded bytes are
+encrypted or that a client actually opened the data. Hash verification
+is **not** a zero-knowledge proof or recipient-authentication mechanism.
+
+## Remaining work and safety boundaries
+
+Recording a transfer.reconcile receipt does **not** import history,
+verify the user's decryption, bind the account, authorise a destination
+move or permit old-site deletion. The status remains imported=false
+and cutover=false. A malicious client can assert client_checked=true
+without reading private history. This requires independent reconciliation
+and device-authorisation tests before live use.
+
+Still required: versioned and streamed authenticated-encryption archive
+and attachment manifests, post-quantum recipient key wrapping, signed
+actor/device rotation, user-owned graph and permission import, forward-
+secret history handover, Secure Net independent inbox/outbox delivery,
+reviewed two-phase cutover, stale-handle delivery, source-offline
+recovery, reversibility, multi-instance hostile-host tests, Docker
+validation and an independent cryptographic security review.
+
+No live Commonveil account, encryption key, database or message route
+is modified by this opt-in test-only service. Do not expose it publicly.

@@ -2,10 +2,23 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.24.13",
+      "date": "2026-11-24",
+      "title": "Experimental migration: encrypted reconciliation report staging",
+      "commit": null,
+      "notes": [
+        "Extended the disabled self-hosted Rust migration destination to require a staged, bounded reconciliation report before it accepts the owner's separately signed report hash. The server re-hashes the private report and previously staged archive chunks under a transaction.",
+        "Added bearer-authorised opaque report upload and retrieval, idempotent identical retries, rejection of corruption or conflicting uploads, status visibility and deletion on abort. No decryption keys are stored on the server.",
+        "Added an experimental browser WebCrypto AES-256-GCM helper using an already authorised non-extractable device key. Authenticated associated data binds the independent actor, stage, destination, ciphertext root and recipient-device ID. It never exports or silently enrols a new device key.",
+        "The host cannot prove arbitrary uploaded bytes are encrypted, and a signed reconciliation statement does not prove successful message import, a zero-knowledge proof or permission to switch inbox routing.",
+        "This remains development-source-only, unadvertised and disabled by default. No live deployment, production image, source account or federation routing is changed. Added Rust server and client encryption tests."
+      ]
+    },
+    {
       "version": "0.24.12",
       "date": "2026-11-24",
       "title": "Experimental migration: independent owner-signed reconciliation",
-      "commit": null,
+      "commit": "f28c9f44e67552deac1abc91227a0dac47caadc7",
       "notes": [
         "Added an owner-signed, stage-bound reconciliation statement to the experimental Rust-only destination service. The actor must be independently held and hybrid-signed with Ed25519 and ML-DSA-65, with no Commonveil identity-issuer requirement.",
         "The staging server accepts a reconciliation statement only after all encrypted chunks are staged and the stored ciphertext is rehashed against its signed manifest. The statement binds the actor, stage, destination, root commitment, random per-stage challenge and a digest of a separately encrypted client report.",

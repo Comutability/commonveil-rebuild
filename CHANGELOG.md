@@ -5,6 +5,16 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.13](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.13): Experimental migration: encrypted reconciliation report staging
+
+_2026-11-24_
+
+- Extended the disabled self-hosted Rust migration destination to require a staged, bounded reconciliation report before it accepts the owner's separately signed report hash. The server re-hashes the private report and previously staged archive chunks under a transaction.
+- Added bearer-authorised opaque report upload and retrieval, idempotent identical retries, rejection of corruption or conflicting uploads, status visibility and deletion on abort. No decryption keys are stored on the server.
+- Added an experimental browser WebCrypto AES-256-GCM helper using an already authorised non-extractable device key. Authenticated associated data binds the independent actor, stage, destination, ciphertext root and recipient-device ID. It never exports or silently enrols a new device key.
+- The host cannot prove arbitrary uploaded bytes are encrypted, and a signed reconciliation statement does not prove successful message import, a zero-knowledge proof or permission to switch inbox routing.
+- This remains development-source-only, unadvertised and disabled by default. No live deployment, production image, source account or federation routing is changed. Added Rust server and client encryption tests.
+
 ## [0.24.12](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.12): Experimental migration: independent owner-signed reconciliation
 
 _2026-11-24_
