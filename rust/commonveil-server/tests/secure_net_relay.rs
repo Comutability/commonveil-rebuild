@@ -132,7 +132,7 @@ fn encrypted_site_delivery_authenticates_both_signatures_seals_and_consumes_nonc
     let sender_token = enrol(&mut source, &sender);
     let seed = [7_u8; 32];
     let ed_public = b64u(
-        ed25519_dalek::SigningKey::from_bytes(&seed)
+        &ed25519_dalek::SigningKey::from_bytes(&seed)
             .verifying_key()
             .to_bytes(),
     );

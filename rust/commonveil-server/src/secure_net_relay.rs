@@ -22,6 +22,7 @@ const MAIL_TTL_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 const REPLAY_TTL_MS: i64 = 10 * 60 * 1000;
 const MAX_TRUSTED_SITES: i64 = 100;
 
+#[derive(Debug)]
 pub struct RelayError {
     pub status: u16,
     pub code: &'static str,
