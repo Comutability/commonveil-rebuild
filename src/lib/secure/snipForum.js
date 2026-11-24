@@ -12,6 +12,7 @@ export const snipThreadId = (snipId) => `${snipId}-thread-v1`;
 export const snipClosedNoteId = (snipId) => `${snipId}-closed-v1`;
 /** How much one pass does, so a long backlog is spread out and never floods the channel. */
 export const MAX_STEPS = 1;
+export const MAX_CACHED_POST_AGE_MS = 12 * 60 * 60_000;
 
 const clip = (s, max) => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);
 
@@ -21,6 +22,7 @@ export function snipPost(snip) {
     text: [
       `Status on GitHub: ${snip.status || "not stated"}`,
       `Read the proposal: ${snip.url}`,
+      ...(snip._cached_from ? ["This discussion was created from a recent, last-known GitHub snapshot (" + snip._cached_from + "). Its status has not been refreshed yet."] : []),
       "This thread is for discussing it. The proposal itself, and any decision on it, is recorded on GitHub.",
     ].join("\n\n"),
   };
@@ -57,18 +59,28 @@ export const snipClosedNote = (snip) => {
  * hand is never unlocked.
  */
 export function planSnipSync(report, maxSteps = MAX_STEPS) {
-  if (!report?.enabled || !report.manager || report.stale || !Array.isArray(report.snips)) return [];
-  if (!report.channel) return [{ do: "forum" }];
+  if (!report?.enabled || !report.manager || !Array.isArray(report.snips)) return [];
+  const age = Date.now() - Date.parse(report.fetched_at || "");
+  const recentCache = report.stale && Number.isFinite(age) && age >= 0 && age <= MAX_CACHED_POST_AGE_MS;
+  // Introduce a missing discussion from a recently verified main-branch file
+  // even if a fresh GitHub read failed. NEVER close or ratify it from stale
+  // information. A missing open-PR-only draft requires a fresh GitHub check.
+  if (report.stale && !recentCache) return [];
+  if (!report.channel) return report.stale ? [] : [{ do: "forum" }];
   const posts = [];
   const closures = [];
   for (const snip of report.snips) {
     const thread = report.threads?.[snip.id];
-    if (!thread) posts.push({ do: "post", snip });
-    else if (snip.closed && !thread.locked) closures.push({ do: "close", snip, note: !report.notes?.[snip.id] });
+    if (!thread && (!report.stale || snip.where === "main")) {
+      posts.push({
+        do: "post",
+        snip: report.stale ? { ...snip, closed: false, _cached_from: report.fetched_at } : snip,
+        cached: Boolean(report.stale),
+      });
+    } else if (!report.stale && thread && snip.closed && !thread.locked) {
+      closures.push({ do: "close", snip, note: !report.notes?.[snip.id] });
+    }
   }
-  // Recover missing proposal threads (including 0007 and 0008) before the
-  // older closure backlog. Limit each pass to a single signed operation
-  // group, allowing the host's shared rate limit time to recover.
   return [...posts, ...closures].slice(0, maxSteps);
 }
 
@@ -80,6 +92,9 @@ export function planSnipSync(report, maxSteps = MAX_STEPS) {
 export async function runSnipSync(io) {
   const done = { forum: false, posted: [], closed: [] };
   let report = await io.status();
+  if (report?.enabled && report.manager === false) {
+    throw Object.assign(new Error("This account cannot manage proposals on the default server. A site-owner role does not automatically grant community-forum permissions."), { code: "SNIP_FORUM_PERMISSION" });
+  }
   let steps = planSnipSync(report);
   if (steps[0]?.do === "forum") {
     await io.ensureForum();
@@ -87,9 +102,11 @@ export async function runSnipSync(io) {
     report = await io.status();
     steps = planSnipSync(report);
   }
-  if (!report?.channel) return done;
+  if (!report?.channel || !steps.length) return done;
   const channel = await io.channelOf(report.channel.id);
-  if (!channel) return done; // this device hasn't loaded the new channel yet: next pass
+  if (!channel) {
+    throw Object.assign(new Error("The SNIP forum channel has not loaded on this device. Unlock or reload the default server before trying again."), { code: "SNIP_FORUM_CHANNEL_NOT_LOADED" });
+  }
   const tolerate = async (fn) => {
     try {
       await fn();
