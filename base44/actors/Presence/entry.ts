@@ -1,4 +1,4 @@
-// Shared code revision: 2026-11-24c. Bump this line when files in base44/shared change, so the platform redeploys this actor with them.
+// Shared code revision: 2026-11-24d. Bump this line when files in base44/shared change, so the platform redeploys this actor with them.
 // Who's here right now, and who's typing: for people who chose to share it. One room per server
 // ("s.<serverId>") or conversation ("c.<conversationId>"); only its members get in.
 //

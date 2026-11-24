@@ -5,6 +5,16 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.22](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.22): Repair silent SNIP proposal sync stalls and safely recover from GitHub cache failures
+
+_2026-11-24_
+
+- Fixed the misleading silent no-op when GitHub retrieval failed and the known SNIP cache was marked stale. Missing discussions for main-branch proposal files verified in the last 12 hours can now be posted and explicitly labelled as cached while any stale merge/decline closure or open-PR-only creation stays blocked until fresh GitHub verification.
+- The authorised admin device now shows GitHub snapshot freshness, pending work and the last successfully processed proposal. Missing server-forum permissions, unloaded encrypted channels, offline mode and locally queued unconfirmed messages produce explicit feedback rather than being mistaken for successful synchronisation.
+- The background sync remains one signed proposal operation per pass with pacing, rate-limit cooldown, unique message IDs, preservation of the forum encryption model and automatic restart on a later pass. A locally queued ciphertext is not counted as a persisted server post.
+- New regression tests cover stale-cached known main-branch SNIP-0007 and SNIP-0008 discussion creation without false closure, expired snapshots, open-PR stale denial, missing forum channel failure and no duplicate notes or posts. Updated SNIP forum and troubleshooting documentation with behaviour and safety limitations.
+- Existing Commonveil messaging, server keys, administrator permissions, protocol governance and experimental Secure Net relay switches are unchanged. Site owners do not gain access to encryption keys. The default server still requires an authorised admin device to actually sign and publish missing posts.
+
 ## [0.24.21](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.21): Secure Net proposal forum rate-limit recovery and safe incremental synchronisation
 
 _2026-11-24_
