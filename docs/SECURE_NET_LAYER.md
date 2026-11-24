@@ -74,3 +74,11 @@ Net's version moves on. `packages/secure-net` is a checked copy of Secure Net 0.
 version with JavaScript, which the browser app and the Base44 functions use until they move to
 Rust. Whenever Secure Net changes, Commonveil is updated to it as part of the next release (see
 AGENTS.md, "Keeping up with the protocol").
+
+## Experimental destination staging (0.24.11)
+
+The self-hosted Rust server contains a disabled-by-default SNIP-0007 ciphertext
+staging prototype: see [MIGRATION_STAGING.md](MIGRATION_STAGING.md).
+It verifies independent hybrid actor keys, does not issue identities, cannot
+decrypt messages, and does not bind existing accounts or switch inboxes.
+It must not advertise production migration support.

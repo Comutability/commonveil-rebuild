@@ -61,6 +61,7 @@ All settings are in `.env`. After changing one, run `docker compose up -d`.
 | `SNIP_FORUM` | `on` adds a proposals forum to the community server, with one post per Secure Net Improvement Proposal on GitHub. Your server then reads GitHub's public API about every 20 minutes. Off by default. See [SNIP_FORUM.md](SNIP_FORUM.md). |
 | `OPEN_REGISTRATION` | `false` stops new sign-ups once the first admin exists. The first admin always needs the setup code. |
 | `FEDERATION` | `false` keeps your site to itself: no other site can reach it, and its people can't reach others. |
+| EXPERIMENTAL_TRANSFER_STAGING | Test-only ciphertext staging, disabled by default. Do not enable on production; see [the limitations](MIGRATION_STAGING.md). |
 | `COMMONVEIL_VERSION` | Which release runs. The updater changes it. `latest` follows each new release. |
 | `UPDATER_ALLOW_DOWNGRADE` | `true` lets the updater go back to an older release. Leave it off otherwise. |
 | `COMMONVEIL_DIR`, `UPDATER_TOKEN` | This folder's full path, and the secret the app and the updater share. `install.sh` sets both. |
