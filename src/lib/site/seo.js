@@ -73,6 +73,12 @@ export const PAGES = Object.freeze([
     priority: "0.4",
   },
   {
+    path: "/rules",
+    title: "Local site rules and federation policy",
+    description: "Read this Commonveil host's rules, registration choices, appeals contact and publicly disclosed domain moderation.",
+    priority: "0.5",
+  },
+  {
     path: "/resources",
     title: "Privacy tools worth knowing about",
     description: "A short, opinionated list of privacy and self-hosting tools. Nobody pays to be here, and nothing is an affiliate link.",

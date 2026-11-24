@@ -19,13 +19,15 @@ pub struct Page {
 }
 
 /// The public pages, in sitemap order.
-pub const PAGES: [Page; 13] = [
+pub const PAGES: [Page; 15] = [
     Page { path: "/", title: "Commonveil: encrypted messages and communities you can trust", description: "Private messages, groups, communities and calls, end-to-end encrypted so not even we can read them. Open source, free, no phone number, and you can run it yourself.", priority: "1.0" },
     Page { path: "/help", title: "Help Centre", description: "How to use Commonveil: getting started, messages and calls, servers, privacy and safety, your account and running your own site.", priority: "0.9" },
     Page { path: "/help/guide", title: "The complete guide", description: "Every Commonveil feature on one page: what it's for, how to use it, and exactly what it shares.", priority: "0.7" },
+    Page { path: "/secure-net", title: "Secure Net: an independent open protocol", description: "Secure Net is an open protocol for independent encrypted inbox, outbox and relay communication. Commonveil is the first application, not a required gateway.", priority: "0.7" },
     Page { path: "/security", title: "How the encryption works, and where it stops", description: "Commonveil's end-to-end encryption in plain language: what it protects, what the server can still see, and the limits we know about.", priority: "0.8" },
     Page { path: "/privacy", title: "Privacy: exactly what we hold, and what we can't see", description: "Every piece of information Commonveil stores, why, and for how long. Your messages, keys and searches never reach us in readable form.", priority: "0.8" },
     Page { path: "/terms", title: "Terms of Use", description: "The rules for using Commonveil, in plain language: who can join, what isn't allowed, and what happens to your account and data.", priority: "0.4" },
+    Page { path: "/rules", title: "Local site rules and federation policy", description: "Read this Commonveil host's rules, registration choices, appeals contact and publicly disclosed domain moderation.", priority: "0.5" },
     Page { path: "/resources", title: "Privacy tools worth knowing about", description: "A short, opinionated list of privacy and self-hosting tools. Nobody pays to be here, and nothing is an affiliate link.", priority: "0.6" },
     Page { path: "/releases", title: "What's changed: release notes", description: "Every Commonveil release, newest first, in plain language.", priority: "0.5" },
     Page { path: "/login", title: "Sign in", description: "Sign in to Commonveil with your username and password or a passkey. New on this device? You'll confirm it's you once.", priority: "0.5" },
