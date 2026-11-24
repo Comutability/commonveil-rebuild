@@ -14,7 +14,7 @@ test("Commonveil clearly distinguishes its own legacy federation from independen
   assert.match(guide, /\/cvp\/v2\/outbox/);
   assert.match(guide, /\/cvp\/v2\/deliver/);
   assert.match(guide, /\/cvp\/v2\/mailbox/);
-  assert.match(guide, /not yet passed an independent/i);
+  assert.match(guide, /other-vendor CVP-019 exchange/i);
 });
 
 test("public website exposes independent protocol information without enabling unsupported transport", () => {
