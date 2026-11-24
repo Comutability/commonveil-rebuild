@@ -713,7 +713,14 @@ impl Signer {
     }
 
     fn refuse_blocked(&self, store: &Store, host: &str) -> FedResult<()> {
-        if self.site_row(store, host).is_some_and(|r| r.blocked) {
+        let verdict = crate::site_policy::decision(store, host).map_err(|_| {
+            fed_err(
+                503,
+                "SITE_POLICY_UNAVAILABLE",
+                "Unable to check this site's federation policy.",
+            )
+        })?;
+        if verdict == "suspend" || self.site_row(store, host).is_some_and(|r| r.blocked) {
             return Err(fed_err(
                 403,
                 "SITE_BLOCKED",
@@ -726,6 +733,7 @@ impl Signer {
     /// Another site's public document, and its key pinned on first contact.
     pub fn site_doc(&self, store: &Store, host: &str) -> FedResult<Value> {
         let host = norm_host(host)?;
+        self.refuse_blocked(store, &host)?;
         let now = now_ms();
         if let Some((doc, at)) = self
             .docs

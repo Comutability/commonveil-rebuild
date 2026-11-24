@@ -1276,6 +1276,26 @@ impl Federation {
             "{}".into()
         };
         let parsed: Value = serde_json::from_str(&raw).unwrap_or(json!({}));
+        // Limited remote sites may continue established encrypted exchanges,
+        // but cannot create new remote relationships or joins.
+        if crate::site_policy::decision(&app.store, from).map_err(|_| {
+            fed_err(
+                503,
+                "SITE_POLICY_UNAVAILABLE",
+                "Unable to check site policy.",
+            )
+        })? == "limit"
+            && ((function == "conversations"
+                && ["create", "start"].contains(&parsed["action"].as_str().unwrap_or("")))
+                || (function == "servers"
+                    && ["join", "join_open"].contains(&parsed["action"].as_str().unwrap_or(""))))
+        {
+            return Err(fed_err(
+                403,
+                "SITE_LIMITED",
+                "This site's moderation policy limits new remote interactions.",
+            ));
+        }
         // Things that only make sense on a person's own site.
         if ["keys", "profile", "safety"].contains(&function.as_str())
             && !["peer_keys", "get_many", "find"].contains(&parsed["action"].as_str().unwrap_or(""))
@@ -1306,6 +1326,29 @@ impl Federation {
     }
 
     fn inbound_directory(&self, from: &str, payload: &Value) -> FedResult<Value> {
+        let app = self.app();
+        let policy = crate::site_policy::current_policy(&app.store).map_err(|_| {
+            fed_err(
+                503,
+                "SITE_POLICY_UNAVAILABLE",
+                "Unable to check site policy.",
+            )
+        })?;
+        if policy["allow_remote_discovery"] == false
+            || crate::site_policy::decision(&app.store, from).map_err(|_| {
+                fed_err(
+                    503,
+                    "SITE_POLICY_UNAVAILABLE",
+                    "Unable to check site policy.",
+                )
+            })? == "limit"
+        {
+            return Err(fed_err(
+                403,
+                "SITE_LIMITED",
+                "This site's policy restricts remote discovery.",
+            ));
+        }
         let handle = str_of(payload.get("handle")).to_lowercase();
         let profile = match self.local_username(&handle) {
             Some(u) => self.local_profile(&u)?,
@@ -2183,6 +2226,11 @@ pub async fn route(app: Arc<App>, req: Request) -> Routed {
             let named = name.len() == 48 && name.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
             let known = host.as_ref().is_some_and(|h| fed.sql(|db| db.query_row("SELECT 1 FROM fed_user_hosts WHERE host = ? LIMIT 1", [h], |_| Ok(())).optional()).flatten().is_some());
             let (Some(host), true, true) = (host, named, known) else { return reply(404, &json!({ "error": "Not found" }), &[]) };
+            match crate::site_policy::decision(&app.store,&host) {
+                Ok(mode) if mode=="suspend"||mode=="reject_media"=>return reply(403,&json!({"code":"SITE_MEDIA_BLOCKED","error":"Media from that site is restricted."}),&[]),
+                Err(_)=>return reply(503,&json!({"code":"SITE_POLICY_UNAVAILABLE"}),&[]),
+                _=>{}
+            }
             let search = url::form_urlencoded::Serializer::new(String::new()).extend_pairs(pairs.iter()).finish();
             let bytes = fed.signer.endpoint(&app.store, &host, "files").ok().and_then(|base| fed.signer.transport.bytes(&host, &format!("{base}/{name}?{search}")));
             let Some(bytes) = bytes else { return reply(404, &json!({ "error": "That link has expired." }), &[]) };
@@ -2198,6 +2246,11 @@ pub async fn route(app: Arc<App>, req: Request) -> Routed {
             return reply(404, &json!({ "error": "This site doesn't talk to other sites.", "code": "FEDERATION_OFF" }), &[]);
         }
         if method == "GET" && p == "/cvp/v1/discover" {
+            match crate::site_policy::current_policy(&app.store) {
+                Ok(policy) if policy["allow_remote_discovery"]==false=>return reply(403,&json!({"code":"DISCOVERY_DISABLED","error":"Remote directory listings are disabled."}),&[]),
+                Err(_)=>return reply(503,&json!({"code":"SITE_POLICY_UNAVAILABLE"}),&[]),
+                _=>{}
+            }
             return reply(200, &fed.discover(&tag), &[any_origin(), ("Cache-Control", "public, max-age=120".into())]);
         }
         if method != "POST" {

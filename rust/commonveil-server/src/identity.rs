@@ -742,7 +742,11 @@ fn register(ctx: &mut Ctx) -> Result<Value> {
             ));
         }
         role = "admin";
-    } else if !ctx.app.config.open_registration {
+    } else if !ctx.app.config.open_registration
+        || !crate::site_policy::current_policy(&ctx.app.store)?
+            .get("registration_open")
+            .is_some_and(|v| v == true)
+    {
         return Err(deny(
             403,
             "REGISTRATION_CLOSED",
