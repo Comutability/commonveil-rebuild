@@ -727,6 +727,7 @@ fn register(ctx: &mut Ctx) -> Result<Value> {
     }
     // A new self-hosted site: only its operator, with the setup code, can make the first account.
     let mut role = "user";
+    let mut is_site_owner = false;
     if ctx.app.bootstrap.needed(s) {
         if body.get("setup_code").is_none() || body["setup_code"] == "" {
             return Err(deny(403, "SETUP_CODE_REQUIRED", "This site isn't set up yet. Its operator creates the first account with the setup code shown when the server started."));
@@ -742,6 +743,7 @@ fn register(ctx: &mut Ctx) -> Result<Value> {
             ));
         }
         role = "admin";
+        is_site_owner = true; // The host operator's one-time setup code is required.
     } else if !ctx.app.config.open_registration
         || !crate::site_policy::current_policy(&ctx.app.store)?
             .get("registration_open")
@@ -775,7 +777,7 @@ fn register(ctx: &mut Ctx) -> Result<Value> {
     }
     let person = s.create(
         "Person",
-        &json!({ "role": role, "email": "", "full_name": "" }),
+        &json!({ "role": role, "email": "", "full_name": "", "site_owner": is_site_owner }),
         None,
     )?;
     let pid = person["id"].as_str().unwrap_or("").to_string();
@@ -791,7 +793,7 @@ fn register(ctx: &mut Ctx) -> Result<Value> {
         s,
         &pid,
         device["id"].as_str().unwrap_or(""),
-        json!({ "device": device, "user": { "id": pid, "role": role } }),
+        json!({ "device": device, "user": { "id": pid, "role": role, "site_owner": is_site_owner } }),
     ))
 }
 

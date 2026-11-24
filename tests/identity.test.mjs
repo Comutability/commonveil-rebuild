@@ -48,6 +48,7 @@ test("accounts are a username and a password; the operator's setup code makes th
   const r = await ok("register", { username: "ivy_k", password: PW, device_name: "Firefox on Linux", setup_code: code });
   assert.ok(r.session.access_token && r.session.refresh_token && r.device?.id && r.device?.secret);
   assert.equal(r.user.role, "admin", "the account made with the setup code runs the site");
+  assert.equal(r.user.site_owner,true,"the setup-code account is the unique initial site owner");
   assert.equal(setupCodeOf(site.config), "", "the code is used up");
   const again2 = await id("register", { username: "ivy_three", password: PW, age_confirmed: true, setup_code: code });
   assert.equal(again2.data.user?.role || "user", "user", "and never makes another admin");

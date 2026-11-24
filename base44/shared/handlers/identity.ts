@@ -308,11 +308,13 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
       if (body.age_confirmed !== true) throw deny(400, "AGE_REQUIRED", "Commonveil is for people 16 and over. Confirm you're 16 or older to create an account.");
       // A new self-hosted site: only its operator, with the setup code, can make the first account.
       let role = "user";
+      let isSiteOwner = false;
       if (cfg.bootstrap && (await cfg.bootstrap.needed(sr))) {
         if (body.setup_code === undefined || body.setup_code === "") throw deny(403, "SETUP_CODE_REQUIRED", "This site isn't set up yet. Its operator creates the first account with the setup code shown when the server started.");
         if (await userIdForName(sr, username)) throw deny(409, "USERNAME_TAKEN", "That username is taken.");
         if (!cfg.bootstrap.consume(body.setup_code)) throw deny(403, "BAD_SETUP_CODE", "That setup code isn't right, or has already been used.");
         role = "admin";
+        isSiteOwner = true; // Operator proved possession of the one-time setup code.
       } else if ((cfg.registrationOpen && !cfg.registrationOpen()) ||
                  (await sr.entities.SitePolicy.filter({scope:"site"},"created_date",1))[0]?.registration_open===false) {
         throw deny(403, "REGISTRATION_CLOSED", "This site isn't taking new accounts. Ask its operator.");
@@ -321,7 +323,7 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
       const hourAgo = new Date(Date.now() - 3600_000).toISOString().replace("Z", "");
       const recent = await sr.entities.Person.filter({ created_date: { $gte: hourAgo } }, "-created_date", REGISTRATIONS_PER_HOUR);
       if (recent.length >= REGISTRATIONS_PER_HOUR) throw deny(429, "RATE_LIMITED", "A lot of accounts are being made right now. Try again in a while.");
-      const person = await sr.entities.Person.create({ role, email: "", full_name: "" });
+      const person = await sr.entities.Person.create({ role, email: "", full_name: "", site_owner: isSiteOwner });
       const user = { ...person, email: "" };
       try {
         await profileActions.claim_username({ sr, own: personClient(sr, user, person), user, body: { username }, now: new Date() } as any);
@@ -331,7 +333,7 @@ export function identityActions(cfg: IdentityConfig = BASE44_IDENTITY): Actions 
       }
       await sr.entities.CvAccount.create({ user_id: person.id, kind: "person", password: await hashPassword(body.password, rounds), owner_pub: "", failed: 0, security_epoch: 0, age_confirmed_at: nowIso(), terms_version: TERMS_VERSION });
       const device = await newDevice(sr, person.id, body.device_name, "registration");
-      return signedIn(sr, person.id, device.id, { device, user: { id: person.id, role } });
+      return signedIn(sr, person.id, device.id, { device, user: { id: person.id, role, site_owner: isSiteOwner } });
     },
 
     /** An account from before Commonveil sign-in, just signed in with Base44's email sign-in. */
