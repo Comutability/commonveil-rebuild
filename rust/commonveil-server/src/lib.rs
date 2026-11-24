@@ -478,6 +478,24 @@ async fn handle(State(app): State<Arc<App>>, req: Request) -> Response<Body> {
             }),
         );
     }
+    // Independently authenticated Secure Net CVP-019 reference transport.
+    // Absent on ordinary Commonveil installations; never rewrites /cvp/v1.
+    if matches!(
+        path.as_str(),
+        "/cvp/v2/outbox"
+            | "/cvp/v2/outbox/flush"
+            | "/cvp/v2/deliver"
+            | "/cvp/v2/mailbox"
+            | "/cvp/v2/mailbox/ack"
+            | "/cvp/v2/relay/site"
+            | "/cvp/v2/relay/admin/actors"
+            | "/cvp/v2/relay/admin/trust"
+    ) {
+        if !app.config.experimental_secure_net_relay {
+            return http::json(404, &json!({"code":"NOT_FOUND"}));
+        }
+        return secure_net_relay::handle(app.clone(), req).await;
+    }
     // Early destination ciphertext staging. Entire endpoint family is absent unless
     // the self-hosted operator opts in, and never publishes actor moves or relay changes.
     if path.starts_with("/cvp/v2/experimental-transfer/") {

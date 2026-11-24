@@ -715,3 +715,165 @@ impl Relay {
         Ok(json!({"actors":records,"cvp_profile":"experimental"}))
     }
 }
+
+/// The public relay trial document is *not* /.well-known/secure-net, which
+/// remains a community SNIP-0008 proposal. Only manually trusted sites can
+/// send transport to this experimental service.
+pub fn public_trial_site(app: &crate::App) -> RelayResult<Value> {
+    let keys = app
+        .federation
+        .signer
+        .relay_doc(&app.store)
+        .map_err(|_| internal())?;
+    Ok(json!({
+       "protocol":"secure-net",
+       "profile":"experimental-direct-only",
+       "production_conformance":false,
+       "site":app.federation.host,
+       "key":{"public":app.federation.signer.key.public},
+       "pq":keys,
+       "endpoints":{
+          "outbox":"/cvp/v2/outbox",
+          "deliver":"/cvp/v2/deliver",
+          "mailbox":"/cvp/v2/mailbox"
+       },
+       "features_advertised":[],
+       "manually_pin_peer_keys":true,
+       "legacy_commonveil_federation_separate":true
+    }))
+}
+
+/// A controlled queue drain. A source site signs and PQ-seals each outbound
+/// envelope to an independently pinned receiving site. One successful
+/// authenticated encrypted acknowledgement removes one queued item.
+fn flush_queued(app: &crate::App, relay: &mut Relay, auth: &str) -> RelayResult<Value> {
+    let admin = &app.config.secure_net_relay_admin;
+    let work = relay.pending(auth, admin, crate::sessions::now_ms())?;
+    let mut delivered = 0usize;
+    let mut failed = 0usize;
+    for (id, host, to, envelope) in work {
+        let kem = relay.peer_kem(&host)?;
+        let value: Value = serde_json::from_str(&envelope).map_err(|_| internal())?;
+        let body = json!({"v":1,"items":[{"to":to,"envelope":value}]}).to_string();
+        let context = sealed::relay_context(&relay.host, &host, "/cvp/v2/deliver");
+        let Ok((ciphertext, reply_key)) = sealed::seal(&kem, &body, &context) else {
+            relay.delay(auth, admin, &id, crate::sessions::now_ms())?;
+            failed += 1;
+            continue;
+        };
+        let raw = json!({"sealed":ciphertext}).to_string();
+        let mut headers = app
+            .federation
+            .signer
+            .headers(&app.store, "POST", &host, "/cvp/v2/deliver", &raw, None)
+            .map_err(|_| internal())?;
+        headers.push(("Content-Type".into(), "application/json".into()));
+        headers.push(("CV-Sealed".into(), "1".into()));
+        let res = app.federation.signer.transport.request(
+            &host,
+            "/cvp/v2/deliver",
+            "POST",
+            &headers,
+            Some(&raw),
+        );
+        let accepted = res
+            .ok()
+            .filter(|r| r.status == 200)
+            .and_then(|r| r.data["sealed"].as_str().map(ToOwned::to_owned))
+            .and_then(|sealed_reply| sealed::open_reply(&reply_key, &sealed_reply, &context).ok())
+            .and_then(|clear| serde_json::from_str::<Value>(&clear).ok())
+            .is_some_and(|v| v["ok"] == true);
+        if accepted {
+            relay.mark_sent(auth, admin, &id)?;
+            delivered += 1;
+        } else {
+            relay.delay(auth, admin, &id, crate::sessions::now_ms())?;
+            failed += 1;
+        }
+    }
+    Ok(json!({"delivered":delivered,"failed_or_pending":failed,
+      "cvp_profile":"experimental","complete_interoperability":false}))
+}
+
+/// Route only the new exact experimental CVP-019 endpoint family. This code
+/// never intercepts Commonveil's existing /cvp/v1/ federation and does not
+/// modify application message records or attempt encrypted history migration.
+pub async fn handle(
+    app: std::sync::Arc<crate::App>,
+    req: axum::extract::Request,
+) -> axum::http::Response<axum::body::Body> {
+    let method = req.method().as_str().to_owned();
+    let path = req.uri().path().to_owned();
+    let query = req.uri().query().unwrap_or("").to_owned();
+    let bearer = req
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or("")
+        .to_owned();
+    let headers: std::collections::HashMap<String, String> = req
+        .headers()
+        .iter()
+        .filter_map(|(k, v)| {
+            v.to_str()
+                .ok()
+                .map(|v| (k.as_str().to_owned(), v.to_owned()))
+        })
+        .collect();
+    let raw = match axum::body::to_bytes(req.into_body(), MAX_REQUEST + 1).await {
+        Ok(raw) => raw,
+        Err(_) => return crate::http::json(413, &json!({"code":"TOO_LARGE"})),
+    };
+    let answer = tokio::task::spawn_blocking(move || {
+        let mut service = Relay::open(&app.config.data_dir, &app.federation.host)?;
+        let now = crate::sessions::now_ms();
+        match (method.as_str(), path.as_str()) {
+            ("GET", "/cvp/v2/relay/site") => public_trial_site(&app),
+            ("POST", "/cvp/v2/relay/admin/actors") => {
+                let body = parse_json(&raw, MAX_REQUEST)?;
+                service.register_actor(&bearer, &app.config.secure_net_relay_admin, &body)
+            }
+            ("POST", "/cvp/v2/relay/admin/trust") => {
+                let body = parse_json(&raw, MAX_REQUEST)?;
+                service.trust_site(&bearer, &app.config.secure_net_relay_admin, &body)
+            }
+            ("POST", "/cvp/v2/outbox") => {
+                let body = parse_json(&raw, MAX_REQUEST)?;
+                service.outbox(&bearer, &body, now)
+            }
+            ("GET", "/cvp/v2/mailbox") => {
+                let value = query
+                    .split('&')
+                    .find_map(|part| part.strip_prefix("device="))
+                    .unwrap_or("");
+                service.mailbox(&bearer, value, now)
+            }
+            ("POST", "/cvp/v2/mailbox/ack") => {
+                let body = parse_json(&raw, 32 * 1024)?;
+                service.acknowledge(&bearer, &body)
+            }
+            ("POST", "/cvp/v2/deliver") => {
+                let relay = app
+                    .federation
+                    .signer
+                    .relay_keys(&app.store)
+                    .map_err(|_| internal())?;
+                service.deliver(
+                    &headers,
+                    &raw,
+                    now,
+                    relay["kem"]["secret"].as_str().unwrap_or(""),
+                )
+            }
+            ("POST", "/cvp/v2/outbox/flush") => flush_queued(&app, &mut service, &bearer),
+            _ => error(404, "NOT_FOUND"),
+        }
+    })
+    .await;
+    match answer {
+        Ok(Ok(body)) => crate::http::json(200, &body),
+        Ok(Err(e)) => crate::http::json(e.status, &json!({"code":e.code})),
+        Err(_) => crate::http::json(500, &json!({"code":"RELAY_UNAVAILABLE"})),
+    }
+}

@@ -37,6 +37,12 @@ pub struct Config {
     pub updater_token: String,
     /// Experimental opaque transfer staging. Default off. No account imports or cutovers.
     pub experimental_transfer_staging: bool,
+    /// An isolated, opt-in CVP-019 direct-message relay, never advertised
+    /// as complete protocol interoperability on the hosted Commonveil site.
+    pub experimental_secure_net_relay: bool,
+    /// A site-operator generated secret for manually pinning trust and
+    /// registering independent actors. Never exposed to clients by discovery.
+    pub secure_net_relay_admin: String,
     pub federation: bool,
     pub federation_prefix: String,
     pub handle_domain: String,
@@ -177,6 +183,8 @@ impl Config {
             updater_url: get("UPDATER_URL").cloned().unwrap_or_default(),
             updater_token: get("UPDATER_TOKEN").cloned().unwrap_or_default(),
             experimental_transfer_staging: boolean(get("EXPERIMENTAL_TRANSFER_STAGING"), false),
+            experimental_secure_net_relay: boolean(get("EXPERIMENTAL_SECURE_NET_RELAY"), false),
+            secure_net_relay_admin: get("SECURE_NET_RELAY_ADMIN").cloned().unwrap_or_default(),
             federation: boolean(get("FEDERATION"), true),
             federation_prefix: if valid_prefix(&prefix) { prefix } else { String::new() },
             handle_domain: get("HANDLE_DOMAIN").filter(|s| !s.is_empty()).map_or_else(|| host.clone(), |h| h.to_lowercase()),
