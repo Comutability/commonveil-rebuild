@@ -1209,7 +1209,10 @@ test("the proposals forum: a thread for every SNIP on GitHub, made and closed by
 
     // First pass from an admin's app: the forum, then a thread for each proposal on GitHub.
     let done = await runSnipSync(ioFor(owner));
-    assert.deepEqual(done, { forum: true, posted: ["SNIP-0001", "SNIP-0002"], closed: ["SNIP-0001", "SNIP-0002"] });
+    assert.deepEqual(done, { forum: true, posted: ["SNIP-0001"], closed: ["SNIP-0001"] },
+      "one proposal per pass avoids overwhelming Base44's shared request budget");
+    done = await runSnipSync(ioFor(owner));
+    assert.deepEqual(done, { forum: false, posted: ["SNIP-0002"], closed: ["SNIP-0002"] });
     const forum = await owner.channelNamed(sid, "snips");
     assert.equal(forum.kind, "forum");
     let posts = (await owner.readChannel(sid, forum)).filter((m) => m.content?.type === "post");
