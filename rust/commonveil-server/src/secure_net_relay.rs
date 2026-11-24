@@ -884,6 +884,22 @@ pub fn public_trial_site(app: &crate::App) -> RelayResult<Value> {
     }))
 }
 
+/// Apply site-level federation bans to the separate experimental Secure Net
+/// transport too; otherwise a CVP-019 feature could bypass operator choices.
+fn guard_operator_site_policy(app: &crate::App, host: &str) -> RelayResult<()> {
+    if host == app.federation.host {
+        return Ok(());
+    }
+    let verdict = crate::site_policy::decision(&app.store, host).map_err(|_| RelayError {
+        status: 503,
+        code: "SITE_POLICY_UNAVAILABLE",
+    })?;
+    if verdict == "suspend" {
+        return error(403, "SITE_BLOCKED");
+    }
+    Ok(())
+}
+
 /// A controlled queue drain. A source site signs and PQ-seals each outbound
 /// envelope to an independently pinned receiving site. One successful
 /// authenticated encrypted acknowledgement removes one queued item.
@@ -893,6 +909,13 @@ fn flush_queued(app: &crate::App, relay: &mut Relay, auth: &str) -> RelayResult<
     let mut delivered = 0usize;
     let mut failed = 0usize;
     for (id, host, to, envelope) in work {
+        // Do not transmit already queued mail when an admin blocks a remote
+        // host. Keep the ciphertext safely queued for a later policy choice.
+        if guard_operator_site_policy(app, &host).is_err() {
+            relay.delay(auth, admin, &id, crate::sessions::now_ms())?;
+            failed += 1;
+            continue;
+        }
         let kem = relay.peer_kem(&host)?;
         let value: Value = serde_json::from_str(&envelope).map_err(|_| internal())?;
         let body = json!({"v":1,"items":[{"to":to,"envelope":value}]}).to_string();
@@ -985,6 +1008,10 @@ pub async fn handle(
             }
             ("POST", "/cvp/v2/outbox") => {
                 let body = parse_json(&raw, MAX_REQUEST)?;
+                for item in body["items"].as_array().into_iter().flatten() {
+                    let host = item["host"].as_str().unwrap_or("");
+                    guard_operator_site_policy(&app, host)?;
+                }
                 service.outbox(&bearer, &body, now)
             }
             ("GET", "/cvp/v2/mailbox") => {
@@ -999,6 +1026,10 @@ pub async fn handle(
                 service.acknowledge(&bearer, &body)
             }
             ("POST", "/cvp/v2/deliver") => {
+                guard_operator_site_policy(
+                    &app,
+                    headers.get("cv-from").map(String::as_str).unwrap_or(""),
+                )?;
                 let relay = app
                     .federation
                     .signer
