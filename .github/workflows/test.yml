@@ -91,7 +91,7 @@ jobs:
       - name: Build the site image with the exact locked Secure Net revision
         run: |
           pinned=$(sed -n 's/^secure-net-core = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' rust/Cargo.toml)
-          test "\${#pinned}" -eq 40
+          test "${#pinned}" -eq 40
           docker build --build-arg "SECURE_NET_REV=$pinned" -t commonveil:ci .
       - name: Build the updater image
         run: docker build -t commonveil-updater:ci -f updater/Dockerfile .
