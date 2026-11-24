@@ -1284,6 +1284,217 @@ mod tests {
         );
     }
 
+    fn signed_reconciliation(owner: &SigningKey, ticket: &Value, root: &str, now: i64) -> Value {
+        sign(
+            RECONCILE_PURPOSE,
+            &json!({
+                "v": 1, "actor": owner.kid,
+                "stage_id": ticket["stage_id"], "to": DEST,
+                "ciphertext_root": root, "challenge": ticket["reconcile_challenge"],
+                "encrypted_report_sha256": sha256_b64u(b"client-encrypted reconciliation report"),
+                "client_checked": true, "issued_ms": now,
+                "expires_ms": now + RECONCILE_LIFE_MS,
+            }),
+            owner,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn only_the_original_independent_key_can_attest_after_complete_ciphertext() {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = SigningKey::generate(true);
+        let attacker = SigningKey::generate(true);
+        let chunk = b"ciphertext payload only";
+        let (manifest, root, _) = fixture(&[chunk]);
+        let (id, token, receipt) = {
+            let mut s = Stage::open(dir.path(), DEST).unwrap();
+            let (intent, _) = authorise(&owner, &mut s, 1, &[chunk]);
+            let ticket = s
+                .prepare(&owner.public_key, &intent, &manifest, NOW)
+                .unwrap();
+            let id = ticket["stage_id"].as_str().unwrap().to_string();
+            let token = ticket["stage_token"].as_str().unwrap().to_string();
+            let receipt = signed_reconciliation(&owner, &ticket, &root, NOW + 1000);
+            assert_eq!(
+                s.reconcile(&id, &token, &owner.public_key, &receipt, NOW + 1000)
+                    .unwrap_err()
+                    .code,
+                "INCOMPLETE_CIPHERTEXT"
+            );
+            s.chunk(&id, &token, 0, chunk, NOW + 1000).unwrap();
+            assert_eq!(
+                s.reconcile(&id, &token, &attacker.public_key, &receipt, NOW + 1000)
+                    .unwrap_err()
+                    .code,
+                "WRONG_ACTOR"
+            );
+            let forged = sign(RECONCILE_PURPOSE, &receipt["body"], &attacker).unwrap();
+            assert_eq!(
+                s.reconcile(&id, &token, &owner.public_key, &forged, NOW + 1000)
+                    .unwrap_err()
+                    .code,
+                "BAD_SIGNATURE"
+            );
+            let mut wrong_stage = receipt["body"].clone();
+            wrong_stage["stage_id"] = json!(random_b64u(18));
+            let wrong_stage = sign(RECONCILE_PURPOSE, &wrong_stage, &owner).unwrap();
+            assert_eq!(
+                s.reconcile(&id, &token, &owner.public_key, &wrong_stage, NOW + 1000)
+                    .unwrap_err()
+                    .code,
+                "BAD_RECONCILIATION"
+            );
+            let mut leaking_metadata = receipt["body"].clone();
+            leaking_metadata["contact_name"] = json!("No plaintext metadata allowed");
+            let leaking_metadata = sign(RECONCILE_PURPOSE, &leaking_metadata, &owner).unwrap();
+            assert_eq!(
+                s.reconcile(
+                    &id,
+                    &token,
+                    &owner.public_key,
+                    &leaking_metadata,
+                    NOW + 1000
+                )
+                .unwrap_err()
+                .code,
+                "BAD_RECONCILIATION"
+            );
+            let first = s
+                .reconcile(&id, &token, &owner.public_key, &receipt, NOW + 1000)
+                .unwrap();
+            assert_eq!(first["client_attested"], true);
+            assert_eq!(first["imported"], false);
+            assert_eq!(first["cutover"], false);
+            assert_eq!(first["duplicate"], false);
+            assert_eq!(
+                s.reconcile(&id, &token, &owner.public_key, &receipt, NOW + 1000)
+                    .unwrap()["duplicate"],
+                true
+            );
+            let changed = signed_reconciliation(&owner, &ticket, &root, NOW + 1001);
+            assert_eq!(
+                s.reconcile(&id, &token, &owner.public_key, &changed, NOW + 1001)
+                    .unwrap_err()
+                    .code,
+                "RECONCILIATION_CONFLICT"
+            );
+            (id, token, receipt)
+        };
+        let mut restarted = Stage::open(dir.path(), DEST).unwrap();
+        let status = restarted.status(&id, &token, 0, 64, NOW + 2000).unwrap();
+        assert_eq!(status["client_attested"], true);
+        assert_eq!(status["imported"], false);
+        assert_eq!(status["cutover"], false);
+        assert_eq!(
+            restarted
+                .signed_reconciliation(&id, &token, NOW + 2000)
+                .unwrap()["client_signed_statement"],
+            receipt
+        );
+        assert_eq!(
+            restarted.abort(&id, &token, NOW + 2000).unwrap()["source_unchanged"],
+            true
+        );
+        assert_eq!(
+            restarted
+                .signed_reconciliation(&id, &token, NOW + 2000)
+                .unwrap_err()
+                .code,
+            "NOT_FOUND"
+        );
+    }
+
+    #[test]
+    fn reconciliation_refuses_expiry_and_tampered_durable_storage() {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = SigningKey::generate(true);
+        let ciphertext = b"sealed at client";
+        let (manifest, root, _) = fixture(&[ciphertext]);
+        let mut stage = Stage::open(dir.path(), DEST).unwrap();
+        let (intent, _) = authorise(&owner, &mut stage, 1, &[ciphertext]);
+        let ticket = stage
+            .prepare(&owner.public_key, &intent, &manifest, NOW)
+            .unwrap();
+        let id = ticket["stage_id"].as_str().unwrap();
+        let token = ticket["stage_token"].as_str().unwrap();
+        stage.chunk(id, token, 0, ciphertext, NOW).unwrap();
+        let old_receipt = signed_reconciliation(&owner, &ticket, &root, NOW);
+        assert_eq!(
+            stage
+                .reconcile(
+                    id,
+                    token,
+                    &owner.public_key,
+                    &old_receipt,
+                    NOW + RECONCILE_LIFE_MS + 1
+                )
+                .unwrap_err()
+                .code,
+            "EXPIRED_RECONCILIATION"
+        );
+        // Simulate a corrupted stage database, which must fail independently of
+        // the previously acknowledged "complete" counter.
+        stage
+            .db
+            .execute(
+                "UPDATE chunks SET ciphertext=?1 WHERE transfer_id=?2",
+                params![b"changed".to_vec(), id],
+            )
+            .unwrap();
+        let fresh = signed_reconciliation(&owner, &ticket, &root, NOW + 1000);
+        assert_eq!(
+            stage
+                .reconcile(id, token, &owner.public_key, &fresh, NOW + 1000)
+                .unwrap_err()
+                .code,
+            "CORRUPT_STAGE"
+        );
+        assert_eq!(
+            stage.status(id, token, 0, 64, NOW + 1000).unwrap()["client_attested"],
+            false
+        );
+    }
+
+    #[test]
+    fn experimental_schema_upgrade_preserves_existing_stage_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("migration-stage-experimental.db");
+        {
+            let db = Connection::open(&path).unwrap();
+            db.execute_batch(
+                "CREATE TABLE transfers(
+                    id TEXT PRIMARY KEY, actor TEXT NOT NULL,
+                    root TEXT NOT NULL, expected_chunks INTEGER NOT NULL,
+                    expected_bytes INTEGER NOT NULL, token_hash BLOB NOT NULL,
+                    expires INTEGER NOT NULL, complete INTEGER NOT NULL DEFAULT 0,
+                    manifest TEXT NOT NULL
+                );
+                INSERT INTO transfers(id,actor,root,expected_chunks,expected_bytes,token_hash,expires,manifest)
+                VALUES('existing','actor','root',1,10,x'FF',9999999999999,'{}');"
+            ).unwrap();
+        }
+        let s = Stage::open(dir.path(), DEST).unwrap();
+        assert_eq!(
+            s.db.query_row(
+                "SELECT count(*) FROM transfers WHERE id='existing'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+        let (nonce, record): (String, Option<String>) =
+            s.db.query_row(
+                "SELECT reconcile_nonce,reconcile_record FROM transfers WHERE id='existing'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(nonce, "");
+        assert!(record.is_none());
+    }
+
     #[test]
     fn disabled_path_is_not_exposed_until_operator_opt_in() {
         let dir = tempfile::tempdir().unwrap();
