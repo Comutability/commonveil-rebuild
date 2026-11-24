@@ -288,3 +288,63 @@ fn encrypted_site_delivery_authenticates_both_signatures_seals_and_consumes_nonc
         1
     );
 }
+
+#[test]
+fn signed_public_prekeys_are_verified_then_one_time_keys_are_consumed_across_restarts() {
+    use secure_net_core::session::keys::verify_bundle;
+    let dir = tempdir().unwrap();
+    let mut net = MemoryNetwork::new();
+    net.add(ReferenceSite::new("relay.example").unwrap());
+    let mut c = SocialClient::new("owner@relay.example", "Person", None, 2, true, NOW).unwrap();
+    c.register(&mut net).unwrap();
+    let pubkeys = net
+        .site("relay.example")
+        .unwrap()
+        .prekeys
+        .get(&format!("{}/{}", c.id, c.device.kid))
+        .unwrap()
+        .clone();
+    let mut relay = Relay::open(dir.path(), "relay.example").unwrap();
+    let token = enrol(&mut relay, &c);
+    let actor = relay.public_actor(&c.id).unwrap();
+    assert_eq!(actor["body"]["id"], c.id);
+    assert_eq!(
+        status(relay.take_prekey_bundle(&c.id, &c.device.kid, NOW)),
+        404
+    );
+    let added = relay
+        .publish_prekeys(
+            &token,
+            &json!({
+                "device":c.device.kid,"published":pubkeys
+            }),
+            NOW,
+        )
+        .unwrap();
+    assert_eq!(added["published"], true);
+    assert_eq!(added["private_keys_stored"], false);
+    assert_eq!(
+        status(relay.publish_prekeys(
+            &token,
+            &json!({
+                "device":c.device.kid,"published":pubkeys
+            }),
+            NOW
+        )),
+        409
+    );
+    let first = relay.take_prekey_bundle(&c.id, &c.device.kid, NOW).unwrap();
+    assert!(first["oneTime"].is_object());
+    verify_bundle(&first, &c.account.public_key, 0, NOW).unwrap();
+    drop(relay);
+    let mut restarted = Relay::open(dir.path(), "relay.example").unwrap();
+    let second = restarted
+        .take_prekey_bundle(&c.id, &c.device.kid, NOW)
+        .unwrap();
+    assert_ne!(
+        first["oneTime"]["body"]["id"],
+        second["oneTime"]["body"]["id"]
+    );
+    assert_ne!(first["pq"]["body"]["id"], second["pq"]["body"]["id"]);
+    verify_bundle(&second, &c.account.public_key, 0, NOW).unwrap();
+}
