@@ -28,6 +28,7 @@ import InviteLanding from "@/pages/site/InviteLanding";
 import EventInvite from "@/pages/site/EventInvite";
 import PublicProfile from "@/pages/site/PublicProfile";
 import Terms from "@/pages/site/Terms";
+import SiteRules from "@/pages/site/SiteRules";
 import AppRoot from "@/pages/app/AppRoot";
 import AppHome from "@/pages/app/Home";
 import ServerView from "@/pages/app/ServerView";
@@ -70,6 +71,7 @@ function AppRoutes() {
         <Route path="e/:eventId" element={<EventInvite />} />
         <Route path="u/:username" element={<PublicProfile />} />
         <Route path="terms" element={<Terms />} />
+        <Route path="rules" element={<SiteRules />} />
         <Route path="*" element={<NotFound />} />
       </Route>
       <Route path="login" element={<Login />} />

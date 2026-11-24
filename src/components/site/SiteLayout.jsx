@@ -104,6 +104,7 @@ export default function SiteLayout() {
               <li><Link className="hover:text-foreground" to="/releases">Releases</Link></li>
               <li><Link className="hover:text-foreground" to="/privacy">Privacy: what we hold</Link></li>
               <li><Link className="hover:text-foreground" to="/terms">Terms of Use</Link></li>
+              <li><Link className="hover:text-foreground" to="/rules">Site rules and federation policy</Link></li>
               <li><Link className="hover:text-foreground" to="/security">Security and status</Link></li>
               <li><Link className="hover:text-foreground" to="/security/report">Report a security problem</Link></li>
             </ul>

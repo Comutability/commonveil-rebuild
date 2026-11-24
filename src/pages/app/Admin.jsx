@@ -5,6 +5,7 @@ import { ArrowUpCircle, Bug, FileText, Flag, Globe, Plus, UserX } from "lucide-r
 import { SELF_HOSTED } from "@/api/base44Client";
 import UpdatesPanel, { UpdateBanner } from "@/components/app/UpdatesPanel";
 import FederationPanel from "@/components/app/FederationPanel";
+import SiteModerationPanel from "@/components/app/SiteModerationPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -438,6 +439,7 @@ export default function Admin() {
             <TabsTrigger value="security"><Bug className="mr-1.5 h-4 w-4" aria-hidden="true" /> Security</TabsTrigger>
             <TabsTrigger value="accounts"><UserX className="mr-1.5 h-4 w-4" aria-hidden="true" /> Accounts</TabsTrigger>
             <TabsTrigger value="content"><FileText className="mr-1.5 h-4 w-4" aria-hidden="true" /> Content</TabsTrigger>
+            <TabsTrigger value="site"><Globe className="mr-1.5 h-4 w-4" aria-hidden="true" /> Site rules & safety</TabsTrigger>
             {SELF_HOSTED && <TabsTrigger value="federation"><Globe className="mr-1.5 h-4 w-4" aria-hidden="true" /> Other sites</TabsTrigger>}
             {SELF_HOSTED && <TabsTrigger value="updates"><ArrowUpCircle className="mr-1.5 h-4 w-4" aria-hidden="true" /> Updates</TabsTrigger>}
           </TabsList>
@@ -445,6 +447,7 @@ export default function Admin() {
           <TabsContent value="security" className="pt-4"><SecurityReports /></TabsContent>
           <TabsContent value="accounts" className="pt-4"><RemovedAccounts /></TabsContent>
           <TabsContent value="content" className="pt-4"><Content /></TabsContent>
+          <TabsContent value="site" className="pt-4"><SiteModerationPanel /></TabsContent>
           {SELF_HOSTED && <TabsContent value="federation" className="pt-4"><FederationPanel /></TabsContent>}
           {SELF_HOSTED && <TabsContent value="updates" className="pt-4"><UpdatesPanel /></TabsContent>}
         </Tabs>
