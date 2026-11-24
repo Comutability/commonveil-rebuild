@@ -56,7 +56,7 @@ export const snipClosedNote = (snip) => {
  * Nothing is done from a stale report (GitHub couldn't be read), and a thread someone locked by
  * hand is never unlocked.
  */
-export function planSnipSync(report) {
+export function planSnipSync(report, maxSteps = MAX_STEPS) {
   if (!report?.enabled || !report.manager || report.stale || !Array.isArray(report.snips)) return [];
   if (!report.channel) return [{ do: "forum" }];
   const posts = [];
@@ -69,7 +69,7 @@ export function planSnipSync(report) {
   // Recover missing proposal threads (including 0007 and 0008) before the
   // older closure backlog. Limit each pass to a single signed operation
   // group, allowing the host's shared rate limit time to recover.
-  return [...posts, ...closures].slice(0, MAX_STEPS);
+  return [...posts, ...closures].slice(0, maxSteps);
 }
 
 /**
