@@ -183,7 +183,14 @@ fn fetch_snips(repo: &str, token: &str) -> std::result::Result<Vec<Value>, Strin
                 g.raw(&to_js_string(pr["head"].get("sha")), &filename)?
                     .as_deref(),
             );
-            let closed = !open || is_closed_status(&status);\n            let closure = if !open { "closed_unmerged" } else if closed { "status_final" } else { "" };
+            let closed = !open || is_closed_status(&status);
+            let closure = if !open {
+                "closed_unmerged"
+            } else if closed {
+                "status_final"
+            } else {
+                ""
+            };
             out.push((id.clone(), json!({ "id": id, "title": title, "status": if open { status } else { "Closed without merging".into() }, "url": pr["html_url"], "where": "pull", "pull": pr["number"], "closed": closed, "closure": closure })));
         }
         Ok(())

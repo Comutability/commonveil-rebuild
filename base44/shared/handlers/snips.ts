@@ -54,7 +54,8 @@ async function fetchSnips(repo: string, token: string, fetcher: typeof fetch) {
     return res.ok ? res.text() : null;
   };
   const out = new Map<string, any>();
-  // 1. Main-branch SNIP files close the forum thread under the requested policy.\n  // Their protocol status and human approval remain independent.
+  // 1. Main-branch SNIP files close the forum thread under the requested policy.
+  // Their protocol status and human approval remain independent.
   const names: string[] = (await gh("/contents/snips")).map((f: any) => `snips/${f.name}`).filter((n: string) => SNIP_FILE.test(n)).sort().slice(0, MAX_SNIPS);
   await Promise.all(names.map(async (path) => {
     const id = SNIP_FILE.exec(path)![1];

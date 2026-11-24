@@ -26,7 +26,12 @@ export function snipPost(snip) {
   };
 }
 
-export const snipClosedNote = (snip) => `This proposal is now: ${snip.status || "closed"}. This thread is closed. The record stays on GitHub: ${snip.url}`;
+export const snipClosedNote = (snip) => {
+  if (snip.closure === "merged_to_main" || snip.where === "main") {
+    return `The SNIP file is now on Secure Net's default GitHub branch. This forum discussion is closed because the proposal was merged into the repository.\n\nSNIP governance status: ${snip.status || "not stated"}. A code merge is NOT approval, ratification or an independent security review.\n\nRead the record and follow further review on GitHub: ${snip.url}`;
+  }
+  return `This proposal is now: ${snip.status || "closed"}. This forum discussion is closed. A closed pull request is not automatically an approved standard. Read the record on GitHub: ${snip.url}`;
+};
 
 /**
  * What to do, given the site's report (snips.status). Steps, in order:
@@ -80,6 +85,13 @@ export async function runSnipSync(io) {
       const { title, text } = snipPost(step.snip);
       await tolerate(() => io.post(channel, { type: "post", title, text }, { kind: "post", itemId: snipThreadId(step.snip.id) }));
       done.posted.push(step.snip.id);
+      // A merged or rejected proposal can get a signed closing note and lock
+      // immediately after the authorised device creates its missing thread.
+      if (step.snip.closed) {
+        await tolerate(() => io.post(channel, { type: "text", text: snipClosedNote(step.snip) }, { kind: "message", threadId: snipThreadId(step.snip.id), itemId: snipClosedNoteId(step.snip.id) }));
+        await io.lock(channel, snipThreadId(step.snip.id));
+        done.closed.push(step.snip.id);
+      }
     } else if (step.do === "close") {
       if (step.note) await tolerate(() => io.post(channel, { type: "text", text: snipClosedNote(step.snip) }, { kind: "message", threadId: snipThreadId(step.snip.id), itemId: snipClosedNoteId(step.snip.id) }));
       await io.lock(channel, snipThreadId(step.snip.id));

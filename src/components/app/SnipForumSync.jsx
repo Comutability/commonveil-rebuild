@@ -7,8 +7,8 @@ import { serverRequest } from "@/lib/secure/serverProtocol.js";
 import { isOffline } from "@/lib/offline/mode.js";
 import { runSnipSync } from "@/lib/secure/snipForum.js";
 
-const FIRST_MS = 20_000;
-const EVERY_MS = 10 * 60_000;
+const FIRST_MS = 3_000;
+const EVERY_MS = 5 * 60_000;
 
 /**
  * Keeps the proposals forum in step with GitHub (docs/SNIP_FORUM.md). Shows nothing. It only
@@ -55,10 +55,16 @@ export default function SnipForumSync() {
     };
     const first = setTimeout(pass, FIRST_MS);
     const timer = setInterval(pass, EVERY_MS);
+    document.addEventListener("visibilitychange", pass);
+    window.addEventListener("focus", pass);
+    window.addEventListener("online", pass);
     return () => {
       stopped = true;
       clearTimeout(first);
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", pass);
+      window.removeEventListener("focus", pass);
+      window.removeEventListener("online", pass);
     };
   }, [manager, userId, device, defaultId]);
 
