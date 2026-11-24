@@ -1219,6 +1219,16 @@ test("the proposals forum: a thread for every SNIP on GitHub, made and closed by
     assert.deepEqual(posts.map((p) => p.content.title), ["SNIP-0001: The proposal process", "SNIP-0002: The sealed relay"]);
     assert.match(posts[1].content.text, /Status on GitHub: Public Review[\s\S]*github\.com\/Comutability\/secure-net\/blob\/HEAD\/snips\/SNIP-0002\.md/);
     assert.ok(!JSON.stringify(w.rows("ServerMessage")).includes("sealed relay"), "the server holds only ciphertext");
+    // The optimised backend reads proposal posts and closure notes in one
+    // batch rather than two independent reads per SNIP (Base44 rate limits).
+    const originalForumRead = w.entities.ServerMessage.filter.bind(w.entities.ServerMessage);
+    let batchedReads = 0;
+    w.entities.ServerMessage.filter = async (...args) => {
+      if (Array.isArray(args[0]?.msg_id?.$in)) batchedReads += 1;
+      return originalForumRead(...args);
+    };
+    await owner.ok("snips", { action: "status" });
+    assert.equal(batchedReads, 1, "status batches every current SNIP thread and note");
     // Again, and from another admin's app: nothing is posted twice.
     assert.deepEqual(await runSnipSync(ioFor(owner)), { forum: false, posted: [], closed: [] });
     assert.deepEqual(await runSnipSync(ioFor(second)), { forum: false, posted: [], closed: [] });

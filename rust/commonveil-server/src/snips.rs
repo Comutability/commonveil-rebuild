@@ -397,22 +397,41 @@ fn status(ctx: &mut Ctx) -> Result<Value> {
     let mut threads = serde_json::Map::new();
     let mut notes = serde_json::Map::new();
     if let Some(c) = &channel {
+        // Batch exact message IDs rather than two backend reads per SNIP.
+        // This matches the hosted function and avoids exhausting a shared
+        // database query budget during forum reconciliation.
+        let mut wanted: Vec<String> = Vec::new();
         for s in snips.as_array().into_iter().flatten() {
             let sid = to_js_string(s.get("id"));
-            let post = sr.first(
+            wanted.push(snip_thread_id(&sid));
+            if truthy(s.get("closed")) {
+                wanted.push(snip_closed_note_id(&sid));
+            }
+        }
+        let mut found = std::collections::HashMap::<String,Value>::new();
+        for ids in wanted.chunks(100) {
+            let rows = sr.filter(
                 "ServerMessage",
-                json!({ "channel_id": c["id"], "msg_id": snip_thread_id(&sid) }),
+                json!({ "channel_id": c["id"], "msg_id": { "$in": ids } }),
                 "created_date",
+                250,
             )?;
-            if let Some(post) = &post {
-                if !truthy(post.get("deleted")) {
-                    threads.insert(
-                        sid.clone(),
-                        json!({ "locked": truthy(post.get("thread_locked")) }),
-                    );
+            for row in rows {
+                let key = to_js_string(row.get("msg_id"));
+                if !truthy(row.get("deleted")) {
+                    found.entry(key).or_insert(row);
                 }
+            }
+        }
+        for s in snips.as_array().into_iter().flatten() {
+            let sid = to_js_string(s.get("id"));
+            if let Some(post) = found.get(&snip_thread_id(&sid)) {
+                threads.insert(
+                    sid.clone(),
+                    json!({ "locked": truthy(post.get("thread_locked")) }),
+                );
                 if truthy(s.get("closed")) {
-                    notes.insert(sid.clone(), json!(sr.first("ServerMessage", json!({ "channel_id": c["id"], "msg_id": snip_closed_note_id(&sid) }), "created_date")?.is_some()));
+                    notes.insert(sid.clone(), json!(found.contains_key(&snip_closed_note_id(&sid))));
                 }
             }
         }
