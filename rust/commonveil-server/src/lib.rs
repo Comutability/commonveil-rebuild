@@ -31,6 +31,7 @@ pub mod profile;
 pub mod protocol;
 pub mod rooms;
 pub mod safety;
+pub mod secure_net_relay;
 pub mod seo;
 pub mod server_messages;
 pub mod servers;
