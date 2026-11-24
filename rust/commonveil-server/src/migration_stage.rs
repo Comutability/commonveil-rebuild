@@ -14,6 +14,10 @@ use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use secure_net_core::bytes::{from_b64u, random_b64u, sha256, sha256_b64u};
 use secure_net_core::canonical::canonical_bytes;
 use secure_net_core::signed::{key_id, verify};
+use secure_net_core::transfer::{
+    ciphertext_root as protocol_ciphertext_root, verify_intent as protocol_verify_intent,
+    Chunk as ProtocolChunk,
+};
 use secure_net_core::wire::federation::norm_host;
 use serde_json::{json, Value};
 
@@ -122,12 +126,22 @@ fn envelope_commitment(parts: &[Value]) -> StageResult<(String, usize)> {
         }
         rows.push(json!({ "i": index, "sha256": hash, "bytes": size }));
     }
-    let commitment =
-        canonical_bytes(&json!({ "v": 1, "chunks": rows })).map_err(|_| StageError {
-            status: 400,
-            code: "BAD_MANIFEST",
-        })?;
-    Ok((sha256_b64u(&commitment), total))
+    // Do not allow the application's outer manifest calculation to diverge
+    // from Secure Net's independent SNIP-0007 Rust implementation.
+    let protocol_parts: Vec<ProtocolChunk> = rows
+        .iter()
+        .enumerate()
+        .map(|(i, part)| ProtocolChunk {
+            index: i as u64,
+            digest: part["sha256"].as_str().unwrap_or("").to_string(),
+            bytes: part["bytes"].as_u64().unwrap_or(0),
+        })
+        .collect();
+    let root = protocol_ciphertext_root(&protocol_parts).map_err(|_| StageError {
+        status: 400,
+        code: "BAD_MANIFEST",
+    })?;
+    Ok((root, total))
 }
 
 fn body_intent_valid(
@@ -448,6 +462,22 @@ impl Stage {
         if last.is_some_and(|v| seq <= v as u64) || seq > i64::MAX as u64 {
             return err(409, "STALE_SEQUENCE");
         }
+        // The destination verifies the same experimental transfer intent
+        // through Secure Net's provider-neutral Rust code. This is an
+        // additional check, not permission to link an account or redirect mail.
+        protocol_verify_intent(
+            signed,
+            public,
+            &actor,
+            &self.destination,
+            signed_nonce,
+            last.unwrap_or(0) as u64,
+            now,
+        )
+        .map_err(|_| StageError {
+            status: 400,
+            code: "BAD_INTENT",
+        })?;
         tx.execute(
             "INSERT INTO actor_seq(actor,seq) VALUES(?1,?2)
              ON CONFLICT(actor) DO UPDATE SET seq=excluded.seq",
