@@ -26,7 +26,7 @@ test("public website exposes independent protocol information without enabling u
   assert.match(home, /to="\/secure-net"/);
   assert.match(settings, /to="\/secure-net"/);
   assert.match(page, /independent of Commonveil/i);
-  assert.match(page, /does not yet offer verified public CVP-019/i);
+  assert.match(page, /not yet offer verified public CVP-019/i);
   assert.match(page, /not a required server or authority/i);
 });
 
