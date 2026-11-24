@@ -85,3 +85,18 @@ are disabled by default and do not move accounts or inboxes.
 
 Secure Net is a **draft, unaudited protocol**. Do not claim its reference
 tests establish live production interoperability or cryptographic safety.
+
+
+## Independently authenticated CVP-019 trial in Commonveil Rust (0.24.18)
+
+The self-hosted server has a **separately disabled** experimental direct
+message relay at /cvp/v2/outbox, /cvp/v2/deliver and /cvp/v2/mailbox.
+It accepts independently owned signed actors, stores only validated public
+prekeys and ciphertext, uses site-local actor credentials, and requires
+manually pinned Ed25519+ML-DSA-65 signed, post-quantum sealed remote
+deliveries. Data is separate from Commonveil accounts and rooms.
+See [SECURE_NET_RELAY.md](SECURE_NET_RELAY.md) for the exact API and
+security limits. It is **not** a complete deployed or audited CVP-019
+implementation. The hosted site does not enable it, no feature is
+advertised as production ready, and SNIP-0008's discovery format is
+not changed.
