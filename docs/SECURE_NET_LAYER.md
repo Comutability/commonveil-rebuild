@@ -114,3 +114,31 @@ cross-implementation tests are required before enabling actual migration.
 A green Rust build and Docker image do not constitute protocol adoption,
 post-quantum recipient key enrolment, cryptographic security review or a
 working account/inbox cutover.
+
+
+## Secure Net provisional reconciliation integration (Commonveil 0.24.15)
+
+The Commonveil Rust workspace and Docker builds now pin draft Secure Net
+revision e82fd9e453f5c145e0f6e7892dd57e958db38ff2, which passed both
+Secure Net CI workflows. The isolated Rust staging route delegates hybrid
+signed transfer.reconcile schema, owner identity, stage, destination,
+ciphertext root, challenge, encrypted report digest and short expiry checks
+to the provider-neutral Secure Net crate. The same crate rejects invalid
+CVRPT version-1 framing on report upload, download and signed receipt
+verification. Legacy draft reports without the header are refused.
+
+Commonveil's JavaScript helper computes the same associated-data bytes and
+report digest entirely on the authorised device, using an existing
+non-extractable AES-256-GCM recipient key. Its conformance test consumes
+Secure Net's synthetic Rust vector. It cannot enrol another device,
+transfer private history, sign a two-phase cutover or redirect an inbox.
+
+The GitHub Docker image integration tests now assert that the image's OCI
+protocol-commit label equals the exact Cargo.lock commit and that the
+Compose transfer-staging setting defaults to false. The separate opt-in
+:edge image is rebuilt after all CI tests pass; existing production :latest
+is deliberately unchanged. **No public live account migration is enabled**.
+
+SNIP-0007 is still a draft, and Secure Net's public CVP capability
+advertisement is unchanged. Passing CI does not replace an independent
+cryptographic review or cross-implementation import/decryption tests.

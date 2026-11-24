@@ -40,14 +40,20 @@ requires Authorization: Bearer with the secret token returned by prepare.
    authorised device to authenticate and decrypt locally.
 6. POST /stages/{id}/report stages an already device-encrypted private
    reconciliation report, 48 bytes to 64 KiB, only after all archive chunks
-   arrived. Conflicting uploads are refused; identical retries are safe.
+   arrived. The now-shared Secure Net Rust helper requires the experimental
+   CVRPT version 1 header and checks the exact byte digest. Unsupported
+   versions, missing headers and malformed lengths fail closed. Conflicting
+   uploads are refused; identical retries are safe. The server still cannot
+   authenticate the AES-GCM tag without the recipient's device key.
 7. GET /stages/{id}/report returns the staged, hash-verified opaque report
    as base64url bytes and SHA-256.
-8. POST /stages/{id}/reconcile verifies the independent actor's hybrid
-   signed statement, destination, stage, root, random challenge, expiry and
-   SHA-256 of the **actual staged report**. The server re-hashes the report
-   and all archive ciphertext in a transaction before storing the receipt.
-   Extra unsigned metadata, wrong keys and altered records are refused.
+8. POST /stages/{id}/reconcile invokes Secure Net's provider-neutral
+   hybrid signature/schema verifier for transfer.reconcile. It checks the
+   independent actor, destination, stage, signed root, random challenge,
+   expiry and SHA-256 of the **actual staged encrypted report**. The server
+   re-hashes the report and all archive ciphertext in a transaction before
+   storing the receipt. Extra unsigned metadata, wrong keys and altered
+   records are refused. This is only a client assertion, not an import.
 9. GET /stages/{id}/reconcile returns the signed client statement for
    independent checking. The exact same statement is idempotent.
 10. POST /stages/{id}/abort deletes only staged data and its signed receipt.
@@ -61,6 +67,16 @@ challenges, two per actor and one-hour stage expiry. This is **not** enough
 for a complete real-world history migration.
 
 ## Client-side encrypted reconciliation reports
+
+The browser helper and Rust verification now share the byte-level
+synthetic fixture at tests/fixtures/secure-net-transfer-report-v1.json,
+copied from Secure Net's draft conformance vector. It verifies the exact
+five recipient-bound associated-data fields and the format commitment.
+The fixture contains synthetic bytes, **not valid AES-GCM ciphertext**.
+
+Earlier experimental reports without a CVRPT v1 header are refused.
+Operators must discard and re-stage such test-only data. No real accounts
+or message data should have been in these stages.
 
 The test-only helper at src/lib/identity/migrationReport.js uses WebCrypto
 AES-256-GCM with a pre-existing, authorised, non-extractable device key.

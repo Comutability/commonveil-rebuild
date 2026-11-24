@@ -5,6 +5,17 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.15](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.15): Shared Secure Net hybrid reconciliation and browser interoperability
+
+_2026-11-24_
+
+- Updated the self-hosted Rust and Docker Secure Net pin from draft 12ab6f3 to the CI-passing e82fd9e reconciliation verifier. All Rust core, server and OpenMLS patch references move together under Cargo.lock.
+- Commonveil no longer duplicates provisional transfer.reconcile signature and schema verification: the disabled test-only Rust staging service now delegates owner-hybrid signatures, actor, stage, destination, challenge, archive root and signed report digest checks to the independent Secure Net crate.
+- Experimental encrypted-report staging now rejects missing CVRPT v1 headers, unsupported versions and invalid sizes using Secure Net shared report framing and digest checks. Old draft reports without a header must be discarded and re-staged on a private test instance.
+- Added client-side report commitment and associated-data helpers, with independent conformance tests against Secure Net synthetic fixtures and real AES-256-GCM encrypt/decrypt/tampering checks. Keys remain non-extractable and are never shared or enrolled by this feature.
+- Docker CI builds carry the exact pinned Secure Net revision in image labels and tests it against Cargo.lock. The only permitted development preview remains :edge; production :latest and normal user data remain untouched by experimental code.
+- The published Commonveil site only updates read-only Protocol identity guidance. No live account binding, key export, private history import, session rotation, source deletion, inbox redirection or protocol feature advertisement has been enabled.
+
 ## [0.24.14](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.14): Secure Net draft integration and self-hosted Docker safety checks
 
 _2026-11-24_

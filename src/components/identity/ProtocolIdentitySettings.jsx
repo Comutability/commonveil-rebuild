@@ -39,8 +39,10 @@ export default function ProtocolIdentitySettings() {
             by default in Docker, is not offered by the hosted site, and cannot move a live
             account or redirect an encrypted inbox. The browser still uses the last
             compatible Secure Net JavaScript library for its existing messaging and actor
-            verification. The newer transfer primitives run only in the Rust development
-            backend until an independently reviewed cross-device importer is ready.
+            verification. The browser has an experimental, device-only encrypted reconciliation
+            report helper, while the newer signed transfer and reconciliation checks run in the
+            Rust development backend. Neither is wired into a live account migration flow.
+            An independently reviewed recipient-device authorisation and importer are still required.
           </p>
           <p className="text-muted-foreground">
             Your existing messages, contacts, keys and routing are not changed by viewing

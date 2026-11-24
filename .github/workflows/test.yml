@@ -88,8 +88,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build the site image
-        run: docker build -t commonveil:ci .
+      - name: Build the site image with the exact locked Secure Net revision
+        run: |
+          pinned=$(sed -n 's/^secure-net-core = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' rust/Cargo.toml)
+          test "\${#pinned}" -eq 40
+          docker build --build-arg "SECURE_NET_REV=$pinned" -t commonveil:ci .
       - name: Build the updater image
         run: docker build -t commonveil-updater:ci -f updater/Dockerfile .
       - name: Both images have Alpine's zlib fix (1.4-r0 or later)
@@ -103,6 +106,8 @@ jobs:
           pinned=$(sed -n 's/^secure-net-core = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' rust/Cargo.toml)
           test "$(printf '%s' "$pinned" | wc -c)" -eq 40
           grep -q "$pinned" rust/Cargo.lock
+          image_pinned=$(docker image inspect commonveil:ci --format '{{ index .Config.Labels "org.opencontainers.image.secure-net.commit" }}')
+          test "$image_pinned" = "$pinned"
           # Confirm shipping Compose keeps the dangerous experimental staging switch OFF.
           SITE_DOMAIN=chat.example.org COMMONVEIL_DIR=/tmp/commonveil-ci UPDATER_TOKEN=test-only-token-not-real-123456789             docker compose -f deploy/docker-compose.yml config --format json             | node -e 'let s="";process.stdin.on("data",x=>s+=x);process.stdin.on("end",()=>{const c=JSON.parse(s); if(c.services.app.environment.EXPERIMENTAL_TRANSFER_STAGING!=="false") process.exit(1)})'
       - name: Neither image has Node.js
