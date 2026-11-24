@@ -12,6 +12,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use secure_net_core::bytes::{from_b64u, random_b64u, sha256, sha256_b64u};
+#[cfg(test)]
 use secure_net_core::canonical::canonical_bytes;
 use secure_net_core::signed::{key_id, verify};
 use secure_net_core::transfer::{
