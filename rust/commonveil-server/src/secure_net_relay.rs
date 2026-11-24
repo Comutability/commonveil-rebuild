@@ -95,6 +95,10 @@ impl Relay {
              host TEXT PRIMARY KEY, public_key TEXT NOT NULL,
              relay_kem TEXT NOT NULL, relay_sig TEXT NOT NULL
            );
+           CREATE TABLE IF NOT EXISTS prekeys(
+             actor TEXT NOT NULL, device TEXT NOT NULL, published TEXT NOT NULL,
+             PRIMARY KEY(actor,device)
+           );
            CREATE TABLE IF NOT EXISTS mail(
              id TEXT PRIMARY KEY, actor TEXT NOT NULL, device TEXT NOT NULL,
              source_host TEXT NOT NULL, envelope TEXT NOT NULL, created INTEGER NOT NULL,
@@ -717,6 +721,142 @@ impl Relay {
     }
 }
 
+impl Relay {
+    /// An app publishes public device prekeys only with its site-local actor credential.
+    /// Device and account signatures are verified before they become discoverable.
+    pub fn publish_prekeys(&mut self, token: &str, body: &Value, now: i64) -> RelayResult<Value> {
+        use secure_net_core::session::keys::verify_bundle;
+        let actor = self.actor_for_token(token)?;
+        if !strict(body, &["device", "published"]) || !valid_device(&body["device"]) {
+            return error(400, "BAD_PREKEYS");
+        }
+        let device = body["device"].as_str().unwrap_or("");
+        if !self.listed_device(&actor, device)? {
+            return error(403, "FORBIDDEN");
+        }
+        let p = &body["published"];
+        if !strict(p, &["signed", "lastResort", "oneTime", "pqOneTime"]) {
+            return error(400, "BAD_PREKEYS");
+        }
+        let one = p["oneTime"].as_array().ok_or(RelayError {
+            status: 400,
+            code: "BAD_PREKEYS",
+        })?;
+        let pq = p["pqOneTime"].as_array().ok_or(RelayError {
+            status: 400,
+            code: "BAD_PREKEYS",
+        })?;
+        if one.len() > 50 || pq.len() > 50 {
+            return error(413, "TOO_MANY_PREKEYS");
+        }
+        let doc = self.actor_document(&actor)?.ok_or(RelayError {
+            status: 403,
+            code: "FORBIDDEN",
+        })?;
+        let account = doc["body"]["account"].as_str().unwrap_or("");
+        let list = &doc["body"]["devices"];
+        for (dh, pq_key) in std::iter::once((&Value::Null, &p["lastResort"]))
+            .chain(one.iter().map(|dh| (dh, &p["lastResort"])))
+            .chain(pq.iter().map(|pq_key| (&Value::Null, pq_key)))
+        {
+            let bundle = json!({"deviceList":list,"device":device,"signed":p["signed"],
+                "pq":pq_key,"oneTime":dh});
+            verify_bundle(&bundle, account, 0, now).map_err(|_| RelayError {
+                status: 400,
+                code: "BAD_PREKEYS",
+            })?;
+        }
+        let existed: Option<i64> = from_db(
+            self.db
+                .query_row(
+                    "SELECT 1 FROM prekeys WHERE actor=?1 AND device=?2",
+                    params![actor, device],
+                    |r| r.get(0),
+                )
+                .optional(),
+        )?;
+        if existed.is_some() {
+            return error(409, "PREKEYS_ALREADY_PUBLISHED");
+        }
+        from_db(self.db.execute(
+            "INSERT INTO prekeys(actor,device,published) VALUES(?1,?2,?3)",
+            params![actor, device, p.to_string()],
+        ))?;
+        Ok(json!({"published":true,"private_keys_stored":false,
+          "one_time_keys":one.len(),"post_quantum_one_time_keys":pq.len()}))
+    }
+    /// Atomically consumes X25519 and ML-KEM one-time prekeys; the last-resort
+    /// public prekey remains available for future first-contact handshakes.
+    pub fn take_prekey_bundle(
+        &mut self,
+        actor: &str,
+        device: &str,
+        now: i64,
+    ) -> RelayResult<Value> {
+        use secure_net_core::session::keys::{take_bundle, verify_bundle, Published};
+        if !valid_actor_id(&json!(actor)) || !valid_device(&json!(device)) {
+            return error(404, "NOT_FOUND");
+        }
+        let doc = self.actor_document(actor)?.ok_or(RelayError {
+            status: 404,
+            code: "NOT_FOUND",
+        })?;
+        if !self.listed_device(actor, device)? {
+            return error(404, "NOT_FOUND");
+        }
+        let tx = from_db(
+            self.db
+                .transaction_with_behavior(TransactionBehavior::Immediate),
+        )?;
+        let stored: Option<String> = from_db(
+            tx.query_row(
+                "SELECT published FROM prekeys WHERE actor=?1 AND device=?2",
+                params![actor, device],
+                |r| r.get(0),
+            )
+            .optional(),
+        )?;
+        let Some(stored) = stored else {
+            return error(404, "NO_PREKEYS");
+        };
+        let mut prekeys: Published = serde_json::from_str(&stored).map_err(|_| internal())?;
+        let bundle = take_bundle(&doc["body"]["devices"], &mut prekeys, device);
+        verify_bundle(
+            &bundle,
+            doc["body"]["account"].as_str().unwrap_or(""),
+            0,
+            now,
+        )
+        .map_err(|_| RelayError {
+            status: 409,
+            code: "PREKEYS_EXPIRED",
+        })?;
+        from_db(tx.execute(
+            "UPDATE prekeys SET published=?3 WHERE actor=?1 AND device=?2",
+            params![
+                actor,
+                device,
+                serde_json::to_string(&prekeys).map_err(|_| internal())?
+            ],
+        ))?;
+        from_db(tx.commit())?;
+        Ok(bundle)
+    }
+    pub fn public_actor(&self, id: &str) -> RelayResult<Value> {
+        if !valid_actor_id(&json!(id)) {
+            return error(404, "NOT_FOUND");
+        }
+        let doc = self.actor_document(id)?.ok_or(RelayError {
+            status: 404,
+            code: "NOT_FOUND",
+        })?;
+        if doc["body"]["discoverable"] != true {
+            return error(404, "NOT_FOUND");
+        }
+        Ok(doc)
+    }
+}
+
 /// The public relay trial document is *not* /.well-known/secure-net, which
 /// remains a community SNIP-0008 proposal. Only manually trusted sites can
 /// send transport to this experimental service.
@@ -839,6 +979,10 @@ pub async fn handle(
                 let body = parse_json(&raw, MAX_REQUEST)?;
                 service.trust_site(&bearer, &app.config.secure_net_relay_admin, &body)
             }
+            ("POST", "/cvp/v2/prekeys") => {
+                let body = parse_json(&raw, MAX_REQUEST)?;
+                service.publish_prekeys(&bearer, &body, now)
+            }
             ("POST", "/cvp/v2/outbox") => {
                 let body = parse_json(&raw, MAX_REQUEST)?;
                 service.outbox(&bearer, &body, now)
@@ -868,6 +1012,16 @@ pub async fn handle(
                 )
             }
             ("POST", "/cvp/v2/outbox/flush") => flush_queued(&app, &mut service, &bearer),
+            _ if method == "GET" && path.starts_with("/cvp/v2/prekeys/") => {
+                let suffix = path.trim_start_matches("/cvp/v2/prekeys/");
+                let Some((actor, device)) = suffix.split_once('/') else {
+                    return error(404, "NOT_FOUND");
+                };
+                service.take_prekey_bundle(actor, device, now)
+            }
+            _ if method == "GET" && path.starts_with("/cvp/v2/actor/") => {
+                service.public_actor(path.trim_start_matches("/cvp/v2/actor/"))
+            }
             _ => error(404, "NOT_FOUND"),
         }
     })

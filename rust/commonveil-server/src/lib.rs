@@ -482,7 +482,8 @@ async fn handle(State(app): State<Arc<App>>, req: Request) -> Response<Body> {
     // Absent on ordinary Commonveil installations; never rewrites /cvp/v1.
     if matches!(
         path.as_str(),
-        "/cvp/v2/outbox"
+        "/cvp/v2/prekeys"
+            | "/cvp/v2/outbox"
             | "/cvp/v2/outbox/flush"
             | "/cvp/v2/deliver"
             | "/cvp/v2/mailbox"
@@ -490,7 +491,9 @@ async fn handle(State(app): State<Arc<App>>, req: Request) -> Response<Body> {
             | "/cvp/v2/relay/site"
             | "/cvp/v2/relay/admin/actors"
             | "/cvp/v2/relay/admin/trust"
-    ) {
+    ) || path.starts_with("/cvp/v2/prekeys/")
+        || path.starts_with("/cvp/v2/actor/")
+    {
         if !app.config.experimental_secure_net_relay {
             return http::json(404, &json!({"code":"NOT_FOUND"}));
         }
