@@ -8,8 +8,8 @@ import { isOffline } from "@/lib/offline/mode.js";
 import { planSnipSync, runSnipSync } from "@/lib/secure/snipForum.js";
 
 const FIRST_MS = 5_000;
-const NEXT_STEP_MS = 45_000;
-const BUSY_PAUSE_MS = [60_000, 120_000, 240_000, 300_000];
+const NEXT_STEP_MS = 75_000;
+const BUSY_PAUSE_MS = [90_000, 180_000, 300_000, 300_000];
 const EVERY_MS = 5 * 60_000;
 
 /**

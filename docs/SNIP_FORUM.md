@@ -40,7 +40,10 @@ The signed-in administrator also sees a **Sync now** control to reconcile the fo
 - A locked thread is never unlocked automatically, so a moderator's decision to lock one stands.
   If a proposal is reopened on GitHub, unlock its thread by hand.
 - If GitHub can't be read, the last copy is used and nothing is opened or closed from it.
-- At most eight proposal records are processed per pass. A new proposal which is already closed or merged can be posted and locked in that same pass, with one signed closure note. Long backlogs arrive gradually.
+- **Only one proposal is reconciled per pass**, prioritising missing threads, including SNIP-0007 and SNIP-0008. A missing merged or declined proposal can still be posted, given its signed note and locked as one safe operation group.
+- The device automatically resumes the next pending proposal after a pause while the browser remains unlocked and visible. It does not flood the service with a whole backlog at once.
+- If Base44 reports `UPSTREAM_BUSY` (HTTP 429), the device pauses and retries with increasing delays instead of repeatedly hammering the shared backend. The button shows **Retry queued** during the pause. Already encrypted/signed posts are retained; stable message IDs make a partial operation resumable without duplicates.
+- Only the browser device can encrypt, sign and post forum content. The backend cannot bypass the security of the forum to complete the backlog on its own.
 
 ## Privacy
 

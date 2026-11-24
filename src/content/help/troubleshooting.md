@@ -35,7 +35,11 @@ Notifications only appear while Commonveil is open in a tab. Check that **Notify
 
 ## "The service is busy"
 
-Commonveil has a limit on how much it can do per minute. It tries again by itself; if it keeps happening, wait a minute and try again.
+Commonveil has a shared limit on how many backend requests it can process per minute.
+
+If you see this while using **Secure Net proposals → Sync now**, the admin-device synchroniser now pauses safely and automatically resumes one proposal at a time while that tab remains open and unlocked. The button shows **Retry queued** during a rate-limit pause. You do not need to click it repeatedly, and previously signed forum posts will not be duplicated.
+
+For other actions, let the current request settle before trying again. If it persists across normal browsing, report the time and feature to a site administrator. Do not share your keys or private message contents when reporting an error.
 
 ## My scheduled message or check-in arrived late
 
