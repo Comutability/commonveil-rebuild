@@ -29,6 +29,10 @@ const CAP_PER_ACTOR: i64 = 2;
 const PURPOSE: &str = "transfer.intent";
 const RECONCILE_PURPOSE: &str = "transfer.reconcile";
 const RECONCILE_LIFE_MS: i64 = 5 * 60 * 1000;
+// The client must encrypt the private report using recipient-authenticated
+// encryption before uploading. The host cannot prove that the bytes are encrypted.
+const MIN_REPORT_BYTES: usize = 48;
+const MAX_REPORT_BYTES: usize = 64 * 1024;
 
 type StageRow = (
     Vec<u8>,
@@ -235,6 +239,12 @@ impl Stage {
                 digest TEXT NOT NULL,
                 ciphertext BLOB NOT NULL,
                 PRIMARY KEY(transfer_id, idx),
+                FOREIGN KEY(transfer_id) REFERENCES transfers(id) ON DELETE CASCADE
+             );
+             CREATE TABLE IF NOT EXISTS reconciliation_reports (
+                transfer_id TEXT PRIMARY KEY,
+                digest TEXT NOT NULL,
+                ciphertext BLOB NOT NULL,
                 FOREIGN KEY(transfer_id) REFERENCES transfers(id) ON DELETE CASCADE
              );",
         )
@@ -679,13 +689,147 @@ impl Stage {
                 }
             }
         }
+        let report_staged: bool = self
+            .db
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM reconciliation_reports WHERE transfer_id=?1)",
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?
+            != 0;
         Ok(
             json!({ "received": count, "expected": expected, "missing": missing,
             "next_cursor": next, "ciphertext_complete": state["complete"],
             "reconcile_challenge": state["reconcile_nonce"],
+            "encrypted_report_staged": report_staged,
             "client_attested": state["client_attested"],
             "imported": false, "cutover": false }),
         )
+    }
+
+    /// Stage an opaque, separately device-encrypted reconciliation report.
+    /// No client keys or plaintext reports belong on this server. The bearer
+    /// token authorises storage but does not prove the supplied bytes are AEAD.
+    pub fn stage_report(
+        &mut self,
+        id: &str,
+        token: &str,
+        ciphertext: &[u8],
+        now: i64,
+    ) -> StageResult<Value> {
+        let state = self.authorised(id, token, now)?;
+        if state["complete"] != true {
+            return err(409, "INCOMPLETE_CIPHERTEXT");
+        }
+        if state["client_attested"] == true {
+            return err(409, "ALREADY_ATTESTED");
+        }
+        if ciphertext.len() < MIN_REPORT_BYTES || ciphertext.len() > MAX_REPORT_BYTES {
+            return err(413, "REPORT_SIZE_LIMIT");
+        }
+        let digest = sha256_b64u(ciphertext);
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?;
+        // Serialise against concurrent report writes, abort and reconciliation.
+        let stage_state: Option<(i64, Option<String>)> = tx
+            .query_row(
+                "SELECT complete, reconcile_record FROM transfers WHERE id=?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?;
+        let Some((complete, attested)) = stage_state else {
+            return err(404, "NOT_FOUND");
+        };
+        if complete == 0 {
+            return err(409, "INCOMPLETE_CIPHERTEXT");
+        }
+        if attested.is_some() {
+            return err(409, "ALREADY_ATTESTED");
+        }
+        let previous: Option<(String, Vec<u8>)> = tx
+            .query_row(
+                "SELECT digest, ciphertext FROM reconciliation_reports WHERE transfer_id=?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?;
+        let repeated = match previous {
+            Some((old_digest, old_ciphertext)) => {
+                if old_digest != digest || old_ciphertext != ciphertext {
+                    return err(409, "REPORT_CONFLICT");
+                }
+                true
+            }
+            None => {
+                tx.execute(
+                    "INSERT INTO reconciliation_reports(transfer_id,digest,ciphertext)
+                     VALUES(?1,?2,?3)",
+                    params![id, digest, ciphertext],
+                )
+                .map_err(|_| StageError {
+                    status: 500,
+                    code: "STAGE_UNAVAILABLE",
+                })?;
+                false
+            }
+        };
+        tx.commit().map_err(|_| StageError {
+            status: 500,
+            code: "STAGE_UNAVAILABLE",
+        })?;
+        Ok(json!({
+            "report_staged": true, "sha256": digest, "duplicate": repeated,
+            "client_attested": false, "imported": false, "cutover": false
+        }))
+    }
+
+    /// Return the unchanged opaque bytes to an authorised device, which must
+    /// independently authenticate/decrypt them and verify the signed statement.
+    pub fn download_report(&self, id: &str, token: &str, now: i64) -> StageResult<Value> {
+        self.authorised(id, token, now)?;
+        let row: Option<(String, Vec<u8>)> = self
+            .db
+            .query_row(
+                "SELECT digest,ciphertext FROM reconciliation_reports WHERE transfer_id=?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?;
+        let Some((digest, ciphertext)) = row else {
+            return err(404, "NOT_FOUND");
+        };
+        if ciphertext.len() < MIN_REPORT_BYTES
+            || ciphertext.len() > MAX_REPORT_BYTES
+            || sha256_b64u(&ciphertext) != digest
+        {
+            return err(409, "CORRUPT_REPORT");
+        }
+        Ok(json!({
+            "ciphertext": URL_SAFE_NO_PAD.encode(ciphertext),
+            "sha256": digest, "imported": false, "cutover": false
+        }))
     }
 
     /// The owner's client may sign a bounded statement saying it has checked the
@@ -839,6 +983,30 @@ impl Stage {
             {
                 return err(409, "CORRUPT_STAGE");
             }
+        }
+        // A signed hash of an imagined report is not enough. Require the
+        // previously staged opaque report and re-hash it in this same lock.
+        let report: Option<(String, Vec<u8>)> = tx
+            .query_row(
+                "SELECT digest,ciphertext FROM reconciliation_reports WHERE transfer_id=?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|_| StageError {
+                status: 500,
+                code: "STAGE_UNAVAILABLE",
+            })?;
+        let Some((report_digest, report_ciphertext)) = report else {
+            return err(409, "MISSING_ENCRYPTED_REPORT");
+        };
+        let signed_digest = body["encrypted_report_sha256"].as_str().unwrap_or("");
+        if report_ciphertext.len() < MIN_REPORT_BYTES
+            || report_ciphertext.len() > MAX_REPORT_BYTES
+            || report_digest != signed_digest
+            || sha256_b64u(&report_ciphertext) != signed_digest
+        {
+            return err(409, "REPORT_HASH_MISMATCH");
         }
         let record_text = signed.to_string();
         let duplicate =
@@ -1021,6 +1189,15 @@ pub fn route(
                     let cursor = data["cursor"].as_u64().unwrap_or(0) as usize;
                     let limit = data["limit"].as_u64().unwrap_or(64) as usize;
                     return stage.status(id, token, cursor, limit, now);
+                }
+                ("POST", Some("report"), None, 6) => {
+                    if raw.len() > MAX_REPORT_BYTES {
+                        return err(413, "REPORT_SIZE_LIMIT");
+                    }
+                    return stage.stage_report(id, token, raw, now);
+                }
+                ("GET", Some("report"), None, 6) => {
+                    return stage.download_report(id, token, now);
                 }
                 ("POST", Some("reconcile"), None, 6) => {
                     if raw.len() > 12 * 1024 {
