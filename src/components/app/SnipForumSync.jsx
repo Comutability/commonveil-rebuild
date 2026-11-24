@@ -13,7 +13,8 @@ const BUSY_PAUSE_MS = [90_000, 180_000, 300_000, 300_000];
 const EVERY_MS = 5 * 60_000;
 
 /**
- * Keeps the proposals forum in step with GitHub (docs/SNIP_FORUM.md). Shows nothing. It only
+ * Keeps the proposals forum in step with GitHub (docs/SNIP_FORUM.md).
+ * Shows a compact authorised-admin sync control. It only
  * does anything in the app of someone who can manage channels and threads in the community
  * server: everyone else's app never asks.
  */
@@ -30,6 +31,7 @@ export default function SnipForumSync() {
   const [lastError, setLastError] = useState("");
   const [working, setWorking] = useState(false);
   const [cooldownUntil, setCooldownUntil] = useState(0);
+  const [nextStepAt, setNextStepAt] = useState(0);
   const [stale, setStale] = useState(false);
 
   const defaultId = Object.keys(ctx.servers || {}).find((sid) => ctx.servers[sid]?.server?.is_default) || "";
@@ -89,10 +91,14 @@ export default function SnipForumSync() {
         }
         if (left > 0 && !stopped) {
           nextAllowed.current = Date.now() + NEXT_STEP_MS;
+          setNextStepAt(nextAllowed.current);
           later(pass, NEXT_STEP_MS);
+        } else {
+          setNextStepAt(0);
         }
       } catch (err) {
         if (stopped) return;
+        setNextStepAt(0);
         const rateLimited = err instanceof ApiError &&
           (err.code === "UPSTREAM_BUSY" || err.status === 429 || err.code === "NETWORK");
         if (rateLimited) {
@@ -137,9 +143,10 @@ export default function SnipForumSync() {
         Secure Net proposals {typeof pending==="number" && pending>0 ? "("+pending+" pending)" : ""}
       </span>
       <button type="button" onClick={() => passRef.current?.()}
-        disabled={working || (cooldownUntil > Date.now())}
+        disabled={working || cooldownUntil > Date.now() || nextStepAt > Date.now()}
         className="rounded-md border border-border px-3 py-2 font-medium hover:bg-muted disabled:opacity-50">
-        {working ? "Checking…" : cooldownUntil > Date.now() ? "Retry queued" : "Sync now"}
+        {working ? "Checking…" : cooldownUntil > Date.now() ? "Retry queued" :
+          nextStepAt > Date.now() ? "Next queued" : "Sync now"}
       </button>
     </div>
     {lastError ? <p role={cooldownUntil ? "status" : "alert"} className="mt-2 text-muted-foreground">{lastError}</p> :
