@@ -244,24 +244,25 @@ pub fn migrate_routes(db: &rusqlite::Connection) -> rusqlite::Result<()> {
 /// At most this many ids are learned from one answer: what one answer says can't make unbounded
 /// work.
 const MAX_LEARNED: usize = 2000;
-/// At most this many membership notices from one site in an hour (notice_allowed). A notice is the
-/// only way a site makes claims for someone without being asked, so this bounds how fast it can
-/// grow the claims table. Claims are never removed to make room: removing one could leave a rogue
-/// site's claim as the only one.
+/// At most this many membership notices from one site that add a new claim for one person, in an
+/// hour (notice_allowed, keyed "site person"). Refreshes and leaves don't count, so an honest
+/// site's bulk join only counts each person's new rooms. This slows how fast notices alone add
+/// claims; it doesn't bound the claims an answer to someone's own request adds. Claims are never
+/// removed to make room: removing one could leave a rogue site's claim as the only one.
 pub const NOTICES_PER_HOUR: u32 = 1000;
 static NOTICE_COUNTS: std::sync::OnceLock<Mutex<HashMap<String, (i64, u32)>>> =
     std::sync::OnceLock::new();
-/// Whether one more membership notice from this site is taken this hour.
-pub fn notice_allowed(host: &str, now: i64) -> bool {
+/// Whether one more counted membership notice for this key ("site person") is taken this hour.
+pub fn notice_allowed(key: &str, now: i64) -> bool {
     let hour = now / 3_600_000;
     let mut counts = NOTICE_COUNTS
         .get_or_init(Default::default)
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    if counts.len() > 10_000 {
+    if counts.len() > 100_000 {
         counts.clear();
     }
-    let c = counts.entry(host.to_string()).or_insert((hour, 0));
+    let c = counts.entry(key.to_string()).or_insert((hour, 0));
     if c.0 != hour {
         *c = (hour, 0);
     }
@@ -480,6 +481,18 @@ impl Federation {
             });
         }
         self.claim(user_id, id, host, strength, now);
+    }
+    /// Whether this site already has a claim on this id for this person.
+    fn has_claim(&self, user_id: &str, id: &str, host: &str) -> bool {
+        self.sql(|db| {
+            db.query_row(
+                "SELECT COUNT(*) FROM fed_claims WHERE user_id = ? AND id = ? AND host = ?",
+                [user_id, id, host],
+                |r| r.get::<_, i64>(0),
+            )
+        })
+        .unwrap_or(0)
+            > 0
     }
     /// Record a site's claim that it holds something, for one person. Never for something that's here.
     fn claim(&self, user_id: &str, id: &str, host: &str, strength: i64, now: i64) {
@@ -1702,14 +1715,18 @@ impl Federation {
                 {
                     return Ok(json!({ "ok": false }));
                 }
-                if !notice_allowed(from, now_ms()) {
+                // Only a claim for that person, and a weak one: any site can send this notice.
+                let room_id = str_of(payload["room"].get("id"));
+                // Only a notice that would add a claim counts towards the cap (see notice_allowed).
+                if id24(&room_id)
+                    && !self.has_claim(&uid, &room_id, from)
+                    && !notice_allowed(&format!("{from} {uid}"), now_ms())
+                {
                     warn_once("notices", from, &self.host, || {
-                        format!("[federation] {from} sent more than {NOTICES_PER_HOUR} membership notices this hour; the rest are refused until the next.")
+                        format!("[federation] {from} sent more than {NOTICES_PER_HOUR} membership notices adding new claims for one person this hour; the rest are refused until the next.")
                     });
                     return Ok(json!({ "ok": false, "code": "TOO_MANY_NOTICES" }));
                 }
-                // Only a claim for that person, and a weak one: any site can send this notice.
-                let room_id = str_of(payload["room"].get("id"));
                 if id24(&room_id) {
                     self.claim(&uid, &room_id, from, CLAIM_IMPLICIT, now_ms());
                 }

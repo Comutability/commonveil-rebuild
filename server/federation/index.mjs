@@ -117,20 +117,21 @@ export function migrateRoutes(db) {
 /** At most this many ids are learned from one answer: what one answer says can't make unbounded work. */
 const MAX_LEARNED = 2000;
 /**
- * At most this many membership notices from one site in an hour (noticeAllowed). A notice is the
- * only way a site makes claims for someone without being asked, so this bounds how fast it can
- * grow the claims table. Claims are never removed to make room: removing one could leave a rogue
- * site's claim as the only one.
+ * At most this many membership notices from one site that add a new claim for one person, in an
+ * hour (noticeAllowed, keyed "site person"). Refreshes and leaves don't count, so an honest site's
+ * bulk join only counts each person's new rooms. This slows how fast notices alone add claims; it
+ * doesn't bound the claims an answer to someone's own request adds. Claims are never removed to
+ * make room: removing one could leave a rogue site's claim as the only one.
  */
 export const NOTICES_PER_HOUR = 1000;
 const noticeCounts = new Map();
-/** Whether one more membership notice from this site is taken this hour. */
-export function noticeAllowed(host, now = Date.now()) {
+/** Whether one more counted membership notice for this key ("site person") is taken this hour. */
+export function noticeAllowed(key, now = Date.now()) {
   const hour = Math.floor(now / 3_600_000);
-  if (noticeCounts.size > 10_000) noticeCounts.clear();
-  const c = noticeCounts.get(host);
+  if (noticeCounts.size > 100_000) noticeCounts.clear();
+  const c = noticeCounts.get(key);
   if (!c || c.hour !== hour) {
-    noticeCounts.set(host, { hour, n: 1 });
+    noticeCounts.set(key, { hour, n: 1 });
     return true;
   }
   c.n += 1;
@@ -194,6 +195,7 @@ export class Federation {
     db.exec(`CREATE TABLE IF NOT EXISTS fed_outbox (host TEXT NOT NULL, msg_id TEXT NOT NULL, user_id TEXT NOT NULL, fn TEXT NOT NULL, body TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_at INTEGER NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (host, msg_id))`);
     this.q = {
       claims: db.prepare("SELECT c.host AS host, MAX(c.strength) AS strength FROM fed_claims c LEFT JOIN fed_sites s ON s.host = c.host WHERE c.id = ? AND c.user_id IN (?, '*') AND COALESCE(s.blocked, 0) = 0 GROUP BY c.host"),
+      hasClaim: db.prepare("SELECT 1 FROM fed_claims WHERE user_id = ? AND id = ? AND host = ?"),
       sameClaim: db.prepare("UPDATE fed_claims SET seen = ? WHERE user_id = ? AND id = ? AND host = ? AND strength >= ?"),
       putClaim: db.prepare("INSERT INTO fed_claims (user_id, id, host, strength, seen) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, id, host) DO UPDATE SET strength = MAX(strength, excluded.strength), seen = excluded.seen"),
       forgetPerson: db.prepare("DELETE FROM fed_claims WHERE user_id = ?"),
@@ -789,12 +791,13 @@ export class Federation {
     if (payload?.type === "membership") {
       const uid = String(payload.user_id || "");
       if (!ID24.test(uid) || !["User", "Person"].includes(this.store.tableOf(uid)) || this.q.shadow.get(uid)) return { ok: false };
-      if (!noticeAllowed(from)) {
-        warnOnce(this.log, "notices", from, this.host, () => `[federation] ${from} sent more than ${NOTICES_PER_HOUR} membership notices this hour; the rest are refused until the next.`);
-        return { ok: false, code: "TOO_MANY_NOTICES" };
-      }
       // Only a claim for that person, and a weak one: any site can send this notice.
       const id = String(payload.room?.id || "");
+      // Only a notice that would add a claim counts towards the cap (see noticeAllowed).
+      if (ID24.test(id) && !this.q.hasClaim.get(uid, id, from) && !noticeAllowed(`${from} ${uid}`)) {
+        warnOnce(this.log, "notices", from, this.host, () => `[federation] ${from} sent more than ${NOTICES_PER_HOUR} membership notices adding new claims for one person this hour; the rest are refused until the next.`);
+        return { ok: false, code: "TOO_MANY_NOTICES" };
+      }
       if (ID24.test(id)) this.#claim(uid, id, from, CLAIM.implicit);
       if (payload.joined) this.q.putHost.run(uid, from, Date.now());
       return { ok: true };

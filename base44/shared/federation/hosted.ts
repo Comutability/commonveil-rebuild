@@ -114,19 +114,21 @@ const HELD_TABLES = ["Conversation", "Server", "Channel"];
 /** At most this many ids are learned from one answer (each new one costs a platform call). */
 const MAX_LEARNED = 200;
 /**
- * At most this many membership notices from one site in an hour, as on a self-hosted site (each
- * running copy of the functions counts its own). Claims are never removed to make room: removing
- * one could leave a rogue site's claim as the only one.
+ * At most this many membership notices from one site that add a new claim for one person, in an
+ * hour, as on a self-hosted site (each running copy of the functions counts its own). Refreshes and
+ * leaves don't count. This slows how fast notices alone add claims; it doesn't bound the claims an
+ * answer to someone's own request adds. Claims are never removed to make room: removing one could
+ * leave a rogue site's claim as the only one.
  */
 export const NOTICES_PER_HOUR = 1000;
 const noticeCounts = new Map<string, { hour: number; n: number }>();
-/** Whether one more membership notice from this site is taken this hour. */
-export function noticeAllowed(host: string, now = Date.now()): boolean {
+/** Whether one more counted membership notice for this key ("site person") is taken this hour. */
+export function noticeAllowed(key: string, now = Date.now()): boolean {
   const hour = Math.floor(now / 3_600_000);
-  if (noticeCounts.size > 10_000) noticeCounts.clear();
-  const c = noticeCounts.get(host);
+  if (noticeCounts.size > 100_000) noticeCounts.clear();
+  const c = noticeCounts.get(key);
   if (!c || c.hour !== hour) {
-    noticeCounts.set(host, { hour, n: 1 });
+    noticeCounts.set(key, { hour, n: 1 });
     return true;
   }
   c.n += 1;
@@ -990,12 +992,13 @@ export class HostedFederation {
     if (payload?.type === "membership") {
       const uid = String(payload.user_id || "");
       if (!ID24.test(uid) || !(await this.localAccount(uid))) return { ok: false };
-      if (!noticeAllowed(from)) {
-        warnOnce(this.log, "notices", from, this.host, () => `[federation] ${from} sent more than ${NOTICES_PER_HOUR} membership notices this hour; the rest are refused until the next.`);
-        return { ok: false, code: "TOO_MANY_NOTICES" };
-      }
       // Only a claim for that person, and a weak one: any site can send this notice.
       const id = String(payload.room?.id || "");
+      // Only a notice that would add a claim counts towards the cap (see noticeAllowed).
+      if (ID24.test(id) && !(await this.sr.entities.FedClaim.filter({ user_id: uid, ref_id: id, host: from }, "created_date", 1)).length && !noticeAllowed(`${from} ${uid}`)) {
+        warnOnce(this.log, "notices", from, this.host, () => `[federation] ${from} sent more than ${NOTICES_PER_HOUR} membership notices adding new claims for one person this hour; the rest are refused until the next.`);
+        return { ok: false, code: "TOO_MANY_NOTICES" };
+      }
       const table = payload.room?.kind === "server" ? "Server" : "Conversation";
       if (ID24.test(id)) await this.learnRoute(id, table, from, uid, CLAIM.implicit);
       if (payload.joined) await this.addUserHost(uid, from);

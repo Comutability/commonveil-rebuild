@@ -327,11 +327,23 @@ test("a site can't steer a chosen id by notice, push out an honest claim, flood 
   // One site's membership notices are capped per hour.
   forgetNoticeCounts();
   const hour = 1_000 * 3_600_000;
-  for (let i = 0; i < NOTICES_PER_HOUR; i++) assert.ok(noticeAllowed("flood.test", hour));
-  assert.equal(noticeAllowed("flood.test", hour), false);
-  assert.ok(noticeAllowed("other.test", hour), "other sites are counted apart");
-  assert.ok(noticeAllowed("flood.test", hour + 3_600_000), "and the next hour starts again");
-  assert.ok(hostedNoticeAllowed("flood.test", hour));
+  for (let i = 0; i < NOTICES_PER_HOUR; i++) assert.ok(noticeAllowed(`flood.test ${una.id}`, hour));
+  assert.equal(noticeAllowed(`flood.test ${una.id}`, hour), false);
+  assert.ok(noticeAllowed(`other.test ${una.id}`, hour), "other sites are counted apart");
+  assert.ok(noticeAllowed("flood.test " + "f".repeat(24), hour), "and other people");
+  assert.ok(noticeAllowed(`flood.test ${una.id}`, hour + 3_600_000), "and the next hour starts again");
+  assert.ok(hostedNoticeAllowed(`flood.test ${una.id}`, hour));
+  forgetNoticeCounts();
+
+  // At the cap, a notice refreshing a claim rogue.test already has still goes through; one adding
+  // a new claim is refused.
+  for (let i = 0; i < NOTICES_PER_HOUR; i++) noticeAllowed(`rogue.test ${una.id}`);
+  const refresh = await notice(una, "conversation", room);
+  assert.equal(refresh.status, 200);
+  assert.equal(refresh.body?.ok ?? refresh.data?.ok, true);
+  const fresh = await notice(una, "conversation", "a".repeat(24));
+  assert.equal(fresh.body?.code ?? fresh.data?.code, "TOO_MANY_NOTICES");
+  assert.equal(db.prepare("SELECT 1 FROM fed_claims WHERE user_id = ? AND id = ?").get(una.id, "a".repeat(24)), undefined);
   forgetNoticeCounts();
   const count = () => Number(db.prepare("SELECT COUNT(*) AS n FROM fed_claims WHERE user_id = ?").get(una.id).n);
 
