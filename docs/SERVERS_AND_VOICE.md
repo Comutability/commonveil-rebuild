@@ -155,7 +155,10 @@ denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 ```
 
 The IPv6 lines cover loopback and the IPv4-compatible, IPv4-mapped, NAT64 and 6to4 forms of IPv4 addresses, and
-private and link-local IPv6. If the relay runs on the same machine as other services, deny its own public address
+private and link-local IPv6. Denying the NAT64 prefixes also stops the relay reaching public IPv4 addresses through
+NAT64, which a relay with its own IPv4 address doesn't need. If your network uses a NAT64 prefix of its own (an
+RFC 6052 network-specific prefix), deny that prefix too: no coturn version recognises custom prefixes, so its IPv4
+rules can't see through them. If the relay runs on the same machine as other services, deny its own public address
 too. Limits are separate settings: `user-quota` and `total-quota` cap how many relayed sessions one account and the
 whole relay can have at once, and `max-bps` (per session) and `bps-capacity` (the whole relay) cap bandwidth. Size
 them for the calls you expect; without the bandwidth caps one account can use whatever the host allows.

@@ -348,3 +348,41 @@ test("the site is told per server only, and a server's most talkative channel de
   assert.deepEqual(r.all, ["club"], "a muted server still asks for nothing");
 });
 
+
+test("the push choice goes one request at a time, and a choice made during a refused request still goes", async () => {
+  const { serialise } = await import("../src/lib/pwa/serial.js");
+  // The site refuses the first request (the browser wasn't registered yet); while it's on its way the
+  // browser registers and asks again. The second request must still be sent, and only once.
+  let registered = false;
+  let inFlight = 0;
+  let most = 0;
+  const sent = [];
+  let release;
+  const first = new Promise((r) => (release = r));
+  const send = serialise(async () => {
+    inFlight += 1;
+    most = Math.max(most, inFlight);
+    try {
+      // The site decides when the request arrives; its answer comes back later.
+      const known = registered;
+      if (!sent.length && !known) await first;
+      sent.push(known ? "accepted" : "refused");
+      if (!known) throw Object.assign(new Error("not registered"), { status: 409 });
+    } finally {
+      inFlight -= 1;
+    }
+  });
+  const run = send();
+  registered = true;
+  await send(); // queued behind the first, returns at once
+  await send(); // asking twice still means one more run
+  release();
+  await run; // the last request was accepted, so nothing is reported
+  assert.deepEqual(sent, ["refused", "accepted"]);
+  assert.equal(most, 1, "never two requests at once");
+  // Nothing queued: a lone refusal isn't retried.
+  registered = false;
+  sent.length = 0;
+  await assert.rejects(send(), /not registered/);
+  assert.deepEqual(sent, ["refused"]);
+});

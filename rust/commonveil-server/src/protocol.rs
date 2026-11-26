@@ -549,8 +549,9 @@ fn proto_disable(ctx: &mut Ctx) -> Result<Value> {
 /// Site checks: at most this many per person in the window, per server.
 const SITE_CHECKS_PER_WINDOW: usize = 10;
 const SITE_CHECK_WINDOW_MS: i64 = 10 * 60_000;
-/// A site document is a few kilobytes: anything past this isn't one, and isn't passed on.
-const SITE_DOC_CHARS: usize = 64 * 1024;
+/// A site document is a few kilobytes: past this many bytes (UTF-8 JSON) it isn't one, and isn't
+/// passed on.
+const SITE_DOC_BYTES: usize = 64 * 1024;
 fn site_checks() -> &'static Mutex<HashMap<String, Vec<i64>>> {
     static CHECKS: OnceLock<Mutex<HashMap<String, Vec<i64>>>> = OnceLock::new();
     CHECKS.get_or_init(|| Mutex::new(HashMap::new()))
@@ -617,7 +618,7 @@ fn check_site(ctx: &mut Ctx) -> Result<Value> {
                 unreadable()
             }
         })?;
-    if document.to_string().encode_utf16().count() > SITE_DOC_CHARS {
+    if document.to_string().len() > SITE_DOC_BYTES {
         return Err(unreadable());
     }
     Ok(json!({ "host": host, "document": document }))

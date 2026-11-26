@@ -5,6 +5,7 @@ import { workerUrl } from "@/lib/pwa/app";
 import { pushHint } from "@/lib/pwa/browser";
 import { muteToken } from "@/lib/pwa/mute";
 import { pushLevelsFor } from "@/lib/pwa/pushLevels";
+import { serialise } from "@/lib/pwa/serial";
 
 const supported = () => typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 const KEY = "commonveil_push_secret";
@@ -19,9 +20,7 @@ let alertChoice = null;
 let alertsSaid = "";
 let alertsTimer = null;
 const ALERTS_SETTLE_MS = 1500;
-// One alerts request at a time; a choice made while one is on its way goes after it.
-let alertsSending = false;
-let alertsAgain = false;
+// One alerts request at a time; a choice made while one is on its way goes after it (serialise).
 let alertsRetry = false;
 const ALERTS_RETRY_MS = 60_000;
 // Each mirror call's turn: an older one finishing late mustn't overwrite a newer one's work.
@@ -74,27 +73,7 @@ async function tellServer(sub) {
  * site sends a server's pushes only to browsers that asked for them, and this browser still
  * applies each channel's own setting to what arrives (public/sw.js).
  */
-async function sayAlerts() {
-  if (alertsSending) {
-    alertsAgain = true;
-    return;
-  }
-  alertsSending = true;
-  let failed = null;
-  try {
-    do {
-      alertsAgain = false;
-      failed = null;
-      // A newer choice queued while this one failed still goes: the loop carries on for it.
-      await sayAlertsOnce().catch((err) => {
-        failed = err;
-      });
-    } while (alertsAgain);
-  } finally {
-    alertsSending = false;
-  }
-  if (failed) throw failed;
-}
+const sayAlerts = serialise(sayAlertsOnce);
 
 async function sayAlertsOnce() {
   if (!alertChoice || !supported()) return;

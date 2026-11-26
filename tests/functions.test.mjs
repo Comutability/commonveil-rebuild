@@ -1363,6 +1363,9 @@ test("on the hosted site a task starts at most once a gap across every instance,
   // That instance now knows: calling it again within its own gap costs nothing at all.
   assert.equal(await claimRun(sr, "expire", t0 + 2_000), false);
   assert.equal(w.serviceReads, reads + 1, "no read");
+  // What it heard doesn't stop a run this instance was granted: only its own runs throttle that.
+  const granted = await runMaintenance(sr, "expire", new Date(t0 + 3_000));
+  assert.notEqual((await granted.json()).skipped, "ran recently");
   resetMaintenanceThrottle();
   // Each workflow runs less often than its gap, so a scheduled run is never the one skipped.
   const schedule = { deliver: 5 * 60_000, expire: 30 * 60_000, inactive: 24 * 3600_000 };

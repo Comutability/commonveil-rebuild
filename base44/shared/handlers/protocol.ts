@@ -75,8 +75,8 @@ function brake(key: string, perMinute: number, now: Date, what: string) {
 
 /** Site checks: at most this many per person in the window, per server instance. */
 const SITE_CHECKS = { perWindow: 10, windowMs: 10 * 60_000 };
-/** A site document is a few kilobytes: anything past this isn't one, and isn't passed on. */
-const SITE_DOC_CHARS = 64 * 1024;
+/** A site document is a few kilobytes: past this many bytes (UTF-8 JSON) it isn't one, and isn't passed on. */
+const SITE_DOC_BYTES = 64 * 1024;
 const siteChecks = new Map<string, number[]>();
 /** For tests. */
 export const forgetSiteChecks = () => siteChecks.clear();
@@ -106,7 +106,7 @@ async function checkSite({ user, body, federation, now }: any) {
     if ((error as any)?.code === "SITE_BLOCKED") throw new ApiError(403, "SITE_BLOCKED", "This site doesn't talk to that site.");
     throw unreadable();
   }
-  if (JSON.stringify(document).length > SITE_DOC_CHARS) throw unreadable();
+  if (new TextEncoder().encode(JSON.stringify(document)).length > SITE_DOC_BYTES) throw unreadable();
   return { host, document };
 }
 
