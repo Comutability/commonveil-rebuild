@@ -8,9 +8,12 @@ import crypto from "node:crypto";
 import { startSites } from "./support/selfhost.mjs";
 import { Person } from "./support/person.mjs";
 import { FakeWorld, Member, FUNCTIONS, addFunctions, signed } from "./support/harness.mjs";
+import { prepareGeneration } from "../src/lib/secure/serverProtocol.js";
+import { serverActions } from "../base44/shared/handlers/servers.ts";
 import { ml_kem768 } from "@noble/post-quantum/ml-kem.js";
 import { ml_dsa65 } from "@noble/post-quantum/ml-dsa.js";
-import { HostedFederation, forgetMemo, readCapped, useRelayLibrary } from "../base44/shared/federation/hosted.ts";
+import { HostedFederation, forgetMemo, forgetWarnings, readCapped, useRelayLibrary } from "../base44/shared/federation/hosted.ts";
+import { functionTable } from "../server/functions.mjs";
 import { serveFederation } from "../base44/shared/federation/inbound.ts";
 import { serve } from "../base44/shared/http.ts";
 import { SITE, HOSTED_ENDPOINTS, siteDocument } from "../base44/shared/federation/site.ts";
@@ -18,16 +21,17 @@ import * as W from "../base44/shared/federation/wire.ts";
 import * as SN from "../packages/secure-net/src/wire/federation.js";
 
 const HOSTED = "hosted.test";
-let net, world, fed, server, alpha, site;
+let net, world, fed, server, alpha, rogue, site;
 
 before(async () => {
   // On Base44 the functions load the post-quantum library by its npm: name, which Node can't.
   useRelayLibrary({ ml_kem768, ml_dsa65 });
-  net = await startSites(["alpha.test"]);
+  net = await startSites(["alpha.test", "rogue.test"]);
   alpha = net.sites["alpha.test"];
+  rogue = net.sites["rogue.test"];
   world = new FakeWorld();
   site = { enabled: true, host: HOSTED, name: "Hosted", public_key: "", pq: { kem: "", sig: "" } };
-  fed = new HostedFederation({ sr: world.clientFor(null).asServiceRole, site, urlFor: (_host, path) => `${alpha.url}${path}`, log: { warn() {} } });
+  fed = new HostedFederation({ sr: world.clientFor(null).asServiceRole, site, urlFor: (host, path) => `${(net.sites[host.replace(/:\d+$/, "")] || alpha).url}${path}`, log: { warn() {} } });
   site.public_key = (await fed.key()).public;
   const relayKeys = await fed.relayKeys();
   site.pq = { kem: relayKeys.kem.public, sig: relayKeys.sig.public };
@@ -49,6 +53,7 @@ before(async () => {
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   net.addHost(HOSTED, server.address().port);
   // Every function call on the hosted site goes through the relay, as http.ts's serve() does it.
+  addFunctions({ servers: serverActions({ defaultAdmins: () => [] }) });
   for (const [fn, actions] of Object.entries(FUNCTIONS)) addFunctions({ [fn]: actions }, { options: { federation: fed.handlers, functionName: fn, relay: (f, body, user, runLocal) => fed.relay(f, body, user, runLocal) } });
 });
 after(async () => {
@@ -164,7 +169,7 @@ test("every function on the hosted site goes through the relay, and trouble ther
   const listed = await call("messages", { action: "list", conversation_id: dm.id }, broken);
   assert.equal(listed.status, 200);
   // Another site can't claim something that lives here.
-  assert.equal(await fed.learnRoute(dm.id, "Conversation", "alpha.test"), false);
+  assert.equal(await fed.learnRoute(dm.id, "Conversation", "alpha.test", kim.id), false);
   assert.ok(lee.id);
 });
 
@@ -187,3 +192,194 @@ test("a reply is counted as it arrives and cut off at the limit, whatever its le
   assert.deepEqual(JSON.parse(new TextDecoder().decode(small)), { ok: true });
 });
 
+test("a rogue site's claims can't take over on the hosted site either, and disputes go nowhere", async () => {
+  const ida = await new Member(world, "ida_m").setup();
+  const amy = await new Person(alpha, "amy").setup();
+  const claim = (who, kind, id) => rogue.app.federation.signer.send(HOSTED, "inbox", { type: "membership", user_id: who.id, room: { kind, id }, joined: true });
+  const until = async (ask, ok) => {
+    let last;
+    for (let i = 0; i < 50 && !ok((last = await ask())); i++) {
+      forgetMemo();
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    return last;
+  };
+
+  // A conversation on alpha with Ida. Then rogue.test claims it too: it goes to neither.
+  const dm = (await amy.ok("conversations", await amy.signed("create_dm", { username: "ida-m.hosted.test" }))).conversation;
+  await amy.send(dm, "Hello Ida");
+  const list = () => ida.call("messages", { action: "list", conversation_id: dm.id });
+  assert.equal((await until(list, (r) => r.status === 200)).status, 200, "Ida reads it through the hosted site");
+  assert.equal((await claim(ida, "conversation", dm.id)).status, 200);
+  forgetMemo();
+  const disputed = await list();
+  assert.deepEqual([disputed.status, disputed.body.code], [409, "DISPUTED_SITE"]);
+  // The admin blocks rogue.test: its claims stop counting.
+  const [row] = await world.entities.FedSite.filter({ host: "rogue.test" });
+  await world.entities.FedSite.update(row.id, { blocked: true });
+  forgetMemo();
+  assert.equal((await list()).status, 200);
+  await world.entities.FedSite.update(row.id, { blocked: false });
+  forgetMemo();
+
+  // A listed server on alpha, claimed for Ida by rogue.test before she joins.
+  const { server_id: sid } = await amy.ok("servers", await amy.signed("create_server", { template: "blank" }));
+  const state = await amy.ok("servers", { action: "state", server_id: sid });
+  const { chains: own } = await amy.keysFor([amy.id]);
+  for (const c of state.chains) await amy.ok("servers", (await prepareGeneration({ serverId: sid, chainId: c.chain_id, generation: 0, userId: amy.id, device: amy.device, chains: own, recipientIds: [] })).request);
+  await amy.ok("servers", await amy.signed("update_server_settings", { server_id: sid, discoverable: true, join_mode: "open", public: { name: "Alpha garden", description: "Plants", tags: ["community"] } }));
+  assert.equal((await claim(ida, "server", sid)).status, 200);
+  forgetMemo();
+  assert.notEqual((await ida.call("servers", { action: "state", server_id: sid })).status, 200, "while nothing better is known, it goes where rogue said");
+  // Joining by naming alpha beats that, now and later.
+  await ida.ok("servers", { ...(await signed(ida, "join_server", { server_id: sid })), _site: "alpha.test" });
+  forgetMemo();
+  const mine = await ida.call("servers", { action: "state", server_id: sid });
+  assert.equal(mine.status, 200, JSON.stringify(mine.body));
+  assert.equal((await claim(ida, "server", sid)).status, 200);
+  forgetMemo();
+  assert.equal((await ida.call("servers", { action: "state", server_id: sid })).status, 200, "claiming again changes nothing");
+});
+
+test("if the hosted site's FedClaim table can't record whose a claim is, the claim isn't kept", async () => {
+  // The platform stores only the fields a table declares: a claim that lost its person or strength
+  // would count wrongly, so it's taken back.
+  const rows = [];
+  const warned = [];
+  const sr = {
+    entities: {
+      FedClaim: {
+        filter: async () => rows,
+        create: async (r) => (rows.push({ id: "r1", ref_id: r.ref_id, host: r.host, kind: r.kind }), rows.at(-1)),
+        update: async () => null,
+        delete: async (id) => rows.splice(rows.findIndex((r) => r.id === id), 1),
+      },
+      FedRoute: { filter: async () => [] },
+      FedSite: { filter: async () => [] },
+      Conversation: { filter: async () => [] },
+      Server: { filter: async () => [] },
+      Channel: { filter: async () => [] },
+    },
+  };
+  const f = new HostedFederation({ sr, site: { enabled: true, host: "x.test", public_key: "k" }, urlFor: () => "", log: { warn: (m) => warned.push(m) } });
+  forgetMemo();
+  assert.equal(await f.learnRoute("a".repeat(24), "Conversation", "b.test", "c".repeat(24)), false);
+  assert.deepEqual(rows, [], "nothing is left behind");
+  assert.match(warned.join(" "), /FedClaim/);
+  forgetMemo();
+});
+
+test("on the hosted site, nothing held here can be claimed, whatever kind of room a claim says it is", async () => {
+  const hal = await new Member(world, "hal_m").setup();
+  const { server_id: sid } = await hal.ok("servers", await signed(hal, "create_server", { template: "blank" }));
+  // rogue.test says hal's own server is a conversation it holds: refused, so it stays here.
+  assert.equal((await rogue.app.federation.signer.send(HOSTED, "inbox", { type: "membership", user_id: hal.id, room: { kind: "conversation", id: sid }, joined: true })).status, 200);
+  assert.deepEqual(await world.entities.FedClaim.filter({ ref_id: sid }), [], "no claim is kept");
+  forgetMemo();
+  assert.equal((await hal.call("servers", { action: "state", server_id: sid })).status, 200);
+  // A route rogue.test took over before 0.24.25 (no person on it) doesn't count either, and goes.
+  await world.entities.FedRoute.create({ ref_id: sid, host: "rogue.test", kind: "Conversation" });
+  forgetMemo();
+  assert.equal((await hal.call("servers", { action: "state", server_id: sid })).status, 200);
+  assert.deepEqual(await world.entities.FedRoute.filter({ ref_id: sid }), [], "the old route is removed");
+});
+
+test("on the hosted site, other people's claims never hide a person's own, however many there are", async () => {
+  const ivy = await new Member(world, "ivy_x").setup();
+  const ada = await new Person(alpha, "ada").setup();
+  const { server_id: sid } = await ada.ok("servers", await ada.signed("create_server", { template: "blank" }));
+  const state = await ada.ok("servers", { action: "state", server_id: sid });
+  const { chains: own } = await ada.keysFor([ada.id]);
+  for (const c of state.chains) await ada.ok("servers", (await prepareGeneration({ serverId: sid, chainId: c.chain_id, generation: 0, userId: ada.id, device: ada.device, chains: own, recipientIds: [] })).request);
+  await ada.ok("servers", await ada.signed("create_invite", { server_id: sid, code: "AlphaGarden1" }));
+  // rogue.test claims it for Ivy, then buries the table in claims for 2100 other people.
+  assert.equal((await rogue.app.federation.signer.send(HOSTED, "inbox", { type: "membership", user_id: ivy.id, room: { kind: "server", id: sid }, joined: true })).status, 200);
+  for (let i = 0; i < 2100; i++) await world.entities.FedClaim.create({ ref_id: sid, user_id: i.toString(16).padStart(24, "0"), host: "rogue.test", kind: "Server", strength: 1 });
+  // Ivy joins by invite, naming alpha.test: that's her choice, and it's the one that counts for her.
+  const joined = await ivy.ok("servers", { ...(await signed(ivy, "join_server", { invite_code: "AlphaGarden1" })), _site: "alpha.test" });
+  assert.equal(joined.server_id, sid);
+  forgetMemo();
+  const mine = await ivy.call("servers", { action: "state", server_id: sid });
+  assert.equal(mine.status, 200, JSON.stringify(mine.body));
+  assert.equal((await world.entities.FedClaim.filter({ ref_id: sid, user_id: ivy.id })).length <= 2, true, "one row per site she's heard from, not one per answer");
+});
+
+test("on the hosted site, naming a site never moves what someone joined from another site", async () => {
+  const ann = await new Member(world, "ann_n").setup();
+  const bob = await new Member(world, "bob_n").setup();
+  const cal = await new Member(world, "cal_n").setup();
+  const dee = await new Member(world, "dee_n").setup();
+  const abe = await new Person(alpha, "abe").setup();
+  const said = [];
+  const quiet = fed.log;
+  fed.log = { warn: (...a) => said.push(a.join(" ")) };
+  forgetWarnings();
+  const listed = async (name) => {
+    const { server_id: sid } = await abe.ok("servers", await abe.signed("create_server", { template: "blank" }));
+    const state = await abe.ok("servers", { action: "state", server_id: sid });
+    const { chains: own } = await abe.keysFor([abe.id]);
+    for (const c of state.chains) await abe.ok("servers", (await prepareGeneration({ serverId: sid, chainId: c.chain_id, generation: 0, userId: abe.id, device: abe.device, chains: own, recipientIds: [] })).request);
+    await abe.ok("servers", await abe.signed("update_server_settings", { server_id: sid, discoverable: true, join_mode: "open", public: { name, description: "Plants", tags: ["community"] } }));
+    return sid;
+  };
+  const join = async (who, sid) => who.ok("servers", { ...(await signed(who, "join_server", { server_id: sid })), _site: "alpha.test" });
+  const stateOf = async (who, sid) => {
+    forgetMemo();
+    return (await who.call("servers", { action: "state", server_id: sid })).status;
+  };
+  const before = rogue.app.federation.functions;
+  try {
+    // Ann joined alpha's server before the update (all that's left is the old route); Bob joined since.
+    const sid = await listed("Abe's garden");
+    await join(ann, sid);
+    for (const row of await world.entities.FedClaim.filter({ ref_id: sid, user_id: ann.id })) await world.entities.FedClaim.delete(row.id);
+    await world.entities.FedRoute.create({ ref_id: sid, host: "alpha.test", kind: "Server" });
+    await join(bob, sid);
+    assert.equal(await stateOf(ann, sid), 200, "the old route takes Ann to alpha");
+
+    // rogue.test sends them an invite. Whatever the code, its join answer names alpha's server.
+    const table = functionTable({ defaultAdmins: [] });
+    const [actions, options] = table.servers;
+    let answer = sid;
+    rogue.app.federation.functions = { ...table, servers: [{ ...actions, join_server: async () => ({ server_id: answer, joined: true }) }, options] };
+    for (const who of [ann, bob]) {
+      const r = await who.ok("servers", { ...(await signed(who, "join_server", { invite_code: "Crafted002" })), _site: "rogue.test" });
+      assert.equal(r.server_id, sid, "rogue.test answered the join");
+      assert.equal(await stateOf(who, sid), 200, "their requests stay with alpha.test");
+    }
+    // Dee has nothing of alpha's other server. She joins one of rogue.test's own servers, and is
+    // answered with alpha's: only the server she named counts as her choice.
+    const other = await listed("Abe's third garden");
+    answer = other;
+    const r = await dee.ok("servers", { ...(await signed(dee, "join_server", { server_id: "c".repeat(24) })), _site: "rogue.test" });
+    assert.equal(r.server_id, other, "rogue.test answered with alpha's server");
+    rogue.app.federation.functions = before;
+    // So when Dee joins it from alpha's listing, that's what counts for her.
+    await join(dee, other);
+    assert.equal(await stateOf(dee, other), 200);
+    const crafted = said.find((l) => l.includes("answered as the home of something")) || "";
+    assert.match(crafted, /rogue\.test answered as the home of something alpha\.test already holds/);
+    assert.doesNotMatch(crafted, /[0-9a-f]{24}/);
+
+    // A server rogue.test took over before the update: Cal joining from alpha's listing can't move it.
+    forgetWarnings();
+    said.length = 0;
+    const sid2 = await listed("Abe's other garden");
+    await world.entities.FedRoute.create({ ref_id: sid2, host: "rogue.test", kind: "Server" });
+    await join(cal, sid2);
+    assert.notEqual(await stateOf(cal, sid2), 200, "it stays with rogue.test, which doesn't hold it");
+    assert.ok(said.some((l) => l.includes("alpha.test answered as the home of something rogue.test already holds")), said.join("\n"));
+    // The admin blocks rogue.test: its old route stops counting, and Cal reaches alpha.
+    const [row] = await world.entities.FedSite.filter({ host: "rogue.test" });
+    await world.entities.FedSite.update(row.id, { blocked: true });
+    try {
+      assert.equal(await stateOf(cal, sid2), 200);
+    } finally {
+      await world.entities.FedSite.update(row.id, { blocked: false });
+      forgetMemo();
+    }
+  } finally {
+    rogue.app.federation.functions = before;
+    fed.log = quiet;
+  }
+});

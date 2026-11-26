@@ -426,7 +426,7 @@ pub async fn upgrade(app: Arc<App>, req: axum::extract::Request) -> Response<Bod
                     .session_for(&token)
                     .map(|(u, _)| crate::js::to_js_string(u.get("id")));
                 // A room on another site: this site carries the connection there.
-                let remote = user.as_ref().and_then(|_| a.federation.room_host(&room));
+                let remote = user.as_ref().and_then(|u| a.federation.room_host(&room, u));
                 (user, remote)
             })
             .await;

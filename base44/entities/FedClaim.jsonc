@@ -1,0 +1,37 @@
+// A site's claim that a conversation, server or channel lives there, for one person, and how much it
+// counts: 1 heard from that site (an answer, a membership notice), 3 the person's app named the site
+// and it answered (docs/FEDERATION.md, "Routes"). Backend only.
+{
+  "name": "FedClaim",
+  "type": "object",
+  "description": "A site's claim that a conversation, server or channel lives there, for one person, and how much it counts. Backend only.",
+  "properties": {
+    "ref_id": {
+      "type": "string"
+    },
+    "user_id": {
+      "type": "string"
+    },
+    "host": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "strength": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "ref_id",
+    "user_id",
+    "host",
+    "strength"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

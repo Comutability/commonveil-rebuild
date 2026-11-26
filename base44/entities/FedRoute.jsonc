@@ -1,8 +1,10 @@
-// A conversation, server or channel that lives on another site, and which site. Backend only.
+// Before 0.24.25: a conversation, server or channel that lives on another site, and which site, for
+// everyone here. Since then only read, as site-wide claims (FedClaim has the per-person ones), and
+// rows for something held here are removed. Backend only.
 {
   "name": "FedRoute",
   "type": "object",
-  "description": "A conversation, server or channel that lives on another site, and which site. Backend only.",
+  "description": "Before 0.24.25: a conversation, server or channel that lives on another site, and which site. Read since then as site-wide claims. Backend only.",
   "properties": {
     "ref_id": {
       "type": "string"

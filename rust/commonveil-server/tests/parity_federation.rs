@@ -36,6 +36,8 @@ struct Site {
     port: u16,
     data: tempfile::TempDir,
     child: Option<Child>,
+    /// A Rust site runs in this process: a script can use its own signer, as a rogue site would.
+    app: Option<Arc<App>>,
 }
 
 impl Drop for Site {
@@ -107,6 +109,7 @@ fn start(plan: &[(&str, Kind)], extra: &[(&str, &str)]) -> Net {
         let port = listener.local_addr().unwrap().port();
         let data = tempfile::tempdir().unwrap();
         let env = site_env(name, port, data.path(), extra);
+        let mut in_process = None;
         let child = match kind {
             Kind::Node => {
                 drop(listener);
@@ -142,6 +145,7 @@ fn start(plan: &[(&str, Kind)], extra: &[(&str, &str)]) -> Net {
                     Some(Transport::mapped(url_for)),
                 )
                 .unwrap();
+                in_process = Some(app.clone());
                 let _inside = rt.enter();
                 app.federation.start();
                 listener.set_nonblocking(true).unwrap();
@@ -155,6 +159,7 @@ fn start(plan: &[(&str, Kind)], extra: &[(&str, &str)]) -> Net {
             port,
             data,
             child,
+            app: in_process,
         });
     }
     for site in &sites {
@@ -252,6 +257,13 @@ impl Net {
             .unwrap()
             .data
             .path()
+    }
+    fn app(&self, site: &str) -> Arc<App> {
+        self.sites
+            .iter()
+            .find(|s| s.name == site)
+            .and_then(|s| s.app.clone())
+            .expect("a Rust site")
     }
     /// Blank what's random, with each site's port standing for its name.
     fn blank(&self, v: &Value) -> Value {
@@ -1152,4 +1164,415 @@ fn a_site_that_doesnt_federate_answers_as_the_node_server_does() {
         std::mem::take(&mut net.log)
     };
     compare(&run(Kind::Node), &run(Kind::Rust));
+}
+
+/// Where things live when a site lies about it (docs/FEDERATION.md, "Routes"): home.test's people,
+/// a server and a conversation on real.test, and rogue.test (always Rust, so the script can sign
+/// with its key) claiming them.
+fn routes_script(net: &mut Net, kits: &[Kit]) -> Vec<Value> {
+    let (home, real) = ("home.test", "real.test");
+    let home_people = net.register(home, &["uma", "vic", "wes", "zoe"], &kits[0..4]);
+    let real_people = net.register(real, &["rhea", "rex"], &kits[4..6]);
+    let rogue_people = net.register("rogue.test", &["rory"], &kits[6..7]);
+    let (uma, vic, wes, zoe) = (
+        &home_people[0],
+        &home_people[1],
+        &home_people[2],
+        &home_people[3],
+    );
+    let (rhea, rex) = (&real_people[0], &real_people[1]);
+    let rory = &rogue_people[0];
+    let forge = |net: &mut Net, step: &str, who: &Who, kind: &str, id: &str| -> u16 {
+        let rogue = net.app("rogue.test");
+        let notice = json!({ "type": "membership", "user_id": who.id, "room": { "kind": kind, "id": id }, "joined": true });
+        let (status, data) =
+            match rogue
+                .federation
+                .signer
+                .send(&rogue.store, home, "inbox", &notice, None)
+            {
+                Ok(r) => (r.status, r.data),
+                Err(e) => (e.status, json!({ "code": e.code })),
+            };
+        net.record(format!("rogue.test: {step}"), status, &data);
+        status
+    };
+    let status_of = |net: &Net, who: &Who, function: &str, body: &Value| -> u16 {
+        http(
+            net.port(home),
+            "POST",
+            &format!("/api/functions/{function}"),
+            home,
+            &who.token,
+            &body.to_string(),
+            &[],
+        )
+        .status
+    };
+    let admin = |net: &mut Net, step: &str, body: Value| {
+        let r = http(
+            net.port(home),
+            "POST",
+            "/api/admin/federation",
+            home,
+            &uma.token,
+            &body.to_string(),
+            &[],
+        );
+        net.record(
+            format!("{home}: {step}"),
+            r.status,
+            &serde_json::from_slice(&r.body).unwrap_or(Value::Null),
+        );
+    };
+
+    // ----- a listed, open server on real.test -----
+    let made = net.call(
+        real,
+        "servers",
+        "rhea makes a server",
+        rhea,
+        rhea.signed("create_server", json!({ "template": "community" })),
+    );
+    let sid = s(&made["server_id"]);
+    let st = net.call(
+        real,
+        "servers",
+        "its state",
+        rhea,
+        json!({ "action": "state", "server_id": sid }),
+    );
+    let (h, l) = (format!("{sid}.h"), format!("{sid}.l"));
+    let mut keys: Keys = HashMap::new();
+    net.call(
+        real,
+        "servers",
+        "history keys",
+        rhea,
+        rhea.generation(&sid, &h, 0, &[rhea], &mut keys),
+    );
+    net.call(
+        real,
+        "servers",
+        "live keys",
+        rhea,
+        rhea.generation(&sid, &l, 0, &[rhea], &mut keys),
+    );
+    net.call(real, "servers", "listed and open", rhea, rhea.signed("update_server_settings", json!({ "server_id": sid, "discoverable": true, "join_mode": "open", "public": { "name": "Real garden", "description": "Plants", "tags": ["friends"] } })));
+
+    // ----- rogue.test claims it for uma, before she joins -----
+    forge(net, "claims real's server for uma", uma, "server", &sid);
+    net.call(
+        home,
+        "servers",
+        "uma's state before joining (goes where rogue said)",
+        uma,
+        json!({ "action": "state", "server_id": sid }),
+    );
+    let mut join = vic.signed("join_server", json!({ "server_id": sid }));
+    join["_site"] = json!(real);
+    net.call(
+        home,
+        "servers",
+        "vic, never named, joins from real's listing",
+        vic,
+        join,
+    );
+    net.call(
+        home,
+        "servers",
+        "vic's state",
+        vic,
+        json!({ "action": "state", "server_id": sid }),
+    );
+    let mut join = uma.signed("join_server", json!({ "server_id": sid }));
+    join["_site"] = json!(real);
+    net.call(home, "servers", "uma joins, naming real", uma, join);
+    net.call(
+        home,
+        "servers",
+        "uma's state after joining",
+        uma,
+        json!({ "action": "state", "server_id": sid }),
+    );
+    forge(net, "claims it again", uma, "server", &sid);
+    net.call(
+        home,
+        "servers",
+        "uma's state still from real",
+        uma,
+        json!({ "action": "state", "server_id": sid }),
+    );
+    // An id an app chooses (a thread) can't steer a request that names the server.
+    let thread = "f".repeat(24);
+    forge(net, "claims a thread id", uma, "conversation", &thread);
+    let general = s(&channel(&st, "general")["id"]);
+    net.call(
+        home,
+        "channels",
+        "uma reads a thread rogue claimed, in real's channel",
+        uma,
+        json!({ "action": "list", "server_id": sid, "channel_id": general, "thread_id": thread }),
+    );
+
+    // ----- joining by invite counts as naming the site -----
+    net.call(
+        real,
+        "servers",
+        "rhea makes an invite",
+        rhea,
+        rhea.signed(
+            "create_invite",
+            json!({ "server_id": sid, "code": "RealGarden01" }),
+        ),
+    );
+    forge(net, "claims real's server for wes", wes, "server", &sid);
+    let mut join = wes.signed("join_server", json!({ "invite_code": "RealGarden01" }));
+    join["_site"] = json!(real);
+    net.call(
+        home,
+        "servers",
+        "wes joins by invite, naming real",
+        wes,
+        join,
+    );
+    net.call(
+        home,
+        "servers",
+        "wes's state",
+        wes,
+        json!({ "action": "state", "server_id": sid }),
+    );
+
+    // ----- an empty _site isn't naming a site -----
+    let made = net.call(
+        "rogue.test",
+        "servers",
+        "rory makes a server",
+        rory,
+        rory.signed("create_server", json!({ "template": "community" })),
+    );
+    let rsid = s(&made["server_id"]);
+    let (rh, rl) = (format!("{rsid}.h"), format!("{rsid}.l"));
+    let mut rkeys: Keys = HashMap::new();
+    net.call(
+        "rogue.test",
+        "servers",
+        "rory's history keys",
+        rory,
+        rory.generation(&rsid, &rh, 0, &[rory], &mut rkeys),
+    );
+    net.call(
+        "rogue.test",
+        "servers",
+        "rory's live keys",
+        rory,
+        rory.generation(&rsid, &rl, 0, &[rory], &mut rkeys),
+    );
+    net.call("rogue.test", "servers", "rory's server is open", rory, rory.signed("update_server_settings", json!({ "server_id": rsid, "discoverable": true, "join_mode": "open", "public": { "name": "Rogue garden", "description": "Weeds", "tags": ["friends"] } })));
+    forge(
+        net,
+        "claims rory's server for zoe, truthfully",
+        zoe,
+        "server",
+        &rsid,
+    );
+    let mut join = zoe.signed("join_server", json!({ "server_id": rsid }));
+    join["_site"] = json!("");
+    net.call(home, "servers", "zoe joins with an empty _site", zoe, join);
+    let strength = rusqlite::Connection::open(net.data(home).join("commonveil.db"))
+        .and_then(|db| {
+            db.query_row(
+                "SELECT MAX(strength) FROM fed_claims WHERE user_id = ? AND id = ?",
+                [zoe.id.as_str(), rsid.as_str()],
+                |r| r.get::<_, i64>(0),
+            )
+        })
+        .unwrap();
+    net.record(
+        format!("{home}: zoe's claim for rory's server"),
+        200,
+        &json!({ "strength": strength }),
+    );
+
+    // ----- a route a site took over before the update -----
+    // As if rogue.test had claimed real's server while home still ran 0.24.24: an old route, for
+    // everyone. Naming real.test can't move it (home can't tell which site is honest); blocking can.
+    rusqlite::Connection::open(net.data(home).join("commonveil.db"))
+        .and_then(|db| {
+            db.busy_timeout(Duration::from_secs(5))?;
+            db.execute("INSERT INTO fed_claims (user_id, id, host, strength, seen) VALUES ('*', ?1, 'rogue.test', 2, ?2)", rusqlite::params![sid, now()])
+        })
+        .unwrap();
+    net.call(
+        home,
+        "servers",
+        "zoe's state (the old route)",
+        zoe,
+        json!({ "action": "state", "server_id": sid }),
+    );
+    let mut join = zoe.signed("join_server", json!({ "server_id": sid }));
+    join["_site"] = json!(real);
+    net.call(home, "servers", "zoe joins from real's listing", zoe, join);
+    net.call(
+        home,
+        "servers",
+        "zoe's state (naming real didn't move the old route)",
+        zoe,
+        json!({ "action": "state", "server_id": sid }),
+    );
+    net.call(
+        home,
+        "servers",
+        "uma's state (she joined before the old route)",
+        uma,
+        json!({ "action": "state", "server_id": sid }),
+    );
+    admin(
+        net,
+        "the admin blocks rogue (old route)",
+        json!({ "action": "block", "host": "rogue.test" }),
+    );
+    net.call(
+        home,
+        "servers",
+        "zoe's state once rogue is blocked",
+        zoe,
+        json!({ "action": "state", "server_id": sid }),
+    );
+    admin(
+        net,
+        "unblocks rogue (old route)",
+        json!({ "action": "unblock", "host": "rogue.test" }),
+    );
+
+    // ----- two sites claiming one conversation -----
+    let dm = net.call(
+        real,
+        "conversations",
+        "rex writes to uma.home.test",
+        rex,
+        rex.signed("create_dm", json!({ "username": "uma.home.test" })),
+    );
+    let dm_id = s(&dm["conversation"]["id"]);
+    let list = json!({ "action": "list", "conversation_id": dm_id });
+    // real.test's notice arrives on its own time.
+    for _ in 0..50 {
+        if status_of(net, uma, "messages", &list) == 200 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(40));
+    }
+    net.call(
+        home,
+        "messages",
+        "uma reads it through home",
+        uma,
+        list.clone(),
+    );
+    forge(
+        net,
+        "claims the same conversation",
+        uma,
+        "conversation",
+        &dm_id,
+    );
+    net.call(
+        home,
+        "messages",
+        "now it goes to neither",
+        uma,
+        list.clone(),
+    );
+    admin(
+        net,
+        "the admin blocks rogue",
+        json!({ "action": "block", "host": "rogue.test" }),
+    );
+    net.call(home, "messages", "and it works again", uma, list.clone());
+    admin(
+        net,
+        "unblocks rogue",
+        json!({ "action": "unblock", "host": "rogue.test" }),
+    );
+    net.call(home, "messages", "disputed again", uma, list);
+    std::mem::take(&mut net.log)
+}
+
+#[test]
+fn a_site_cant_claim_what_it_doesnt_host_on_either_server() {
+    if !ready() {
+        eprintln!("skipped: node, the npm packages or dist-selfhost aren't there");
+        return;
+    }
+    let kits: Vec<Kit> = (0..7).map(|_| Kit::new()).collect();
+    let run = |home: Kind, real: Kind| {
+        let mut net = start(
+            &[
+                ("home.test", home),
+                ("real.test", real),
+                ("rogue.test", Kind::Rust),
+            ],
+            &[],
+        );
+        let log = routes_script(&mut net, &kits);
+        drop(net);
+        log
+    };
+    let node = run(Kind::Node, Kind::Node);
+    compare(&node, &run(Kind::Rust, Kind::Rust));
+    compare(&node, &run(Kind::Rust, Kind::Node));
+    let at = |step: &str| {
+        node.iter()
+            .find(|s| s["step"] == step)
+            .unwrap_or_else(|| panic!("no step {step}"))
+            .clone()
+    };
+    succeeded(
+        &node,
+        &[
+            "home.test: vic's state",
+            "home.test: uma's state after joining",
+            "home.test: uma's state still from real",
+            "home.test: uma reads a thread rogue claimed, in real's channel",
+            "home.test: wes joins by invite, naming real",
+            "home.test: wes's state",
+            "home.test: zoe joins with an empty _site",
+            "home.test: zoe joins from real's listing",
+            "home.test: uma's state (she joined before the old route)",
+            "home.test: zoe's state once rogue is blocked",
+            "home.test: uma reads it through home",
+            "home.test: and it works again",
+        ],
+    );
+    for step in [
+        "home.test: zoe's state (the old route)",
+        "home.test: zoe's state (naming real didn't move the old route)",
+    ] {
+        assert_ne!(
+            at(step)["status"],
+            200,
+            "{step} goes to rogue.test, which doesn't hold real's server"
+        );
+    }
+    assert_eq!(
+        at("home.test: zoe's claim for rory's server")["reply"]["strength"],
+        json!(1),
+        "an empty _site never counts as the person's choice"
+    );
+    assert_ne!(
+        at("home.test: uma's state before joining (goes where rogue said)")["status"],
+        200
+    );
+    for step in [
+        "home.test: now it goes to neither",
+        "home.test: disputed again",
+    ] {
+        let s = at(step);
+        assert_eq!(
+            (s["status"].clone(), s["reply"]["code"].clone()),
+            (json!(409), json!("DISPUTED_SITE")),
+            "{step}: {s}"
+        );
+    }
 }

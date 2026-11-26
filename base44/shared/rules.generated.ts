@@ -98,6 +98,12 @@ export const RULES = {
     "update": false,
     "delete": false
   },
+  "FedClaim": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
   "FedKey": {
     "read": false,
     "create": false,

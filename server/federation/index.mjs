@@ -24,10 +24,111 @@ import { DEFAULT_ENDPOINTS } from "../../packages/secure-net/src/wire/federation
 import {sitePolicy,siteVerdict,publicSiteRules} from "../sitePolicy.mjs";
 
 const ID24 = /^[0-9a-f]{24}$/;
-const ID_KEYS = new Set(["conversation_id", "server_id", "channel_id", "event_id", "report_id", "case_id", "message_id", "thread_id", "ticket_id", "invite_id", "role_id", "id", "parent_id"]);
+// Where something lives (docs/FEDERATION.md, "Routes"). Ids a site gives its own records: where one
+// appears, it says which site holds it.
+const ID_KEYS = new Set(["conversation_id", "server_id", "channel_id", "case_id", "message_id", "ticket_id", "invite_id", "role_id", "id", "parent_id"]);
 // Not file ids: a message's list of file parts is chosen by its sender, so a request routed by them
 // could be steered to the sender's site. A file is found by where it was posted (docs/FEDERATION.md).
 const ID_LIST_KEYS = new Set(["conversation_ids", "server_ids", "channel_ids", "message_ids"]);
+// Ids a person's app chooses (a thread is named by its first message, an event and a server report
+// by their items): anyone can write any value there, so they only route a request that names
+// nothing else, and never outweigh what a site says about its own records.
+const CHOSEN_KEYS = new Set(["thread_id", "event_id", "report_id"]);
+// What an app names when it picks the site itself (_site): the place the request is about.
+const PLACE_KEYS = new Set(["conversation_id", "server_id", "channel_id", "conversation_ids", "server_ids", "channel_ids"]);
+// How much a claim about where something lives counts. Claims are kept per person: what one site
+// says to one person never moves anyone else's requests. The highest claim wins; two sites with the
+// same highest claim are a dispute, and the request goes to neither.
+export const CLAIM = {
+  chosen: 0, // a chosen id (above) in an answer
+  implicit: 1, // a site's answer to this person's request, or its notice that they joined something there
+  legacy: 2, // learned before 0.24.25, for everyone here (routes then weren't kept per person)
+  explicit: 3, // the person's app named the site (_site), and the site answered
+};
+
+/** The claims for one thing, as [{ host, strength }], blocked sites already left out. */
+export function resolveRoute(claims) {
+  if (!claims.length) return { route: null, disputed: [] };
+  const top = Math.max(...claims.map((c) => c.strength));
+  const hosts = [...new Set(claims.filter((c) => c.strength === top).map((c) => c.host))].sort();
+  return hosts.length === 1 ? { route: hosts[0], disputed: [] } : { route: null, disputed: hosts };
+}
+
+/**
+ * How much a claim from a site the person's app named counts: named (3), unless another site
+ * already holds the thing for them by an old route or a named claim. Then only heard (1): a site
+ * can't take over what someone already has by answering a join. Answers { strength, other }.
+ */
+export function namedClaimStrength(claims, host) {
+  const others = claims.filter((c) => c.host !== host && c.strength >= CLAIM.legacy).sort((a, b) => b.strength - a.strength || a.host.localeCompare(b.host));
+  return others.length ? { strength: CLAIM.implicit, other: others[0].host } : { strength: CLAIM.explicit, other: null };
+}
+
+/** The ids a request or an answer names: [id, chosen] pairs (chosen: under a key an app picks). */
+function idsNamed(v, key, depth, maxDepth, perList, out) {
+  if (depth > maxDepth || v === null || v === undefined) return out;
+  if (typeof v === "string") {
+    if ((ID_KEYS.has(key) || ID_LIST_KEYS.has(key)) && ID24.test(v)) out.push([v, false]);
+    else if (CHOSEN_KEYS.has(key) && ID24.test(v)) out.push([v, true]);
+  } else if (Array.isArray(v)) {
+    for (const x of v.slice(0, perList)) idsNamed(x, key, depth + 1, maxDepth, perList, out);
+  } else if (typeof v === "object") {
+    for (const [k, x] of Object.entries(v)) idsNamed(x, k, depth + 1, maxDepth, perList, out);
+  }
+  return out;
+}
+
+/** The places a request names (PLACE_KEYS), in its body and in its signed payload. */
+function placesNamed(body) {
+  const out = new Set();
+  const go = (v, key, depth) => {
+    if (depth > 6 || v === null || v === undefined) return;
+    if (typeof v === "string") {
+      if (PLACE_KEYS.has(key) && ID24.test(v)) out.add(v);
+    } else if (Array.isArray(v)) {
+      for (const x of v.slice(0, 500)) go(x, key, depth + 1);
+    } else if (typeof v === "object") {
+      for (const [k, x] of Object.entries(v)) go(x, k, depth + 1);
+    }
+  };
+  go(body, "", 0);
+  if (typeof body.payload === "string") {
+    try {
+      go(JSON.parse(body.payload), "", 0);
+    } catch {
+      // not JSON: nothing named in it
+    }
+  }
+  return [...out].sort();
+}
+
+/**
+ * Routes from before 0.24.25 (one table for everyone, first claim kept) become site-wide claims. The
+ * old table stays, untouched: if the updater rolls back to 0.24.24, that version still finds its
+ * routes. Copying again changes nothing.
+ */
+export function migrateRoutes(db) {
+  if (!db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'fed_routes'").get()) return;
+  db.exec(`INSERT OR IGNORE INTO fed_claims (user_id, id, host, strength, seen) SELECT '*', id, host, ${CLAIM.legacy}, seen FROM fed_routes`);
+}
+
+/** At most this many ids are learned from one answer: what a site says can't grow the claims table, or the work per answer, without bound. */
+const MAX_LEARNED = 2000;
+
+/** Say something about two sites at most once an hour: a site can't flood the log. */
+const warned = new Map();
+/** For tests: say everything again. */
+export function forgetWarnings() {
+  warned.clear();
+}
+function warnOnce(log, kind, a, b, line) {
+  const key = `${kind} ${[a, b].sort().join(" ")}`;
+  const now = Date.now();
+  if (warned.size > 10_000) warned.clear();
+  if (now - (warned.get(key) || 0) < 3_600_000) return;
+  warned.set(key, now);
+  log.warn?.(line());
+}
 const MAX_ACT_BODY = 9 * 1024 * 1024;
 // Held messages (docs/OFFLINE.md): tried again after 30 seconds, then less and less often (at
 // most every 30 minutes), for up to a week; the same week a message written offline may wait.
@@ -56,7 +157,9 @@ export class Federation {
     this.signer = new Signer({ host: this.host, store, transport: this.transport, log });
     this.wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
     const db = store.db;
-    db.exec(`CREATE TABLE IF NOT EXISTS fed_routes (id TEXT PRIMARY KEY, host TEXT NOT NULL, seen INTEGER NOT NULL)`);
+    db.exec(`CREATE TABLE IF NOT EXISTS fed_claims (user_id TEXT NOT NULL, id TEXT NOT NULL, host TEXT NOT NULL, strength INTEGER NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, id, host))`);
+    db.exec(`CREATE INDEX IF NOT EXISTS fed_claims_by_id ON fed_claims (id)`);
+    migrateRoutes(db);
     db.exec(`CREATE TABLE IF NOT EXISTS fed_user_hosts (user_id TEXT NOT NULL, host TEXT NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, host))`);
     db.exec(`CREATE TABLE IF NOT EXISTS fed_shadows (user_id TEXT PRIMARY KEY, home TEXT NOT NULL, handle TEXT NOT NULL, digest TEXT NOT NULL DEFAULT '', updated INTEGER NOT NULL)`);
     db.exec(`CREATE TABLE IF NOT EXISTS fed_notified (user_id TEXT NOT NULL, room TEXT NOT NULL, PRIMARY KEY (user_id, room))`);
@@ -64,8 +167,9 @@ export class Federation {
     // sender's own sealed, signed request, delivered as it is once the site answers again.
     db.exec(`CREATE TABLE IF NOT EXISTS fed_outbox (host TEXT NOT NULL, msg_id TEXT NOT NULL, user_id TEXT NOT NULL, fn TEXT NOT NULL, body TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_at INTEGER NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (host, msg_id))`);
     this.q = {
-      route: db.prepare("SELECT host FROM fed_routes WHERE id = ?"),
-      putRoute: db.prepare("INSERT INTO fed_routes (id, host, seen) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET seen = excluded.seen"),
+      claims: db.prepare("SELECT c.host AS host, MAX(c.strength) AS strength FROM fed_claims c LEFT JOIN fed_sites s ON s.host = c.host WHERE c.id = ? AND c.user_id IN (?, '*') AND COALESCE(s.blocked, 0) = 0 GROUP BY c.host"),
+      sameClaim: db.prepare("UPDATE fed_claims SET seen = ? WHERE user_id = ? AND id = ? AND host = ? AND strength >= ?"),
+      putClaim: db.prepare("INSERT INTO fed_claims (user_id, id, host, strength, seen) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, id, host) DO UPDATE SET strength = MAX(strength, excluded.strength), seen = excluded.seen"),
       hostsOf: db.prepare("SELECT host FROM fed_user_hosts WHERE user_id = ?"),
       putHost: db.prepare("INSERT INTO fed_user_hosts (user_id, host, seen) VALUES (?, ?, ?) ON CONFLICT(user_id, host) DO UPDATE SET seen = excluded.seen"),
       dropHost: db.prepare("DELETE FROM fed_user_hosts WHERE user_id = ? AND host = ?"),
@@ -338,63 +442,101 @@ export class Federation {
 
   // ---------- home side: relaying my people's calls ----------
 
+  /**
+   * Where something on another site lives, for this person: their own claims and the site-wide
+   * ones from before 0.24.25, leaving out blocked sites. Answers { route, disputed }.
+   */
+  routeOf(userId, id) {
+    return resolveRoute(this.#claimsOf(userId, id));
+  }
+
+  #claimsOf(userId, id) {
+    return this.q.claims.all(id, userId).map((r) => ({ host: r.host, strength: Number(r.strength) }));
+  }
+
+  /** Record a site's claim that it holds something, for one person. Never for something that's here. */
+  #claim(userId, id, host, strength, now = Date.now()) {
+    if (!ID24.test(id) || host === this.host || this.store.has(id)) return;
+    // Heard before, as strongly: nothing changes but when.
+    if (this.q.sameClaim.run(now, userId, id, host, strength).changes > 0) return;
+    const before = this.routeOf(userId, id);
+    this.q.putClaim.run(userId, id, host, strength, now);
+    // Which sites, never what or whose: the admin can block the one that's wrong.
+    const claims = this.#claimsOf(userId, id);
+    const after = resolveRoute(claims);
+    if (!before.disputed.length && after.disputed.length) {
+      const [a, b] = after.disputed.length === 2 ? after.disputed : [after.disputed[0], host];
+      warnOnce(this.log, "dispute", a, b, () => `[federation] ${after.disputed.join(after.disputed.length === 2 ? " and " : ", ")} each claim to hold the same thing; requests about it go to neither. Block whichever is wrong.`);
+    } else if (after.route && after.route !== host && strength < CLAIM.legacy && claims.some((c) => c.host === after.route && c.strength === CLAIM.legacy)) {
+      // A route from before 0.24.25 outweighs what this site says: it could be one a site took over then, so say so.
+      warnOnce(this.log, "older", after.route, host, () => `[federation] ${after.route} (a route from before 0.24.25) and ${host} each claim to hold the same thing; the older route is used. Block whichever is wrong.`);
+    }
+  }
+
+  /** A claim from a site the person's app named: see namedClaimStrength. */
+  #claimNamed(userId, id, host, now) {
+    if (!ID24.test(id) || host === this.host || this.store.has(id)) return;
+    const { strength, other } = namedClaimStrength(this.#claimsOf(userId, id), host);
+    if (other) warnOnce(this.log, "named", host, other, () => `[federation] ${host} answered as the home of something ${other} already holds for someone here; it stays with ${other}. Block whichever is wrong.`);
+    this.#claim(userId, id, host, strength, now);
+  }
+
+  /** What a site's answer to this person says it holds: claims for this person only. */
   #learnRoutes(host, data, user) {
     const now = Date.now();
     let learned = false;
-    const visit = (v, key, depth) => {
-      if (depth > 8 || v === null) return;
-      if (typeof v === "string") {
-        if ((ID_KEYS.has(key) || ID_LIST_KEYS.has(key)) && ID24.test(v) && !this.store.has(v)) {
-          this.q.putRoute.run(v, host, now);
-          learned = true;
-        }
-        return;
-      }
-      if (Array.isArray(v)) {
-        for (const x of v.slice(0, 5000)) visit(x, ID_LIST_KEYS.has(key) ? key : key, depth + 1);
-        return;
-      }
-      if (typeof v === "object") for (const [k, x] of Object.entries(v)) visit(x, k, depth + 1);
-    };
-    visit(data, "", 0);
-    if (learned && user) this.q.putHost.run(user.id, host, now);
+    const seen = new Set();
+    const found = idsNamed(data, "", 0, 8, 5000, []).filter(([id, chosen]) => !seen.has(`${id} ${chosen}`) && seen.add(`${id} ${chosen}`));
+    for (const [id, chosen] of found.slice(0, MAX_LEARNED)) {
+      if (this.store.has(id)) continue;
+      this.#claim(user.id, id, host, chosen ? CLAIM.chosen : CLAIM.implicit, now);
+      learned = true;
+    }
+    if (learned) this.q.putHost.run(user.id, host, now);
   }
 
-  /** Which site a request is about: an explicit _site, or the site hosting the ids it names. */
-  #targetOf(body) {
+  /**
+   * Which site a request is about, for this person: an explicit _site, or the site holding the ids
+   * it names. Ids an app chooses (CHOSEN_KEYS) count only when nothing else is named.
+   */
+  #targetOf(body, user) {
     if (typeof body._site === "string" && body._site) {
       const site = normHost(body._site);
       return site === this.host ? null : site;
     }
-    const hosts = new Set();
-    const visit = (v, key, depth) => {
-      if (depth > 6 || v === null) return;
-      if (typeof v === "string") {
-        if ((ID_KEYS.has(key) || ID_LIST_KEYS.has(key)) && ID24.test(v)) {
-          if (this.store.has(v)) hosts.add(this.host);
-          else {
-            const r = this.q.route.get(v);
-            if (r) hosts.add(r.host);
-          }
-        }
-        return;
-      }
-      if (Array.isArray(v)) return v.slice(0, 500).forEach((x) => visit(x, key, depth + 1));
-      if (typeof v === "object") for (const [k, x] of Object.entries(v)) visit(x, k, depth + 1);
-    };
-    visit(body, "", 0);
+    const named = idsNamed(body, "", 0, 6, 500, []);
     if (typeof body.payload === "string") {
       try {
-        visit(JSON.parse(body.payload), "", 0);
+        idsNamed(JSON.parse(body.payload), "", 0, 6, 500, named);
       } catch {
         // not JSON: nothing to route by
       }
     }
     // Calls rooms: "<server>.<channel>" and "dm.<conversation>.<call>" carry their ids too.
-    for (const k of ["room", "room_id"]) if (typeof body[k] === "string") for (const part of body[k].split(".")) visit(part, "id", 1);
-    hosts.delete(this.host);
-    if (hosts.size > 1) throw new FederationError(400, "MIXED_SITES", "That request names things on more than one site.");
-    return [...hosts][0] || null;
+    for (const k of ["room", "room_id"]) if (typeof body[k] === "string") for (const part of body[k].split(".")) idsNamed(part, "id", 1, 6, 500, named);
+    for (const chosen of [false, true]) {
+      const hosts = new Set();
+      let here = false;
+      let disputed = false;
+      for (const [id] of named.filter(([, c]) => c === chosen)) {
+        if (this.store.has(id)) {
+          here = true;
+          continue;
+        }
+        const r = this.routeOf(user.id, id);
+        if (r.route) hosts.add(r.route);
+        else if (r.disputed.length) {
+          disputed = true;
+          warnOnce(this.log, "dispute", r.disputed[0], r.disputed[1], () => `[federation] ${r.disputed.join(r.disputed.length === 2 ? " and " : ", ")} each claim to hold the same thing; requests about it go to neither. Block whichever is wrong.`);
+        }
+      }
+      hosts.delete(this.host);
+      if (hosts.size > 1) throw new FederationError(400, "MIXED_SITES", "That request names things on more than one site.");
+      if (hosts.size) return [...hosts][0];
+      if (here) return null;
+      if (disputed) throw new FederationError(409, "DISPUTED_SITE", "More than one site claims to hold this, so it isn't being sent to either. Your site's admin can see which sites in its log, and block the wrong one.");
+    }
+    return null;
   }
 
   /** Run one call on another site, as this person. Answers { status, data }. */
@@ -436,10 +578,12 @@ export class Federation {
     if (!body || typeof body !== "object" || Array.isArray(body)) return null;
     let target;
     try {
-      target = this.#targetOf(body);
+      target = this.#targetOf(body, user);
     } catch (err) {
       return { status: err.status || 400, data: { error: err.message, code: err.code } };
     }
+    // Only a site the app actually named counts as its choice: an empty _site routed by claims.
+    const namedSite = typeof body._site === "string" && body._site !== "";
     const hadSite = "_site" in body;
     delete body._site;
     if (target) {
@@ -447,6 +591,17 @@ export class Federation {
         const r = await this.act(target, user, fn, body);
         // The site answered, but isn't well: hold the message rather than lose it.
         if ((r.status === 502 || r.status === 503 || r.status === 504) && this.#holdable(fn, body)) return this.#hold(target, user, fn, body);
+        // The person's app named the site, and it answered: what the request is about lives there,
+        // for this person, whatever another site said before.
+        if (r.status === 200 && namedSite) {
+          const now = Date.now();
+          const places = placesNamed(body);
+          // Joining by invite names only the code: the server is the one the site joined them to
+          // (as trusted as the ids in its listing, which it chooses too). Never what someone already
+          // has from another site: namedClaimStrength.
+          if (!places.length && fn === "servers" && body.action === "join_server" && ID24.test(String(r.data?.server_id || ""))) places.push(r.data.server_id);
+          for (const id of places) this.#claimNamed(user.id, id, target, now);
+        }
         return r;
       } catch (err) {
         if (err?.code === "SITE_UNREACHABLE" && this.#holdable(fn, body)) return this.#hold(target, user, fn, body);
@@ -589,8 +744,9 @@ export class Federation {
     if (payload?.type === "membership") {
       const uid = String(payload.user_id || "");
       if (!ID24.test(uid) || !["User", "Person"].includes(this.store.tableOf(uid)) || this.q.shadow.get(uid)) return { ok: false };
+      // Only a claim for that person, and a weak one: any site can send this notice.
       const id = String(payload.room?.id || "");
-      if (ID24.test(id)) this.q.putRoute.run(id, from, Date.now());
+      if (ID24.test(id)) this.#claim(uid, id, from, CLAIM.implicit);
       if (payload.joined) this.q.putHost.run(uid, from, Date.now());
       return { ok: true };
     }
@@ -796,14 +952,15 @@ export class Federation {
 
   // ---------- realtime rooms across sites ----------
 
-  /** Which site hosts a realtime room, from the ids in its name. */
-  roomHost(roomId) {
+  /** Which site hosts a realtime room, for this person, from the ids in its name. A disputed id carries the connection nowhere. */
+  roomHost(roomId, userId) {
     if (!this.enabled) return null;
     for (const part of String(roomId).split(".")) {
       if (!ID24.test(part)) continue;
       if (this.store.has(part)) return null;
-      const r = this.q.route.get(part);
-      if (r) return r.host;
+      const r = this.routeOf(userId, part);
+      if (r.route) return r.route;
+      if (r.disputed.length) return null;
     }
     return null;
   }

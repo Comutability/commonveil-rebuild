@@ -5,6 +5,16 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.25](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.25): Sites can no longer claim each other's servers
+
+_2026-11-26_
+
+- This release fixes a security problem in how sites that talk to each other decide where to send your requests. Until now, the first site to mention a server, a channel or a conversation was believed for everyone on your site. A dishonest site could claim a server that lives on another site, and then receive the requests people on your site made about it, even after they joined it from its real site. It could answer in the real site's place with its own version of the server, choose the keys your app used there, and read what people then posted in it. The security advisory on GitHub explains it in full.
+- Now a site's claim only counts for the person it was made to. Joining a server from its own site, from its listing or with an invite, outweighs what other sites say about it, and nothing another site says moves a server you've joined or a route your site already knew. Ids that apps choose, such as a thread's, can no longer steer where a request goes.
+- If two sites claim the same thing, your site sends your requests about it to neither, and the app says so. Tell your site's admin: the site's log names the two sites, and blocking the wrong one puts things right.
+- Messages on the real server stayed end-to-end encrypted throughout, and in conversations the app's checks on who's in them stop a site from silently adding a reader. The risk was to what someone posted in a server while its requests went to a dishonest site.
+- For people who run a site: please update. Your site keeps every route it already knew, so nothing stops working, and the updater offers 0.24.25 as usual. A route a dishonest site took over before you updated is kept too, until you block that site: your site's log names it when the real site speaks up, and the advisory explains how to check. The hosted site is fixed as well.
+
 ## [0.24.24](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.24): The hosted site's clean-up no longer skips a scheduled run
 
 _2026-11-26_
