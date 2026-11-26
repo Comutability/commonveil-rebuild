@@ -2,10 +2,19 @@
   "repository": "Comutability/commonveil-rebuild",
   "releases": [
     {
+      "version": "0.24.24",
+      "date": "2026-11-26",
+      "title": "The hosted site's clean-up no longer skips a scheduled run",
+      "commit": null,
+      "notes": [
+        "On the hosted site, a call to the clean-up's public address just before a task's shared gap ended could make the next scheduled run skip, which for removing inactive accounts meant waiting a day. An instance now only holds a task back until that shared gap ends, so the scheduled run goes ahead. Self-hosted sites run these tasks on timers and weren't affected."
+      ]
+    },
+    {
       "version": "0.24.23",
       "date": "2026-11-26",
       "title": "Security fixes from the November audit: server pushes only where they're wanted, and a working destination check",
-      "commit": null,
+      "commit": "6cdbd18adbd99210e5fb5a43d54dce06f29a5694",
       "notes": [
         "Server notifications now go only where they're wanted. With push notifications on, each browser tells this site, per server, whether it wants a push for every message, only for @mentions, or none, worked out from your own notification settings. A busy server no longer wakes every member's phone for each message. The site learns this choice per server; your settings for single channels stay on your device. Until an app has updated, it gets @mentions from every server and other activity from every server except the site's default one, whatever it was set to.",
         "Checking another site before a move works again. The browser used to fetch the other site's public document itself, which the site's own security policy blocked. Now your site reads it for you, with the same address checks as federation and the sites it refuses, without trusting or remembering the other site, and up to 10 checks every 10 minutes.",

@@ -5,6 +5,12 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.24](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.24): The hosted site's clean-up no longer skips a scheduled run
+
+_2026-11-26_
+
+- On the hosted site, a call to the clean-up's public address just before a task's shared gap ended could make the next scheduled run skip, which for removing inactive accounts meant waiting a day. An instance now only holds a task back until that shared gap ends, so the scheduled run goes ahead. Self-hosted sites run these tasks on timers and weren't affected.
+
 ## [0.24.23](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.23): Security fixes from the November audit: server pushes only where they're wanted, and a working destination check
 
 _2026-11-26_
