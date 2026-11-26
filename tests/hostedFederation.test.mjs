@@ -383,3 +383,43 @@ test("on the hosted site, naming a site never moves what someone joined from ano
     fed.log = quiet;
   }
 });
+
+test("on the hosted site, a claim written for an account that has gone is taken back", async () => {
+  const gone = "d".repeat(24);
+  const room = "e".repeat(24);
+  forgetMemo();
+  assert.equal(await fed.learnRoute(room, "Conversation", "alpha.test", gone), true, "written first");
+  assert.deepEqual(await world.entities.FedClaim.filter({ user_id: gone }), [], "then taken back: there's no account");
+  // A real account deleted while a request was out: the writer sees it gone and removes its row.
+  const ida = await new Member(world, "orla_q").setup();
+  const T = world.entities.FedUserHost;
+  const create = T.create.bind(T);
+  T.create = async (row) => {
+    const made = await create(row);
+    await world.entities.User.delete(ida.id).catch(() => {});
+    await world.entities.Person.delete(ida.id).catch(() => {});
+    return made;
+  };
+  try {
+    forgetMemo();
+    await fed.addUserHost(ida.id, "late.test");
+  } finally {
+    T.create = create;
+  }
+  assert.deepEqual(await world.entities.FedUserHost.filter({ user_id: ida.id }), [], "no site list is left for the deleted account");
+  // A lookup that fails isn't an absence: what was written stays.
+  const P = world.entities.Person;
+  const get = P.get.bind(P);
+  P.get = async () => {
+    throw Object.assign(new Error("Unavailable"), { status: 503 });
+  };
+  const nobody = "f".repeat(24);
+  try {
+    forgetMemo();
+    await fed.learnRoute(room, "Conversation", "alpha.test", nobody);
+  } finally {
+    P.get = get;
+  }
+  assert.equal((await world.entities.FedClaim.filter({ user_id: nobody })).length, 1, "kept when the check couldn't be made");
+  forgetMemo();
+});

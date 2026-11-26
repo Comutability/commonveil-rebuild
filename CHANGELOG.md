@@ -5,6 +5,13 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.26](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.26): Deleting an account leaves nothing behind about other sites
+
+_2026-11-26_
+
+- When you delete your account, the records of which other sites you use and which of their rooms you're in are now removed even if a request to one of those sites was still on its way back. Before, an answer arriving at the very moment of deletion could leave one such record behind. It named only the deleted account and routed nothing, but it shouldn't have been there.
+- If removing these records fails for another reason, the account is still deleted and the server's log says so, now for both passes.
+
 ## [0.24.25](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.25): Sites can no longer claim each other's servers
 
 _2026-11-26_
