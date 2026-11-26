@@ -58,7 +58,10 @@ test("the archive signs the ciphertext and opens with the matching secret", asyn
   assert.equal(opened.contacts[0].username, "bob");
   assert.deepEqual(opened.data, data);
   assert.equal(JSON.stringify(doc).includes("Only the owner should read this"), false);
-  assert.equal(JSON.stringify(doc).includes("Bob"), false);
+  // Look for the plaintext as it would appear, not three bare letters: random base64 ciphertext
+  // contains "Bob" by chance about once in every 25 archives of this size.
+  assert.equal(JSON.stringify(doc).includes('"display_name":"Bob"'), false);
+  assert.equal(JSON.stringify(doc).includes('\\"display_name\\":\\"Bob\\"'), false);
 });
 
 test("modifying signed contents, removing PQ signature or altering ciphertext is refused", async () => {
