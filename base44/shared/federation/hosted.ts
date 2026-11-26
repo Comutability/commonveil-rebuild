@@ -113,9 +113,25 @@ const HELD_TTL_MS = 600_000;
 const HELD_TABLES = ["Conversation", "Server", "Channel"];
 /** At most this many ids are learned from one answer (each new one costs a platform call). */
 const MAX_LEARNED = 200;
-/** At most this many claims from one site for one person (see #keepSiteClaimsBounded), and how many go at once past that: the same as a self-hosted site. */
-const MAX_SITE_CLAIMS = 2000;
-const EVICT_BATCH = 100;
+/**
+ * At most this many membership notices from one site in an hour, as on a self-hosted site (each
+ * running copy of the functions counts its own). Claims are never removed to make room: removing
+ * one could leave a rogue site's claim as the only one.
+ */
+export const NOTICES_PER_HOUR = 1000;
+const noticeCounts = new Map<string, { hour: number; n: number }>();
+/** Whether one more membership notice from this site is taken this hour. */
+export function noticeAllowed(host: string, now = Date.now()): boolean {
+  const hour = Math.floor(now / 3_600_000);
+  if (noticeCounts.size > 10_000) noticeCounts.clear();
+  const c = noticeCounts.get(host);
+  if (!c || c.hour !== hour) {
+    noticeCounts.set(host, { hour, n: 1 });
+    return true;
+  }
+  c.n += 1;
+  return c.n <= NOTICES_PER_HOUR;
+}
 /** Rows per read when reading everything. */
 const READ_PAGE = 2000;
 /** Say something about two sites at most once an hour: a site can't flood the log. */
@@ -672,7 +688,6 @@ export class HostedFederation {
           }
         }
         kept += 1;
-        if (!row) await this.#keepSiteClaimsBounded(userId, host);
         const before = resolveRoute(claims);
         const after = resolveRoute([...claims, { host, strength: weight }]);
         // Which sites, never what or whose: the admin can block the one that's wrong.
@@ -689,18 +704,6 @@ export class HostedFederation {
       this.log.warn?.("[federation] claim", err?.name || "Error");
     }
     return kept;
-  }
-
-  /**
-   * One site keeps at most MAX_SITE_CLAIMS claims for one person. Past that, that site's own
-   * oldest claims the person's app didn't name go: a site sending endless notices only pushes out
-   * its own. One small read when under the limit.
-   */
-  async #keepSiteClaimsBounded(userId: string, host: string) {
-    const past = await this.sr.entities.FedClaim.filter({ user_id: userId, host }, "created_date", 1, MAX_SITE_CLAIMS);
-    if (!past.length) return;
-    const old = await this.sr.entities.FedClaim.filter({ user_id: userId, host, strength: { $lt: CLAIM.explicit } }, "created_date", EVICT_BATCH);
-    for (const r of old) await this.sr.entities.FedClaim.delete(r.id).catch(() => {});
   }
 
   /** Remove every claim about something held here (they can only be wrong), and say which sites made them. */
@@ -987,6 +990,10 @@ export class HostedFederation {
     if (payload?.type === "membership") {
       const uid = String(payload.user_id || "");
       if (!ID24.test(uid) || !(await this.localAccount(uid))) return { ok: false };
+      if (!noticeAllowed(from)) {
+        warnOnce(this.log, "notices", from, this.host, () => `[federation] ${from} sent more than ${NOTICES_PER_HOUR} membership notices this hour; the rest are refused until the next.`);
+        return { ok: false, code: "TOO_MANY_NOTICES" };
+      }
       // Only a claim for that person, and a weak one: any site can send this notice.
       const id = String(payload.room?.id || "");
       const table = payload.room?.kind === "server" ? "Server" : "Conversation";

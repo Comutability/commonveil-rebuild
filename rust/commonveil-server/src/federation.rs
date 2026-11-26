@@ -244,10 +244,30 @@ pub fn migrate_routes(db: &rusqlite::Connection) -> rusqlite::Result<()> {
 /// At most this many ids are learned from one answer: what one answer says can't make unbounded
 /// work.
 const MAX_LEARNED: usize = 2000;
-/// At most this many claims from one site for one person (see keep_site_claims_bounded), and how
-/// many go at once past that.
-pub const MAX_SITE_CLAIMS: i64 = 2000;
-const EVICT_BATCH: i64 = 100;
+/// At most this many membership notices from one site in an hour (notice_allowed). A notice is the
+/// only way a site makes claims for someone without being asked, so this bounds how fast it can
+/// grow the claims table. Claims are never removed to make room: removing one could leave a rogue
+/// site's claim as the only one.
+pub const NOTICES_PER_HOUR: u32 = 1000;
+static NOTICE_COUNTS: std::sync::OnceLock<Mutex<HashMap<String, (i64, u32)>>> =
+    std::sync::OnceLock::new();
+/// Whether one more membership notice from this site is taken this hour.
+pub fn notice_allowed(host: &str, now: i64) -> bool {
+    let hour = now / 3_600_000;
+    let mut counts = NOTICE_COUNTS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if counts.len() > 10_000 {
+        counts.clear();
+    }
+    let c = counts.entry(host.to_string()).or_insert((hour, 0));
+    if c.0 != hour {
+        *c = (hour, 0);
+    }
+    c.1 += 1;
+    c.1 <= NOTICES_PER_HOUR
+}
 
 /// Say something about two sites at most once an hour: a site can't flood the log.
 fn warn_once(kind: &str, a: &str, b: &str, line: impl FnOnce() -> String) {
@@ -380,7 +400,6 @@ impl Federation {
                 db.execute_batch(
                     "CREATE TABLE IF NOT EXISTS fed_claims (user_id TEXT NOT NULL, id TEXT NOT NULL, host TEXT NOT NULL, strength INTEGER NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, id, host));
                      CREATE INDEX IF NOT EXISTS fed_claims_by_id ON fed_claims (id);
-                     CREATE INDEX IF NOT EXISTS fed_claims_by_site ON fed_claims (user_id, host, seen);
                      CREATE TABLE IF NOT EXISTS fed_user_hosts (user_id TEXT NOT NULL, host TEXT NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, host));
                      CREATE TABLE IF NOT EXISTS fed_shadows (user_id TEXT PRIMARY KEY, home TEXT NOT NULL, handle TEXT NOT NULL, digest TEXT NOT NULL DEFAULT '', updated INTEGER NOT NULL);
                      CREATE TABLE IF NOT EXISTS fed_notified (user_id TEXT NOT NULL, room TEXT NOT NULL, PRIMARY KEY (user_id, room));
@@ -462,30 +481,6 @@ impl Federation {
         }
         self.claim(user_id, id, host, strength, now);
     }
-    /// One site keeps at most MAX_SITE_CLAIMS claims for one person. Past that, that site's own
-    /// oldest claims the person's app didn't name go: a site sending endless notices only pushes
-    /// out its own.
-    fn keep_site_claims_bounded(&self, user_id: &str, host: &str) {
-        let n: i64 = self
-            .sql(|db| {
-                db.query_row(
-                    "SELECT COUNT(*) FROM fed_claims WHERE user_id = ? AND host = ?",
-                    [user_id, host],
-                    |r| r.get(0),
-                )
-            })
-            .unwrap_or(0);
-        if n > MAX_SITE_CLAIMS {
-            self.sql(|db| db.execute(&format!("DELETE FROM fed_claims WHERE rowid IN (SELECT rowid FROM fed_claims WHERE user_id = ? AND host = ? AND strength < {CLAIM_EXPLICIT} ORDER BY seen LIMIT ?)"), params![user_id, host, n - MAX_SITE_CLAIMS + EVICT_BATCH]));
-        }
-    }
-    /// An account here is deleted: forget which sites hold what for them, and which sites they use.
-    pub fn forget_person(&self, user_id: &str) {
-        self.sql(|db| {
-            db.execute("DELETE FROM fed_claims WHERE user_id = ?", [user_id])?;
-            db.execute("DELETE FROM fed_user_hosts WHERE user_id = ?", [user_id])
-        });
-    }
     /// Record a site's claim that it holds something, for one person. Never for something that's here.
     fn claim(&self, user_id: &str, id: &str, host: &str, strength: i64, now: i64) {
         if !id24(id) || host == self.host || self.app().store.has(id) {
@@ -498,7 +493,6 @@ impl Federation {
         }
         let before = self.route_of(user_id, id);
         self.sql(|db| db.execute("INSERT INTO fed_claims (user_id, id, host, strength, seen) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, id, host) DO UPDATE SET strength = MAX(strength, excluded.strength), seen = excluded.seen", params![user_id, id, host, strength, now]));
-        self.keep_site_claims_bounded(user_id, host);
         // Which sites, never what or whose: the admin can block the one that's wrong.
         let claims = self.claims_of(user_id, id);
         match resolve_route(&claims) {
@@ -1708,6 +1702,12 @@ impl Federation {
                 {
                     return Ok(json!({ "ok": false }));
                 }
+                if !notice_allowed(from, now_ms()) {
+                    warn_once("notices", from, &self.host, || {
+                        format!("[federation] {from} sent more than {NOTICES_PER_HOUR} membership notices this hour; the rest are refused until the next.")
+                    });
+                    return Ok(json!({ "ok": false, "code": "TOO_MANY_NOTICES" }));
+                }
                 // Only a claim for that person, and a weak one: any site can send this notice.
                 let room_id = str_of(payload["room"].get("id"));
                 if id24(&room_id) {
@@ -2741,5 +2741,22 @@ mod tests {
             format!("/api/fed/files/b.test/{name}?exp=123&sig=ab_-")
         );
         assert_eq!(v["other"], "x");
+    }
+
+    #[test]
+    fn one_sites_membership_notices_are_capped_per_hour() {
+        let hour = 1_000 * 3_600_000;
+        for _ in 0..NOTICES_PER_HOUR {
+            assert!(notice_allowed("flood-rs.test", hour));
+        }
+        assert!(!notice_allowed("flood-rs.test", hour));
+        assert!(
+            notice_allowed("other-rs.test", hour),
+            "other sites are counted apart"
+        );
+        assert!(
+            notice_allowed("flood-rs.test", hour + 3_600_000),
+            "the next hour starts again"
+        );
     }
 }

@@ -255,9 +255,11 @@ person, weighed by how it was learned, never as a fact for everyone:
   and realtime rooms, never route by chosen claims.
 - **Only the top of a request names a place.** A named claim covers the conversation, server or
   channel ids at the top level of the request and of its signed payload, never ids nested deeper.
-- **One site keeps at most 2000 claims for one person.** Past that, that site's own oldest claims
-  the person's app didn't name go first, so a site sending endless notices only pushes out its
-  own claims.
+- **One site's membership notices are capped at 1000 an hour.** A notice is the only way a site
+  makes claims for someone without being asked; past the cap its notices are refused
+  (`TOO_MANY_NOTICES`) until the next hour, and the log names it. Claims are never removed to make
+  room, since removing one could leave a rogue site's claim as the only one. On the hosted site
+  each running copy of the functions counts on its own.
 - **No claim counts for an id this site holds**, whatever kind of room the claim says it is. A
   request naming things held here, and otherwise only disputed ids, runs here. The hosted site
   also deletes any claim it finds about something it holds.

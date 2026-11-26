@@ -9,8 +9,8 @@ import { DatabaseSync } from "node:sqlite";
 import { startSites } from "./support/selfhost.mjs";
 import { Person } from "./support/person.mjs";
 import { prepareGeneration } from "../src/lib/secure/serverProtocol.js";
-import { CLAIM, forgetWarnings, migrateRoutes, namedClaimStrength, resolveRoute } from "../server/federation/index.mjs";
-import { CLAIM as HOSTED_CLAIM, namedClaimStrength as hostedNamedClaimStrength, resolveRoute as hostedResolveRoute } from "../base44/shared/federation/hosted.ts";
+import { CLAIM, NOTICES_PER_HOUR, forgetNoticeCounts, forgetWarnings, migrateRoutes, namedClaimStrength, noticeAllowed, resolveRoute } from "../server/federation/index.mjs";
+import { CLAIM as HOSTED_CLAIM, namedClaimStrength as hostedNamedClaimStrength, noticeAllowed as hostedNoticeAllowed, resolveRoute as hostedResolveRoute } from "../base44/shared/federation/hosted.ts";
 import { functionTable } from "../server/functions.mjs";
 
 const vectors = JSON.parse(fs.readFileSync(new URL("./vectors/route-claims.json", import.meta.url), "utf8"));
@@ -295,7 +295,7 @@ test("a site answering a join can't take over a server someone already has", asy
   assert.doesNotMatch(said, /[0-9a-f]{24}/);
 });
 
-test("a site can't steer a chosen id by notice, fill the claims table, or keep claims after an account is deleted", async () => {
+test("a site can't steer a chosen id by notice, push out an honest claim, flood notices, or keep claims after an account is deleted", async () => {
   const una = await new Person(home, "una").setup();
   const db = home.app.store.db;
   const fed = home.app.federation;
@@ -309,18 +309,31 @@ test("a site can't steer a chosen id by notice, fill the claims table, or keep c
   await una.call("events", { action: "shared_event", event_id: event });
   assert.equal(sentTo(targets, "events", "shared_event"), undefined, "the event request stayed here");
 
-  // One site keeps at most MAX_SITE_CLAIMS claims for one person; past that its own oldest heard
-  // claims go, never what the person's app named.
-  const { MAX_SITE_CLAIMS } = await import("../server/federation/index.mjs");
-  const named = "a".repeat(23) + "1";
-  db.prepare("INSERT INTO fed_claims (user_id, id, host, strength, seen) VALUES (?, ?, 'rogue.test', ?, 0)").run(una.id, named, CLAIM.explicit);
-  const put = db.prepare("INSERT OR IGNORE INTO fed_claims (user_id, id, host, strength, seen) VALUES (?, ?, 'rogue.test', ?, ?)");
-  for (let i = 0; i < MAX_SITE_CLAIMS; i++) put.run(una.id, i.toString(16).padStart(24, "b"), CLAIM.implicit, i + 1);
-  assert.equal((await notice(una, "conversation", "c".repeat(24))).status, 200);
-  const count = () => Number(db.prepare("SELECT COUNT(*) AS n FROM fed_claims WHERE user_id = ? AND host = 'rogue.test'").get(una.id).n);
-  assert.ok(count() <= MAX_SITE_CLAIMS, `kept ${count()}`);
-  assert.ok(db.prepare("SELECT 1 FROM fed_claims WHERE user_id = ? AND id = ?").get(una.id, named), "the named claim stays");
-  assert.ok(db.prepare("SELECT 1 FROM fed_claims WHERE user_id = ? AND id = ?").get(una.id, "c".repeat(24)), "the newest claim stays");
+  // Lots of claims from an honest site never push out its older ones, so a rogue notice about an
+  // old room can't become the only claim (independent review, round 3).
+  const room = "c".repeat(24);
+  const put = db.prepare("INSERT OR IGNORE INTO fed_claims (user_id, id, host, strength, seen) VALUES (?, ?, 'real.test', ?, ?)");
+  put.run(una.id, room, CLAIM.implicit, 1);
+  for (let i = 0; i < 2500; i++) put.run(una.id, i.toString(16).padStart(24, "b"), CLAIM.implicit, i + 2);
+  assert.equal(fed.routeOf(una.id, room).route, "real.test");
+  // One more claim from real.test itself (here a notice), then rogue.test's notice about the old room.
+  const fromReal = await real.app.federation.signer.send("home.test", "inbox", { type: "membership", user_id: una.id, room: { kind: "conversation", id: "d".repeat(24) }, joined: true });
+  assert.equal(fromReal.status, 200);
+  assert.ok(db.prepare("SELECT 1 FROM fed_claims WHERE user_id = ? AND id = ? AND host = 'real.test'").get(una.id, room), "real.test's old claim stays");
+  assert.equal((await notice(una, "conversation", room)).status, 200);
+  assert.equal(fed.routeOf(una.id, room).route, null, "a dispute at worst, never rogue.test");
+  assert.deepEqual(fed.routeOf(una.id, room).disputed, ["real.test", "rogue.test"]);
+
+  // One site's membership notices are capped per hour.
+  forgetNoticeCounts();
+  const hour = 1_000 * 3_600_000;
+  for (let i = 0; i < NOTICES_PER_HOUR; i++) assert.ok(noticeAllowed("flood.test", hour));
+  assert.equal(noticeAllowed("flood.test", hour), false);
+  assert.ok(noticeAllowed("other.test", hour), "other sites are counted apart");
+  assert.ok(noticeAllowed("flood.test", hour + 3_600_000), "and the next hour starts again");
+  assert.ok(hostedNoticeAllowed("flood.test", hour));
+  forgetNoticeCounts();
+  const count = () => Number(db.prepare("SELECT COUNT(*) AS n FROM fed_claims WHERE user_id = ?").get(una.id).n);
 
   // Deleting the account forgets their claims and the sites they use.
   db.prepare("INSERT OR IGNORE INTO fed_user_hosts (user_id, host, seen) VALUES (?, 'rogue.test', 1)").run(una.id);

@@ -116,9 +116,30 @@ export function migrateRoutes(db) {
 
 /** At most this many ids are learned from one answer: what one answer says can't make unbounded work. */
 const MAX_LEARNED = 2000;
-/** At most this many claims from one site for one person (see #keepSiteClaimsBounded), and how many go at once past that. */
-export const MAX_SITE_CLAIMS = 2000;
-const EVICT_BATCH = 100;
+/**
+ * At most this many membership notices from one site in an hour (noticeAllowed). A notice is the
+ * only way a site makes claims for someone without being asked, so this bounds how fast it can
+ * grow the claims table. Claims are never removed to make room: removing one could leave a rogue
+ * site's claim as the only one.
+ */
+export const NOTICES_PER_HOUR = 1000;
+const noticeCounts = new Map();
+/** Whether one more membership notice from this site is taken this hour. */
+export function noticeAllowed(host, now = Date.now()) {
+  const hour = Math.floor(now / 3_600_000);
+  if (noticeCounts.size > 10_000) noticeCounts.clear();
+  const c = noticeCounts.get(host);
+  if (!c || c.hour !== hour) {
+    noticeCounts.set(host, { hour, n: 1 });
+    return true;
+  }
+  c.n += 1;
+  return c.n <= NOTICES_PER_HOUR;
+}
+/** For tests: forget the counts. */
+export function forgetNoticeCounts() {
+  noticeCounts.clear();
+}
 
 /** Say something about two sites at most once an hour: a site can't flood the log. */
 const warned = new Map();
@@ -164,7 +185,6 @@ export class Federation {
     const db = store.db;
     db.exec(`CREATE TABLE IF NOT EXISTS fed_claims (user_id TEXT NOT NULL, id TEXT NOT NULL, host TEXT NOT NULL, strength INTEGER NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, id, host))`);
     db.exec(`CREATE INDEX IF NOT EXISTS fed_claims_by_id ON fed_claims (id)`);
-    db.exec(`CREATE INDEX IF NOT EXISTS fed_claims_by_site ON fed_claims (user_id, host, seen)`);
     migrateRoutes(db);
     db.exec(`CREATE TABLE IF NOT EXISTS fed_user_hosts (user_id TEXT NOT NULL, host TEXT NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, host))`);
     db.exec(`CREATE TABLE IF NOT EXISTS fed_shadows (user_id TEXT PRIMARY KEY, home TEXT NOT NULL, handle TEXT NOT NULL, digest TEXT NOT NULL DEFAULT '', updated INTEGER NOT NULL)`);
@@ -176,8 +196,6 @@ export class Federation {
       claims: db.prepare("SELECT c.host AS host, MAX(c.strength) AS strength FROM fed_claims c LEFT JOIN fed_sites s ON s.host = c.host WHERE c.id = ? AND c.user_id IN (?, '*') AND COALESCE(s.blocked, 0) = 0 GROUP BY c.host"),
       sameClaim: db.prepare("UPDATE fed_claims SET seen = ? WHERE user_id = ? AND id = ? AND host = ? AND strength >= ?"),
       putClaim: db.prepare("INSERT INTO fed_claims (user_id, id, host, strength, seen) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, id, host) DO UPDATE SET strength = MAX(strength, excluded.strength), seen = excluded.seen"),
-      siteClaims: db.prepare("SELECT COUNT(*) AS n FROM fed_claims WHERE user_id = ? AND host = ?"),
-      evictClaims: db.prepare(`DELETE FROM fed_claims WHERE rowid IN (SELECT rowid FROM fed_claims WHERE user_id = ? AND host = ? AND strength < ${CLAIM.explicit} ORDER BY seen LIMIT ?)`),
       forgetPerson: db.prepare("DELETE FROM fed_claims WHERE user_id = ?"),
       forgetPersonHosts: db.prepare("DELETE FROM fed_user_hosts WHERE user_id = ?"),
       hostsOf: db.prepare("SELECT host FROM fed_user_hosts WHERE user_id = ?"),
@@ -482,7 +500,6 @@ export class Federation {
     if (this.q.sameClaim.run(now, userId, id, host, strength).changes > 0) return;
     const before = this.routeOf(userId, id);
     this.q.putClaim.run(userId, id, host, strength, now);
-    this.#keepSiteClaimsBounded(userId, host);
     // Which sites, never what or whose: the admin can block the one that's wrong.
     const claims = this.#claimsOf(userId, id);
     const after = resolveRoute(claims);
@@ -493,15 +510,6 @@ export class Federation {
       // A route from before 0.24.25 outweighs what this site says: it could be one a site took over then, so say so.
       warnOnce(this.log, "older", after.route, host, () => `[federation] ${after.route} (a route from before 0.24.25) and ${host} each claim to hold the same thing; the older route is used. Block whichever is wrong.`);
     }
-  }
-
-  /**
-   * One site keeps at most MAX_SITE_CLAIMS claims for one person. Past that, that site's own oldest
-   * claims the person's app didn't name go: a site sending endless notices only pushes out its own.
-   */
-  #keepSiteClaimsBounded(userId, host) {
-    const n = Number(this.q.siteClaims.get(userId, host).n);
-    if (n > MAX_SITE_CLAIMS) this.q.evictClaims.run(userId, host, n - MAX_SITE_CLAIMS + EVICT_BATCH);
   }
 
   /** An account here is deleted: forget which sites hold what for them, and which sites they use. */
@@ -781,6 +789,10 @@ export class Federation {
     if (payload?.type === "membership") {
       const uid = String(payload.user_id || "");
       if (!ID24.test(uid) || !["User", "Person"].includes(this.store.tableOf(uid)) || this.q.shadow.get(uid)) return { ok: false };
+      if (!noticeAllowed(from)) {
+        warnOnce(this.log, "notices", from, this.host, () => `[federation] ${from} sent more than ${NOTICES_PER_HOUR} membership notices this hour; the rest are refused until the next.`);
+        return { ok: false, code: "TOO_MANY_NOTICES" };
+      }
       // Only a claim for that person, and a weak one: any site can send this notice.
       const id = String(payload.room?.id || "");
       if (ID24.test(id)) this.#claim(uid, id, from, CLAIM.implicit);

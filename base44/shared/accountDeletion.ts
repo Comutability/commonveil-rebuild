@@ -170,7 +170,7 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
  */
 async function removeFederationTraces(sr: any, userId: string) {
   for (const table of ["FedClaim", "FedUserHost"]) {
-    for (let round = 0; round < 50; round++) {
+    for (;;) {
       const rows = await sr.entities[table]?.filter({ user_id: userId }, "created_date", 200).catch(() => []);
       if (!rows?.length) break;
       for (const r of rows) await sr.entities[table].delete(r.id).catch(() => {});
