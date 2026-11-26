@@ -10,7 +10,7 @@ import { Person } from "./support/person.mjs";
 import { FakeWorld, Member, FUNCTIONS, addFunctions, signed } from "./support/harness.mjs";
 import { ml_kem768 } from "@noble/post-quantum/ml-kem.js";
 import { ml_dsa65 } from "@noble/post-quantum/ml-dsa.js";
-import { HostedFederation, forgetMemo, useRelayLibrary } from "../base44/shared/federation/hosted.ts";
+import { HostedFederation, forgetMemo, readCapped, useRelayLibrary } from "../base44/shared/federation/hosted.ts";
 import { serveFederation } from "../base44/shared/federation/inbound.ts";
 import { serve } from "../base44/shared/http.ts";
 import { SITE, HOSTED_ENDPOINTS, siteDocument } from "../base44/shared/federation/site.ts";
@@ -167,3 +167,23 @@ test("every function on the hosted site goes through the relay, and trouble ther
   assert.equal(await fed.learnRoute(dm.id, "Conversation", "alpha.test"), false);
   assert.ok(lee.id);
 });
+
+test("a reply is counted as it arrives and cut off at the limit, whatever its length header says", async () => {
+  let sent = 0;
+  let cancelled = false;
+  const endless = new ReadableStream({
+    pull(controller) {
+      sent += 1;
+      controller.enqueue(new Uint8Array(1024 * 1024));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  assert.equal(await readCapped(new Response(endless), 3 * 1024 * 1024), null, "too much");
+  assert.ok(cancelled, "the rest isn't read");
+  assert.ok(sent <= 6, `stopped after ${sent} chunks`);
+  const small = await readCapped(new Response(JSON.stringify({ ok: true })), 1024);
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(small)), { ok: true });
+});
+

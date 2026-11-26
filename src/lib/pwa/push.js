@@ -19,6 +19,13 @@ let alertChoice = null;
 let alertsSaid = "";
 let alertsTimer = null;
 const ALERTS_SETTLE_MS = 1500;
+// One alerts request at a time; a choice made while one is on its way goes after it.
+let alertsSending = false;
+let alertsAgain = false;
+let alertsRetry = false;
+const ALERTS_RETRY_MS = 60_000;
+// Each mirror call's turn: an older one finishing late mustn't overwrite a newer one's work.
+let mirrorTurn = 0;
 
 export const pushSupported = supported;
 
@@ -68,6 +75,22 @@ async function tellServer(sub) {
  * applies each channel's own setting to what arrives (public/sw.js).
  */
 async function sayAlerts() {
+  if (alertsSending) {
+    alertsAgain = true;
+    return;
+  }
+  alertsSending = true;
+  try {
+    do {
+      alertsAgain = false;
+      await sayAlertsOnce();
+    } while (alertsAgain);
+  } finally {
+    alertsSending = false;
+  }
+}
+
+async function sayAlertsOnce() {
   if (!alertChoice || !supported()) return;
   const reg = await navigator.serviceWorker.getRegistration("/").catch(() => null);
   const sub = await reg?.pushManager.getSubscription().catch(() => null);
@@ -76,8 +99,27 @@ async function sayAlerts() {
   const choice = alertChoice;
   const said = JSON.stringify({ endpoint: sub.endpoint, ...choice });
   if (said === alertsSaid) return;
-  await callFn("notifications", { action: "alerts", endpoint: sub.endpoint, all: choice.all, mentions: choice.mentions });
-  alertsSaid = said;
+  try {
+    await callFn("notifications", { action: "alerts", endpoint: sub.endpoint, all: choice.all, mentions: choice.mentions });
+    alertsSaid = said;
+  } catch (err) {
+    // Offline, or the site was busy: say it again once the connection is back, or in a minute.
+    // A refusal (an unregistered browser, a bad list) waits for the next change instead.
+    const status = Number(err?.status) || 0;
+    if (status === 0 || status === 429 || status >= 500) retryAlerts();
+    throw err;
+  }
+}
+
+function retryAlerts() {
+  if (alertsRetry || typeof window === "undefined") return;
+  alertsRetry = true;
+  const again = () => {
+    alertsRetry = false;
+    sayAlerts().catch(() => {});
+  };
+  if (navigator.onLine === false) window.addEventListener("online", again, { once: true });
+  else setTimeout(again, ALERTS_RETRY_MS);
 }
 
 /** Whether this browser is subscribed now. */
@@ -233,10 +275,13 @@ export function mirrorPushPrefs(alerts) {
  */
 export async function mirrorServerPushPrefs(servers, prefs, loaded = false) {
   if (!supported() || !crypto?.subtle) return;
+  const turn = ++mirrorTurn;
   const secret = muteSecret();
   const { channels, all, mentions } = pushLevelsFor(servers, prefs);
   const pushLevels = {};
   for (const c of channels) pushLevels[await muteToken(secret, c.id)] = c.level;
+  // A newer call started while this one worked: its answer is the one that counts.
+  if (turn !== mirrorTurn) return;
   writeWorkerPrefs({ pushLevels });
   if (!loaded) return;
   // A server list still filling in changes this several times in a row: say only where it settles.

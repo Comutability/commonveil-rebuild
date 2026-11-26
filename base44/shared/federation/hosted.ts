@@ -45,6 +45,34 @@ const ID24 = /^[a-f0-9]{24}$/;
 const HANDLE_RE = /^[a-z0-9][a-z0-9-]{1,19}(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
 const SHADOW_FIELDS = ["display_name", "bio", "pronouns", "accent_color", "avatar_emoji", "avatar_image"];
 const MAX_REPLY = 10 * 1024 * 1024;
+
+/** A reply's bytes, or null once they pass `max` (the rest isn't read). */
+export async function readCapped(res: Response, max: number): Promise<Uint8Array | null> {
+  if (!res.body?.getReader) {
+    const buf = new Uint8Array(await res.arrayBuffer());
+    return buf.length <= max ? buf : null;
+  }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out;
+}
 const DOC_TTL_MS = 5 * 60_000;
 /** The things a request can be about that live on one site, and the table each is in here. */
 const ROOM_KEYS: Record<string, string> = { conversation_id: "Conversation", server_id: "Server", channel_id: "Channel" };
@@ -155,8 +183,11 @@ export class HostedFederation {
     // trusted: federation must never allow a site to redirect a signed request elsewhere.
     if (res.type === "opaqueredirect" || res.redirected || (res.status >= 300 && res.status < 400)) throw new FederationError(502, "SITE_REDIRECT", `${host} redirected a signed federation request.`);
     if (Number(res.headers.get("content-length") || 0) > MAX_REPLY) throw new FederationError(502, "SITE_ERROR", `${host} sent too much.`);
-    const text = await res.text();
-    if (text.length > MAX_REPLY) throw new FederationError(502, "SITE_ERROR", `${host} sent too much.`);
+    // Counted as it arrives and cut off at the limit, whatever the length header said, as the
+    // self-hosted servers do (CV-17): a site can't make this function hold a reply of any size.
+    const raw = await readCapped(res, MAX_REPLY);
+    if (!raw) throw new FederationError(502, "SITE_ERROR", `${host} sent too much.`);
+    const text = new TextDecoder().decode(raw);
     let data: any = null;
     try {
       data = JSON.parse(text);
