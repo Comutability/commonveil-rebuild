@@ -294,3 +294,38 @@ test("a site answering a join can't take over a server someone already has", asy
   assert.match(said, /rogue\.test answered as the home of something real\.test already holds/);
   assert.doesNotMatch(said, /[0-9a-f]{24}/);
 });
+
+test("a site can't steer a chosen id by notice, fill the claims table, or keep claims after an account is deleted", async () => {
+  const una = await new Person(home, "una").setup();
+  const db = home.app.store.db;
+  const fed = home.app.federation;
+  const targets = watchTargets(home);
+  const notice = (who, kind, id) => rogue.app.federation.signer.send("home.test", "inbox", { type: "membership", user_id: who.id, room: { kind, id }, joined: true });
+
+  // A notice is a heard claim. A request that names only an id an app chooses (an event here)
+  // routes only by chosen claims, so the notice can't send it to rogue.test.
+  const event = "e".repeat(24);
+  assert.equal((await notice(una, "conversation", event)).status, 200);
+  await una.call("events", { action: "shared_event", event_id: event });
+  assert.equal(sentTo(targets, "events", "shared_event"), undefined, "the event request stayed here");
+
+  // One site keeps at most MAX_SITE_CLAIMS claims for one person; past that its own oldest heard
+  // claims go, never what the person's app named.
+  const { MAX_SITE_CLAIMS } = await import("../server/federation/index.mjs");
+  const named = "a".repeat(23) + "1";
+  db.prepare("INSERT INTO fed_claims (user_id, id, host, strength, seen) VALUES (?, ?, 'rogue.test', ?, 0)").run(una.id, named, CLAIM.explicit);
+  const put = db.prepare("INSERT OR IGNORE INTO fed_claims (user_id, id, host, strength, seen) VALUES (?, ?, 'rogue.test', ?, ?)");
+  for (let i = 0; i < MAX_SITE_CLAIMS; i++) put.run(una.id, i.toString(16).padStart(24, "b"), CLAIM.implicit, i + 1);
+  assert.equal((await notice(una, "conversation", "c".repeat(24))).status, 200);
+  const count = () => Number(db.prepare("SELECT COUNT(*) AS n FROM fed_claims WHERE user_id = ? AND host = 'rogue.test'").get(una.id).n);
+  assert.ok(count() <= MAX_SITE_CLAIMS, `kept ${count()}`);
+  assert.ok(db.prepare("SELECT 1 FROM fed_claims WHERE user_id = ? AND id = ?").get(una.id, named), "the named claim stays");
+  assert.ok(db.prepare("SELECT 1 FROM fed_claims WHERE user_id = ? AND id = ?").get(una.id, "c".repeat(24)), "the newest claim stays");
+
+  // Deleting the account forgets their claims and the sites they use.
+  db.prepare("INSERT OR IGNORE INTO fed_user_hosts (user_id, host, seen) VALUES (?, 'rogue.test', 1)").run(una.id);
+  const table = (await home.app.store.entities.Person.get(una.id).catch(() => null)) ? "Person" : "User";
+  await home.app.store.entities[table].delete(una.id);
+  assert.equal(count(), 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM fed_user_hosts WHERE user_id = ?").get(una.id).n, 0);
+});

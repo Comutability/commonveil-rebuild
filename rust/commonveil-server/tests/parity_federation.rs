@@ -1496,6 +1496,17 @@ fn routes_script(net: &mut Net, kits: &[Kit]) -> Vec<Value> {
         json!({ "action": "unblock", "host": "rogue.test" }),
     );
     net.call(home, "messages", "disputed again", uma, list);
+
+    // ----- a notice can't steer an id an app chooses -----
+    let event = "e".repeat(24);
+    forge(net, "claims an event", uma, "conversation", &event);
+    net.call(
+        home,
+        "events",
+        "uma looks up the event rogue claimed",
+        uma,
+        json!({ "action": "shared_event", "event_id": event }),
+    );
     std::mem::take(&mut net.log)
 }
 
@@ -1555,6 +1566,11 @@ fn a_site_cant_claim_what_it_doesnt_host_on_either_server() {
             "{step} goes to rogue.test, which doesn't hold real's server"
         );
     }
+    assert_eq!(
+        at("home.test: uma looks up the event rogue claimed")["reply"]["code"],
+        json!("NOT_FOUND"),
+        "the event request is answered here, not sent to rogue.test"
+    );
     assert_eq!(
         at("home.test: zoe's claim for rory's server")["reply"]["strength"],
         json!(1),

@@ -165,6 +165,20 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
 }
 
 /**
+ * Forget which other sites hold what for this person (FedClaim) and which sites they use
+ * (FedUserHost). A self-hosted site keeps these in its own tables and forgets them the same way.
+ */
+async function removeFederationTraces(sr: any, userId: string) {
+  for (const table of ["FedClaim", "FedUserHost"]) {
+    for (let round = 0; round < 50; round++) {
+      const rows = await sr.entities[table]?.filter({ user_id: userId }, "created_date", 200).catch(() => []);
+      if (!rows?.length) break;
+      for (const r of rows) await sr.entities[table].delete(r.id).catch(() => {});
+    }
+  }
+}
+
+/**
  * Remove the member's sign-in: their Commonveil sign-in records, and their account record (a
  * Person, or a Base44 user for accounts made with an email). Base44 keeps removed users in its own
  * bin for 30 days before erasing them, and never lets an app remove its owner.
@@ -172,6 +186,7 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
 export async function removePlatformUser(sr: any, userId: string): Promise<boolean> {
   await removeSignIn(sr, userId);
   await removePush(sr, userId);
+  await removeFederationTraces(sr, userId);
   const person = await sr.entities.Person.get(userId).catch(() => null);
   try {
     if (person) await sr.entities.Person.delete(userId);

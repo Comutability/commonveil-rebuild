@@ -78,23 +78,25 @@ function idsNamed(v, key, depth, maxDepth, perList, out) {
   return out;
 }
 
-/** The places a request names (PLACE_KEYS), in its body and in its signed payload. */
+/**
+ * The places a request names (PLACE_KEYS) at the top level of its body and of its signed payload.
+ * Only the top level: an id nested deeper is data, not the place the request is about, and the
+ * hosted site looks no deeper either.
+ */
 function placesNamed(body) {
   const out = new Set();
-  const go = (v, key, depth) => {
-    if (depth > 6 || v === null || v === undefined) return;
-    if (typeof v === "string") {
-      if (PLACE_KEYS.has(key) && ID24.test(v)) out.add(v);
-    } else if (Array.isArray(v)) {
-      for (const x of v.slice(0, 500)) go(x, key, depth + 1);
-    } else if (typeof v === "object") {
-      for (const [k, x] of Object.entries(v)) go(x, k, depth + 1);
+  const take = (o) => {
+    if (!o || typeof o !== "object" || Array.isArray(o)) return;
+    for (const [k, v] of Object.entries(o)) {
+      if (!PLACE_KEYS.has(k)) continue;
+      if (typeof v === "string" && ID24.test(v)) out.add(v);
+      else if (Array.isArray(v)) for (const x of v.slice(0, 500)) if (typeof x === "string" && ID24.test(x)) out.add(x);
     }
   };
-  go(body, "", 0);
+  take(body);
   if (typeof body.payload === "string") {
     try {
-      go(JSON.parse(body.payload), "", 0);
+      take(JSON.parse(body.payload));
     } catch {
       // not JSON: nothing named in it
     }
@@ -112,8 +114,11 @@ export function migrateRoutes(db) {
   db.exec(`INSERT OR IGNORE INTO fed_claims (user_id, id, host, strength, seen) SELECT '*', id, host, ${CLAIM.legacy}, seen FROM fed_routes`);
 }
 
-/** At most this many ids are learned from one answer: what a site says can't grow the claims table, or the work per answer, without bound. */
+/** At most this many ids are learned from one answer: what one answer says can't make unbounded work. */
 const MAX_LEARNED = 2000;
+/** At most this many claims from one site for one person (see #keepSiteClaimsBounded), and how many go at once past that. */
+export const MAX_SITE_CLAIMS = 2000;
+const EVICT_BATCH = 100;
 
 /** Say something about two sites at most once an hour: a site can't flood the log. */
 const warned = new Map();
@@ -159,6 +164,7 @@ export class Federation {
     const db = store.db;
     db.exec(`CREATE TABLE IF NOT EXISTS fed_claims (user_id TEXT NOT NULL, id TEXT NOT NULL, host TEXT NOT NULL, strength INTEGER NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, id, host))`);
     db.exec(`CREATE INDEX IF NOT EXISTS fed_claims_by_id ON fed_claims (id)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS fed_claims_by_site ON fed_claims (user_id, host, seen)`);
     migrateRoutes(db);
     db.exec(`CREATE TABLE IF NOT EXISTS fed_user_hosts (user_id TEXT NOT NULL, host TEXT NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, host))`);
     db.exec(`CREATE TABLE IF NOT EXISTS fed_shadows (user_id TEXT PRIMARY KEY, home TEXT NOT NULL, handle TEXT NOT NULL, digest TEXT NOT NULL DEFAULT '', updated INTEGER NOT NULL)`);
@@ -170,6 +176,10 @@ export class Federation {
       claims: db.prepare("SELECT c.host AS host, MAX(c.strength) AS strength FROM fed_claims c LEFT JOIN fed_sites s ON s.host = c.host WHERE c.id = ? AND c.user_id IN (?, '*') AND COALESCE(s.blocked, 0) = 0 GROUP BY c.host"),
       sameClaim: db.prepare("UPDATE fed_claims SET seen = ? WHERE user_id = ? AND id = ? AND host = ? AND strength >= ?"),
       putClaim: db.prepare("INSERT INTO fed_claims (user_id, id, host, strength, seen) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, id, host) DO UPDATE SET strength = MAX(strength, excluded.strength), seen = excluded.seen"),
+      siteClaims: db.prepare("SELECT COUNT(*) AS n FROM fed_claims WHERE user_id = ? AND host = ?"),
+      evictClaims: db.prepare(`DELETE FROM fed_claims WHERE rowid IN (SELECT rowid FROM fed_claims WHERE user_id = ? AND host = ? AND strength < ${CLAIM.explicit} ORDER BY seen LIMIT ?)`),
+      forgetPerson: db.prepare("DELETE FROM fed_claims WHERE user_id = ?"),
+      forgetPersonHosts: db.prepare("DELETE FROM fed_user_hosts WHERE user_id = ?"),
       hostsOf: db.prepare("SELECT host FROM fed_user_hosts WHERE user_id = ?"),
       putHost: db.prepare("INSERT INTO fed_user_hosts (user_id, host, seen) VALUES (?, ?, ?) ON CONFLICT(user_id, host) DO UPDATE SET seen = excluded.seen"),
       dropHost: db.prepare("DELETE FROM fed_user_hosts WHERE user_id = ? AND host = ?"),
@@ -194,6 +204,8 @@ export class Federation {
     const prevRemove = store.onRemove;
     store.onRemove = (entity, id, row) => {
       prevRemove?.(entity, id, row);
+      // An account here is deleted (accountDeletion.ts removes its Person or User last).
+      if ((entity === "Person" || entity === "User") && !this.q.shadow.get(id)) this.forgetPerson(id);
       if (this.enabled && entity === "Block" && row && !this.q.shadow.get(row.user_id)) this.blockChanged(row.user_id, row.blocked_user_id, false);
     };
     this.timers = new Map();
@@ -450,6 +462,15 @@ export class Federation {
     return resolveRoute(this.#claimsOf(userId, id));
   }
 
+  /**
+   * The route a request takes for one id. A chosen id (CHOSEN_KEYS) routes only by chosen claims,
+   * and anything else only by heard claims or stronger: a notice can't steer a chosen id, and a
+   * chosen id in an answer never steers a request about a place or a room.
+   */
+  #routeFor(userId, id, chosen) {
+    return resolveRoute(this.#claimsOf(userId, id).filter((c) => (chosen ? c.strength === CLAIM.chosen : c.strength >= CLAIM.implicit)));
+  }
+
   #claimsOf(userId, id) {
     return this.q.claims.all(id, userId).map((r) => ({ host: r.host, strength: Number(r.strength) }));
   }
@@ -461,6 +482,7 @@ export class Federation {
     if (this.q.sameClaim.run(now, userId, id, host, strength).changes > 0) return;
     const before = this.routeOf(userId, id);
     this.q.putClaim.run(userId, id, host, strength, now);
+    this.#keepSiteClaimsBounded(userId, host);
     // Which sites, never what or whose: the admin can block the one that's wrong.
     const claims = this.#claimsOf(userId, id);
     const after = resolveRoute(claims);
@@ -471,6 +493,21 @@ export class Federation {
       // A route from before 0.24.25 outweighs what this site says: it could be one a site took over then, so say so.
       warnOnce(this.log, "older", after.route, host, () => `[federation] ${after.route} (a route from before 0.24.25) and ${host} each claim to hold the same thing; the older route is used. Block whichever is wrong.`);
     }
+  }
+
+  /**
+   * One site keeps at most MAX_SITE_CLAIMS claims for one person. Past that, that site's own oldest
+   * claims the person's app didn't name go: a site sending endless notices only pushes out its own.
+   */
+  #keepSiteClaimsBounded(userId, host) {
+    const n = Number(this.q.siteClaims.get(userId, host).n);
+    if (n > MAX_SITE_CLAIMS) this.q.evictClaims.run(userId, host, n - MAX_SITE_CLAIMS + EVICT_BATCH);
+  }
+
+  /** An account here is deleted: forget which sites hold what for them, and which sites they use. */
+  forgetPerson(userId) {
+    this.q.forgetPerson.run(userId);
+    this.q.forgetPersonHosts.run(userId);
   }
 
   /** A claim from a site the person's app named: see namedClaimStrength. */
@@ -523,7 +560,7 @@ export class Federation {
           here = true;
           continue;
         }
-        const r = this.routeOf(user.id, id);
+        const r = this.#routeFor(user.id, id, chosen);
         if (r.route) hosts.add(r.route);
         else if (r.disputed.length) {
           disputed = true;
@@ -958,7 +995,7 @@ export class Federation {
     for (const part of String(roomId).split(".")) {
       if (!ID24.test(part)) continue;
       if (this.store.has(part)) return null;
-      const r = this.routeOf(userId, part);
+      const r = this.#routeFor(userId, part, false);
       if (r.route) return r.route;
       if (r.disputed.length) return null;
     }

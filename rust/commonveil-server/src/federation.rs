@@ -241,9 +241,13 @@ pub fn migrate_routes(db: &rusqlite::Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-/// At most this many ids are learned from one answer: what a site says can't grow the claims
-/// table, or the work per answer, without bound.
+/// At most this many ids are learned from one answer: what one answer says can't make unbounded
+/// work.
 const MAX_LEARNED: usize = 2000;
+/// At most this many claims from one site for one person (see keep_site_claims_bounded), and how
+/// many go at once past that.
+pub const MAX_SITE_CLAIMS: i64 = 2000;
+const EVICT_BATCH: i64 = 100;
 
 /// Say something about two sites at most once an hour: a site can't flood the log.
 fn warn_once(kind: &str, a: &str, b: &str, line: impl FnOnce() -> String) {
@@ -296,24 +300,33 @@ fn ids_named(
     }
 }
 
-/// The places a request names (PLACE_KEYS), in its body and in its signed payload.
+/// The places a request names (PLACE_KEYS) at the top level of its body and of its signed
+/// payload. Only the top level: an id nested deeper is data, not the place the request is about,
+/// and the hosted site looks no deeper either.
 fn places_named(body: &Value) -> Vec<String> {
-    fn go(v: &Value, key: &str, depth: usize, out: &mut Vec<String>) {
-        if depth > 6 {
-            return;
-        }
-        match v {
-            Value::String(s) if PLACE_KEYS.contains(&key) && id24(s) => out.push(s.clone()),
-            Value::Array(a) => a.iter().take(500).for_each(|x| go(x, key, depth + 1, out)),
-            Value::Object(o) => o.iter().for_each(|(k, x)| go(x, k, depth + 1, out)),
-            _ => {}
+    fn take(v: &Value, out: &mut Vec<String>) {
+        let Some(o) = v.as_object() else { return };
+        for (k, x) in o {
+            if !PLACE_KEYS.contains(&k.as_str()) {
+                continue;
+            }
+            match x {
+                Value::String(s) if id24(s) => out.push(s.clone()),
+                Value::Array(a) => a
+                    .iter()
+                    .take(500)
+                    .filter_map(Value::as_str)
+                    .filter(|s| id24(s))
+                    .for_each(|s| out.push(s.to_string())),
+                _ => {}
+            }
         }
     }
     let mut out = Vec::new();
-    go(body, "", 0, &mut out);
+    take(body, &mut out);
     if let Some(payload) = body["payload"].as_str() {
         if let Ok(parsed) = serde_json::from_str::<Value>(payload) {
-            go(&parsed, "", 0, &mut out);
+            take(&parsed, &mut out);
         }
     }
     out.sort();
@@ -367,6 +380,7 @@ impl Federation {
                 db.execute_batch(
                     "CREATE TABLE IF NOT EXISTS fed_claims (user_id TEXT NOT NULL, id TEXT NOT NULL, host TEXT NOT NULL, strength INTEGER NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, id, host));
                      CREATE INDEX IF NOT EXISTS fed_claims_by_id ON fed_claims (id);
+                     CREATE INDEX IF NOT EXISTS fed_claims_by_site ON fed_claims (user_id, host, seen);
                      CREATE TABLE IF NOT EXISTS fed_user_hosts (user_id TEXT NOT NULL, host TEXT NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, host));
                      CREATE TABLE IF NOT EXISTS fed_shadows (user_id TEXT PRIMARY KEY, home TEXT NOT NULL, handle TEXT NOT NULL, digest TEXT NOT NULL DEFAULT '', updated INTEGER NOT NULL);
                      CREATE TABLE IF NOT EXISTS fed_notified (user_id TEXT NOT NULL, room TEXT NOT NULL, PRIMARY KEY (user_id, room));
@@ -410,6 +424,23 @@ impl Federation {
     pub fn route_of(&self, user_id: &str, id: &str) -> Route {
         resolve_route(&self.claims_of(user_id, id))
     }
+    /// The route a request takes for one id. A chosen id (CHOSEN_KEYS) routes only by chosen
+    /// claims, and anything else only by heard claims or stronger: a notice can't steer a chosen
+    /// id, and a chosen id in an answer never steers a request about a place or a room.
+    fn route_for(&self, user_id: &str, id: &str, chosen: bool) -> Route {
+        let claims: Vec<(String, i64)> = self
+            .claims_of(user_id, id)
+            .into_iter()
+            .filter(|(_, s)| {
+                if chosen {
+                    *s == CLAIM_CHOSEN
+                } else {
+                    *s >= CLAIM_IMPLICIT
+                }
+            })
+            .collect();
+        resolve_route(&claims)
+    }
     fn claims_of(&self, user_id: &str, id: &str) -> Vec<(String, i64)> {
         self.sql(|db| {
             db.prepare("SELECT c.host, MAX(c.strength) FROM fed_claims c LEFT JOIN fed_sites s ON s.host = c.host WHERE c.id = ? AND c.user_id IN (?, '*') AND COALESCE(s.blocked, 0) = 0 GROUP BY c.host")?
@@ -431,6 +462,30 @@ impl Federation {
         }
         self.claim(user_id, id, host, strength, now);
     }
+    /// One site keeps at most MAX_SITE_CLAIMS claims for one person. Past that, that site's own
+    /// oldest claims the person's app didn't name go: a site sending endless notices only pushes
+    /// out its own.
+    fn keep_site_claims_bounded(&self, user_id: &str, host: &str) {
+        let n: i64 = self
+            .sql(|db| {
+                db.query_row(
+                    "SELECT COUNT(*) FROM fed_claims WHERE user_id = ? AND host = ?",
+                    [user_id, host],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap_or(0);
+        if n > MAX_SITE_CLAIMS {
+            self.sql(|db| db.execute(&format!("DELETE FROM fed_claims WHERE rowid IN (SELECT rowid FROM fed_claims WHERE user_id = ? AND host = ? AND strength < {CLAIM_EXPLICIT} ORDER BY seen LIMIT ?)"), params![user_id, host, n - MAX_SITE_CLAIMS + EVICT_BATCH]));
+        }
+    }
+    /// An account here is deleted: forget which sites hold what for them, and which sites they use.
+    pub fn forget_person(&self, user_id: &str) {
+        self.sql(|db| {
+            db.execute("DELETE FROM fed_claims WHERE user_id = ?", [user_id])?;
+            db.execute("DELETE FROM fed_user_hosts WHERE user_id = ?", [user_id])
+        });
+    }
     /// Record a site's claim that it holds something, for one person. Never for something that's here.
     fn claim(&self, user_id: &str, id: &str, host: &str, strength: i64, now: i64) {
         if !id24(id) || host == self.host || self.app().store.has(id) {
@@ -443,6 +498,7 @@ impl Federation {
         }
         let before = self.route_of(user_id, id);
         self.sql(|db| db.execute("INSERT INTO fed_claims (user_id, id, host, strength, seen) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, id, host) DO UPDATE SET strength = MAX(strength, excluded.strength), seen = excluded.seen", params![user_id, id, host, strength, now]));
+        self.keep_site_claims_bounded(user_id, host);
         // Which sites, never what or whose: the admin can block the one that's wrong.
         let claims = self.claims_of(user_id, id);
         match resolve_route(&claims) {
@@ -1106,7 +1162,7 @@ impl Federation {
                     here = true;
                     continue;
                 }
-                match self.route_of(user_id, id) {
+                match self.route_for(user_id, id, chosen) {
                     Route::Host(h) => {
                         if !hosts.contains(&h) {
                             hosts.push(h);
@@ -1916,7 +1972,7 @@ impl Federation {
             if app.store.has(part) {
                 return None;
             }
-            match self.route_of(user_id, part) {
+            match self.route_for(user_id, part, false) {
                 Route::Host(h) => return Some(h),
                 Route::Disputed(_) => return None,
                 Route::Unknown => {}

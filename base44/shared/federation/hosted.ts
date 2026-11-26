@@ -113,6 +113,11 @@ const HELD_TTL_MS = 600_000;
 const HELD_TABLES = ["Conversation", "Server", "Channel"];
 /** At most this many ids are learned from one answer (each new one costs a platform call). */
 const MAX_LEARNED = 200;
+/** At most this many claims from one site for one person (see #keepSiteClaimsBounded), and how many go at once past that: the same as a self-hosted site. */
+const MAX_SITE_CLAIMS = 2000;
+const EVICT_BATCH = 100;
+/** Rows per read when reading everything. */
+const READ_PAGE = 2000;
 /** Say something about two sites at most once an hour: a site can't flood the log. */
 const warned = new Map<string, number>();
 /** For tests: say everything again. */
@@ -550,12 +555,28 @@ export class HostedFederation {
     const ask = [...new Set(ids)];
     const out: any[] = [];
     if (!ID24.test(userId)) return out;
-    for (let i = 0; i < ask.length; i += 500) out.push(...(await this.sr.entities.FedClaim.filter({ ref_id: { $in: ask.slice(i, i + 500) }, user_id: userId }, "created_date", 2000)));
+    // Every row, page by page: a claim left unread would make a dispute out of a settled route.
+    for (let i = 0; i < ask.length; i += 500) {
+      const query = { ref_id: { $in: ask.slice(i, i + 500) }, user_id: userId };
+      for (let skip = 0; ; skip += READ_PAGE) {
+        const page = await this.sr.entities.FedClaim.filter(query, "created_date", READ_PAGE, skip);
+        out.push(...page);
+        if (page.length < READ_PAGE) break;
+      }
+    }
     return out;
   }
 
   async #blockedSites(): Promise<Set<string>> {
-    return remembered("blocked-sites", ROUTE_TTL_MS, async () => new Set((await this.sr.entities.FedSite.filter({ blocked: true }, "created_date", 500)).map((r: any) => r.host)));
+    return remembered("blocked-sites", ROUTE_TTL_MS, async () => {
+      const out = new Set<string>();
+      for (let skip = 0; ; skip += READ_PAGE) {
+        const page = await this.sr.entities.FedSite.filter({ blocked: true }, "created_date", READ_PAGE, skip);
+        for (const r of page) out.add(r.host);
+        if (page.length < READ_PAGE) break;
+      }
+      return out;
+    });
   }
 
   /** Which of these ids are a conversation, server or channel held here (that never changes): one read per table. */
@@ -651,6 +672,7 @@ export class HostedFederation {
           }
         }
         kept += 1;
+        if (!row) await this.#keepSiteClaimsBounded(userId, host);
         const before = resolveRoute(claims);
         const after = resolveRoute([...claims, { host, strength: weight }]);
         // Which sites, never what or whose: the admin can block the one that's wrong.
@@ -667,6 +689,18 @@ export class HostedFederation {
       this.log.warn?.("[federation] claim", err?.name || "Error");
     }
     return kept;
+  }
+
+  /**
+   * One site keeps at most MAX_SITE_CLAIMS claims for one person. Past that, that site's own
+   * oldest claims the person's app didn't name go: a site sending endless notices only pushes out
+   * its own. One small read when under the limit.
+   */
+  async #keepSiteClaimsBounded(userId: string, host: string) {
+    const past = await this.sr.entities.FedClaim.filter({ user_id: userId, host }, "created_date", 1, MAX_SITE_CLAIMS);
+    if (!past.length) return;
+    const old = await this.sr.entities.FedClaim.filter({ user_id: userId, host, strength: { $lt: CLAIM.explicit } }, "created_date", EVICT_BATCH);
+    for (const r of old) await this.sr.entities.FedClaim.delete(r.id).catch(() => {});
   }
 
   /** Remove every claim about something held here (they can only be wrong), and say which sites made them. */

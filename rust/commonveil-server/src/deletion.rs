@@ -339,6 +339,21 @@ pub fn remove_platform_user(sr: &Db, store: &Store, user_id: &str) -> bool {
             let _ = sr.delete(name, id_of(&r));
         }
     }
+    // Which other sites hold what for them, and which sites they use (the federation's own
+    // tables; absent if federation never ran here).
+    let _: rusqlite::Result<()> = store.with_db(|db| {
+        for table in ["fed_claims", "fed_user_hosts"] {
+            let exists: bool = db.query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                [table],
+                |r| r.get(0),
+            )?;
+            if exists {
+                db.execute(&format!("DELETE FROM {table} WHERE user_id = ?"), [user_id])?;
+            }
+        }
+        Ok(())
+    });
     if sr.get("Person", user_id).is_some() {
         sr.delete("Person", user_id).is_ok()
     } else {
