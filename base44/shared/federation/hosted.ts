@@ -550,7 +550,17 @@ export class HostedFederation {
    * pass sees this write or this check sees the account gone: nothing is left either way.
    */
   async #forgetIfGone(userId: string, table: "FedClaim" | "FedUserHost", ids: string[]) {
-    if (!ids.length || (await this.localAccount(userId))) return;
+    if (!ids.length) return;
+    // Only a confirmed absence: a lookup that failed keeps what was written (deletion's own pass
+    // still runs after the account goes).
+    const E = this.sr.entities;
+    const state = async (T: any) => T.get(userId).then(() => "here", (err: any) => (err?.status === 404 || err?.response?.status === 404 ? "gone" : "unknown"));
+    const [person, user] = await Promise.all([state(E.Person), state(E.User)]);
+    if (person === "here" || user === "here") return;
+    if (person === "unknown" || user === "unknown") {
+      this.log.warn?.("[federation] couldn't check whether an account still exists after writing its records about other sites; kept them");
+      return;
+    }
     let failed = false;
     for (const id of ids) await this.sr.entities[table].delete(id).catch(() => (failed = true));
     if (failed) this.log.warn?.("[federation] a deleted account's records about other sites couldn't all be removed");

@@ -407,5 +407,19 @@ test("on the hosted site, a claim written for an account that has gone is taken 
     T.create = create;
   }
   assert.deepEqual(await world.entities.FedUserHost.filter({ user_id: ida.id }), [], "no site list is left for the deleted account");
+  // A lookup that fails isn't an absence: what was written stays.
+  const P = world.entities.Person;
+  const get = P.get.bind(P);
+  P.get = async () => {
+    throw Object.assign(new Error("Unavailable"), { status: 503 });
+  };
+  const nobody = "f".repeat(24);
+  try {
+    forgetMemo();
+    await fed.learnRoute(room, "Conversation", "alpha.test", nobody);
+  } finally {
+    P.get = get;
+  }
+  assert.equal((await world.entities.FedClaim.filter({ user_id: nobody })).length, 1, "kept when the check couldn't be made");
   forgetMemo();
 });
