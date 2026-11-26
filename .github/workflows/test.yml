@@ -89,7 +89,7 @@ jobs:
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: The same answers as the JavaScript copy
         run: WASM_REQUIRED=1 node --test tests/wasmClient.test.mjs
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: commonveil-client-wasm
           path: wasm-pkg
