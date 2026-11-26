@@ -255,8 +255,9 @@ person, weighed by how it was learned, never as a fact for everyone:
   membership notice can't steer a request that names only a chosen id.
 - **A disputed id goes only where the rest of the request points.** If a request names a disputed
   id, it goes to the site its other ids point to only if that site is one of the contenders;
-  otherwise it isn't sent anywhere. The same goes for a realtime room. Requests about a place, and
-  realtime rooms, never route by chosen claims.
+  otherwise it isn't sent anywhere. The same goes for a realtime room. A request whose app names
+  the site itself (`_site`) goes there regardless: that's the person's own choice. Requests about a
+  place, and realtime rooms, never route by chosen claims.
 - **Only the top of a request names a place.** A named claim covers the conversation, server or
   channel ids at the top level of the request and of its signed payload, never ids nested deeper.
 - **Notices that add claims are capped.** A site can send at most 1000 membership notices an

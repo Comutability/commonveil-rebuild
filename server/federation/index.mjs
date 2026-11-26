@@ -665,7 +665,8 @@ export class Federation {
           // (as trusted as the ids in its listing, which it chooses too). Never what someone already
           // has from another site: namedClaimStrength.
           if (!places.length && fn === "servers" && body.action === "join_server" && ID24.test(String(r.data?.server_id || ""))) places.push(r.data.server_id);
-          for (const id of places) this.#claimNamed(user.id, id, target, now);
+          // Not for an account that went while the request was out.
+          if (["User", "Person"].includes(this.store.tableOf(user.id))) for (const id of places) this.#claimNamed(user.id, id, target, now);
         }
         return r;
       } catch (err) {

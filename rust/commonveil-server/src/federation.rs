@@ -488,7 +488,16 @@ impl Federation {
     }
     /// A claim from a site the person's app named: see named_claim_strength.
     fn claim_named(&self, user_id: &str, id: &str, host: &str, now: i64) {
-        if !id24(id) || host == self.host || self.app().store.has(id) {
+        // Not for an account that went while the request was out.
+        if !id24(id)
+            || host == self.host
+            || self.app().store.has(id)
+            || !self
+                .app()
+                .store
+                .table_of(user_id)
+                .is_some_and(|t| t == "User" || t == "Person")
+        {
             return;
         }
         let (strength, other) = named_claim_strength(&self.claims_of(user_id, id), host);

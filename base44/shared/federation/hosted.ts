@@ -534,6 +534,7 @@ export class HostedFederation {
 
   async addUserHost(userId: string, host: string) {
     if ((await this.userHosts(userId)).includes(host)) return;
+    if (!(await this.localAccount(userId))) return;
     const T = this.sr.entities.FedUserHost;
     if (!(await T.filter({ user_id: userId, host }, "created_date", 1)).length) await T.create({ user_id: userId, host });
     memo.delete(`hosts:${userId}`);
@@ -750,6 +751,8 @@ export class HostedFederation {
       if (found.size < MAX_LEARNED || found.has(id)) found.set(id, table);
     });
     if (!found.size) return;
+    // The account went while the answer was on its way: nothing to remember for it.
+    if (!(await this.localAccount(userId))) return;
     // One read of each kind for all of them; usually every claim is already there and nothing is written.
     await this.#claimMany(found, host, userId, CLAIM.implicit);
     await this.addUserHost(userId, host);
@@ -873,7 +876,8 @@ export class HostedFederation {
           // (as trusted as the ids in its listing, which it chooses too). Never what someone already
           // has from another site: namedClaimStrength.
           if (!places.size && fn === "servers" && body.action === "join_server" && ID24.test(String(r.data?.server_id || ""))) places.set(r.data.server_id, "Server");
-          await this.#claimMany(places, target, user.id, CLAIM.explicit, true);
+          // Not for an account that went while the request was out.
+          if (await this.localAccount(user.id)) await this.#claimMany(places, target, user.id, CLAIM.explicit, true);
         }
         return r;
       } catch (err: any) {
