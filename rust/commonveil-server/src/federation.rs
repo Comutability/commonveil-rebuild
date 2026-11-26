@@ -533,6 +533,10 @@ impl Federation {
         }
         let before = self.route_of(user_id, id);
         self.sql(|db| db.execute("INSERT INTO fed_claims (user_id, id, host, strength, seen, chosen) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, id, host) DO UPDATE SET strength = MAX(strength, excluded.strength), chosen = MAX(chosen, excluded.chosen), seen = excluded.seen", params![user_id, id, host, strength, now, chosen]));
+        // Deleted while this was being written: take it back (see forget_if_gone).
+        if self.forget_if_gone(user_id) {
+            return;
+        }
         // Which sites, never what or whose: the admin can block the one that's wrong.
         let claims = self.claims_of(user_id, id);
         match resolve_route(&claims) {
@@ -572,6 +576,31 @@ impl Federation {
     }
     fn put_host(&self, user_id: &str, host: &str, now: i64) {
         self.sql(|db| db.execute("INSERT INTO fed_user_hosts (user_id, host, seen) VALUES (?, ?, ?) ON CONFLICT(user_id, host) DO UPDATE SET seen = excluded.seen", params![user_id, host, now]));
+        self.forget_if_gone(user_id);
+    }
+    /// After writing a person's routing records: if their account has gone meanwhile, remove them
+    /// all. Deletion removes these records after the account goes, so either that pass sees this
+    /// write or this check sees the account gone: nothing is left either way. Answers whether it
+    /// was gone.
+    fn forget_if_gone(&self, user_id: &str) -> bool {
+        if self
+            .app()
+            .store
+            .table_of(user_id)
+            .is_some_and(|t| t == "User" || t == "Person")
+        {
+            return false;
+        }
+        let gone: Option<()> = self.sql(|db| {
+            let tx = db.unchecked_transaction()?;
+            tx.execute("DELETE FROM fed_claims WHERE user_id = ?", [user_id])?;
+            tx.execute("DELETE FROM fed_user_hosts WHERE user_id = ?", [user_id])?;
+            tx.commit()
+        });
+        if gone.is_none() {
+            eprintln!("[federation] a deleted account's records about other sites couldn't be removed");
+        }
+        true
     }
     fn drop_host(&self, user_id: &str, host: &str) {
         self.sql(|db| {

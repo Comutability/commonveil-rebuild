@@ -306,11 +306,11 @@ What this can't do:
 - **Claims are kept until the account goes.** Which remote rooms someone uses, and on which
   sites, is kept with their claims (`fed_claims` and `fed_user_hosts`, or `FedClaim` and
   `FedUserHost` on the hosted site) and removed when their account is deleted: once before the
-  account goes and once after, and nothing writes them for an account that's gone. If removal fails
-  the account is still deleted and the failure is logged, and on the hosted site an answer that
-  arrives in the very moment of deletion can still leave a row (its functions share no lock). Rows
-  left behind name only the deleted account's id and route nothing. Nothing removes them sooner by
-  age.
+  account goes and once after. Anything that writes them checks the account again afterwards and
+  takes back what it wrote if the account has gone, so a request that was out during deletion
+  leaves nothing. If a removal itself fails the account is still deleted and the failure is logged;
+  rows left that way name only the deleted account's id and route nothing. Nothing removes them
+  sooner by age.
 - **Rolling back loses what was learned since.** A rollback to 0.24.24 finds only the routes
   learned before the update: anything joined on 0.24.25 runs locally or fails until 0.24.24 learns
   it again, first claim kept. Updating again copies every old route in again as a site-wide claim

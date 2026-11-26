@@ -217,7 +217,8 @@ export async function removePlatformUser(sr: any, userId: string): Promise<boole
     // reported below
   }
   // Once more now the account is gone: a request that was out while the first pass ran may have
-  // written a row since, and nothing writes one for a missing account.
-  if (gone) await removeFederationTraces(sr, userId);
+  // written a row since. A writer that finishes after this checks the account again and takes
+  // back what it wrote (Federation.#forgetIfGone).
+  if (gone && !(await removeFederationTraces(sr, userId))) console.warn("[accounts] some of a deleted account's records about other sites couldn't be removed after the account went.");
   return gone;
 }

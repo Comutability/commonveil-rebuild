@@ -536,8 +536,24 @@ export class HostedFederation {
     if ((await this.userHosts(userId)).includes(host)) return;
     if (!(await this.localAccount(userId))) return;
     const T = this.sr.entities.FedUserHost;
-    if (!(await T.filter({ user_id: userId, host }, "created_date", 1)).length) await T.create({ user_id: userId, host });
+    if (!(await T.filter({ user_id: userId, host }, "created_date", 1)).length) {
+      const made = await T.create({ user_id: userId, host });
+      // Deleted while this was being written: take it back (see #forgetIfGone).
+      if (made?.id) await this.#forgetIfGone(userId, "FedUserHost", [made.id]);
+    }
     memo.delete(`hosts:${userId}`);
+  }
+
+  /**
+   * After writing a person's routing rows: if their account has gone meanwhile, remove what was
+   * written. Account deletion removes these rows once more after the account goes, so either that
+   * pass sees this write or this check sees the account gone: nothing is left either way.
+   */
+  async #forgetIfGone(userId: string, table: "FedClaim" | "FedUserHost", ids: string[]) {
+    if (!ids.length || (await this.localAccount(userId))) return;
+    let failed = false;
+    for (const id of ids) await this.sr.entities[table].delete(id).catch(() => (failed = true));
+    if (failed) this.log.warn?.("[federation] a deleted account's records about other sites couldn't all be removed");
   }
 
   async dropUserHost(userId: string, host: string) {
@@ -665,6 +681,7 @@ export class HostedFederation {
     const ids = [...entries.keys()].filter((id) => ID24.test(id));
     if (!ids.length || !ID24.test(userId) || !host || host === this.host) return 0;
     let kept = 0;
+    const made: string[] = [];
     try {
       const [legacy, mine, held, blocked] = await Promise.all([this.#legacyRows(ids), this.#personRows(ids, userId), this.#heldMany(ids), this.#blockedSites()]);
       if (blocked.has(host)) return 0;
@@ -681,14 +698,15 @@ export class HostedFederation {
         if (row && Number(row.strength) >= weight) continue;
         if (row) await this.sr.entities.FedClaim.update(row.id, { strength: weight });
         else {
-          const made = await this.sr.entities.FedClaim.create({ ref_id: id, user_id: userId, host, kind: entries.get(id), strength: weight });
+          const created = await this.sr.entities.FedClaim.create({ ref_id: id, user_id: userId, host, kind: entries.get(id), strength: weight });
           // A claim has to be one person's, at one strength, or it would count wrongly: take it
           // back, and say what's wrong.
-          if (!made || made.user_id !== userId || Number(made.strength) !== weight) {
-            if (made?.id) await this.sr.entities.FedClaim.delete(made.id).catch(() => {});
+          if (!created || created.user_id !== userId || Number(created.strength) !== weight) {
+            if (created?.id) await this.sr.entities.FedClaim.delete(created.id).catch(() => {});
             this.log.warn?.("[federation] the FedClaim table didn't keep a claim as one person's: deploy its fields");
             return kept;
           }
+          made.push(created.id);
         }
         kept += 1;
         const before = resolveRoute(claims);
@@ -705,6 +723,9 @@ export class HostedFederation {
     } catch (err: any) {
       // Never let recording a claim break the request it came with.
       this.log.warn?.("[federation] claim", err?.name || "Error");
+    } finally {
+      // Deleted while these were being written: take them back.
+      await this.#forgetIfGone(userId, "FedClaim", made).catch(() => {});
     }
     return kept;
   }

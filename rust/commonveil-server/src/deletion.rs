@@ -364,7 +364,8 @@ pub fn remove_platform_user(sr: &Db, store: &Store, user_id: &str) -> bool {
         }
     }
     // The account goes whatever happens to these, and they go once more afterwards: a request that
-    // was out meanwhile may have written a row, and nothing writes one for a missing account.
+    // was out meanwhile may have written a row. A writer that finishes later checks the account
+    // again and takes back what it wrote (Federation::forget_if_gone).
     remove_federation_traces(store, user_id);
     let gone = if sr.get("Person", user_id).is_some() {
         sr.delete("Person", user_id).is_ok()
