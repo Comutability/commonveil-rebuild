@@ -30,7 +30,7 @@ const lastStarted = new Map<string, number>();
 // Until when this instance may refuse a task without a read, having heard (from MaintenanceRun)
 // that it started elsewhere: never past the end of that run's shared gap, so a scheduled run just
 // after it isn't refused. Kept apart from lastStarted: a refused claim mustn't stop a granted one.
-const heardUntil = new Map<string, number>();
+const heardUntil = new Map<string, { at: number; until: number }>();
 
 const startOfDay = (day: string) => Date.parse(`${day}T00:00:00Z`);
 
@@ -196,13 +196,15 @@ export async function claimRun(sr: any, task: unknown, now = Date.now()): Promis
   // Free first: this instance started it, or heard it had started, within its own gap.
   const here = lastStarted.get(task);
   if (here !== undefined && now >= here && now - here < MIN_GAP_MS[task]) return false;
-  if (now < (heardUntil.get(task) ?? -Infinity)) return false;
+  // A clock moved back before the time it was heard doesn't keep the task held up.
+  const heard = heardUntil.get(task);
+  if (heard && now >= heard.at && now < heard.until) return false;
   try {
     const [row] = await sr.entities.MaintenanceRun.filter({ task }, "-started_at", 1);
     const last = row ? Date.parse(row.started_at) : NaN;
     // A time in the future (a clock moved back) doesn't hold the task up.
     if (Number.isFinite(last) && now >= last && now - last < GLOBAL_GAP_MS[task]) {
-      heardUntil.set(task, Math.min(now + MIN_GAP_MS[task], last + GLOBAL_GAP_MS[task]));
+      heardUntil.set(task, { at: now, until: Math.min(now + MIN_GAP_MS[task], last + GLOBAL_GAP_MS[task]) });
       return false;
     }
     const started_at = new Date(now).toISOString();

@@ -1385,6 +1385,10 @@ test("on the hosted site a task starts at most once a gap across every instance,
   assert.equal(await claimRun(sr, "inactive", t1), true);
   assert.equal(await claimRun(sr, "inactive", t1 + 55 * 60_000), false);
   assert.equal(await claimRun(sr, "inactive", t1 + 67 * 60_000), true, "past the shared gap");
+  // Nor does a clock moved back to before the refusal was heard: the shared record decides again.
+  resetMaintenanceThrottle();
+  assert.equal(await claimRun(sr, "inactive", t1 + 100 * 60_000), false);
+  assert.equal(await claimRun(sr, "inactive", t1 + 66 * 60_000), true, "clock moved back");
   resetMaintenanceThrottle();
   // If the record can't be read, the clean-up still runs (it deletes what people asked to delete).
   const broken = { entities: { MaintenanceRun: { filter: async () => { throw new Error("down"); } } } };
