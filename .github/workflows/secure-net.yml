@@ -3,8 +3,10 @@
 # Secure Net is Rust only from 0.7.0. The Rust server and the client core use its crates, pinned to
 # one Secure Net commit in rust/Cargo.toml (secure-net-core and the OpenMLS copies). Daily, or when run
 # by hand, this looks at Secure Net's main branch: if its version is newer than the pinned one, it
-# moves the pin there, runs the Rust tests and lints, and opens a pull request for review. A
-# commit that doesn't change Secure Net's version (docs, tooling) isn't followed on its own.
+# moves the pin there, runs the Rust tests and lints, pushes a branch and opens a pull request for
+# review (or, where workflows may not open pull requests, an issue asking for one). A branch left by
+# a run that couldn't ask is asked about again. A commit that doesn't change Secure Net's version
+# (docs, tooling) isn't followed on its own.
 #
 # packages/secure-net stays the JavaScript copy of Secure Net 0.5.0, the last version with
 # JavaScript, for the browser app and the Base44 functions until they move to Rust. It can't be
@@ -19,18 +21,22 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # Only used when the repository doesn't let workflows open pull requests (see the last step).
+  issues: write
 jobs:
   follow:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           repository: Comutability/secure-net
           path: .secure-net
           fetch-depth: 0
       - name: Is Secure Net's version newer than the pinned one?
         id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           pinned=$(sed -n 's/^secure-net-core = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' rust/Cargo.toml)
           latest=$(git -C .secure-net rev-parse HEAD)
@@ -41,30 +47,43 @@ jobs:
           newest=$(printf '%s\n%s\n' "$from" "$to" | sort -V | tail -n 1)
           if [ "$from" = "$to" ] || [ "$newest" != "$to" ]; then echo "new=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           branch="secure-net-$to"
+          reuse=false
           if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
-            echo "A pull request branch for Secure Net $to already exists ($branch)."
-            echo "new=false" >> "$GITHUB_OUTPUT"; exit 0
+            # Asked before (a pull request or an issue, open or closed): nothing more to do.
+            # One command per line, so a failing gh stops the run (-e) instead of counting as 0.
+            prs=$(gh pr list --head "$branch" --state all --json number -q length)
+            issues=$(gh issue list --state all --search "\"Follow Secure Net $to\" in:title" --json number -q length)
+            if [ $((prs + issues)) -gt 0 ]; then
+              echo "Secure Net $to has its branch ($branch) and has been asked about."
+              echo "new=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+            echo "The branch $branch exists but nobody was asked about it: asking now."
+            reuse=true
+            # Describe what that branch pins and was tested with, not what main has moved to since.
+            git fetch --depth 1 origin "$branch"
+            latest=$(git show FETCH_HEAD:rust/Cargo.toml | sed -n 's/^secure-net-core = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p')
+            [ -n "$latest" ]
           fi
           {
-            echo "new=true"; echo "pinned=$pinned"; echo "latest=$latest"
+            echo "new=true"; echo "reuse=$reuse"; echo "pinned=$pinned"; echo "latest=$latest"
             echo "from=$from"; echo "to=$to"; echo "branch=$branch"
           } >> "$GITHUB_OUTPUT"
-      - if: steps.check.outputs.new == 'true'
+      - if: steps.check.outputs.new == 'true' && steps.check.outputs.reuse != 'true'
         name: Move the pin
         run: |
           rm -rf .secure-net
           sed -i "s/${{ steps.check.outputs.pinned }}/${{ steps.check.outputs.latest }}/g" rust/Cargo.toml
           cd rust && cargo update -p secure-net-core -p openmls_traits -p openmls_rust_crypto
-      - if: steps.check.outputs.new == 'true'
-        uses: actions/setup-node@v4
+      - if: steps.check.outputs.new == 'true' && steps.check.outputs.reuse != 'true'
+        uses: actions/setup-node@v5
         with:
           node-version: 26
-      - if: steps.check.outputs.new == 'true'
+      - if: steps.check.outputs.new == 'true' && steps.check.outputs.reuse != 'true'
         name: Build the self-hosted site (the Rust tests serve it)
         run: |
           npm ci --no-audit --no-fund
           VITE_COMMONVEIL_BACKEND=selfhost npx vite build --outDir dist-selfhost
-      - if: steps.check.outputs.new == 'true'
+      - if: steps.check.outputs.new == 'true' && steps.check.outputs.reuse != 'true'
         name: Tests and lints
         working-directory: rust
         run: |
@@ -72,21 +91,34 @@ jobs:
           cargo test --locked
           cargo clippy --locked --all-targets -- -D warnings
       - if: steps.check.outputs.new == 'true'
-        name: Open a pull request
+        name: Open a pull request (or, if workflows may not, an issue)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
           FROM: ${{ steps.check.outputs.from }}
           TO: ${{ steps.check.outputs.to }}
           PINNED: ${{ steps.check.outputs.pinned }}
           LATEST: ${{ steps.check.outputs.latest }}
           BRANCH: ${{ steps.check.outputs.branch }}
+          REUSE: ${{ steps.check.outputs.reuse }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -c "$BRANCH"
-          git add rust/Cargo.toml rust/Cargo.lock
-          git commit -m "Follow Secure Net $TO"
-          git push origin "$BRANCH"
-          gh pr create --title "Follow Secure Net $TO" --body "Moves the Rust server's Secure Net pin from $FROM (\`$PINNED\`) to $TO (\`$LATEST\`). The Rust tests, with the comparison against the Node.js reference, and the lints passed in the Secure Net workflow. GitHub doesn't start other workflows for a pull request opened with a workflow's own token, so the Test workflow, including the client core's WebAssembly build and its comparison with the JavaScript copy (its \`wasm\` job), runs only once a maintainer starts it on this branch.
+          if [ "$REUSE" != "true" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git switch -c "$BRANCH"
+            git add rust/Cargo.toml rust/Cargo.lock
+            git commit -m "Follow Secure Net $TO"
+            git push origin "$BRANCH"
+          fi
+          cat > "$RUNNER_TEMP/body.md" <<BODY
+          Moves the Rust server's Secure Net pin from $FROM (\`$PINNED\`) to $TO (\`$LATEST\`). The Rust tests, with the comparison against the Node.js reference, and the lints passed in the Secure Net workflow. GitHub doesn't start other workflows for a pull request opened with a workflow's own token, so the Test workflow, including the client core's WebAssembly build and its comparison with the JavaScript copy (its \`wasm\` job), runs only once a maintainer starts it on this branch.
 
-          Before merging, read what changed in Secure Net (its \`snips/\`, \`spec/registry.json\` and each part's \"Changes\" table) and bring Commonveil up to it in the same pull request, as AGENTS.md (\"Keeping up with the protocol\") says. The browser app and the Base44 functions still use the JavaScript copy of Secure Net 0.5.0, so a change they must follow has to be carried into their code too."
+          Before merging, read what changed in Secure Net (its \`snips/\`, \`spec/registry.json\` and each part's "Changes" table) and bring Commonveil up to it in the same pull request, as AGENTS.md ("Keeping up with the protocol") says. The browser app and the Base44 functions still use the JavaScript copy of Secure Net 0.5.0, so a change they must follow has to be carried into their code too.
+          BODY
+          if gh pr create --head "$BRANCH" --base main --title "Follow Secure Net $TO" --body-file "$RUNNER_TEMP/body.md"; then exit 0; fi
+          # The repository's settings don't let workflows open pull requests. The branch is
+          # pushed and tested, so ask for one in an issue instead of failing the run.
+          link="https://github.com/$REPO/compare/main...$BRANCH?expand=1"
+          { echo "The branch \`$BRANCH\` is ready, but this workflow couldn't open a pull request from it (usually because the repository doesn't let workflows open them: see the run's log). Open one from it: $link"; echo; echo "A pull request you open yourself starts the Test workflow as usual, so the note below about starting it by hand doesn't apply."; echo; cat "$RUNNER_TEMP/body.md"; } > "$RUNNER_TEMP/issue.md"
+          gh issue create --title "Follow Secure Net $TO" --body-file "$RUNNER_TEMP/issue.md"
+          echo "::warning::Couldn't open a pull request, so an issue asks for one: $link"
