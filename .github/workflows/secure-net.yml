@@ -50,13 +50,19 @@ jobs:
           reuse=false
           if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
             # Asked before (a pull request or an issue, open or closed): nothing more to do.
-            asked=$(( $(gh pr list --head "$branch" --state all --json number -q length) + $(gh issue list --state all --search "\"Follow Secure Net $to\" in:title" --json number -q length) ))
-            if [ "$asked" -gt 0 ]; then
+            # One command per line, so a failing gh stops the run (-e) instead of counting as 0.
+            prs=$(gh pr list --head "$branch" --state all --json number -q length)
+            issues=$(gh issue list --state all --search "\"Follow Secure Net $to\" in:title" --json number -q length)
+            if [ $((prs + issues)) -gt 0 ]; then
               echo "Secure Net $to has its branch ($branch) and has been asked about."
               echo "new=false" >> "$GITHUB_OUTPUT"; exit 0
             fi
             echo "The branch $branch exists but nobody was asked about it: asking now."
             reuse=true
+            # Describe what that branch pins and was tested with, not what main has moved to since.
+            git fetch --depth 1 origin "$branch"
+            latest=$(git show FETCH_HEAD:rust/Cargo.toml | sed -n 's/^secure-net-core = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p')
+            [ -n "$latest" ]
           fi
           {
             echo "new=true"; echo "reuse=$reuse"; echo "pinned=$pinned"; echo "latest=$latest"
@@ -109,7 +115,7 @@ jobs:
 
           Before merging, read what changed in Secure Net (its \`snips/\`, \`spec/registry.json\` and each part's "Changes" table) and bring Commonveil up to it in the same pull request, as AGENTS.md ("Keeping up with the protocol") says. The browser app and the Base44 functions still use the JavaScript copy of Secure Net 0.5.0, so a change they must follow has to be carried into their code too.
           BODY
-          if gh pr create --title "Follow Secure Net $TO" --body-file "$RUNNER_TEMP/body.md"; then exit 0; fi
+          if gh pr create --head "$BRANCH" --base main --title "Follow Secure Net $TO" --body-file "$RUNNER_TEMP/body.md"; then exit 0; fi
           # The repository's settings don't let workflows open pull requests. The branch is
           # pushed and tested, so ask for one in an issue instead of failing the run.
           link="https://github.com/$REPO/compare/main...$BRANCH?expand=1"
