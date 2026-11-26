@@ -188,7 +188,7 @@ export class Federation {
     db.exec(`CREATE INDEX IF NOT EXISTS fed_claims_by_id ON fed_claims (id)`);
     // Whether the site ever gave this id as one an app chooses: kept apart from strength, so the
     // same site naming it as one of its own records too doesn't lose it.
-    if (!db.prepare("SELECT 1 FROM pragma_table_info('fed_claims') WHERE name = 'chosen'").get()) db.exec("ALTER TABLE fed_claims ADD COLUMN chosen INTEGER NOT NULL DEFAULT 0");
+    if (!db.prepare("SELECT 1 FROM pragma_table_info('fed_claims') WHERE name = 'chosen'").get()) db.exec(`ALTER TABLE fed_claims ADD COLUMN chosen INTEGER NOT NULL DEFAULT 0; UPDATE fed_claims SET chosen = 1 WHERE strength = ${CLAIM.chosen}`);
     migrateRoutes(db);
     db.exec(`CREATE TABLE IF NOT EXISTS fed_user_hosts (user_id TEXT NOT NULL, host TEXT NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, host))`);
     db.exec(`CREATE TABLE IF NOT EXISTS fed_shadows (user_id TEXT PRIMARY KEY, home TEXT NOT NULL, handle TEXT NOT NULL, digest TEXT NOT NULL DEFAULT '', updated INTEGER NOT NULL)`);
@@ -576,6 +576,7 @@ export class Federation {
       const hosts = new Set();
       let here = false;
       let disputed = false;
+      const contenders = [];
       for (const [id] of named.filter(([, c]) => c === chosen)) {
         if (this.store.has(id)) {
           here = true;
@@ -585,14 +586,19 @@ export class Federation {
         if (r.route) hosts.add(r.route);
         else if (r.disputed.length) {
           disputed = true;
+          contenders.push(r.disputed);
           warnOnce(this.log, "dispute", r.disputed[0], r.disputed[1], () => `[federation] ${r.disputed.join(r.disputed.length === 2 ? " and " : ", ")} each claim to hold the same thing; requests about it go to neither. Block whichever is wrong.`);
         }
       }
       hosts.delete(this.host);
       if (hosts.size > 1) throw new FederationError(400, "MIXED_SITES", "That request names things on more than one site.");
-      // A request that would go to another site goes nowhere if any id in it is disputed.
-      if (hosts.size && !disputed) return [...hosts][0];
-      if (here && !hosts.size) return null;
+      // A request goes to the site its other ids point to only if that site is one of the
+      // contenders for every disputed id in it: a third site can't steer it, and a contender can't
+      // block a request the rest of it settles.
+      if (hosts.size) {
+        const [host] = hosts;
+        if (contenders.every((c) => c.includes(host))) return host;
+      } else if (here) return null;
       if (disputed) throw new FederationError(409, "DISPUTED_SITE", "More than one site claims to hold this, so it isn't being sent to either. Your site's admin can see which sites in its log, and block the wrong one.");
     }
     return null;
@@ -1016,18 +1022,21 @@ export class Federation {
 
   // ---------- realtime rooms across sites ----------
 
-  /** Which site hosts a realtime room, for this person, from the ids in its name. A disputed id carries the connection nowhere. */
+  /** Which site hosts a realtime room, for this person, from the ids in its name. A disputed id carries the connection only to one of its contenders that the room's other ids point to. */
   roomHost(roomId, userId) {
     if (!this.enabled) return null;
     let host = null;
+    const contenders = [];
     for (const part of String(roomId).split(".")) {
       if (!ID24.test(part)) continue;
       if (this.store.has(part)) return null;
       const r = this.#routeFor(userId, part, false);
-      if (r.disputed.length) return null;
+      if (r.disputed.length) contenders.push(r.disputed);
       host ??= r.route;
     }
-    return host;
+    // As for requests: a disputed id carries the connection only where the room's other ids point,
+    // and only if that site is one of its contenders.
+    return host && contenders.every((c) => c.includes(host)) ? host : null;
   }
 
   /** A person here connects to a room on another site: this site carries their connection there. */

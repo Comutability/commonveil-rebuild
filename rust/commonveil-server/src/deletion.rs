@@ -340,8 +340,8 @@ pub fn remove_platform_user(sr: &Db, store: &Store, user_id: &str) -> bool {
         }
     }
     // Which other sites hold what for them, and which sites they use (the federation's own
-    // tables; absent if federation never ran here). Both go together or not at all; if they can't
-    // go, the account is kept so a later attempt can finish.
+    // tables; absent if federation never ran here). Both go together or not at all. The account
+    // goes whatever happens here: nothing would come back to retry a kept one.
     let traces: rusqlite::Result<()> = store.with_db(|db| {
         let tx = db.unchecked_transaction()?;
         for table in ["fed_claims", "fed_user_hosts"] {
@@ -356,8 +356,10 @@ pub fn remove_platform_user(sr: &Db, store: &Store, user_id: &str) -> bool {
         }
         tx.commit()
     });
-    if traces.is_err() {
-        return false;
+    if let Err(e) = traces {
+        eprintln!(
+            "[accounts] a deleted account's records about other sites couldn't be removed: {e}"
+        );
     }
     if sr.get("Person", user_id).is_some() {
         sr.delete("Person", user_id).is_ok()

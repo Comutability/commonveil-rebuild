@@ -168,7 +168,7 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
  * Forget which other sites hold what for this person (FedClaim) and which sites they use
  * (FedUserHost). A self-hosted site keeps these in its own tables and forgets them the same way.
  * Says whether every row went: a read that fails, or a page where no delete succeeds, stops here
- * so the account is kept and a later attempt carries on from what's left.
+ * rather than looping.
  */
 async function removeFederationTraces(sr: any, userId: string): Promise<boolean> {
   for (const table of ["FedClaim", "FedUserHost"]) {
@@ -205,7 +205,8 @@ async function removeFederationTraces(sr: any, userId: string): Promise<boolean>
 export async function removePlatformUser(sr: any, userId: string): Promise<boolean> {
   await removeSignIn(sr, userId);
   await removePush(sr, userId);
-  if (!(await removeFederationTraces(sr, userId))) return false;
+  // The account goes whatever happens here: nothing would come back to retry a kept one.
+  if (!(await removeFederationTraces(sr, userId))) console.warn("[accounts] some of a deleted account's records about other sites couldn't be removed; they name no one else and route nothing once the account is gone.");
   const person = await sr.entities.Person.get(userId).catch(() => null);
   try {
     if (person) await sr.entities.Person.delete(userId);

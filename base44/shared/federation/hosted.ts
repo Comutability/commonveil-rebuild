@@ -803,6 +803,7 @@ export class HostedFederation {
     const hosts = new Set<string>();
     let here = false;
     let disputed = false;
+    const contenders: string[][] = [];
     const held = routed.size ? await this.#heldMany([...routed.keys()]) : new Set<string>();
     for (const [id, r] of routed) {
       // A claim about something held here never counts, whoever made it: it goes.
@@ -814,17 +815,21 @@ export class HostedFederation {
       if (r.route && r.route !== this.host) hosts.add(r.route);
       else if (r.disputed.length) {
         disputed = true;
+        contenders.push(r.disputed);
         warnOnce(this.log, "dispute", r.disputed[0], r.disputed[1], () => `[federation] ${r.disputed.join(r.disputed.length === 2 ? " and " : ", ")} each claim to hold the same thing; requests about it go to neither. Block whichever is wrong.`);
       }
     }
     if (hosts.size > 1) throw new FederationError(400, "MIXED_SITES", "That request names things on more than one site.");
-    // A request that would go to another site goes nowhere if any id in it is disputed.
-    if (hosts.size && !disputed) return [...hosts][0];
-    if (!disputed) return null;
-    if (here && !hosts.size) return null;
+    // A request goes to the site its other ids point to only if that site is one of the
+    // contenders for every disputed id in it: a third site can't steer it, and a contender can't
+    // block a request the rest of it settles.
+    if (hosts.size) {
+      const [host] = hosts;
+      if (contenders.every((c) => c.includes(host))) return host;
+    } else if (here || !disputed) return null;
     // Something named is here: that's this site's business, whatever else is disputed.
     const rest = [...named.keys()].filter((id) => !routed.has(id));
-    if (rest.length && (await this.#heldMany(rest)).size) return null;
+    if (!hosts.size && rest.length && (await this.#heldMany(rest)).size) return null;
     throw new FederationError(409, "DISPUTED_SITE", "More than one site claims to hold this, so it isn't being sent to either. Your site's admin can see which sites in its log, and block the wrong one.");
   }
 

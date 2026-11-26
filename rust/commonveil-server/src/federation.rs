@@ -414,9 +414,9 @@ impl Federation {
                     |r| r.get(0),
                 )?;
                 if !has_chosen {
-                    db.execute_batch(
-                        "ALTER TABLE fed_claims ADD COLUMN chosen INTEGER NOT NULL DEFAULT 0",
-                    )?;
+                    db.execute_batch(&format!(
+                        "ALTER TABLE fed_claims ADD COLUMN chosen INTEGER NOT NULL DEFAULT 0; UPDATE fed_claims SET chosen = 1 WHERE strength = {CLAIM_CHOSEN}"
+                    ))?;
                 }
                 migrate_routes(db)
             })
@@ -1192,6 +1192,7 @@ impl Federation {
         let ordinary = named.iter().any(|(_, c)| !*c);
         for chosen in [!ordinary] {
             let (mut hosts, mut here, mut disputed) = (Vec::<String>::new(), false, false);
+            let mut contenders: Vec<Vec<String>> = Vec::new();
             for (id, _) in named.iter().filter(|(_, c)| *c == chosen) {
                 if app.store.has(id) {
                     here = true;
@@ -1205,6 +1206,7 @@ impl Federation {
                     }
                     Route::Disputed(h) => {
                         disputed = true;
+                        contenders.push(h.clone());
                         let line = || {
                             format!("[federation] {} each claim to hold the same thing; requests about it go to neither. Block whichever is wrong.", h.join(if h.len() == 2 { " and " } else { ", " }))
                         };
@@ -1221,13 +1223,14 @@ impl Federation {
                     "That request names things on more than one site.",
                 ));
             }
-            // A request that would go to another site goes nowhere if any id in it is disputed.
-            if !disputed {
-                if let Some(h) = hosts.pop() {
+            // A request goes to the site its other ids point to only if that site is one of the
+            // contenders for every disputed id in it: a third site can't steer it, and a contender
+            // can't block a request the rest of it settles.
+            if let Some(h) = hosts.pop() {
+                if contenders.iter().all(|c| c.contains(&h)) {
                     return Ok(Some(h));
                 }
-            }
-            if here && hosts.is_empty() {
+            } else if here {
                 return Ok(None);
             }
             if disputed {
@@ -2017,7 +2020,8 @@ impl Federation {
             return None;
         }
         let app = self.app();
-        let mut host = None;
+        let mut host: Option<String> = None;
+        let mut contenders: Vec<Vec<String>> = Vec::new();
         for part in room.split('.').filter(|p| id24(p)) {
             if app.store.has(part) {
                 return None;
@@ -2026,11 +2030,13 @@ impl Federation {
                 Route::Host(h) => {
                     host.get_or_insert(h);
                 }
-                Route::Disputed(_) => return None,
+                Route::Disputed(c) => contenders.push(c),
                 Route::Unknown => {}
             }
         }
-        host
+        // As for requests: a disputed id carries the connection only where the room's other ids
+        // point, and only if that site is one of its contenders.
+        host.filter(|h| contenders.iter().all(|c| c.contains(h)))
     }
 
     /// A person here connects to a room on another site: this site carries their connection there.

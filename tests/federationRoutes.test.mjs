@@ -386,18 +386,26 @@ test("chosen ids keep their routes, never steer a request naming other ids, and 
   await ask({ event_id: event, server_id: "3".repeat(24) });
   assert.equal(last(), undefined, "stays here");
 
-  // One id routes to real.test, another is disputed between real.test and rogue.test: nowhere.
+  // One id routes to real.test and another is disputed between real.test and rogue.test: the
+  // request goes to real.test, so rogue.test can't block what the rest of it settles.
   const routed = "4".repeat(24);
   const tied = "5".repeat(24);
   put.run(vic.id, routed, "real.test", CLAIM.implicit, Date.now(), 0);
   put.run(vic.id, tied, "real.test", CLAIM.implicit, Date.now(), 0);
   put.run(vic.id, tied, "rogue.test", CLAIM.implicit, Date.now(), 0);
   targets.length = 0;
-  const r = await vic.call("messages", { action: "list", conversation_id: routed, channel_id: tied }).catch((e) => e);
+  await vic.call("messages", { action: "list", conversation_id: routed, channel_id: tied }).catch((e) => e);
+  assert.equal(sentTo(targets, "messages", "list"), "real.test");
+  assert.equal(home.app.federation.roomHost(`${routed}.${tied}`, vic.id), "real.test");
+
+  // Disputed between two other sites: nowhere, not even where the other id points.
+  const elsewhere = "7".repeat(24);
+  put.run(vic.id, elsewhere, "rogue.test", CLAIM.implicit, Date.now(), 0);
+  put.run(vic.id, elsewhere, "third.test", CLAIM.implicit, Date.now(), 0);
+  targets.length = 0;
+  const r = await vic.call("messages", { action: "list", conversation_id: routed, channel_id: elsewhere }).catch((e) => e);
   assert.equal(sentTo(targets, "messages", "list"), undefined);
   assert.equal(r.code ?? r.data?.code ?? r.body?.code, "DISPUTED_SITE");
-
-  // A realtime room with a routed id and a disputed id goes nowhere either.
-  assert.equal(home.app.federation.roomHost(`${routed}.${tied}`, vic.id), null);
+  assert.equal(home.app.federation.roomHost(`${routed}.${elsewhere}`, vic.id), null);
   assert.equal(home.app.federation.roomHost(`${routed}.${"6".repeat(24)}`, vic.id), "real.test");
 });

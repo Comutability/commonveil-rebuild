@@ -1513,6 +1513,31 @@ fn routes_script(net: &mut Net, kits: &[Kit]) -> Vec<Value> {
         uma,
         json!({ "action": "shared_event", "event_id": event }),
     );
+
+    // ----- a disputed id goes only where the rest of the request points, if that's a contender -----
+    let (routed, tied, elsewhere) = ("4".repeat(24), "5".repeat(24), "7".repeat(24));
+    rusqlite::Connection::open(net.data(home).join("commonveil.db"))
+        .and_then(|db| {
+            db.busy_timeout(Duration::from_secs(5))?;
+            for (id, host) in [
+                (&routed, "rogue.test"),
+                (&tied, "rogue.test"),
+                (&tied, "third.test"),
+                (&elsewhere, "third.test"),
+                (&elsewhere, "fourth.test"),
+            ] {
+                db.execute("INSERT INTO fed_claims (user_id, id, host, strength, seen) VALUES (?1, ?2, ?3, 1, ?4)", rusqlite::params![uma.id, id, host, now()])?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    net.call(
+        home,
+        "messages",
+        "uma names a routed id and an id disputed by sites that don't include it",
+        uma,
+        json!({ "action": "list", "conversation_id": routed, "channel_id": elsewhere }),
+    );
     std::mem::take(&mut net.log)
 }
 
@@ -1572,6 +1597,11 @@ fn a_site_cant_claim_what_it_doesnt_host_on_either_server() {
             "{step} goes to rogue.test, which doesn't hold real's server"
         );
     }
+    assert_eq!(
+        at("home.test: uma names a routed id and an id disputed by sites that don't include it")["reply"]["code"],
+        json!("DISPUTED_SITE"),
+        "a disputed id never lets the rest of the request carry it to a site that isn't a contender"
+    );
     assert_eq!(
         at("home.test: uma looks up the event rogue claimed")["reply"]["code"],
         json!("NOT_FOUND"),
