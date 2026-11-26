@@ -328,20 +328,9 @@ fn purge(sr: &Db, store: &Store, user_id: &str, deadline: i64) -> R<()> {
     Ok(())
 }
 
-/// Remove the member's sign-in and account record. Returns whether the record went.
-pub fn remove_platform_user(sr: &Db, store: &Store, user_id: &str) -> bool {
-    crate::identity::remove_sign_in(store, user_id);
-    for name in ["PushSubscription", "PushCode"] {
-        for r in sr
-            .filter(name, json!({ "user_id": user_id }), "created_date", 200)
-            .unwrap_or_default()
-        {
-            let _ = sr.delete(name, id_of(&r));
-        }
-    }
-    // Which other sites hold what for them, and which sites they use (the federation's own
-    // tables; absent if federation never ran here). Both go together or not at all. The account
-    // goes whatever happens here: nothing would come back to retry a kept one.
+/// Which other sites hold what for a person, and which sites they use (the federation's own
+/// tables; absent if federation never ran here). Both go together or not at all.
+fn remove_federation_traces(store: &Store, user_id: &str) {
     let traces: rusqlite::Result<()> = store.with_db(|db| {
         let tx = db.unchecked_transaction()?;
         for table in ["fed_claims", "fed_user_hosts"] {
@@ -361,9 +350,29 @@ pub fn remove_platform_user(sr: &Db, store: &Store, user_id: &str) -> bool {
             "[accounts] a deleted account's records about other sites couldn't be removed: {e}"
         );
     }
-    if sr.get("Person", user_id).is_some() {
+}
+
+/// Remove the member's sign-in and account record. Returns whether the record went.
+pub fn remove_platform_user(sr: &Db, store: &Store, user_id: &str) -> bool {
+    crate::identity::remove_sign_in(store, user_id);
+    for name in ["PushSubscription", "PushCode"] {
+        for r in sr
+            .filter(name, json!({ "user_id": user_id }), "created_date", 200)
+            .unwrap_or_default()
+        {
+            let _ = sr.delete(name, id_of(&r));
+        }
+    }
+    // The account goes whatever happens to these, and they go once more afterwards: a request that
+    // was out meanwhile may have written a row, and nothing writes one for a missing account.
+    remove_federation_traces(store, user_id);
+    let gone = if sr.get("Person", user_id).is_some() {
         sr.delete("Person", user_id).is_ok()
     } else {
         sr.delete("User", user_id).is_ok()
+    };
+    if gone {
+        remove_federation_traces(store, user_id);
     }
+    gone
 }

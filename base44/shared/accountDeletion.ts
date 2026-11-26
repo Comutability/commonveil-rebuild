@@ -208,11 +208,16 @@ export async function removePlatformUser(sr: any, userId: string): Promise<boole
   // The account goes whatever happens here: nothing would come back to retry a kept one.
   if (!(await removeFederationTraces(sr, userId))) console.warn("[accounts] some of a deleted account's records about other sites couldn't be removed; they name no one else and route nothing once the account is gone.");
   const person = await sr.entities.Person.get(userId).catch(() => null);
+  let gone = false;
   try {
     if (person) await sr.entities.Person.delete(userId);
     else await sr.entities.User.delete(userId);
-    return true;
+    gone = true;
   } catch {
-    return false;
+    // reported below
   }
+  // Once more now the account is gone: a request that was out while the first pass ran may have
+  // written a row since, and nothing writes one for a missing account.
+  if (gone) await removeFederationTraces(sr, userId);
+  return gone;
 }
