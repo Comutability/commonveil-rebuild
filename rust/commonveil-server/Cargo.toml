@@ -1,6 +1,6 @@
 [package]
 name = "commonveil-server"
-version = "0.24.23"
+version = "0.24.24"
 description = "The self-hosted Commonveil server, in Rust: replacing server/ and base44/shared stage by stage."
 edition.workspace = true
 license.workspace = true

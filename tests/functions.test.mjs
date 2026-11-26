@@ -1378,6 +1378,18 @@ test("on the hosted site a task starts at most once a gap across every instance,
   // Unknown tasks aren't recorded here (runMaintenance refuses them).
   assert.equal(await claimRun(sr, "erase_everything", t0), true);
   assert.equal(w.rows("MaintenanceRun").length, 2);
+  // A refusal heard just before the shared gap ends is never kept past it: the scheduled run that
+  // follows still goes ahead (here, inactive accounts: a 1 h shared gap, 15 min locally).
+  resetMaintenanceThrottle();
+  const t1 = t0 + 10 * 3600_000;
+  assert.equal(await claimRun(sr, "inactive", t1), true);
+  assert.equal(await claimRun(sr, "inactive", t1 + 55 * 60_000), false);
+  assert.equal(await claimRun(sr, "inactive", t1 + 67 * 60_000), true, "past the shared gap");
+  // Nor does a clock moved back to before the refusal was heard: the shared record decides again.
+  resetMaintenanceThrottle();
+  assert.equal(await claimRun(sr, "inactive", t1 + 100 * 60_000), false);
+  assert.equal(await claimRun(sr, "inactive", t1 + 66 * 60_000), true, "clock moved back");
+  resetMaintenanceThrottle();
   // If the record can't be read, the clean-up still runs (it deletes what people asked to delete).
   const broken = { entities: { MaintenanceRun: { filter: async () => { throw new Error("down"); } } } };
   assert.equal(await claimRun(broken, "expire", t0), true);

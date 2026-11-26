@@ -27,9 +27,10 @@ const BUDGET_MS = 4 * 60_000;
 /** However often the address is called, a task starts at most this often on one server. */
 const MIN_GAP_MS: Record<string, number> = { expire: 60_000, inactive: 15 * 60_000, deliver: 60_000 };
 const lastStarted = new Map<string, number>();
-// When this instance last heard (from MaintenanceRun) that a task had started elsewhere. Kept apart
-// from lastStarted: a refused claim mustn't stop a claim that was granted from running.
-const lastHeard = new Map<string, number>();
+// Until when this instance may refuse a task without a read, having heard (from MaintenanceRun)
+// that it started elsewhere: never past the end of that run's shared gap, so a scheduled run just
+// after it isn't refused. Kept apart from lastStarted: a refused claim mustn't stop a granted one.
+const heardUntil = new Map<string, { at: number; until: number }>();
 
 const startOfDay = (day: string) => Date.parse(`${day}T00:00:00Z`);
 
@@ -176,7 +177,7 @@ export async function deliverAndDestroy(sr: any, now: Date, deadline: number) {
 /** For tests: forget when tasks last started. */
 export function resetMaintenanceThrottle() {
   lastStarted.clear();
-  lastHeard.clear();
+  heardUntil.clear();
 }
 
 /**
@@ -193,14 +194,17 @@ export const GLOBAL_GAP_MS: Record<string, number> = { deliver: 60_000, expire: 
 export async function claimRun(sr: any, task: unknown, now = Date.now()): Promise<boolean> {
   if (typeof task !== "string" || !Object.prototype.hasOwnProperty.call(GLOBAL_GAP_MS, task)) return true; // refused later
   // Free first: this instance started it, or heard it had started, within its own gap.
-  const recent = (at: number | undefined) => at !== undefined && now >= at && now - at < MIN_GAP_MS[task];
-  if (recent(lastStarted.get(task)) || recent(lastHeard.get(task))) return false;
+  const here = lastStarted.get(task);
+  if (here !== undefined && now >= here && now - here < MIN_GAP_MS[task]) return false;
+  // A clock moved back before the time it was heard doesn't keep the task held up.
+  const heard = heardUntil.get(task);
+  if (heard && now >= heard.at && now < heard.until) return false;
   try {
     const [row] = await sr.entities.MaintenanceRun.filter({ task }, "-started_at", 1);
     const last = row ? Date.parse(row.started_at) : NaN;
     // A time in the future (a clock moved back) doesn't hold the task up.
     if (Number.isFinite(last) && now >= last && now - last < GLOBAL_GAP_MS[task]) {
-      lastHeard.set(task, now);
+      heardUntil.set(task, { at: now, until: Math.min(now + MIN_GAP_MS[task], last + GLOBAL_GAP_MS[task]) });
       return false;
     }
     const started_at = new Date(now).toISOString();
