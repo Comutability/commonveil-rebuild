@@ -804,7 +804,7 @@ fn script(port: u16, data: &Path, kits: &[Kit]) -> Vec<Value> {
         bob,
         json!({ "action": "alerts", "endpoint": endpoint, "all": ["no such thing!"], "mentions": [] }),
     );
-    let many: Vec<String> = (0..201).map(|i| format!("server{i}")).collect();
+    let many: Vec<String> = (0..1001).map(|i| format!("server{i}")).collect();
     n(
         &mut f,
         "alerts: too many servers",

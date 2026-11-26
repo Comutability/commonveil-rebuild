@@ -338,5 +338,13 @@ test("the site is told per server only, and a server's most talkative channel de
   assert.deepEqual(r.mentions, ["agora", "club"]);
   r = pushLevelsFor(servers, { notify: { club: "none" } });
   assert.ok(!r.all.includes("club") && !r.mentions.includes("club"), "a server set to nothing is in neither list");
+
+  // A channel setting for a server still loading (here, for the default server's channels, before
+  // they arrive) makes every server still loading ask for that much, so the setting isn't lost.
+  const loadingOnly = { agora: { server: { id: "agora", is_default: true } }, club: servers.club };
+  r = pushLevelsFor(loadingOnly, { notify: { "agora-announcements": "all" } });
+  assert.deepEqual(r.all, ["agora", "club"]);
+  r = pushLevelsFor(loadingOnly, { notify: { "agora-announcements": "all" }, muted: { agora: true } });
+  assert.deepEqual(r.all, ["club"], "a muted server still asks for nothing");
 });
 

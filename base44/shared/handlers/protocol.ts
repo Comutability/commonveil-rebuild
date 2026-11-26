@@ -75,6 +75,8 @@ function brake(key: string, perMinute: number, now: Date, what: string) {
 
 /** Site checks: at most this many per person in the window, per server instance. */
 const SITE_CHECKS = { perWindow: 10, windowMs: 10 * 60_000 };
+/** A site document is a few kilobytes: anything past this isn't one, and isn't passed on. */
+const SITE_DOC_CHARS = 64 * 1024;
 const siteChecks = new Map<string, number[]>();
 /** For tests. */
 export const forgetSiteChecks = () => siteChecks.clear();
@@ -93,13 +95,18 @@ async function checkSite({ user, body, federation, now }: any) {
   const recent = (siteChecks.get(user.id) || []).filter((at) => t - at < SITE_CHECKS.windowMs);
   if (recent.length >= SITE_CHECKS.perWindow) throw rateLimited("checking sites");
   siteChecks.set(user.id, [...recent, t]);
+  if (siteChecks.size > 5000) for (const [k, v] of siteChecks) if (!v.some((at) => t - at < SITE_CHECKS.windowMs)) siteChecks.delete(k);
+  const unreadable = () => new ApiError(502, "SITE_UNREACHABLE", "That site couldn't be read. It may be down, or not be a Commonveil site.");
   let document;
   try {
     document = await federation.siteDocument(host);
   } catch (error) {
-    if ((error as any)?.status === 403) throw new ApiError(403, "SITE_BLOCKED", "This site doesn't talk to that site.");
-    throw new ApiError(502, "SITE_UNREACHABLE", "That site couldn't be read. It may be down, or not be a Commonveil site.");
+    // Only this site's own block says so. Any other refusal (a private address among them) reads
+    // the same as a site that's down, so a check can't be used to probe this server's network.
+    if ((error as any)?.code === "SITE_BLOCKED") throw new ApiError(403, "SITE_BLOCKED", "This site doesn't talk to that site.");
+    throw unreadable();
   }
+  if (JSON.stringify(document).length > SITE_DOC_CHARS) throw unreadable();
   return { host, document };
 }
 

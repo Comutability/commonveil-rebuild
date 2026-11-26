@@ -1350,6 +1350,7 @@ test("the scheduled clean-up takes no instructions: unknown tasks are refused, a
 });
 
 test("on the hosted site a task starts at most once a gap across every instance, and scheduled runs always go ahead", async () => {
+  resetMaintenanceThrottle();
   const w = new FakeWorld();
   const sr = w.clientFor(null).asServiceRole;
   const t0 = Date.parse("2026-11-26T09:00:00Z");
@@ -1359,6 +1360,10 @@ test("on the hosted site a task starts at most once a gap across every instance,
   assert.equal(await claimRun(sr, "expire", t0 + 1_000), false);
   assert.equal(w.serviceReads, reads + 1);
   assert.equal(w.rows("MaintenanceRun").length, 1);
+  // That instance now knows: calling it again within its own gap costs nothing at all.
+  assert.equal(await claimRun(sr, "expire", t0 + 2_000), false);
+  assert.equal(w.serviceReads, reads + 1, "no read");
+  resetMaintenanceThrottle();
   // Each workflow runs less often than its gap, so a scheduled run is never the one skipped.
   const schedule = { deliver: 5 * 60_000, expire: 30 * 60_000, inactive: 24 * 3600_000 };
   for (const [task, every] of Object.entries(schedule)) assert.ok(GLOBAL_GAP_MS[task] < every, task);

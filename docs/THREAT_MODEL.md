@@ -78,8 +78,8 @@ What Commonveil protects, against whom, and what it doesn't. Read with `PROTOCOL
   said. A malicious sender can lie about a mention, but cannot notify someone outside the
   channel's permissions. Each browser tells the server, per server, whether it wants pushes for
   every message, only @mentions or nothing, and channel pushes go only to browsers that asked; the
-  server learns those per-server choices, never per-channel ones, which remain only on the
-  recipient's device. Fanout is currently bounded to 200 members per channel message. Federated
+  server learns those per-server choices (for a one-channel server, that channel's), not the
+  per-channel settings, which remain only on the recipient's device. Fanout is currently bounded to 200 members per channel message. Federated
   members aren't pushed to.
   See [NOTIFICATIONS.md](NOTIFICATIONS.md).
 - **Edits and reactions are ordered by their sender's own signed time.** A member can make their own edit or reaction look
@@ -87,7 +87,8 @@ What Commonveil protects, against whom, and what it doesn't. Read with `PROTOCOL
 - **The scheduled clean-up has a public address**, like every function. It takes no instructions beyond a task name and
   only does what's already due by the server's clock, so the worst a caller can do is use a little of the app's query
   allowance: across every instance, a task starts at most once a minute (deliveries), every 5 minutes
-  (expiry) or every hour (inactive accounts), and a repeat call costs one read. A secret header isn't
+  (expiry) or every hour (inactive accounts), best effort (two calls at the same moment can both
+  start it), and a repeat call costs at most one read. A secret header isn't
   possible: the scheduled workflows can only send arguments, which are stored in this public
   repository.
 - **Shared query allowance.** On Base44, everything the backend does as its service role shares one per-minute allowance

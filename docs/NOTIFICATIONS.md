@@ -116,10 +116,13 @@ member who can read the channel. A quiet server costs its members nothing, and a
 wakes every phone in it for each message.
 
 This is a small, deliberate disclosure: the site learns, per browser, which of your servers you want
-pushes from and at which of those two levels. It already knows which servers you're in; it doesn't
-learn anything per channel. A browser that hasn't said yet (an app from before 0.24.23, until it is
-next opened) gets @mentions from every server and other activity from every server except the
-site's default one, which are the app's own defaults.
+pushes from and at which of those two levels, and roughly when that changes. It already knows which
+servers you're in. It isn't sent your setting for each channel, but for a server with a single
+channel the server's level is that channel's, and muting a whole server shows as asking for nothing.
+The app names servers on other sites too (it can't always tell them apart); only this site's are
+kept. A browser that hasn't said yet (an app from before 0.24.23, until it is next opened) gets
+@mentions from every server and other activity from every server except the site's default one,
+which are the app's own defaults, even where it was set to every message.
 
 The recipient's choice of channels to mute or watch still stays on their device. A browser HMAC token
 lets the service worker match a generic push to a local channel rule without receiving a channel ID

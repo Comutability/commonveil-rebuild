@@ -80,14 +80,20 @@ async function sayAlerts() {
     return;
   }
   alertsSending = true;
+  let failed = null;
   try {
     do {
       alertsAgain = false;
-      await sayAlertsOnce();
+      failed = null;
+      // A newer choice queued while this one failed still goes: the loop carries on for it.
+      await sayAlertsOnce().catch((err) => {
+        failed = err;
+      });
     } while (alertsAgain);
   } finally {
     alertsSending = false;
   }
+  if (failed) throw failed;
 }
 
 async function sayAlertsOnce() {

@@ -171,7 +171,7 @@ application only clarifies the protocol readiness status.
 
 The Rust workspace and Docker builds pin Secure Net 0.8.0, the merge of its pull request #20
 (6901da8ccb347a94ce97da8e66334f71ae9ad5fe), which passed Secure Net's CI, including its new
-RustSec advisory check, and an independent review. 0.8.0 is the number for the draft SNIP-0007
+RustSec advisory check, and an independent AI review (no person has reviewed it yet). 0.8.0 is the number for the draft SNIP-0007
 transfer code that had been added on top of 0.7.0; v0.7.0 now means only the Rust-only release.
 
 What changed for Commonveil: in the prototype KEM possession proof, the destination now stores a

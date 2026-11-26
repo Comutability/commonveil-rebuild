@@ -549,6 +549,8 @@ fn proto_disable(ctx: &mut Ctx) -> Result<Value> {
 /// Site checks: at most this many per person in the window, per server.
 const SITE_CHECKS_PER_WINDOW: usize = 10;
 const SITE_CHECK_WINDOW_MS: i64 = 10 * 60_000;
+/// A site document is a few kilobytes: anything past this isn't one, and isn't passed on.
+const SITE_DOC_CHARS: usize = 64 * 1024;
 fn site_checks() -> &'static Mutex<HashMap<String, Vec<i64>>> {
     static CHECKS: OnceLock<Mutex<HashMap<String, Vec<i64>>>> = OnceLock::new();
     CHECKS.get_or_init(|| Mutex::new(HashMap::new()))
@@ -592,21 +594,32 @@ fn check_site(ctx: &mut Ctx) -> Result<Value> {
         let mut recent = recent;
         recent.push(now);
         checks.insert(ctx.user_id().to_string(), recent);
+        if checks.len() > 5000 {
+            checks.retain(|_, v| v.iter().any(|at| now - at < SITE_CHECK_WINDOW_MS));
+        }
     }
+    let unreadable = || {
+        ApiError::new(
+            502,
+            "SITE_UNREACHABLE",
+            "That site couldn't be read. It may be down, or not be a Commonveil site.",
+        )
+    };
+    // Only this site's own block says so. Any other refusal (a private address among them) reads
+    // the same as a site that's down, so a check can't be used to probe this server's network.
     let document = fed
         .signer
         .peek_site_doc(&ctx.app.store, &host)
         .map_err(|e| {
-            if e.status == 403 {
+            if e.code == "SITE_BLOCKED" {
                 ApiError::new(403, "SITE_BLOCKED", "This site doesn't talk to that site.")
             } else {
-                ApiError::new(
-                    502,
-                    "SITE_UNREACHABLE",
-                    "That site couldn't be read. It may be down, or not be a Commonveil site.",
-                )
+                unreadable()
             }
         })?;
+    if document.to_string().encode_utf16().count() > SITE_DOC_CHARS {
+        return Err(unreadable());
+    }
     Ok(json!({ "host": host, "document": document }))
 }
 

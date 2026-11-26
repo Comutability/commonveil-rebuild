@@ -19,8 +19,9 @@ const MAX_SUBSCRIPTIONS: usize = 10;
 const CODE_DAYS: i64 = 7;
 const QUIET_MS: f64 = 20_000.0;
 const MAX_PER_SEND: usize = 200;
-/// Both alert lists together: more servers than anyone can be in (serversPerUser).
-const MAX_ALERT_SERVERS: usize = 200;
+/// What a browser may name: its own site's servers and, through federation, other sites' (only this
+/// site's are kept). Far more than anyone is in (serversPerUser is per site).
+const MAX_ALERT_SERVERS: usize = 1000;
 
 fn b64url_ok(s: &str) -> bool {
     !s.is_empty()
@@ -424,10 +425,28 @@ fn alerts(ctx: &mut Ctx) -> Result<Value> {
             "This browser's subscription isn't registered. Turn push off and on here.",
         ));
     };
+    // Only this site's servers push from here: other sites' (and unknown ids) aren't kept.
+    let named: Vec<String> = all.iter().chain(mentions.iter()).cloned().collect();
+    let here: Vec<String> = if named.is_empty() {
+        Vec::new()
+    } else {
+        sr.filter(
+            "Server",
+            json!({ "audience_id": { "$in": named } }),
+            "created_date",
+            named.len(),
+        )?
+        .iter()
+        .map(|x| to_js_string(x.get("audience_id")))
+        .collect()
+    };
+    let kept = |list: Vec<String>| -> Vec<String> {
+        list.into_iter().filter(|x| here.contains(x)).collect()
+    };
     sr.update(
         "PushSubscription",
         id_of(&sub),
-        json!({ "alerts_set": true, "alert_all": all, "alert_mentions": mentions }),
+        json!({ "alerts_set": true, "alert_all": kept(all), "alert_mentions": kept(mentions) }),
     )?;
     Ok(json!({ "ok": true }))
 }

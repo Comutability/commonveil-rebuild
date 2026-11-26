@@ -234,8 +234,9 @@ test("each browser chooses which servers push to it: every message, only @mentio
     assert.equal((await choose(bob, [], [])).status, 200);
     assert.deepEqual(await send("@bobby hi", [bob]), [], "Bob asked for nothing from this server");
 
-    // The site keeps only server ids, deduplicated, and a server in both lists counts as everything.
-    assert.equal((await choose(carol, [sid, sid], [sid])).status, 200);
+    // The site keeps only its own servers' ids (the app names other sites' too), deduplicated, and
+    // a server in both lists counts as everything.
+    assert.equal((await choose(carol, [sid, sid, "elsewhere-server"], [sid, "another-site-server"])).status, 200);
     const [carolRow] = await sr.entities.PushSubscription.filter({ user_id: carol.id });
     assert.equal(carolRow.alerts_set, true);
     assert.deepEqual(carolRow.alert_all, [sid]);
@@ -256,7 +257,7 @@ test("each browser chooses which servers push to it: every message, only @mentio
     // Only for a browser the caller has registered, and only real server lists.
     assert.equal((await choose(carol, [sid], [])).body.code, "PUSH_NOT_REGISTERED", "that address is Alice's now");
     assert.equal((await bob.call("notifications", { action: "alerts", endpoint: "https://evil.test/x", all: [], mentions: [] })).body.code, "BAD_ENDPOINT");
-    for (const [all, mentions] of [["x", []], [[], undefined], [["bad id!"], []], [Array.from({ length: 201 }, (_, i) => `server${i}`), []], [Array.from({ length: 150 }, (_, i) => `a${i}`), Array.from({ length: 51 }, (_, i) => `b${i}`)]]) {
+    for (const [all, mentions] of [["x", []], [[], undefined], [["bad id!"], []], [Array.from({ length: 1001 }, (_, i) => `server${i}`), []], [Array.from({ length: 600 }, (_, i) => `a${i}`), Array.from({ length: 401 }, (_, i) => `b${i}`)]]) {
       const r = await choose(bob, all, mentions);
       assert.equal(r.status, 400, JSON.stringify(all).slice(0, 40));
       assert.equal(r.body.code, "BAD_FIELD");

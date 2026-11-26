@@ -22,8 +22,9 @@ const CODE_DAYS = 7;
 // A burst of messages makes one notification per device, not one each.
 const QUIET_MS = 20_000;
 const MAX_PER_SEND = 200;
-// Both alert lists together: more servers than anyone can be in (SERVER_LIMITS.serversPerUser).
-const MAX_ALERT_SERVERS = 200;
+// What a browser may name: its own site's servers and, through federation, other sites' (only this
+// site's are kept). Far more than anyone is in (SERVER_LIMITS.serversPerUser is per site).
+const MAX_ALERT_SERVERS = 1000;
 const B64URL = /^[A-Za-z0-9_-]+$/;
 
 export type PushConfig = { subject: string };
@@ -183,7 +184,10 @@ export const notificationActions: Actions = {
     if (all.length + mentions.length > MAX_ALERT_SERVERS) throw new ApiError(400, "BAD_FIELD", "Invalid server list.");
     const [sub] = await sr.entities.PushSubscription.filter({ endpoint: body.endpoint, user_id: user.id }, "created_date", 1);
     if (!sub) throw new ApiError(409, "PUSH_NOT_REGISTERED", "This browser's subscription isn't registered. Turn push off and on here.");
-    await sr.entities.PushSubscription.update(sub.id, { alerts_set: true, alert_all: all, alert_mentions: mentions });
+    // Only this site's servers push from here: other sites' (and unknown ids) aren't kept.
+    const named = [...all, ...mentions];
+    const here = new Set(named.length ? (await sr.entities.Server.filter({ audience_id: { $in: named } }, "created_date", named.length)).map((x: any) => x.audience_id) : []);
+    await sr.entities.PushSubscription.update(sub.id, { alerts_set: true, alert_all: all.filter((x) => here.has(x)), alert_mentions: mentions.filter((x) => here.has(x)) });
     return { ok: true };
   },
 
