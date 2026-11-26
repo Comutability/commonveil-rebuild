@@ -249,9 +249,13 @@ person, weighed by how it was learned, never as a fact for everyone:
   hour for each pair). Claims from blocked sites don't count, so blocking the wrong one settles it.
 - **Claims belong to the person they came with.** A notice naming Ann, or an answer to Ann's
   request, never changes where Ben's requests go.
-- **Chosen ids only route a request that names nothing else, and only by chosen claims.** A
-  thread id can't send a request that names a server anywhere but the server's own site, and a
-  membership notice can't steer a request that names only a chosen id. Requests about a place,
+- **Chosen ids only route a request that names no other id, and only by chosen claims** (a site
+  gave the id as a chosen one, whatever else it said about it) **or a route from before 0.24.25.**
+  A thread id can't send a request that names a server anywhere, even an unknown one, and a
+  membership notice can't steer a request that names only a chosen id.
+- **A disputed id stops a request leaving.** If any id a request names is disputed, the request
+  isn't sent to any site, even one another of its ids points to; the same goes for a realtime
+  room. Requests about a place,
   and realtime rooms, never route by chosen claims.
 - **Only the top of a request names a place.** A named claim covers the conversation, server or
   channel ids at the top level of the request and of its signed payload, never ids nested deeper.

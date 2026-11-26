@@ -710,9 +710,19 @@ export class HostedFederation {
 
   /** Remove every claim about something held here (they can only be wrong), and say which sites made them. */
   async #forgetClaims(id: string) {
-    const [legacy, claims] = await Promise.all([this.sr.entities.FedRoute.filter({ ref_id: id }, "created_date", 500), this.sr.entities.FedClaim.filter({ ref_id: id }, "created_date", 2000)]);
-    for (const r of legacy) await this.sr.entities.FedRoute.delete(r.id).catch(() => {});
-    for (const r of claims) await this.sr.entities.FedClaim.delete(r.id).catch(() => {});
+    // Every row, a page at a time, until none are left or a page can't be removed.
+    const drain = async (T: any) => {
+      const gone: any[] = [];
+      for (;;) {
+        const page = await T.filter({ ref_id: id }, "created_date", READ_PAGE).catch(() => []);
+        if (!page.length) return gone;
+        let n = 0;
+        for (const r of page) if (await T.delete(r.id).then(() => true, () => false)) (n += 1), gone.push(r);
+        if (!n) return gone;
+      }
+    };
+    const legacy = await drain(this.sr.entities.FedRoute);
+    const claims = await drain(this.sr.entities.FedClaim);
     memo.delete(`legacy:${id}`);
     const hosts = [...new Set([...legacy, ...claims].map((r: any) => r.host))].sort();
     if (hosts.length) warnOnce(this.log, "held-here", hosts.join(" "), this.host, () => `[federation] ${hosts.join(", ")} claimed to hold something that is held here; those claims are removed. Block any site you don't trust.`);
@@ -808,8 +818,10 @@ export class HostedFederation {
       }
     }
     if (hosts.size > 1) throw new FederationError(400, "MIXED_SITES", "That request names things on more than one site.");
-    if (hosts.size) return [...hosts][0];
-    if (here || !disputed) return null;
+    // A request that would go to another site goes nowhere if any id in it is disputed.
+    if (hosts.size && !disputed) return [...hosts][0];
+    if (!disputed) return null;
+    if (here && !hosts.size) return null;
     // Something named is here: that's this site's business, whatever else is disputed.
     const rest = [...named.keys()].filter((id) => !routed.has(id));
     if (rest.length && (await this.#heldMany(rest)).size) return null;
@@ -995,7 +1007,7 @@ export class HostedFederation {
       // Only a claim for that person, and a weak one: any site can send this notice.
       const id = String(payload.room?.id || "");
       // Only a notice that would add a claim counts towards the cap (see noticeAllowed).
-      if (ID24.test(id) && !(await this.sr.entities.FedClaim.filter({ user_id: uid, ref_id: id, host: from }, "created_date", 1)).length && !noticeAllowed(`${from} ${uid}`)) {
+      if (ID24.test(id) && !(await this.#heldMany([id])).size && !(await this.sr.entities.FedClaim.filter({ user_id: uid, ref_id: id, host: from }, "created_date", 1)).length && !noticeAllowed(`${from} ${uid}`)) {
         warnOnce(this.log, "notices", from, this.host, () => `[federation] ${from} sent more than ${NOTICES_PER_HOUR} membership notices adding new claims for one person this hour; the rest are refused until the next.`);
         return { ok: false, code: "TOO_MANY_NOTICES" };
       }

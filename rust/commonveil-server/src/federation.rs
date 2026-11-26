@@ -406,6 +406,18 @@ impl Federation {
                      CREATE TABLE IF NOT EXISTS fed_notified (user_id TEXT NOT NULL, room TEXT NOT NULL, PRIMARY KEY (user_id, room));
                      CREATE TABLE IF NOT EXISTS fed_outbox (host TEXT NOT NULL, msg_id TEXT NOT NULL, user_id TEXT NOT NULL, fn TEXT NOT NULL, body TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_at INTEGER NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (host, msg_id));",
                 )?;
+                // Whether the site ever gave this id as one an app chooses: kept apart from
+                // strength, so the same site naming it as one of its own records too doesn't lose it.
+                let has_chosen: bool = db.query_row(
+                    "SELECT COUNT(*) > 0 FROM pragma_table_info('fed_claims') WHERE name = 'chosen'",
+                    [],
+                    |r| r.get(0),
+                )?;
+                if !has_chosen {
+                    db.execute_batch(
+                        "ALTER TABLE fed_claims ADD COLUMN chosen INTEGER NOT NULL DEFAULT 0",
+                    )?;
+                }
                 migrate_routes(db)
             })
             .map_err(|e| e.to_string())?;
@@ -445,19 +457,24 @@ impl Federation {
         resolve_route(&self.claims_of(user_id, id))
     }
     /// The route a request takes for one id. A chosen id (CHOSEN_KEYS) routes only by chosen
-    /// claims, and anything else only by heard claims or stronger: a notice can't steer a chosen
+    /// claims (the site gave it as a chosen id, whatever else it said) or a route from before
+    /// 0.24.25, and anything else only by heard claims or stronger: a notice can't steer a chosen
     /// id, and a chosen id in an answer never steers a request about a place or a room.
     fn route_for(&self, user_id: &str, id: &str, chosen: bool) -> Route {
+        if chosen {
+            let claims = self
+                .sql(|db| {
+                    db.prepare("SELECT c.host, MAX(CASE WHEN c.user_id = '*' THEN c.strength ELSE 0 END) FROM fed_claims c LEFT JOIN fed_sites s ON s.host = c.host WHERE c.id = ?1 AND (c.user_id = '*' OR (c.user_id = ?2 AND c.chosen = 1)) AND COALESCE(s.blocked, 0) = 0 GROUP BY c.host")?
+                        .query_map([id, user_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+                        .collect::<rusqlite::Result<Vec<(String, i64)>>>()
+                })
+                .unwrap_or_default();
+            return resolve_route(&claims);
+        }
         let claims: Vec<(String, i64)> = self
             .claims_of(user_id, id)
             .into_iter()
-            .filter(|(_, s)| {
-                if chosen {
-                    *s == CLAIM_CHOSEN
-                } else {
-                    *s >= CLAIM_IMPLICIT
-                }
-            })
+            .filter(|(_, s)| *s >= CLAIM_IMPLICIT)
             .collect();
         resolve_route(&claims)
     }
@@ -500,12 +517,13 @@ impl Federation {
             return;
         }
         // Heard before, as strongly: nothing changes but when.
-        let same = self.sql(|db| db.execute("UPDATE fed_claims SET seen = ? WHERE user_id = ? AND id = ? AND host = ? AND strength >= ?", params![now, user_id, id, host, strength])).unwrap_or(0);
+        let chosen = i64::from(strength == CLAIM_CHOSEN);
+        let same = self.sql(|db| db.execute("UPDATE fed_claims SET seen = ? WHERE user_id = ? AND id = ? AND host = ? AND strength >= ? AND chosen >= ?", params![now, user_id, id, host, strength, chosen])).unwrap_or(0);
         if same > 0 {
             return;
         }
         let before = self.route_of(user_id, id);
-        self.sql(|db| db.execute("INSERT INTO fed_claims (user_id, id, host, strength, seen) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, id, host) DO UPDATE SET strength = MAX(strength, excluded.strength), seen = excluded.seen", params![user_id, id, host, strength, now]));
+        self.sql(|db| db.execute("INSERT INTO fed_claims (user_id, id, host, strength, seen, chosen) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, id, host) DO UPDATE SET strength = MAX(strength, excluded.strength), chosen = MAX(chosen, excluded.chosen), seen = excluded.seen", params![user_id, id, host, strength, now, chosen]));
         // Which sites, never what or whose: the admin can block the one that's wrong.
         let claims = self.claims_of(user_id, id);
         match resolve_route(&claims) {
@@ -1120,6 +1138,14 @@ impl Federation {
         found.retain(|f| seen.insert(f.clone()));
         found.truncate(MAX_LEARNED);
         let app = self.app();
+        // The account went while the answer was on its way: nothing to remember for it.
+        if !app
+            .store
+            .table_of(user_id)
+            .is_some_and(|t| t == "User" || t == "Person")
+        {
+            return;
+        }
         let now = now_ms();
         let mut learned = false;
         for (id, chosen) in found {
@@ -1162,7 +1188,9 @@ impl Federation {
                 }
             }
         }
-        for chosen in [false, true] {
+        // Chosen ids route a request only when it names no other id at all.
+        let ordinary = named.iter().any(|(_, c)| !*c);
+        for chosen in [!ordinary] {
             let (mut hosts, mut here, mut disputed) = (Vec::<String>::new(), false, false);
             for (id, _) in named.iter().filter(|(_, c)| *c == chosen) {
                 if app.store.has(id) {
@@ -1193,10 +1221,13 @@ impl Federation {
                     "That request names things on more than one site.",
                 ));
             }
-            if let Some(h) = hosts.pop() {
-                return Ok(Some(h));
+            // A request that would go to another site goes nowhere if any id in it is disputed.
+            if !disputed {
+                if let Some(h) = hosts.pop() {
+                    return Ok(Some(h));
+                }
             }
-            if here {
+            if here && hosts.is_empty() {
                 return Ok(None);
             }
             if disputed {
@@ -1719,6 +1750,7 @@ impl Federation {
                 let room_id = str_of(payload["room"].get("id"));
                 // Only a notice that would add a claim counts towards the cap (see notice_allowed).
                 if id24(&room_id)
+                    && !app.store.has(&room_id)
                     && !self.has_claim(&uid, &room_id, from)
                     && !notice_allowed(&format!("{from} {uid}"), now_ms())
                 {
@@ -1985,17 +2017,20 @@ impl Federation {
             return None;
         }
         let app = self.app();
+        let mut host = None;
         for part in room.split('.').filter(|p| id24(p)) {
             if app.store.has(part) {
                 return None;
             }
             match self.route_for(user_id, part, false) {
-                Route::Host(h) => return Some(h),
+                Route::Host(h) => {
+                    host.get_or_insert(h);
+                }
                 Route::Disputed(_) => return None,
                 Route::Unknown => {}
             }
         }
-        None
+        host
     }
 
     /// A person here connects to a room on another site: this site carries their connection there.

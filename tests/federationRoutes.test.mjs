@@ -228,8 +228,9 @@ test("a route a site took over before the update is named in the log, rejoining 
   // Xia joins now, naming real.test. Home can't tell which site is honest, so naming a site never
   // moves something another site already holds by an old route: it stays, and the log says so.
   await xia.ok("servers", { ...(await xia.signed("join_server", { server_id: sid })), _site: "real.test" });
+  const before = targets.length;
   await xia.call("servers", { action: "state", server_id: sid });
-  assert.equal(sentTo(targets, "servers", "state"), "rogue.test");
+  assert.equal(sentTo(targets.slice(before), "servers", "state"), "rogue.test");
   assert.ok(logged.some((l) => l.includes("real.test answered as the home of something rogue.test already holds")));
 
   // The admin reads the log and blocks rogue.test: its old route stops counting for everyone.
@@ -337,6 +338,9 @@ test("a site can't steer a chosen id by notice, push out an honest claim, flood 
 
   // At the cap, a notice refreshing a claim rogue.test already has still goes through; one adding
   // a new claim is refused.
+  // Not across the turn of the hour, when the count would start again.
+  const toNextHour = 3_600_000 - (Date.now() % 3_600_000);
+  if (toNextHour < 30_000) await new Promise((r) => setTimeout(r, toNextHour + 100));
   for (let i = 0; i < NOTICES_PER_HOUR; i++) noticeAllowed(`rogue.test ${una.id}`);
   const refresh = await notice(una, "conversation", room);
   assert.equal(refresh.status, 200);
@@ -353,4 +357,47 @@ test("a site can't steer a chosen id by notice, push out an honest claim, flood 
   await home.app.store.entities[table].delete(una.id);
   assert.equal(count(), 0);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM fed_user_hosts WHERE user_id = ?").get(una.id).n, 0);
+});
+
+test("chosen ids keep their routes, never steer a request naming other ids, and a disputed id stops a relay", async () => {
+  const vic = await new Person(home, "quinn").setup();
+  const db = home.app.store.db;
+  const targets = watchTargets(home);
+  const put = db.prepare("INSERT INTO fed_claims (user_id, id, host, strength, seen, chosen) VALUES (?, ?, ?, ?, ?, ?)");
+  const ask = (body) => vic.call("events", { action: "shared_event", ...body }).catch((e) => e);
+  const last = () => sentTo(targets, "events", "shared_event");
+
+  // real.test gave the event as a chosen id and also as one of its own records (strength 1): the
+  // chosen route stays.
+  const event = "1".repeat(24);
+  put.run(vic.id, event, "real.test", CLAIM.implicit, Date.now(), 1);
+  await ask({ event_id: event });
+  assert.equal(last(), "real.test");
+
+  // A route from before 0.24.25 still routes an event request.
+  const old = "2".repeat(24);
+  put.run("*", old, "real.test", CLAIM.legacy, Date.now(), 0);
+  targets.length = 0;
+  await ask({ event_id: old });
+  assert.equal(last(), "real.test");
+
+  // A request that names a server too never goes where only the event's route points.
+  targets.length = 0;
+  await ask({ event_id: event, server_id: "3".repeat(24) });
+  assert.equal(last(), undefined, "stays here");
+
+  // One id routes to real.test, another is disputed between real.test and rogue.test: nowhere.
+  const routed = "4".repeat(24);
+  const tied = "5".repeat(24);
+  put.run(vic.id, routed, "real.test", CLAIM.implicit, Date.now(), 0);
+  put.run(vic.id, tied, "real.test", CLAIM.implicit, Date.now(), 0);
+  put.run(vic.id, tied, "rogue.test", CLAIM.implicit, Date.now(), 0);
+  targets.length = 0;
+  const r = await vic.call("messages", { action: "list", conversation_id: routed, channel_id: tied }).catch((e) => e);
+  assert.equal(sentTo(targets, "messages", "list"), undefined);
+  assert.equal(r.code ?? r.data?.code ?? r.body?.code, "DISPUTED_SITE");
+
+  // A realtime room with a routed id and a disputed id goes nowhere either.
+  assert.equal(home.app.federation.roomHost(`${routed}.${tied}`, vic.id), null);
+  assert.equal(home.app.federation.roomHost(`${routed}.${"6".repeat(24)}`, vic.id), "real.test");
 });

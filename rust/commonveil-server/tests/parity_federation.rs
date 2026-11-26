@@ -1457,12 +1457,18 @@ fn routes_script(net: &mut Net, kits: &[Kit]) -> Vec<Value> {
     let dm_id = s(&dm["conversation"]["id"]);
     let list = json!({ "action": "list", "conversation_id": dm_id });
     // real.test's notice arrives on its own time.
-    for _ in 0..50 {
+    let mut arrived = false;
+    for _ in 0..150 {
         if status_of(net, uma, "messages", &list) == 200 {
+            arrived = true;
             break;
         }
         std::thread::sleep(Duration::from_millis(40));
     }
+    assert!(
+        arrived,
+        "real.test's notice about the conversation never reached home.test"
+    );
     net.call(
         home,
         "messages",

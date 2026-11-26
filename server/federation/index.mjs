@@ -186,6 +186,9 @@ export class Federation {
     const db = store.db;
     db.exec(`CREATE TABLE IF NOT EXISTS fed_claims (user_id TEXT NOT NULL, id TEXT NOT NULL, host TEXT NOT NULL, strength INTEGER NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, id, host))`);
     db.exec(`CREATE INDEX IF NOT EXISTS fed_claims_by_id ON fed_claims (id)`);
+    // Whether the site ever gave this id as one an app chooses: kept apart from strength, so the
+    // same site naming it as one of its own records too doesn't lose it.
+    if (!db.prepare("SELECT 1 FROM pragma_table_info('fed_claims') WHERE name = 'chosen'").get()) db.exec("ALTER TABLE fed_claims ADD COLUMN chosen INTEGER NOT NULL DEFAULT 0");
     migrateRoutes(db);
     db.exec(`CREATE TABLE IF NOT EXISTS fed_user_hosts (user_id TEXT NOT NULL, host TEXT NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, host))`);
     db.exec(`CREATE TABLE IF NOT EXISTS fed_shadows (user_id TEXT PRIMARY KEY, home TEXT NOT NULL, handle TEXT NOT NULL, digest TEXT NOT NULL DEFAULT '', updated INTEGER NOT NULL)`);
@@ -196,8 +199,9 @@ export class Federation {
     this.q = {
       claims: db.prepare("SELECT c.host AS host, MAX(c.strength) AS strength FROM fed_claims c LEFT JOIN fed_sites s ON s.host = c.host WHERE c.id = ? AND c.user_id IN (?, '*') AND COALESCE(s.blocked, 0) = 0 GROUP BY c.host"),
       hasClaim: db.prepare("SELECT 1 FROM fed_claims WHERE user_id = ? AND id = ? AND host = ?"),
-      sameClaim: db.prepare("UPDATE fed_claims SET seen = ? WHERE user_id = ? AND id = ? AND host = ? AND strength >= ?"),
-      putClaim: db.prepare("INSERT INTO fed_claims (user_id, id, host, strength, seen) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, id, host) DO UPDATE SET strength = MAX(strength, excluded.strength), seen = excluded.seen"),
+      chosenClaims: db.prepare("SELECT c.host AS host, MAX(CASE WHEN c.user_id = '*' THEN c.strength ELSE 0 END) AS strength FROM fed_claims c LEFT JOIN fed_sites s ON s.host = c.host WHERE c.id = ? AND (c.user_id = '*' OR (c.user_id = ? AND c.chosen = 1)) AND COALESCE(s.blocked, 0) = 0 GROUP BY c.host"),
+      sameClaim: db.prepare("UPDATE fed_claims SET seen = ? WHERE user_id = ? AND id = ? AND host = ? AND strength >= ? AND chosen >= ?"),
+      putClaim: db.prepare("INSERT INTO fed_claims (user_id, id, host, strength, seen, chosen) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, id, host) DO UPDATE SET strength = MAX(strength, excluded.strength), chosen = MAX(chosen, excluded.chosen), seen = excluded.seen"),
       forgetPerson: db.prepare("DELETE FROM fed_claims WHERE user_id = ?"),
       forgetPersonHosts: db.prepare("DELETE FROM fed_user_hosts WHERE user_id = ?"),
       hostsOf: db.prepare("SELECT host FROM fed_user_hosts WHERE user_id = ?"),
@@ -483,12 +487,14 @@ export class Federation {
   }
 
   /**
-   * The route a request takes for one id. A chosen id (CHOSEN_KEYS) routes only by chosen claims,
-   * and anything else only by heard claims or stronger: a notice can't steer a chosen id, and a
+   * The route a request takes for one id. A chosen id (CHOSEN_KEYS) routes only by chosen claims
+   * (the site gave it as a chosen id, whatever else it said) or a route from before 0.24.25, and
+   * anything else only by heard claims or stronger: a notice can't steer a chosen id, and a
    * chosen id in an answer never steers a request about a place or a room.
    */
   #routeFor(userId, id, chosen) {
-    return resolveRoute(this.#claimsOf(userId, id).filter((c) => (chosen ? c.strength === CLAIM.chosen : c.strength >= CLAIM.implicit)));
+    if (chosen) return resolveRoute(this.q.chosenClaims.all(id, userId).map((r) => ({ host: r.host, strength: Number(r.strength) })));
+    return resolveRoute(this.#claimsOf(userId, id).filter((c) => c.strength >= CLAIM.implicit));
   }
 
   #claimsOf(userId, id) {
@@ -499,9 +505,10 @@ export class Federation {
   #claim(userId, id, host, strength, now = Date.now()) {
     if (!ID24.test(id) || host === this.host || this.store.has(id)) return;
     // Heard before, as strongly: nothing changes but when.
-    if (this.q.sameClaim.run(now, userId, id, host, strength).changes > 0) return;
+    const chosen = strength === CLAIM.chosen ? 1 : 0;
+    if (this.q.sameClaim.run(now, userId, id, host, strength, chosen).changes > 0) return;
     const before = this.routeOf(userId, id);
-    this.q.putClaim.run(userId, id, host, strength, now);
+    this.q.putClaim.run(userId, id, host, strength, now, chosen);
     // Which sites, never what or whose: the admin can block the one that's wrong.
     const claims = this.#claimsOf(userId, id);
     const after = resolveRoute(claims);
@@ -530,6 +537,8 @@ export class Federation {
 
   /** What a site's answer to this person says it holds: claims for this person only. */
   #learnRoutes(host, data, user) {
+    // The account went while the answer was on its way: nothing to remember for it.
+    if (!["User", "Person"].includes(this.store.tableOf(user.id))) return;
     const now = Date.now();
     let learned = false;
     const seen = new Set();
@@ -561,7 +570,9 @@ export class Federation {
     }
     // Calls rooms: "<server>.<channel>" and "dm.<conversation>.<call>" carry their ids too.
     for (const k of ["room", "room_id"]) if (typeof body[k] === "string") for (const part of body[k].split(".")) idsNamed(part, "id", 1, 6, 500, named);
-    for (const chosen of [false, true]) {
+    // Chosen ids route a request only when it names no other id at all.
+    const ordinary = named.some(([, c]) => !c);
+    for (const chosen of ordinary ? [false] : [true]) {
       const hosts = new Set();
       let here = false;
       let disputed = false;
@@ -579,8 +590,9 @@ export class Federation {
       }
       hosts.delete(this.host);
       if (hosts.size > 1) throw new FederationError(400, "MIXED_SITES", "That request names things on more than one site.");
-      if (hosts.size) return [...hosts][0];
-      if (here) return null;
+      // A request that would go to another site goes nowhere if any id in it is disputed.
+      if (hosts.size && !disputed) return [...hosts][0];
+      if (here && !hosts.size) return null;
       if (disputed) throw new FederationError(409, "DISPUTED_SITE", "More than one site claims to hold this, so it isn't being sent to either. Your site's admin can see which sites in its log, and block the wrong one.");
     }
     return null;
@@ -794,7 +806,7 @@ export class Federation {
       // Only a claim for that person, and a weak one: any site can send this notice.
       const id = String(payload.room?.id || "");
       // Only a notice that would add a claim counts towards the cap (see noticeAllowed).
-      if (ID24.test(id) && !this.q.hasClaim.get(uid, id, from) && !noticeAllowed(`${from} ${uid}`)) {
+      if (ID24.test(id) && !this.store.has(id) && !this.q.hasClaim.get(uid, id, from) && !noticeAllowed(`${from} ${uid}`)) {
         warnOnce(this.log, "notices", from, this.host, () => `[federation] ${from} sent more than ${NOTICES_PER_HOUR} membership notices adding new claims for one person this hour; the rest are refused until the next.`);
         return { ok: false, code: "TOO_MANY_NOTICES" };
       }
@@ -1007,14 +1019,15 @@ export class Federation {
   /** Which site hosts a realtime room, for this person, from the ids in its name. A disputed id carries the connection nowhere. */
   roomHost(roomId, userId) {
     if (!this.enabled) return null;
+    let host = null;
     for (const part of String(roomId).split(".")) {
       if (!ID24.test(part)) continue;
       if (this.store.has(part)) return null;
       const r = this.#routeFor(userId, part, false);
-      if (r.route) return r.route;
       if (r.disputed.length) return null;
+      host ??= r.route;
     }
-    return null;
+    return host;
   }
 
   /** A person here connects to a room on another site: this site carries their connection there. */

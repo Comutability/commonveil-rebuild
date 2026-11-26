@@ -167,15 +167,34 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
 /**
  * Forget which other sites hold what for this person (FedClaim) and which sites they use
  * (FedUserHost). A self-hosted site keeps these in its own tables and forgets them the same way.
+ * Says whether every row went: a read that fails, or a page where no delete succeeds, stops here
+ * so the account is kept and a later attempt carries on from what's left.
  */
-async function removeFederationTraces(sr: any, userId: string) {
+async function removeFederationTraces(sr: any, userId: string): Promise<boolean> {
   for (const table of ["FedClaim", "FedUserHost"]) {
+    const T = sr.entities[table];
+    if (!T) continue;
     for (;;) {
-      const rows = await sr.entities[table]?.filter({ user_id: userId }, "created_date", 200).catch(() => []);
-      if (!rows?.length) break;
-      for (const r of rows) await sr.entities[table].delete(r.id).catch(() => {});
+      let rows: any[];
+      try {
+        rows = await T.filter({ user_id: userId }, "created_date", 200);
+      } catch {
+        return false;
+      }
+      if (!rows.length) break;
+      let gone = 0;
+      for (const r of rows) {
+        try {
+          await T.delete(r.id);
+          gone += 1;
+        } catch {
+          // counted below
+        }
+      }
+      if (!gone) return false;
     }
   }
+  return true;
 }
 
 /**
@@ -186,7 +205,7 @@ async function removeFederationTraces(sr: any, userId: string) {
 export async function removePlatformUser(sr: any, userId: string): Promise<boolean> {
   await removeSignIn(sr, userId);
   await removePush(sr, userId);
-  await removeFederationTraces(sr, userId);
+  if (!(await removeFederationTraces(sr, userId))) return false;
   const person = await sr.entities.Person.get(userId).catch(() => null);
   try {
     if (person) await sr.entities.Person.delete(userId);
