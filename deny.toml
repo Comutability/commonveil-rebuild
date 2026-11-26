@@ -1,0 +1,30 @@
+# Known vulnerabilities in the Rust crates Commonveil builds (rust/): `cargo deny check advisories`
+# runs in CI (.github/workflows/test.yml, "advisories") against the RustSec database. An ignored
+# advisory says why it doesn't apply here and when to look again, and expires so that someone does;
+# nothing is ignored just to make CI pass.
+
+[advisories]
+# Unmaintained notices fail for crates Commonveil depends on directly. cargo-deny says nothing at all
+# about crates further down: look at those now and then with `unmaintained = "all"`.
+unmaintained = "workspace"
+ignore = [
+  # rsa 0.9 (Marvin: timing can leak an RSA private key during decryption or signing). The server
+  # only verifies RS256 passkey signatures with public keys (src/webauthn.rs) and holds no RSA
+  # private key. Look again if it ever decrypts or signs with RSA.
+  { id = "RUSTSEC-2023-0071", expiry = "2027-05-26", reason = "Verify-only: RS256 passkey signatures checked with public keys; no RSA private key exists on the server" },
+  # crypto-bigint 0.5 (timing variability) comes in with elliptic-curve 0.13, which OpenMLS's
+  # RustCrypto provider and basic credentials, and hpke-rs, use (via Secure Net). Secure Net's groups use only the
+  # X-Wing/ML-DSA-87 ciphersuite, which has no elliptic-curve 0.13 code, and refuse every other suite
+  # before any decryption. The server's own P-256 (Web Push, passkeys) uses p256 0.14 with
+  # crypto-bigint 0.7. Secure Net ignores the same advisory for the same reason (its deny.toml).
+  # Look again when elliptic-curve 0.13 leaves the tree.
+  { id = "RUSTSEC-2026-0387", expiry = "2027-05-26", reason = "Only via elliptic-curve 0.13 in OpenMLS and hpke-rs, for ciphersuites Secure Net refuses; the server's own P-256 uses crypto-bigint 0.7" },
+  # SQLite before 3.54.0 (bundled by libsqlite3-sys 0.35, via rusqlite 0.37) can return stale memory
+  # when it opens a database together with a crafted `-wal` file. The server only opens the database
+  # files it created in its own data folder: anyone who can put files there already controls the
+  # site. Never restore a database (or its -wal file) from someone you don't trust. rusqlite 0.41
+  # (SQLite 3.54) can't be used yet: OpenMLS 0.9 refers to rusqlite 0.37 (openmls_sqlite_storage),
+  # and only one SQLite may be linked; rusqlite 0.41 also needs Rust 1.89 (rust-version is 1.88).
+  # Move as soon as OpenMLS does.
+  { id = "RUSTSEC-2026-0459", expiry = "2027-02-26", reason = "Only the server's own database files are opened; rusqlite 0.41 is blocked by OpenMLS 0.9's rusqlite 0.37 (one SQLite per build)" },
+]

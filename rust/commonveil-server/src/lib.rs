@@ -3,6 +3,7 @@
 //! It replaces `server/` (Node.js) and the backend in `base44/shared` (TypeScript) stage by
 //! stage, keeping the same HTTP API and the same data on disk. Until every part is here, the
 //! Docker image keeps running the Node.js server: see rust/README.md for what is done.
+#![forbid(unsafe_code)]
 pub mod actors;
 pub mod api;
 pub mod bootstrap;

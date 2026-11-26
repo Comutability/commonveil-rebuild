@@ -5,7 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ErrorNote } from "@/components/site/bits";
+import { callFn } from "@/lib/api";
 import { checkDestination } from "@/lib/identity/siteDiscovery";
+
+/** This site's server reads the other site's document (the browser may only talk to its own site). */
+const readThroughServer = async (host) => (await callFn("protocol", { action: "check_site", host })).document;
 
 const ICONS = { ok: Check, gap: AlertTriangle, note: Info };
 const TONES = { ok: "text-primary", gap: "text-[hsl(var(--warning))]", note: "text-muted-foreground" };
@@ -21,7 +25,7 @@ export default function MigrationChecklist() {
   const run = async () => {
     setState({ busy: true, error: "", report: null });
     try {
-      const report = await checkDestination(host);
+      const report = await checkDestination(host, { read: readThroughServer });
       setState({ busy: false, error: "", report });
     } catch (error) {
       setState({ busy: false, error: error.message || "That address couldn't be checked.", report: null });
@@ -53,7 +57,7 @@ export default function MigrationChecklist() {
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
-        This asks the other site one public question: its own site document, over HTTPS. Only https names that anyone can reach are checked; local and numeric addresses are refused, redirects are not followed, and the reply is capped. Nothing about you, your actor, your keys or your messages goes with it.
+        This site's server asks the other site one public question: its own site document, over HTTPS. Only names that anyone can reach are checked; local and numeric addresses are refused, redirects are not followed, and the reply is capped. Nothing about you, your actor, your keys or your messages goes with it, and this site doesn't start trusting the other one because you checked it.
       </p>
 
       <ErrorNote>{state.error}</ErrorNote>

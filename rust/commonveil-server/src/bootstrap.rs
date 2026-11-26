@@ -75,7 +75,7 @@ impl Bootstrap {
 
     /// At start-up: make and show a code if the site has no admin yet.
     pub fn prepare(&self, s: &Store) {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if has_admin(s) {
             return self.finish(&mut st);
         }
@@ -107,7 +107,7 @@ impl Bootstrap {
 
     /// Whether creating an account needs the code (and makes an admin).
     pub fn needed(&self, s: &Store) -> bool {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if st.done {
             return false;
         }
@@ -120,7 +120,7 @@ impl Bootstrap {
 
     /// Use the code: true once, for the right code; false for anything else.
     pub fn consume(&self, given: &serde_json::Value) -> bool {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let Some(code) = st.code.clone().filter(|_| !st.done) else {
             return false;
         };
@@ -132,7 +132,7 @@ impl Bootstrap {
     }
 
     pub fn pending(&self) -> bool {
-        let st = self.state.lock().unwrap();
+        let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         st.code.is_some() && !st.done
     }
 }

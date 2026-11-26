@@ -1,6 +1,6 @@
 [package]
 name = "commonveil-client"
-version = "0.24.22"
+version = "0.24.23"
 description = "Commonveil's client core: Secure Net's Rust, compiled to WebAssembly for the browser app."
 edition.workspace = true
 license.workspace = true

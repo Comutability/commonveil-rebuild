@@ -408,7 +408,7 @@ fn status(ctx: &mut Ctx) -> Result<Value> {
                 wanted.push(snip_closed_note_id(&sid));
             }
         }
-        let mut found = std::collections::HashMap::<String,Value>::new();
+        let mut found = std::collections::HashMap::<String, Value>::new();
         for ids in wanted.chunks(100) {
             let rows = sr.filter(
                 "ServerMessage",
@@ -431,7 +431,10 @@ fn status(ctx: &mut Ctx) -> Result<Value> {
                     json!({ "locked": truthy(post.get("thread_locked")) }),
                 );
                 if truthy(s.get("closed")) {
-                    notes.insert(sid.clone(), json!(found.contains_key(&snip_closed_note_id(&sid))));
+                    notes.insert(
+                        sid.clone(),
+                        json!(found.contains_key(&snip_closed_note_id(&sid))),
+                    );
                 }
             }
         }

@@ -9,6 +9,7 @@ import { classifyPushFetchError, encryptPayload, makeVapidKeys, probeFcmConnecti
 import { forgetPushKeys, muteKey } from "../base44/shared/handlers/notifications.ts";
 import { b64url, fromB64url } from "../base44/shared/identity/crypto.ts";
 import { muteToken } from "../src/lib/pwa/mute.js";
+import { pushLevelsFor } from "../src/lib/pwa/pushLevels.js";
 
 const subtle = globalThis.crypto.subtle;
 const realFetch = globalThis.fetch;
@@ -305,4 +306,83 @@ test("the fixed-host push probe also uses edge-supported manual redirect handlin
   assert.equal(result.state, "reachable");
   assert.equal(result.status, 404);
   assert.deepEqual(requests, [{ url: "https://fcm.googleapis.com/", redirect: "manual" }]);
+});
+
+test("the site is told per server only, and a server's most talkative channel decides", () => {
+  const text = (id) => ({ id, kind: "text" });
+  const servers = {
+    agora: { server: { id: "agora", is_default: true }, channels: [text("a1"), text("a2"), { id: "a-voice", kind: "voice" }] },
+    club: { server: { id: "club" }, channels: [text("c1"), text("c2")] },
+    quiet: { server: { id: "quiet" }, channels: [text("q1")] },
+    loading: { server: { id: "loading" } },
+    half: { channels: [text("h1")] },
+  };
+  // Defaults: the default server @mentions only, others everything; a server whose channels haven't
+  // loaded uses its own setting; one the list hasn't loaded isn't said at all.
+  let r = pushLevelsFor(servers, {});
+  assert.deepEqual(r.all, ["club", "loading", "quiet"]);
+  assert.deepEqual(r.mentions, ["agora"]);
+  assert.deepEqual(r.channels.find((c) => c.id === "h1"), { id: "h1", level: "all" }, "the worker still gets every loaded channel");
+  assert.ok(!r.channels.some((c) => c.id === "a-voice"), "voice channels don't push");
+
+  // One watched channel on the default server asks for everything from it; muting a whole server
+  // asks for nothing; muting one channel of two changes nothing for the server.
+  r = pushLevelsFor(servers, { notify: { a2: "all" }, muted: { quiet: true, c1: true } });
+  assert.deepEqual(r.all, ["agora", "club", "loading"]);
+  assert.deepEqual(r.mentions, []);
+  assert.equal(r.channels.find((c) => c.id === "c1").level, "none");
+  assert.equal(r.channels.find((c) => c.id === "q1").level, "none");
+
+  // Every channel of a server set to @mentions or nothing: @mentions at most.
+  r = pushLevelsFor(servers, { notify: { club: "mentions", c2: "none" } });
+  assert.deepEqual(r.mentions, ["agora", "club"]);
+  r = pushLevelsFor(servers, { notify: { club: "none" } });
+  assert.ok(!r.all.includes("club") && !r.mentions.includes("club"), "a server set to nothing is in neither list");
+
+  // A channel setting for a server still loading (here, for the default server's channels, before
+  // they arrive) makes every server still loading ask for that much, so the setting isn't lost.
+  const loadingOnly = { agora: { server: { id: "agora", is_default: true } }, club: servers.club };
+  r = pushLevelsFor(loadingOnly, { notify: { "agora-announcements": "all" } });
+  assert.deepEqual(r.all, ["agora", "club"]);
+  r = pushLevelsFor(loadingOnly, { notify: { "agora-announcements": "all" }, muted: { agora: true } });
+  assert.deepEqual(r.all, ["club"], "a muted server still asks for nothing");
+});
+
+
+test("the push choice goes one request at a time, and a choice made during a refused request still goes", async () => {
+  const { serialise } = await import("../src/lib/pwa/serial.js");
+  // The site refuses the first request (the browser wasn't registered yet); while it's on its way the
+  // browser registers and asks again. The second request must still be sent, and only once.
+  let registered = false;
+  let inFlight = 0;
+  let most = 0;
+  const sent = [];
+  let release;
+  const first = new Promise((r) => (release = r));
+  const send = serialise(async () => {
+    inFlight += 1;
+    most = Math.max(most, inFlight);
+    try {
+      // The site decides when the request arrives; its answer comes back later.
+      const known = registered;
+      if (!sent.length && !known) await first;
+      sent.push(known ? "accepted" : "refused");
+      if (!known) throw Object.assign(new Error("not registered"), { status: 409 });
+    } finally {
+      inFlight -= 1;
+    }
+  });
+  const run = send();
+  registered = true;
+  await send(); // queued behind the first, returns at once
+  await send(); // asking twice still means one more run
+  release();
+  await run; // the last request was accepted, so nothing is reported
+  assert.deepEqual(sent, ["refused", "accepted"]);
+  assert.equal(most, 1, "never two requests at once");
+  // Nothing queued: a lone refusal isn't retried.
+  registered = false;
+  sent.length = 0;
+  await assert.rejects(send(), /not registered/);
+  assert.deepEqual(sent, ["refused"]);
 });

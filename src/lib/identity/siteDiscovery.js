@@ -1,16 +1,14 @@
 // Reading another Secure Net site's public site document (CVP-005), for a migration checklist.
 //
-// This is preparation only. It fetches one public JSON document over HTTPS, checks it against the
-// same address rules federation uses, and reports what the site says it can do. Nothing is moved,
-// deleted or switched over, and nothing here tells a site who you are.
+// This is preparation only. It reads one public JSON document and reports what the site says it
+// can do. Nothing is moved, deleted or switched over, and nothing here tells a site who you are.
 //
-// The address guard is deliberately strict, because this runs in a browser on a public site and
-// the address is typed by hand: HTTPS only, no credentials, no bare or reserved names, no IP
-// literals (so no loopback, private, link-local or metadata address), no more than one host:port.
+// The document is read by this site's own server (protocol.check_site), not by the browser: the
+// app's Content Security Policy only lets it talk to its own site. The server reads it over
+// HTTPS with the same address rules federation uses, follows no redirects and pins nothing. The
+// address is still checked here first, so a typing mistake is explained before anything is asked.
 import { PROTOCOL, SITE_DOCUMENT, HOST_RE } from "../../../packages/secure-net/src/wire/federation.js";
 
-const MAX_DOCUMENT_BYTES = 64 * 1024;
-const TIMEOUT_MS = 10_000;
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
 const RESERVED = /(^|\.)(localhost|local|localdomain|internal|intranet|lan|home\.arpa|corp|test|invalid|example|onion)$/;
 
@@ -53,43 +51,6 @@ export function destinationHost(input) {
   return host;
 }
 
-/**
- * One HTTPS GET for a site's document. Refuses redirects (a site must not bounce a reader
- * elsewhere), caps the reply, and never reuses a cached copy.
- */
-export async function fetchSiteDocument(host, { fetchImpl = globalThis.fetch, timeoutMs = TIMEOUT_MS, maxBytes = MAX_DOCUMENT_BYTES } = {}) {
-  if (typeof fetchImpl !== "function") throw new DiscoveryError("NO_FETCH", "This browser can't make that request.");
-  let response;
-  try {
-    response = await fetchImpl(`https://${host}${SITE_DOCUMENT}`, {
-      method: "GET",
-      redirect: "manual",
-      cache: "no-store",
-      credentials: "omit",
-      headers: { Accept: "application/json" },
-      ...(typeof AbortSignal !== "undefined" && AbortSignal.timeout ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
-    });
-  } catch {
-    throw new DiscoveryError("UNREACHABLE", `${host} couldn't be reached from this browser. It may not be running, or it may not let another site read its document.`);
-  }
-  if (response.type === "opaqueredirect" || response.redirected || (response.status >= 300 && response.status < 400)) {
-    throw new DiscoveryError("REDIRECT", `${host} redirected that request. A site's document has to be served from its own address.`);
-  }
-  if (!response.ok) throw new DiscoveryError("STATUS", `${host} answered ${response.status} instead of a site document.`);
-  let text;
-  try {
-    text = await response.text();
-  } catch {
-    throw new DiscoveryError("UNREACHABLE", `${host}'s answer stopped part way through.`);
-  }
-  if (text.length > maxBytes) throw new DiscoveryError("TOO_LARGE", `${host} sent more than a site document should.`);
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new DiscoveryError("NOT_JSON", `${host} didn't answer with a site document. It may not be a Commonveil site.`);
-  }
-}
-
 const endpointNames = (doc) => (doc && typeof doc.endpoints === "object" && doc.endpoints ? doc.endpoints : {});
 
 /**
@@ -102,7 +63,7 @@ export function evaluateDestination(doc, { host }) {
   const endpoints = endpointNames(doc);
   const software = doc?.software && typeof doc.software === "object" ? doc.software : {};
 
-  add("https", "Answered over HTTPS", "ok", `Fetched from https://${host}${SITE_DOCUMENT}.`);
+  add("https", "Answered over HTTPS", "ok", `This site's server read https://${host}${SITE_DOCUMENT}.`);
 
   const speaks = doc?.protocol === PROTOCOL;
   add("protocol", "Speaks the Commonveil protocol", speaks ? "ok" : "gap",
@@ -167,9 +128,14 @@ export function evaluateDestination(doc, { host }) {
   return { items, ok: gaps.length === 0, gaps: gaps.length };
 }
 
-/** Check an address end to end: guard it, fetch the document, and say what it can do. */
-export async function checkDestination(input, options = {}) {
+/**
+ * Check an address end to end: guard it, have this site's server read the document (`read`,
+ * given the host), and say what it can do.
+ */
+export async function checkDestination(input, { read } = {}) {
   const host = destinationHost(input);
-  const doc = await fetchSiteDocument(host, options);
+  if (typeof read !== "function") throw new DiscoveryError("NO_READER", "This site can't read other sites' documents right now.");
+  const doc = await read(host);
+  if (!doc || typeof doc !== "object") throw new DiscoveryError("NOT_JSON", `${host} didn't answer with a site document. It may not be a Commonveil site.`);
   return { host, doc, ...evaluateDestination(doc, { host }) };
 }

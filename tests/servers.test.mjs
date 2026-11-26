@@ -185,6 +185,92 @@ test("channel pushes distinguish mentions from activity and never reach private-
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test("each browser chooses which servers push to it: every message, only @mentions, or nothing", async () => {
+  const { w, members: [alice, bob, carol] } = await world("alice", "bobby", "carol");
+  const sid = await serverWith(alice, bob, carol);
+  const general = await alice.channelNamed(sid, "general");
+  const sr = w.clientFor(null).asServiceRole;
+  const keysFor = async () => {
+    const pair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+    return { p256dh: Buffer.from(await crypto.subtle.exportKey("raw", pair.publicKey)).toString("base64url"), auth: Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64url") };
+  };
+  const browsers = {};
+  for (const m of [bob, carol]) {
+    browsers[m.name] = { endpoint: `https://fcm.googleapis.com/fcm/send/${m.name}-phone`, ...(await keysFor()) };
+    await m.ok("notifications", { action: "subscribe", ...browsers[m.name], mute_secret: "local-only" });
+  }
+  const outgoing = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    outgoing.push({ url: String(url), urgency: init.headers.Urgency });
+    return new Response(null, { status: 201 });
+  };
+  // Each send starts with every browser out of its 20-second quiet window.
+  const send = async (text, mentioned = []) => {
+    for (const row of await sr.entities.PushSubscription.filter({})) await sr.entities.PushSubscription.update(row.id, { last_push_at: "" });
+    outgoing.length = 0;
+    const state = await alice.server(sid);
+    const { keys } = await alice.keysOf(state);
+    const mentions = { users: mentioned.map((m) => m.id), roles: [], everyone: false };
+    const body = await buildChannelMessage({ serverId: sid, channel: general, generations: state.generations, keys, userId: alice.id, device: alice.device, kind: "message", payload: textPayload(text, { mentions }) });
+    if (mentioned.length) body.notification_hint = mentions;
+    const r = await alice.call("channels", body);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    return outgoing.map((p) => p.url.split("/").pop()).sort();
+  };
+  const choose = (m, all, mentions) => m.call("notifications", { action: "alerts", endpoint: browsers[m.name].endpoint, all, mentions });
+  try {
+    // Browsers that haven't chosen yet (older apps) keep the app's defaults on this server.
+    assert.deepEqual(await send("hello"), ["bobby-phone", "carol-phone"]);
+
+    // Carol only wants @mentions from it; Bob wants everything.
+    assert.equal((await choose(carol, [], [sid])).status, 200);
+    assert.equal((await choose(bob, [sid], [])).status, 200);
+    assert.deepEqual(await send("chatter"), ["bobby-phone"], "a server's ordinary activity skips a browser that only wants @mentions");
+    assert.deepEqual(await send("@carol look", [carol]), ["bobby-phone", "carol-phone"]);
+    assert.equal(outgoing.find((p) => p.url.endsWith("carol-phone")).urgency, "high", "and the mention is prioritised");
+
+    // A server in neither list pushes nothing, even a mention.
+    assert.equal((await choose(bob, [], [])).status, 200);
+    assert.deepEqual(await send("@bobby hi", [bob]), [], "Bob asked for nothing from this server");
+
+    // The site keeps only its own servers' ids (the app names other sites' too), deduplicated, and
+    // a server in both lists counts as everything.
+    assert.equal((await choose(carol, [sid, sid, "elsewhere-server"], [sid, "another-site-server"])).status, 200);
+    const [carolRow] = await sr.entities.PushSubscription.filter({ user_id: carol.id });
+    assert.equal(carolRow.alerts_set, true);
+    assert.deepEqual(carolRow.alert_all, [sid]);
+    assert.deepEqual(carolRow.alert_mentions, []);
+
+    // Telling the site the same browser again keeps the choice; so do new keys for the same browser
+    // and person. Someone else taking over the address starts without it.
+    await carol.ok("notifications", { action: "subscribe", ...browsers.carol, mute_secret: "local-only" });
+    assert.deepEqual((await sr.entities.PushSubscription.filter({ user_id: carol.id }))[0].alert_all, [sid]);
+    await carol.ok("notifications", { action: "subscribe", ...browsers.carol, ...(await keysFor()), mute_secret: "local-only" });
+    const renewed = (await sr.entities.PushSubscription.filter({ user_id: carol.id }))[0];
+    assert.equal(renewed.alerts_set, true);
+    assert.deepEqual(renewed.alert_all, [sid]);
+    await alice.ok("notifications", { action: "subscribe", ...browsers.carol, mute_secret: "alice" });
+    const taken = await sr.entities.PushSubscription.filter({ endpoint: browsers.carol.endpoint });
+    assert.deepEqual(taken.map((r) => [r.user_id, r.alerts_set === true]), [[alice.id, false]]);
+
+    // Only for a browser the caller has registered, and only real server lists.
+    assert.equal((await choose(carol, [sid], [])).body.code, "PUSH_NOT_REGISTERED", "that address is Alice's now");
+    assert.equal((await bob.call("notifications", { action: "alerts", endpoint: "https://evil.test/x", all: [], mentions: [] })).body.code, "BAD_ENDPOINT");
+    for (const [all, mentions] of [["x", []], [[], undefined], [["bad id!"], []], [Array.from({ length: 1001 }, (_, i) => `server${i}`), []], [Array.from({ length: 600 }, (_, i) => `a${i}`), Array.from({ length: 401 }, (_, i) => `b${i}`)]]) {
+      const r = await choose(bob, all, mentions);
+      assert.equal(r.status, 400, JSON.stringify(all).slice(0, 40));
+      assert.equal(r.body.code, "BAD_FIELD");
+    }
+
+    // On the site's default server, a browser that hasn't chosen gets @mentions but not every message.
+    await sr.entities.Server.update((await sr.entities.Server.filter({ audience_id: sid }))[0].id, { is_default: true });
+    await sr.entities.PushSubscription.update((await sr.entities.PushSubscription.filter({ user_id: bob.id }))[0].id, { alerts_set: false, alert_all: [], alert_mentions: [] });
+    assert.deepEqual(await send("default chatter"), [], "older apps: the default server's activity stays quiet");
+    assert.deepEqual(await send("@bobby default", [bob]), ["bobby-phone"]);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 // ---------- crypto ----------
 
 test("permissions: the app's copy agrees with the server's", () => {

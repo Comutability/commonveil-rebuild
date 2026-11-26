@@ -76,14 +76,21 @@ What Commonveil protects, against whom, and what it doesn't. Read with `PROTOCOL
   every 20 seconds. For server @mentions, the sending client supplies recipient/role IDs or an
   everyone flag as ephemeral routing metadata. The server learns who is targeted, not what was
   said. A malicious sender can lie about a mention, but cannot notify someone outside the
-  channel's permissions. Channel preferences remain only on the recipient's device. Fanout is
-  currently bounded to 200 members per channel message. Federated members aren't pushed to.
+  channel's permissions. Each browser tells the server, per server, whether it wants pushes for
+  every message, only @mentions or nothing, and channel pushes go only to browsers that asked; the
+  server learns those per-server choices (for a one-channel server, that channel's), not the
+  per-channel settings, which remain only on the recipient's device. Fanout is currently bounded to 200 members per channel message. Federated
+  members aren't pushed to.
   See [NOTIFICATIONS.md](NOTIFICATIONS.md).
 - **Edits and reactions are ordered by their sender's own signed time.** A member can make their own edit or reaction look
   older or newer than it is, but can't affect anyone else's, and an edit dated more than a day after the original is ignored.
 - **The scheduled clean-up has a public address**, like every function. It takes no instructions beyond a task name and
   only does what's already due by the server's clock, so the worst a caller can do is use a little of the app's query
-  allowance (repeat calls within a minute are skipped).
+  allowance: across every instance, a task starts at most once a minute (deliveries), every 5 minutes
+  (expiry) or every hour (inactive accounts), best effort (two calls at the same moment can both
+  start it), and a repeat call costs at most one read. A secret header isn't
+  possible: the scheduled workflows can only send arguments, which are stored in this public
+  repository.
 - **Shared query allowance.** On Base44, everything the backend does as its service role shares one per-minute allowance
   for the whole app. Frequent reads use each member's own allowance instead, but a burst of activity across many members
   can still produce "the service is busy" errors; sends are retried as the same message, so nothing is sent twice.

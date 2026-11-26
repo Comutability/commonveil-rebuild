@@ -176,6 +176,12 @@ export const RULES = {
     "update": false,
     "delete": false
   },
+  "MaintenanceRun": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
   "Message": {
     "read": {
       "data.recipient_ids": "{{user.id}}"

@@ -47,7 +47,7 @@ impl Default for Keys {
 }
 impl Keys {
     pub fn token_secret(&self, store: &Store) -> String {
-        let mut c = self.cached.lock().unwrap();
+        let mut c = self.cached.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(s) = c.as_ref() {
             return s.clone();
         }

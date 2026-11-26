@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use crate::api::{id, int, random_id_field, str_field, Actions, ApiError, Ctx, Limits, Result};
 use crate::db::{id_of, Db};
 use crate::js::{to_js_string, to_number, truthy};
-use crate::notifications::{notify_people, subject};
+use crate::notifications::{notify_server_people, subject};
 use crate::permissions::{channel_permissions, has, p};
 use crate::servers_build::{flooded_by, log_case};
 use crate::servers_core::*;
@@ -77,8 +77,9 @@ fn channel_view(own: &Db, server_id: &str, channel_id: &str, user_id: &str) -> R
     })
 }
 
-/// Bounded push fanout. Only readable members are eligible; no message text or encrypted
-/// content leaves the server. Mention-routing hints are ephemeral metadata from the sender.
+/// Bounded push fanout. Only readable members are eligible, on browsers that asked for this
+/// server's pushes of that kind (notifications `alerts`); no message text or encrypted content
+/// leaves the server. Mention-routing hints are ephemeral metadata from the sender.
 fn notify_channel(
     sr: &Db,
     push_subject: &str,
@@ -151,24 +152,27 @@ fn notify_channel(
     }
     let path = format!("/app/s/{}/{}", id_of(server), id_of(channel));
     let place_id = id_of(channel);
+    let scope = (id_of(server), server["is_default"] == true);
     if !mention_targets.is_empty() {
-        notify_people(
+        notify_server_people(
             sr,
             push_subject,
             &mention_targets,
             "mention",
             &path,
             place_id,
+            scope,
         );
     }
     if !activity_targets.is_empty() {
-        notify_people(
+        notify_server_people(
             sr,
             push_subject,
             &activity_targets,
             "activity",
             &path,
             place_id,
+            scope,
         );
     }
     Ok(())

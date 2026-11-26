@@ -23,7 +23,7 @@ Every new account starts in the **Commonveil Community** server. You can leave i
 
 ## Notifications per server and channel
 
-Right-click a server or channel (or use its menu) and choose **Notifications**: **All messages**, **Only @mentions** or **Nothing**. **Mute** silences it completely, and **Mark as read** clears it. These choices are remembered on this device only.
+Right-click a server or channel (or use its menu) and choose **Notifications**: **All messages**, **Only @mentions** or **Nothing**. **Mute** silences it completely, and **Mark as read** clears it. These choices are remembered on this device. If push notifications are on, Commonveil learns which servers this browser wants pushes from (every message, only @mentions, or none), not your choice for each channel.
 
 ## You, in this server
 

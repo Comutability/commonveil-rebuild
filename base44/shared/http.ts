@@ -67,7 +67,13 @@ export function json(status: number, body: unknown): Response {
  * checks they accept a conversation from me, and returns their user id here. On Base44 it's
  * absent, and handles are refused like any other unknown username.
  */
-export type Federation = { resolveHandle(handle: string, me: string): Promise<string | null> };
+export type Federation = {
+  resolveHandle(handle: string, me: string): Promise<string | null>;
+  /** This site's own address on the network (handles end with it). */
+  host?: string;
+  /** Another site's public document, read once: no key pinned, nothing remembered. */
+  siteDocument?(host: string): Promise<any>;
+};
 export type Ctx = { sr: any; own: any; user: any; body: any; now: Date; federation?: Federation };
 export type Actions = Record<string, (ctx: Ctx) => Promise<unknown>>;
 export type RunOptions = {

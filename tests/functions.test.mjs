@@ -22,7 +22,7 @@ import { eventActions } from "../base44/shared/handlers/events.ts";
 import { moderationActions } from "../base44/shared/handlers/moderation.ts";
 import { protocolActions } from "../base44/shared/handlers/protocol.ts";
 import { snipActions } from "../base44/shared/handlers/snips.ts";
-import { resetMaintenanceThrottle, runMaintenance } from "../base44/shared/maintenance.ts";
+import { GLOBAL_GAP_MS, claimRun, resetMaintenanceThrottle, runMaintenance } from "../base44/shared/maintenance.ts";
 
 import { createDeviceKeys } from "../src/lib/crypto/device.js";
 import { createKeyVersion, latestKey, newKeyring, sealKeyringForRecovery, sealKeyringToDevice } from "../src/lib/crypto/keyring.js";
@@ -984,7 +984,9 @@ test("only sign-in, the security-report and invite-preview functions let in call
     if (SCHEDULED_FUNCTIONS.includes(name)) {
       // No member actions at all: only the named task, run as the app itself (see the maintenance tests).
       assert.doesNotMatch(source, /serve\(|Actions|allowAnonymous/, name);
-      assert.match(source, /runMaintenance\(createClientFromRequest\(req\)\.asServiceRole, task, new Date\(\)\)/, name);
+      assert.match(source, /const sr = createClientFromRequest\(req\)\.asServiceRole;/, name);
+      assert.match(source, /if \(!\(await claimRun\(sr, task\)\)\) return json\(200, \{ task, skipped: "ran recently" \}\);/, name);
+      assert.match(source, /return runMaintenance\(sr, task, new Date\(\)\);/, name);
       continue;
     }
     const isPublic = Object.hasOwn(PUBLIC_FUNCTIONS, name);
@@ -1345,6 +1347,40 @@ test("the scheduled clean-up takes no instructions: unknown tasks are refused, a
   const reads = w.serviceReads;
   assert.deepEqual(await (await runMaintenance(sr, "expire", new Date())).json(), { task: "expire", skipped: "ran recently" });
   assert.equal(w.serviceReads, reads, "a repeat call costs nothing");
+});
+
+test("on the hosted site a task starts at most once a gap across every instance, and scheduled runs always go ahead", async () => {
+  resetMaintenanceThrottle();
+  const w = new FakeWorld();
+  const sr = w.clientFor(null).asServiceRole;
+  const t0 = Date.parse("2026-11-26T09:00:00Z");
+  assert.equal(await claimRun(sr, "expire", t0), true, "the first run goes ahead");
+  // Another instance, or anyone calling the public address, a moment later: one read, no run.
+  const reads = w.serviceReads;
+  assert.equal(await claimRun(sr, "expire", t0 + 1_000), false);
+  assert.equal(w.serviceReads, reads + 1);
+  assert.equal(w.rows("MaintenanceRun").length, 1);
+  // That instance now knows: calling it again within its own gap costs nothing at all.
+  assert.equal(await claimRun(sr, "expire", t0 + 2_000), false);
+  assert.equal(w.serviceReads, reads + 1, "no read");
+  // What it heard doesn't stop a run this instance was granted: only its own runs throttle that.
+  const granted = await runMaintenance(sr, "expire", new Date(t0 + 3_000));
+  assert.notEqual((await granted.json()).skipped, "ran recently");
+  resetMaintenanceThrottle();
+  // Each workflow runs less often than its gap, so a scheduled run is never the one skipped.
+  const schedule = { deliver: 5 * 60_000, expire: 30 * 60_000, inactive: 24 * 3600_000 };
+  for (const [task, every] of Object.entries(schedule)) assert.ok(GLOBAL_GAP_MS[task] < every, task);
+  assert.equal(await claimRun(sr, "expire", t0 + schedule.expire), true);
+  assert.equal(w.rows("MaintenanceRun").length, 1, "one row per task, updated");
+  // Tasks are throttled separately; a clock that moved back doesn't hold one up.
+  assert.equal(await claimRun(sr, "deliver", t0 + 2_000), true);
+  assert.equal(await claimRun(sr, "deliver", t0 - 3_600_000), true);
+  // Unknown tasks aren't recorded here (runMaintenance refuses them).
+  assert.equal(await claimRun(sr, "erase_everything", t0), true);
+  assert.equal(w.rows("MaintenanceRun").length, 2);
+  // If the record can't be read, the clean-up still runs (it deletes what people asked to delete).
+  const broken = { entities: { MaintenanceRun: { filter: async () => { throw new Error("down"); } } } };
+  assert.equal(await claimRun(broken, "expire", t0), true);
 });
 
 test("group admins: only admins add, remove, rename, set the timer or choose admins, and a group always keeps one", async () => {

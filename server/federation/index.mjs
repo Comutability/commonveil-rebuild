@@ -558,7 +558,7 @@ export class Federation {
   }
 
   get handlers() {
-    return { resolveHandle: (h, me) => this.resolveHandle(h, me) };
+    return { host: this.host, resolveHandle: (h, me) => this.resolveHandle(h, me), siteDocument: (h) => this.signer.peekSiteDoc(h) };
   }
 
   async #inboundDirectory(from, payload) {

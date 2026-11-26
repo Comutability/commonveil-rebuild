@@ -122,8 +122,46 @@ The `voice_ticket` and `call_ticket` actions now derive a six-hour, time-limited
 after verifying the member and device. Only those temporary credentials are returned to the browser. The relay must be
 reachable from users' networks; configure public DNS, TLS certificates, UDP/TCP listeners, and a firewall rule for the
 relay port range. For strict networks provide TURN over TCP/TLS as well as UDP. TURN bandwidth and abuse controls are
-the operator's responsibility. If these settings are absent or invalid, calls remain direct-only and no backend secret
-is sent to users. A call may need to reconnect after TURN credentials expire.
+the operator's responsibility.
+
+If `VOICE_TURN_URLS` or `VOICE_TURN_SECRET` is absent or invalid, calls remain direct-only and no backend secret is
+sent to users. A call may need to reconnect after TURN credentials expire.
+
+**Keep the relay off your private network.** Anyone signed in to your site can get relay credentials, and they
+last six hours, so a relay that will forward traffic anywhere lets them reach machines behind your firewall
+(other containers, your router, a cloud provider's metadata address) through it. Run coturn 4.13.1 or later:
+earlier versions can be talked past these rules with IPv6 forms of IPv4 addresses (CVE-2026-27624, fixed in
+4.9.0, and CVE-2026-73212, fixed in 4.13.1). Keep loopback peers refused (its default: never set
+`allow-loopback-peers`), and add:
+
+```
+no-multicast-peers
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.0.0.0-192.0.0.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=198.18.0.0-198.19.255.255
+denied-peer-ip=::-::ffff:ffff
+denied-peer-ip=::ffff:0.0.0.0-::ffff:255.255.255.255
+denied-peer-ip=64:ff9b::-64:ff9b::ffff:ffff
+denied-peer-ip=64:ff9b:1::-64:ff9b:1:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=2002::-2002:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+```
+
+The IPv6 lines cover loopback and the IPv4-compatible, IPv4-mapped, NAT64 and 6to4 forms of IPv4 addresses, and
+private and link-local IPv6. Denying the NAT64 prefixes also stops the relay reaching public IPv4 addresses through
+NAT64, which a relay with its own IPv4 address doesn't need. If your network uses a NAT64 prefix of its own (an
+RFC 6052 network-specific prefix), deny that prefix too: no coturn version recognises custom prefixes, so its IPv4
+rules can't see through them. If the relay runs on the same machine as other services, deny its own public address
+too. Limits are separate settings: `user-quota` and `total-quota` cap how many relayed sessions one account and the
+whole relay can have at once, and `max-bps` (per session) and `bps-capacity` (the whole relay) cap bandwidth. Size
+them for the calls you expect; without the bandwidth caps one account can use whatever the host allows.
 
 A TURN relay is distinct from the **VoiceRoom signalling actor**, which exchanges session descriptions, candidate
 addresses and membership events. This setup does not grant the relay access to decrypted call frames.
