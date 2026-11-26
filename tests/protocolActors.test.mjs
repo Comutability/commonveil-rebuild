@@ -5,12 +5,13 @@
 // accepted, or shaped so its id isn't its key's id. Nothing here binds an actor to an account:
 // that step is deliberately not built (docs/IDENTITY.md, "Protocol actors").
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { createAccount, createDevice, devicePublic, signDeviceList } from "../packages/secure-net/src/session/keys.js";
 import { createActorDocument, actorIdOf } from "../packages/secure-net/src/social/actor.js";
 import { describeActor, parseActorJson, fingerprintOf, problemText } from "../src/lib/identity/protocolIdentity.js";
 import { seenActor, rememberActor } from "../src/lib/identity/seenActors.js";
-import { destinationHost, fetchSiteDocument, evaluateDestination, checkDestination, DiscoveryError } from "../src/lib/identity/siteDiscovery.js";
+import { destinationHost, evaluateDestination, checkDestination, DiscoveryError } from "../src/lib/identity/siteDiscovery.js";
 
 const NOW = 1_700_000_000_000;
 
@@ -124,32 +125,23 @@ test("only public HTTPS names are accepted as another site", () => {
   }
 });
 
-test("a site's document is fetched over HTTPS, without redirects, and capped", async () => {
-  const seen = [];
-  const good = { protocol: "commonveil/1", host: "friend.example.org", key: { public: "k" } };
-  const fake = async (url, options) => {
-    seen.push({ url, options });
-    return new Response(JSON.stringify(good), { status: 200, headers: { "Content-Type": "application/json" } });
+test("the browser never reads another site itself: its own server does, for a checked address", async () => {
+  // The app's Content Security Policy only lets the browser talk to its own site.
+  const source = readFileSync(new URL("../src/lib/identity/siteDiscovery.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /\bfetch\s*\(/, "no direct fetch to another site");
+  const asked = [];
+  const read = async (host) => {
+    asked.push(host);
+    return { protocol: "commonveil/1", host, key: { public: "k" } };
   };
-  const doc = await fetchSiteDocument("friend.example.org", { fetchImpl: fake });
-  assert.deepEqual(doc, good);
-  assert.equal(seen[0].url, "https://friend.example.org/.well-known/commonveil");
-  assert.equal(seen[0].options.redirect, "manual");
-  assert.equal(seen[0].options.credentials, "omit");
-
-  const redirect = async () => ({ status: 302, ok: false, redirected: false, type: "basic", headers: new Headers() });
-  await assert.rejects(() => fetchSiteDocument("friend.example.org", { fetchImpl: redirect }), /redirected/);
-
-  const html = async () => new Response("<html>hi</html>", { status: 200 });
-  await assert.rejects(() => fetchSiteDocument("friend.example.org", { fetchImpl: html }), /didn't answer with a site document/);
-
-  const big = async () => new Response(`{"x":"${"a".repeat(70 * 1024)}"}`, { status: 200 });
-  await assert.rejects(() => fetchSiteDocument("friend.example.org", { fetchImpl: big }), /more than a site document/);
-
-  const down = async () => {
-    throw new TypeError("Failed to fetch");
-  };
-  await assert.rejects(() => fetchSiteDocument("friend.example.org", { fetchImpl: down }), /couldn't be reached/);
+  await checkDestination("https://Friend.Example.org/some/path", { read });
+  assert.deepEqual(asked, ["friend.example.org"], "the server is asked about the cleaned address only");
+  // A bad address is explained here and never reaches the server.
+  await assert.rejects(() => checkDestination("http://localhost", { read }), DiscoveryError);
+  await assert.rejects(() => checkDestination("10.0.0.1", { read }), DiscoveryError);
+  assert.equal(asked.length, 1);
+  await assert.rejects(() => checkDestination("friend.example.org"), /can't read other sites/);
+  await assert.rejects(() => checkDestination("friend.example.org", { read: async () => "<html>" }), /didn't answer with a site document/);
 });
 
 const siteDoc = (over = {}) => ({
@@ -244,8 +236,7 @@ test("the screen's flow refuses a replay, and only a newer document moves the ma
 });
 
 test("checking an address end to end never claims a move happened", async () => {
-  const fake = async () => new Response(JSON.stringify(siteDoc()), { status: 200 });
-  const result = await checkDestination("https://friend.example.org/", { fetchImpl: fake });
+  const result = await checkDestination("https://friend.example.org/", { read: async () => siteDoc() });
   assert.equal(result.host, "friend.example.org");
   assert.equal(result.ok, true);
   assert.equal(result.doc.name, "Friend");

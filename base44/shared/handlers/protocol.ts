@@ -11,6 +11,7 @@
 import { ApiError, id, int, str, type Actions } from "../http.ts";
 import { signedByActiveDevice } from "../deviceAuth.ts";
 import { blockedEitherWay, contactsOf, profileOf, rateLimited } from "../store.ts";
+import { normHost } from "../federation/wire.ts";
 
 export const PROTO_LIMITS = Object.freeze({
   documentChars: 96 * 1024,
@@ -70,6 +71,36 @@ function brake(key: string, perMinute: number, now: Date, what: string) {
   list.push(t);
   recent.set(key, list);
   if (recent.size > 5000) for (const [k, v] of recent) if (!v.some((x) => t - x < 60_000)) recent.delete(k);
+}
+
+/** Site checks: at most this many per person in the window, per server instance. */
+const SITE_CHECKS = { perWindow: 10, windowMs: 10 * 60_000 };
+const siteChecks = new Map<string, number[]>();
+/** For tests. */
+export const forgetSiteChecks = () => siteChecks.clear();
+
+/**
+ * Another site's public document, for the pre-move checklist (Settings, Protocol identity). It
+ * goes through this site's server because the app's security policy only lets the browser talk
+ * to its own site. Nothing is pinned or remembered, and nothing about the person is sent.
+ */
+async function checkSite({ user, body, federation, now }: any) {
+  const host = typeof body.host === "string" && body.host.length <= 300 ? normHost(body.host) : null;
+  if (!host) throw new ApiError(400, "BAD_SITE", "That isn't a site address.");
+  if (!federation?.siteDocument) throw new ApiError(503, "FEDERATION_OFF", "This site doesn't talk to other sites.");
+  if (host === federation.host) throw new ApiError(400, "BAD_SITE", "That's this site.");
+  const t = now.getTime();
+  const recent = (siteChecks.get(user.id) || []).filter((at) => t - at < SITE_CHECKS.windowMs);
+  if (recent.length >= SITE_CHECKS.perWindow) throw rateLimited("checking sites");
+  siteChecks.set(user.id, [...recent, t]);
+  let document;
+  try {
+    document = await federation.siteDocument(host);
+  } catch (error) {
+    if ((error as any)?.status === 403) throw new ApiError(403, "SITE_BLOCKED", "This site doesn't talk to that site.");
+    throw new ApiError(502, "SITE_UNREACHABLE", "That site couldn't be read. It may be down, or not be a Commonveil site.");
+  }
+  return { host, document };
 }
 
 export const protocolActions: Actions = {
@@ -239,4 +270,7 @@ export const protocolActions: Actions = {
     await removeAll(sr, "ProtoMail", { to_user_id: user.id });
     return { ok: true };
   },
+
+  /** Another site's public document, for the pre-move checklist. */
+  check_site: checkSite,
 };

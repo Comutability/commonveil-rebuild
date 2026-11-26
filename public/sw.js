@@ -136,8 +136,9 @@ self.addEventListener("push", (event) => {
       // Quiet hours live in this device's own storage, which a phone that has just woken up can be
       // slow to answer. A notification that never appears is worse than one that isn't silenced.
       const prefs = await Promise.race([readPrefs(), new Promise((r) => setTimeout(() => r({}), 1500))]);
-      // No channel ids or preferences leave the device. An unknown channel defaults to quiet,
-      // rather than allowing a server's activity to leak onto a locked screen.
+      // No channel ids or channel settings leave the device: the site only knows, per server, which
+      // pushes this browser asked for. An unknown channel defaults to quiet, rather than allowing a
+      // server's activity to leak onto a locked screen.
       const serverActivity = p.k === "activity" || p.k === "mention";
       const level = serverActivity ? (prefs.pushLevels?.[p.m] || "none") : null;
       const muted = Boolean((p.m && Array.isArray(prefs.muted) && prefs.muted.includes(p.m)) ||

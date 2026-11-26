@@ -193,6 +193,22 @@ export class HostedFederation {
     });
   }
 
+  /**
+   * Another site's document, read once for a member's pre-move check: nothing is pinned or
+   * remembered, so checking a site doesn't make this site trust it (siteDoc does that, on contact).
+   */
+  async peekSiteDoc(hostRaw: string): Promise<any> {
+    const host = W.normHost(hostRaw);
+    if (!host || host === this.host) throw new FederationError(400, "BAD_SITE", "That isn't another site.");
+    const [pinned] = await this.sr.entities.FedSite.filter({ host }, "created_date", 1);
+    if (pinned?.blocked) throw new FederationError(403, "SITE_BLOCKED", `This site doesn't talk to ${host}.`);
+    const { status, data } = await this.request(host, W.SITE_DOCUMENT);
+    if (status !== 200 || data?.protocol !== W.PROTOCOL || data.host !== host || typeof data.key?.public !== "string") {
+      throw new FederationError(502, "NOT_A_SITE", `${host} isn't a Commonveil site, or doesn't talk to other sites.`);
+    }
+    return data;
+  }
+
   async endpoint(host: string, name: string) {
     return W.endpointsOf(await this.siteDoc(host))[name];
   }
@@ -705,6 +721,10 @@ export class HostedFederation {
   }
 
   get handlers() {
-    return { resolveHandle: (h: string, me: string) => this.resolveHandle(h, me) };
+    return {
+      host: this.host,
+      resolveHandle: (h: string, me: string) => this.resolveHandle(h, me),
+      siteDocument: (h: string) => this.peekSiteDoc(h),
+    };
   }
 }

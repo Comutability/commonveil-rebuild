@@ -6,6 +6,7 @@
 use aes_gcm::aead::{Aead, KeyInit as _};
 use hmac::{Hmac, Mac};
 use p256::ecdsa::signature::Signer;
+use p256::elliptic_curve::sec1::ToSec1Point;
 use serde_json::{json, Value};
 use sha2::Sha256;
 
@@ -95,12 +96,9 @@ pub fn encrypt_payload(
     let ua_key = p256::PublicKey::from_sec1_bytes(&ua_public).ok()?;
     let secret = match fixed {
         Some((sk, _)) => p256::SecretKey::from_slice(sk).ok()?,
-        None => p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng),
+        None => random_p256(),
     };
-    let sender_public =
-        p256::elliptic_curve::sec1::ToEncodedPoint::to_encoded_point(&secret.public_key(), false)
-            .as_bytes()
-            .to_vec();
+    let sender_public = secret.public_key().to_sec1_point(false).as_bytes().to_vec();
     let shared = p256::ecdh::diffie_hellman(secret.to_nonzero_scalar(), ua_key.as_affine());
     let mut info = b"WebPush: info\0".to_vec();
     info.extend(&ua_public);
@@ -128,11 +126,27 @@ pub fn encrypt_payload(
 
 // ---------- VAPID ----------
 
+/// A fresh P-256 secret from the system's randomness (an out-of-range value, vanishingly rare,
+/// is drawn again).
+fn random_p256() -> p256::SecretKey {
+    loop {
+        let bytes = zeroize::Zeroizing::new(random_array::<32>());
+        if let Ok(sk) = p256::SecretKey::from_slice(&bytes[..]) {
+            return sk;
+        }
+    }
+}
+
+fn random_array<const N: usize>() -> [u8; N] {
+    let mut b = [0u8; N];
+    getrandom::fill(&mut b).expect("system randomness");
+    b
+}
+
 /// The site's push key, stored as the Node.js server stores it: `{ publicKey, privateJwk }`.
 pub fn make_vapid_keys() -> Value {
-    let sk = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
-    let point =
-        p256::elliptic_curve::sec1::ToEncodedPoint::to_encoded_point(&sk.public_key(), false);
+    let sk = random_p256();
+    let point = sk.public_key().to_sec1_point(false);
     json!({
         "publicKey": b64url(point.as_bytes()),
         "privateJwk": { "key_ops": ["sign"], "ext": true, "kty": "EC", "x": b64url(point.x().unwrap()), "y": b64url(point.y().unwrap()), "crv": "P-256", "d": b64url(&sk.to_bytes()) },

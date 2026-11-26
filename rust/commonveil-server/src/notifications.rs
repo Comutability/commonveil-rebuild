@@ -3,6 +3,10 @@
 //! A push says only that there's something new: its kind, and a random one-time code that the
 //! app, signed in as the same person, swaps for where to go. A mute key lets a device stay
 //! silent for conversations muted on it, without the push naming the conversation.
+//!
+//! Server channels: each browser says which servers it wants pushes from (`alerts`), per server
+//! and never per channel, so a busy server only pushes to the browsers that asked for it. The
+//! browser still applies its own channel settings to what arrives.
 use serde_json::{json, Value};
 
 use crate::api::{id, Actions, ApiError, Ctx, Result};
@@ -15,6 +19,8 @@ const MAX_SUBSCRIPTIONS: usize = 10;
 const CODE_DAYS: i64 = 7;
 const QUIET_MS: f64 = 20_000.0;
 const MAX_PER_SEND: usize = 200;
+/// Both alert lists together: more servers than anyone can be in (serversPerUser).
+const MAX_ALERT_SERVERS: usize = 200;
 
 fn b64url_ok(s: &str) -> bool {
     !s.is_empty()
@@ -67,6 +73,32 @@ pub fn notify_people(
     path: &str,
     place_id: &str,
 ) {
+    send_quietly(sr, subject, user_ids, kind, path, place_id, None);
+}
+
+/// The same for a server channel ("activity" or "mention"): only to browsers that asked for this
+/// server's pushes of that kind (`alerts`). `server`: its id, and whether it's the default one.
+pub fn notify_server_people(
+    sr: &Db,
+    subject: &str,
+    user_ids: &[String],
+    kind: &str,
+    path: &str,
+    place_id: &str,
+    server: (&str, bool),
+) {
+    send_quietly(sr, subject, user_ids, kind, path, place_id, Some(server));
+}
+
+fn send_quietly(
+    sr: &Db,
+    subject: &str,
+    user_ids: &[String],
+    kind: &str,
+    path: &str,
+    place_id: &str,
+    server: Option<(&str, bool)>,
+) {
     if notify(
         sr,
         subject,
@@ -77,12 +109,28 @@ pub fn notify_people(
             place_id,
             only_endpoint: None,
             bypass_quiet: false,
+            server,
         },
     )
     .is_err()
     {
         eprintln!("commonveil push: preparation_failed kind={kind}");
     }
+}
+
+/// Whether this browser asked for this server's pushes of this kind (`alerts`). A browser that
+/// hasn't said yet (an app from before 0.24.23) gets mentions, and other activity only from servers
+/// other than the site's default one: the app's own defaults.
+pub fn wants_server_push(sub: &Value, kind: &str, server_id: &str, is_default: bool) -> bool {
+    if sub["alerts_set"] != true {
+        return kind == "mention" || !is_default;
+    }
+    let listed = |field: &str| {
+        sub[field]
+            .as_array()
+            .is_some_and(|ids| ids.iter().any(|v| v == server_id))
+    };
+    listed("alert_all") || (kind == "mention" && listed("alert_mentions"))
 }
 
 /// Return only safe aggregate outcomes: no endpoints, identifiers, keys or payloads in diagnostics.
@@ -92,6 +140,7 @@ struct NotifyRequest<'a> {
     place_id: &'a str,
     only_endpoint: Option<&'a str>,
     bypass_quiet: bool,
+    server: Option<(&'a str, bool)>,
 }
 
 fn notify(sr: &Db, subject: &str, user_ids: &[String], req: NotifyRequest<'_>) -> Result<Value> {
@@ -101,6 +150,7 @@ fn notify(sr: &Db, subject: &str, user_ids: &[String], req: NotifyRequest<'_>) -
         place_id,
         only_endpoint,
         bypass_quiet,
+        server,
     } = req;
     let mut tally =
         json!({ "attempted": 0, "sent": 0, "rejected": 0, "failed": 0, "gone": 0, "skipped": 0 });
@@ -123,6 +173,7 @@ fn notify(sr: &Db, subject: &str, user_ids: &[String], req: NotifyRequest<'_>) -
     let now = crate::sessions::now_ms();
     let scoped: Vec<Value> = subs
         .into_iter()
+        .filter(|s| server.is_none_or(|(sid, default)| wants_server_push(s, kind, sid, default)))
         .filter(|s| only_endpoint.is_none_or(|e| s["endpoint"] == e))
         .collect();
     if only_endpoint.is_some() && scoped.is_empty() {
@@ -272,13 +323,33 @@ fn subscribe(ctx: &mut Ctx) -> Result<Value> {
             ));
         }
     }
-    for old in sr.filter(
+    // An address belongs to one browser: drop any older claim to it. The app says it again when the
+    // settings are opened (a turn-on can be interrupted), so an identical record is left as it is.
+    let claimed = sr.filter(
         "PushSubscription",
         json!({ "endpoint": body["endpoint"] }),
         "created_date",
         20,
-    )? {
-        let _ = sr.delete("PushSubscription", id_of(&old));
+    )?;
+    let mine_now = |s: &Value| s["user_id"] == uid.as_str();
+    if claimed.iter().any(|s| {
+        mine_now(s)
+            && s["p256dh"] == body["p256dh"]
+            && s["auth"] == body["auth"]
+            && s["mute_secret"] == body["mute_secret"]
+    }) {
+        return Ok(json!({ "ok": true }));
+    }
+    // New keys for the same browser and person keep the servers it asked for.
+    let choice = claimed
+        .iter()
+        .find(|s| mine_now(s) && s["alerts_set"] == true)
+        .map(|s| {
+            let list = |k: &str| s[k].as_array().cloned().unwrap_or_default();
+            json!({ "alerts_set": true, "alert_all": list("alert_all"), "alert_mentions": list("alert_mentions") })
+        });
+    for old in &claimed {
+        let _ = sr.delete("PushSubscription", id_of(old));
     }
     let mine = sr.filter(
         "PushSubscription",
@@ -297,7 +368,67 @@ fn subscribe(ctx: &mut Ctx) -> Result<Value> {
         .as_ref()
         .map(|s| s.device_id.clone())
         .unwrap_or_default();
-    sr.create("PushSubscription", json!({ "user_id": uid, "device_id": device, "endpoint": body["endpoint"], "p256dh": body["p256dh"], "auth": body["auth"], "mute_secret": body["mute_secret"], "last_push_at": "" }))?;
+    let mut row = json!({ "user_id": uid, "device_id": device, "endpoint": body["endpoint"], "p256dh": body["p256dh"], "auth": body["auth"], "mute_secret": body["mute_secret"], "last_push_at": "" });
+    if let (Some(row), Some(Value::Object(choice))) = (row.as_object_mut(), choice) {
+        row.extend(choice);
+    }
+    sr.create("PushSubscription", row)?;
+    Ok(json!({ "ok": true }))
+}
+
+/// Which servers this browser wants pushes from: `all`, every new message or post; `mentions`,
+/// only when it's mentioned; a server in neither list pushes it nothing. Per server, never per
+/// channel: the app works the lists out from its own settings, and the browser still applies its
+/// channel settings to what arrives.
+fn alerts(ctx: &mut Ctx) -> Result<Value> {
+    let (sr, uid, body) = (ctx.sr(), ctx.user_id().to_string(), &ctx.body);
+    if !crate::webpush::endpoint_ok(&body["endpoint"]) {
+        return Err(ApiError::new(
+            400,
+            "BAD_ENDPOINT",
+            "This browser has no valid push subscription.",
+        ));
+    }
+    let bad_list = || ApiError::new(400, "BAD_FIELD", "Invalid server list.");
+    let list = |v: &Value| -> Result<Vec<String>> {
+        let items = v
+            .as_array()
+            .filter(|a| a.len() <= MAX_ALERT_SERVERS)
+            .ok_or_else(bad_list)?;
+        let mut out: Vec<String> = Vec::new();
+        for item in items {
+            let sid = id(item, "server")?;
+            if !out.contains(&sid) {
+                out.push(sid);
+            }
+        }
+        Ok(out)
+    };
+    let all = list(&body["all"])?;
+    let mentions: Vec<String> = list(&body["mentions"])?
+        .into_iter()
+        .filter(|s| !all.contains(s))
+        .collect();
+    if all.len() + mentions.len() > MAX_ALERT_SERVERS {
+        return Err(bad_list());
+    }
+    let Some(sub) = sr.first(
+        "PushSubscription",
+        json!({ "endpoint": body["endpoint"], "user_id": uid }),
+        "created_date",
+    )?
+    else {
+        return Err(ApiError::new(
+            409,
+            "PUSH_NOT_REGISTERED",
+            "This browser's subscription isn't registered. Turn push off and on here.",
+        ));
+    };
+    sr.update(
+        "PushSubscription",
+        id_of(&sub),
+        json!({ "alerts_set": true, "alert_all": all, "alert_mentions": mentions }),
+    )?;
     Ok(json!({ "ok": true }))
 }
 
@@ -379,6 +510,7 @@ fn test(ctx: &mut Ctx) -> Result<Value> {
             place_id: "test",
             only_endpoint: Some(endpoint),
             bypass_quiet: true,
+            server: None,
         },
     )?;
     let mut response = tally;
@@ -391,6 +523,7 @@ pub fn actions() -> Actions {
     for (name, f) in [
         ("key", key as crate::api::Action),
         ("subscribe", subscribe),
+        ("alerts", alerts),
         ("unsubscribe", unsubscribe),
         ("open", open),
         ("test", test),
@@ -403,4 +536,30 @@ pub fn actions() -> Actions {
 /// `id(...)` checked, for paths built from ids.
 pub fn checked_path(conversation_id: &Value) -> Result<String> {
     Ok(conversation_path(&id(conversation_id, "conversation")?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wants_server_push;
+    use serde_json::json;
+
+    #[test]
+    fn a_browser_gets_only_the_server_pushes_it_asked_for() {
+        let chose =
+            json!({ "alerts_set": true, "alert_all": ["busy"], "alert_mentions": ["quiet"] });
+        assert!(wants_server_push(&chose, "activity", "busy", false));
+        assert!(wants_server_push(&chose, "mention", "busy", false));
+        assert!(!wants_server_push(&chose, "activity", "quiet", false));
+        assert!(wants_server_push(&chose, "mention", "quiet", false));
+        assert!(!wants_server_push(&chose, "mention", "muted", false));
+        assert!(!wants_server_push(&chose, "activity", "muted", true));
+        // Not said yet: mentions everywhere, other activity except from the default server.
+        let older = json!({});
+        assert!(wants_server_push(&older, "mention", "agora", true));
+        assert!(!wants_server_push(&older, "activity", "agora", true));
+        assert!(wants_server_push(&older, "activity", "club", false));
+        // Said, with nothing chosen: nothing at all.
+        let none = json!({ "alerts_set": true, "alert_all": [], "alert_mentions": [] });
+        assert!(!wants_server_push(&none, "mention", "club", false));
+    }
 }

@@ -6,6 +6,26 @@ This is a Base44 app repository. Treat it as user-owned application code, keep c
 
 Start with `README.md` for local setup, environment variables, and publish workflow.
 
+## Rules for every agent (and person) changing this repository
+
+`main` is live: the Base44 site syncs from it and deploys it, and every push to it publishes the
+`edge` Docker images. So:
+
+- Work on a branch and open a pull request. Never push to `main`, and never publish, deploy or
+  checkpoint the Base44 app from anything that isn't merged into `main`.
+- A pull request is merged only when CI passes and it has been reviewed. A change to sign-in, keys,
+  encryption, federation, notifications, permissions, the Docker setup or the update path also needs
+  a qualified person's security review before it's merged.
+- Every change is a release, with its own version number (below). Never change what a version
+  number means after it has shipped.
+- Experimental features stay off: the `EXPERIMENTAL_*` settings in `deploy/docker-compose.yml` stay
+  `"false"`, and anything built on a Secure Net Draft stays opt-in and labelled experimental in the
+  app.
+- Never commit secrets (`.env`, keys, tokens, passwords), and never weaken, skip or delete a test or
+  a check to get CI to pass: fix the cause.
+- Run `npm run verify` and, for anything under `rust/` or `base44/shared/`, `cd rust && cargo test
+  && cargo clippy --all-targets -- -D warnings` before asking for review.
+
 ## Base44 References
 
 - CLI overview: https://docs.base44.com/developers/references/cli/get-started/overview.md

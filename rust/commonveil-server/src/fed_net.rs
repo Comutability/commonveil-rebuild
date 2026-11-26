@@ -730,6 +730,29 @@ impl Signer {
         Ok(())
     }
 
+    /// Another site's document, read once for a member's pre-move check: nothing is pinned or
+    /// cached, so checking a site doesn't make this site trust it (site_doc does that, on contact).
+    pub fn peek_site_doc(&self, store: &Store, host: &str) -> FedResult<Value> {
+        let host = norm_host(host)?;
+        self.refuse_blocked(store, &host)?;
+        let r = self
+            .transport
+            .request(&host, SITE_DOCUMENT, "GET", &[], None)?;
+        let d = r.data;
+        if r.status != 200
+            || d["protocol"] != PROTOCOL
+            || d["host"] != host.as_str()
+            || !d["key"]["public"].is_string()
+        {
+            return Err(fed_err(
+                502,
+                "NOT_A_SITE",
+                format!("{host} isn't a Commonveil site, or doesn't talk to other sites."),
+            ));
+        }
+        Ok(d)
+    }
+
     /// Another site's public document, and its key pinned on first contact.
     pub fn site_doc(&self, store: &Store, host: &str) -> FedResult<Value> {
         let host = norm_host(host)?;

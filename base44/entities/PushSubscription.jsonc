@@ -28,6 +28,24 @@
     },
     "last_push_at": {
       "type": "string"
+    },
+    "alerts_set": {
+      "type": "boolean",
+      "description": "Whether this browser has said which servers it wants pushes from (alert_all, alert_mentions). Until it has, it gets mentions, and other activity only from servers other than the default one."
+    },
+    "alert_all": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Servers this browser wants a push from for every new message or post."
+    },
+    "alert_mentions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Servers this browser wants a push from only when it's mentioned."
     }
   },
   "required": [

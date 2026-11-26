@@ -122,7 +122,31 @@ The `voice_ticket` and `call_ticket` actions now derive a six-hour, time-limited
 after verifying the member and device. Only those temporary credentials are returned to the browser. The relay must be
 reachable from users' networks; configure public DNS, TLS certificates, UDP/TCP listeners, and a firewall rule for the
 relay port range. For strict networks provide TURN over TCP/TLS as well as UDP. TURN bandwidth and abuse controls are
-the operator's responsibility. If these settings are absent or invalid, calls remain direct-only and no backend secret
+the operator's responsibility.
+
+**Keep the relay off your private network.** Anyone signed in to your site can get relay credentials, and they
+last six hours, so a relay that will forward traffic anywhere lets them reach machines behind your firewall
+(other containers, your router, a cloud provider's metadata address) through it. In coturn's configuration, keep
+loopback peers refused (its default: never set `allow-loopback-peers`), and add:
+
+```
+no-multicast-peers
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.0.0.0-192.0.0.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=198.18.0.0-198.19.255.255
+denied-peer-ip=::1
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+```
+
+If the relay runs on the same machine as other services, deny its own public address too, and set `user-quota`
+and `total-quota` so one account can't use all of its bandwidth. If these settings are absent or invalid, calls remain direct-only and no backend secret
 is sent to users. A call may need to reconnect after TURN credentials expire.
 
 A TURN relay is distinct from the **VoiceRoom signalling actor**, which exchanges session descriptions, candidate

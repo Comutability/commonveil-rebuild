@@ -213,3 +213,29 @@ test("a site that keeps its endpoints under a path says so, and other sites find
     await mixed.close();
   }
 });
+
+test("a member can check another site before a move: the server reads its document, pins nothing and is rate-limited", async () => {
+  const { forgetSiteChecks } = await import("../base44/shared/handlers/protocol.ts");
+  forgetSiteChecks();
+  const a = net.sites["alpha.test"];
+  const cat = await new Person(a, "cat_check").setup();
+  const pinnedBefore = a.app.store.db.prepare("SELECT COUNT(*) AS n FROM fed_sites").get().n;
+  const res = await cat.ok("protocol", { action: "check_site", host: "https://Beta.test/anything" });
+  assert.equal(res.host, "beta.test");
+  assert.equal(res.document.protocol, "commonveil/1");
+  assert.equal(res.document.host, "beta.test");
+  assert.equal(typeof res.document.endpoints, "object");
+  assert.equal(a.app.store.db.prepare("SELECT COUNT(*) AS n FROM fed_sites").get().n, pinnedBefore, "checking a site doesn't make this site trust it");
+
+  const code = async (host) => (await cat.call("protocol", { action: "check_site", host })).data.code;
+  assert.equal(await code("not a site"), "BAD_SITE");
+  assert.equal(await code("alpha.test"), "BAD_SITE", "this site itself");
+  assert.equal(await code(12345), "BAD_SITE");
+  assert.equal(await code("nowhere.test"), "SITE_UNREACHABLE");
+  // Ten checks in ten minutes, then a pause (the earlier ones count).
+  let last;
+  for (let i = 0; i < 8; i += 1) last = await code("beta.test");
+  assert.equal(last, undefined);
+  assert.equal(await code("beta.test"), "RATE_LIMITED");
+  forgetSiteChecks();
+});

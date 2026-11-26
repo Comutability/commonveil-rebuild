@@ -20,6 +20,7 @@
 //! API (every request needs `Authorization: Bearer <UPDATER_TOKEN>`):
 //!   GET  /status   {"busy": bool, "last": the last update's outcome or null}
 //!   POST /update   {"version": "x.y.z"}: 202 when it starts, 409 when busy or not newer
+#![forbid(unsafe_code)]
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};

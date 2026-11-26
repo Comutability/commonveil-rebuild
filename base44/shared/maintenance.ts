@@ -174,3 +174,31 @@ export async function deliverAndDestroy(sr: any, now: Date, deadline: number) {
 export function resetMaintenanceThrottle() {
   lastStarted.clear();
 }
+
+/**
+ * The hosted site only (functions/maintenance/entry.ts). Its address is public and the throttle
+ * above is per instance, so a task also starts at most this often across all of them: one read
+ * answers a repeat call. Each gap is shorter than the task's schedule (base44/workflows), so
+ * scheduled runs always go ahead. Self-hosted sites run these tasks on timers, not over HTTP.
+ */
+export const GLOBAL_GAP_MS: Record<string, number> = { deliver: 60_000, expire: 5 * 60_000, inactive: 60 * 60_000 };
+
+/** Whether this call may start the task now (and if so, record that it did). */
+export async function claimRun(sr: any, task: unknown, now = Date.now()): Promise<boolean> {
+  if (typeof task !== "string" || !Object.prototype.hasOwnProperty.call(GLOBAL_GAP_MS, task)) return true; // refused later
+  try {
+    const [row] = await sr.entities.MaintenanceRun.filter({ task }, "-started_at", 1);
+    const last = row ? Date.parse(row.started_at) : NaN;
+    // A time in the future (a clock moved back) doesn't hold the task up.
+    if (Number.isFinite(last) && now >= last && now - last < GLOBAL_GAP_MS[task]) return false;
+    const started_at = new Date(now).toISOString();
+    if (row) await sr.entities.MaintenanceRun.update(row.id, { started_at });
+    else await sr.entities.MaintenanceRun.create({ task, started_at });
+    return true;
+  } catch {
+    // Clean-up deletes what people asked to have deleted, so it never stops because this
+    // bookkeeping failed: the per-instance throttle still applies.
+    console.warn("commonveil maintenance: run record unavailable", { task });
+    return true;
+  }
+}

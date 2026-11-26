@@ -5,6 +5,19 @@ minor version (0.x.0) adds features; a patch (0.x.y) fixes things.
 
 > Generated from `src/content/releases.json` by `scripts/release.mjs`. Edit that file, not this one.
 
+## [0.24.23](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.23): Security fixes from the November audit: server pushes only where they're wanted, and a working destination check
+
+_2026-11-26_
+
+- Server notifications now go only where they're wanted. With push notifications on, each browser tells this site, per server, whether it wants a push for every message, only for @mentions, or none, worked out from your own notification settings. A busy server no longer wakes every member's phone for each message. Your settings for single channels still stay on your device: the site learns only the choice per server. Apps that haven't updated yet keep getting @mentions, and other activity from every server except the site's default one.
+- Checking another site before a move works again. The browser used to fetch the other site's public document itself, which the site's own security policy blocked. Now your site reads it for you, with the same address checks and block list as federation, without trusting or remembering the other site, and up to 10 checks every 10 minutes.
+- The hosted site's scheduled clean-up can be called by anyone, as every function can. Now each task starts at most once a minute (deliveries), every 5 minutes (expiry) or every hour (inactive accounts) across every instance, so repeated calls cost one read instead of a full run.
+- Self-hosted sites: a new section in Servers and voice explains how to keep a TURN relay away from your private network (coturn settings), and the example settings file lost a stray `\n` in a comment. Nothing new to set.
+- The Rust server's own P-256 code (Web Push and passkeys) moved to p256 0.14, away from a big-number library with a timing advisory. Other Rust dependencies were updated (including url 2.5.9). The server and updater now refuse unsafe code, and a request that fails while holding a lock no longer breaks the requests after it.
+- Known vulnerabilities in the Rust crates are now checked on every pull request (cargo-deny), and each exception records why it doesn't apply and when it expires. rusqlite stays at 0.37 until OpenMLS allows a newer SQLite: the server only ever opens its own database files.
+- Follows Secure Net 0.8.0. The experimental account-transfer code now keeps only a digest of the possession answer, never the answer itself. It stays off and experimental.
+- Base44's Vite plugin is updated to 1.0.55, and the repository now asks every agent and person to change it through reviewed pull requests, never straight on main.
+
 ## [0.24.22](https://github.com/Comutability/commonveil-rebuild/releases/tag/v0.24.22): Repair silent SNIP proposal sync stalls and safely recover from GitHub cache failures
 
 _2026-11-24_

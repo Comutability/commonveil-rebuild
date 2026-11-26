@@ -4,6 +4,7 @@ import { callFn } from "@/lib/api";
 import { workerUrl } from "@/lib/pwa/app";
 import { pushHint } from "@/lib/pwa/browser";
 import { muteToken } from "@/lib/pwa/mute";
+import { pushLevelsFor } from "@/lib/pwa/pushLevels";
 
 const supported = () => typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 const KEY = "commonveil_push_secret";
@@ -12,6 +13,12 @@ const KEY = "commonveil_push_secret";
 const SW_WAIT_MS = 12_000;
 // Whether this visit has already told the site which browser this is.
 let told = false;
+// Which servers this browser wants pushes from, as last worked out (mirrorServerPushPrefs), and what
+// this visit last told the site, so the same choice isn't sent twice.
+let alertChoice = null;
+let alertsSaid = "";
+let alertsTimer = null;
+const ALERTS_SETTLE_MS = 1500;
 
 export const pushSupported = supported;
 
@@ -50,6 +57,27 @@ function muteSecret() {
 async function tellServer(sub) {
   const json = sub.toJSON();
   await callFn("notifications", { action: "subscribe", endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth, mute_secret: muteSecret() });
+  // A new subscription starts without a choice of servers: say it again, if it's known yet.
+  alertsSaid = "";
+  if (alertChoice) sayAlerts().catch(() => {});
+}
+
+/**
+ * Tell the site which servers this browser wants pushes from: every server, never a channel. The
+ * site sends a server's pushes only to browsers that asked for them, and this browser still
+ * applies each channel's own setting to what arrives (public/sw.js).
+ */
+async function sayAlerts() {
+  if (!alertChoice || !supported()) return;
+  const reg = await navigator.serviceWorker.getRegistration("/").catch(() => null);
+  const sub = await reg?.pushManager.getSubscription().catch(() => null);
+  // No push on this browser: there's nothing to choose.
+  if (!sub) return;
+  const choice = alertChoice;
+  const said = JSON.stringify({ endpoint: sub.endpoint, ...choice });
+  if (said === alertsSaid) return;
+  await callFn("notifications", { action: "alerts", endpoint: sub.endpoint, all: choice.all, mentions: choice.mentions });
+  alertsSaid = said;
 }
 
 /** Whether this browser is subscribed now. */
@@ -198,20 +226,23 @@ export function mirrorPushPrefs(alerts) {
   writeWorkerPrefs({ quiet: alerts.quiet, quietFrom: alerts.quietFrom, quietTo: alerts.quietTo, focusUntil: alerts.focusUntil });
 }
 
-/** Compute the same per-device HMAC as the backend without sending notification preferences to it. */
-export async function mirrorServerPushPrefs(servers, prefs) {
+/**
+ * Each channel's push level for the service worker, keyed by the same per-device HMAC the site
+ * puts in a push (so no channel id is stored for it). Once the server list has loaded, the site is
+ * told per server only (sayAlerts; lib/pwa/pushLevels.js says how).
+ */
+export async function mirrorServerPushPrefs(servers, prefs, loaded = false) {
   if (!supported() || !crypto?.subtle) return;
   const secret = muteSecret();
-  const channels = Object.entries(servers || {}).flatMap(([sid, entry]) =>
-    (entry.channels || []).filter((c) => ["text", "announcement", "rules", "forum"].includes(c.kind)).map((c) => ({
-      id: c.id,
-      level: prefs?.muted?.[sid] || prefs?.muted?.[c.id] ? "none" : prefs?.notify?.[c.id] || prefs?.notify?.[sid] || (entry.server?.is_default ? "mentions" : "all"),
-    })));
+  const { channels, all, mentions } = pushLevelsFor(servers, prefs);
   const pushLevels = {};
-  for (const c of channels) {
-    pushLevels[await muteToken(secret, c.id)] = c.level;
-  }
+  for (const c of channels) pushLevels[await muteToken(secret, c.id)] = c.level;
   writeWorkerPrefs({ pushLevels });
+  if (!loaded) return;
+  // A server list still filling in changes this several times in a row: say only where it settles.
+  alertChoice = { all, mentions };
+  clearTimeout(alertsTimer);
+  alertsTimer = setTimeout(() => sayAlerts().catch(() => {}), ALERTS_SETTLE_MS);
 }
 
 /** Where a tapped notification leads (the code is used once). */

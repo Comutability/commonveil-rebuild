@@ -1,6 +1,6 @@
 # Every pull request and every push to main runs the full checks: the site (built with Node.js:
-# 26, as the Docker image does, and 24), the Rust server, updater and client core, the client core
-# as WebAssembly, and both Docker images.
+# 26, as the Docker image does, and 24), known vulnerabilities in the Rust crates, the Rust server,
+# updater and client core, the client core as WebAssembly, and both Docker images.
 name: Test
 on:
   pull_request:
@@ -24,6 +24,16 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run verify
       - run: npm audit --omit=dev --audit-level=high
+  advisories:
+    # Known vulnerabilities in the Rust crates the server, updater and client core build (RustSec),
+    # with the reason for any exception in deny.toml. npm's are checked by `npm audit` above.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+      - run: cargo install --locked cargo-deny --version 0.22.1
+      - name: cargo deny check advisories
+        run: cargo deny --manifest-path rust/Cargo.toml --config deny.toml check advisories
   rust:
     # The Rust server and updater (rust/), which the Docker images run: their tests include running
     # the same work through the Node.js server and updater they replaced, and comparing every answer.
@@ -140,7 +150,7 @@ jobs:
     # Deliberately opt-in development images, never stable :latest.
     # The successful test matrix is a prerequisite for publishing.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [verify, rust, wasm, images]
+    needs: [verify, advisories, rust, wasm, images]
     runs-on: ubuntu-latest
     concurrency:
       group: commonveil-preview-image

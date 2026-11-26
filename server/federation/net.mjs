@@ -321,6 +321,20 @@ export class Signer {
     }
   }
 
+  /**
+   * Another site's document, read once for a member's pre-move check: nothing is pinned or
+   * cached, so checking a site doesn't make this site trust it (siteDoc does that, on contact).
+   */
+  async peekSiteDoc(host) {
+    host = normHost(host);
+    this.#refuseBlocked(host);
+    const { status, data } = await this.transport.request(host, SITE_DOCUMENT);
+    if (status !== 200 || data?.protocol !== PROTOCOL || data.host !== host || typeof data.key?.public !== "string") {
+      throw new FederationError(502, "NOT_A_SITE", `${host} isn't a Commonveil site, or doesn't talk to other sites.`);
+    }
+    return data;
+  }
+
   /** Another site's public document, and its key pinned on first contact. */
   async siteDoc(host) {
     host = normHost(host);

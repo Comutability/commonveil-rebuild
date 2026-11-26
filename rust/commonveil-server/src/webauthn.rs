@@ -296,8 +296,11 @@ fn verify_signature(cose: &[u8], sig: &[u8], data: &[u8]) -> R<bool> {
                 .is_ok()
         }),
         Key::Rs256(k) => {
+            // rsa uses an older version of the signature traits than p256 does.
+            use rsa::signature::Verifier as RsaVerifier;
             let v = rsa::pkcs1v15::VerifyingKey::<sha2::Sha256>::new(k);
-            rsa::pkcs1v15::Signature::try_from(sig).is_ok_and(|s| v.verify(data, &s).is_ok())
+            rsa::pkcs1v15::Signature::try_from(sig)
+                .is_ok_and(|s| RsaVerifier::verify(&v, data, &s).is_ok())
         }
     })
 }

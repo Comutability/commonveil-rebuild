@@ -1,0 +1,26 @@
+// When each scheduled clean-up task last started on the hosted site, across every instance of the
+// maintenance function. Its address is public, so this keeps repeated calls cheap. Backend only.
+{
+  "name": "MaintenanceRun",
+  "type": "object",
+  "description": "When each scheduled clean-up task last started, across every instance. Backend only.",
+  "properties": {
+    "task": {
+      "type": "string",
+      "enum": ["expire", "inactive", "deliver"]
+    },
+    "started_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "task",
+    "started_at"
+  ],
+  "rls": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  }
+}

@@ -58,7 +58,7 @@ never touches the push service or the notification log. Codes last a week and wo
 
 | Record | Fields | Gone when |
 | --- | --- | --- |
-| `PushSubscription` | account, sign-in device, push address, the browser's public push keys, the mute secret, time of the last push | turned off, signed out, the push service says the address is gone (404/410), or the account is deleted |
+| `PushSubscription` | account, sign-in device, push address, the browser's public push keys, the mute secret, time of the last push, and the servers this browser wants pushes from (every message, or only @mentions) | turned off, signed out, the push service says the address is gone (404/410), or the account is deleted |
 | `PushCode` | account, a hash of the code, the path, expiry | used, a week passes, or the account is deleted |
 
 Both are backend-only: no browser can read them. A push address is a capability for sending to that
@@ -72,8 +72,9 @@ public half is what browsers subscribe with; the private half never leaves the s
 - At most one push per device every 20 seconds. A burst of messages becomes one notification.
 - The sender's own devices aren't notified.
 - Conversations, group messages, server channel activity and @mentions can push. The server
-  checks the recipient can read a channel, and each device applies its own channel preference
-  (`All messages`, `Only @mentions` or `Nothing`) using an opaque local HMAC token.
+  checks the recipient can read a channel and that this browser asked for that server's pushes of
+  that kind (below), and each device applies its own channel preference (`All messages`,
+  `Only @mentions` or `Nothing`) using an opaque local HMAC token.
 - Channel notification fanout currently covers the first 200 server members per message; larger
   communities need a paginated queue before every member can be guaranteed a push.
 - `Send a test` targets only the requesting browser, not the account's other devices. Its
@@ -104,9 +105,25 @@ contents. The hint is not saved with the message or included in the Web Push pay
 sending client could lie about a mention, so the server validates membership, permissions and
 rate limits rather than treating the hint as proof of decrypted content.
 
-The recipient's own choice of channels to mute or watch remains exclusively on their device. A
-browser HMAC token lets the service worker match a generic push to a local channel rule without
-receiving a channel ID in the push. An unknown channel defaults to no visible server alert.
+## Which servers push to a browser
+
+From 0.24.23 each browser tells the site, per server, which pushes it wants
+(`notifications.alerts`): **every new message**, **only @mentions**, or none. The app works this out
+from its own settings: a server's most talkative channel decides (so a server muted as a whole asks
+for nothing, and a server whose one watched channel is set to `All messages` asks for everything).
+The site then pushes a server's activity only to browsers that asked for it, instead of to every
+member who can read the channel. A quiet server costs its members nothing, and a busy one no longer
+wakes every phone in it for each message.
+
+This is a small, deliberate disclosure: the site learns, per browser, which of your servers you want
+pushes from and at which of those two levels. It already knows which servers you're in; it doesn't
+learn anything per channel. A browser that hasn't said yet (an app from before 0.24.23, until it is
+next opened) gets @mentions from every server and other activity from every server except the
+site's default one, which are the app's own defaults.
+
+The recipient's choice of channels to mute or watch still stays on their device. A browser HMAC token
+lets the service worker match a generic push to a local channel rule without receiving a channel ID
+in the push. An unknown channel defaults to no visible server alert.
 
 ## Turning it on and off
 

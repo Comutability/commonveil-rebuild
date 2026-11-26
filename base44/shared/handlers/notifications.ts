@@ -9,6 +9,10 @@
 // random one-time code. Tapping the notification opens the app, which swaps the code (signed in,
 // as the same person) for where to go. Codes last a week and are used once. A mute key lets the
 // device stay silent for conversations muted on it, without the push naming the conversation.
+//
+// Server channels: each browser says which servers it wants pushes from (`alerts`), per server and
+// never per channel, so a busy server only pushes to the browsers that asked for it. The browser
+// still applies its own channel settings to what arrives.
 import { ApiError, id, type Actions } from "../http.ts";
 import { hmac, randomToken, sha256Hex } from "../identity/crypto.ts";
 import { makeVapidKeys, probeFcmConnection, pushEndpointOk, sendPush, type PushErrorCategory, type VapidKeys } from "../push/webpush.ts";
@@ -18,6 +22,8 @@ const CODE_DAYS = 7;
 // A burst of messages makes one notification per device, not one each.
 const QUIET_MS = 20_000;
 const MAX_PER_SEND = 200;
+// Both alert lists together: more servers than anyone can be in (SERVER_LIMITS.serversPerUser).
+const MAX_ALERT_SERVERS = 200;
 const B64URL = /^[A-Za-z0-9_-]+$/;
 
 export type PushConfig = { subject: string };
@@ -57,19 +63,31 @@ export const muteKey = async (secret: string, placeId: string) => (await hmac(se
 
 /**
  * Tell these people's devices there's something new. kind: "message" (a conversation), "activity"
- * (a server), "conversation" (someone started one with you). Never throws: notifications are a
- * nicety, and a send mustn't fail because of one.
+ * or "mention" (a server: pass `server`), "conversation" (someone started one with you). Never
+ * throws: notifications are a nicety, and a send mustn't fail because of one.
  */
 export type PushTally = { attempted: number; sent: number; rejected: number; failed: number; gone: number; skipped: number; status_code?: number; failure_reason?: "endpoint" | "keys" | "timeout" | "network" | "http_rejected" | "preparation_failed" | "internal_error" | "expired" | "no_subscription"; error_category?: PushErrorCategory };
 
 /** Messages must never fail when a push fails. Diagnostics only contain outcomes, counts and HTTP status codes. */
-export async function notifyPeople(sr: any, push: PushConfig | undefined, userIds: string[], { kind, path, placeId, onlyEndpoint, bypassQuiet = false }: { kind: string; path: string; placeId: string; onlyEndpoint?: string; bypassQuiet?: boolean }): Promise<PushTally> {
+/**
+ * Whether this browser asked for this server's pushes of this kind (`alerts`). A browser that hasn't
+ * said yet (an app from before 0.24.23) gets mentions, and other activity only from servers other
+ * than the site's default one: the app's own defaults.
+ */
+export function wantsServerPush(sub: any, kind: string, server: { id: string; is_default?: boolean }): boolean {
+  if (sub?.alerts_set !== true) return kind === "mention" || server.is_default !== true;
+  const listed = (field: string) => Array.isArray(sub[field]) && sub[field].includes(server.id);
+  return listed("alert_all") || (kind === "mention" && listed("alert_mentions"));
+}
+
+export async function notifyPeople(sr: any, push: PushConfig | undefined, userIds: string[], { kind, path, placeId, onlyEndpoint, bypassQuiet = false, server }: { kind: string; path: string; placeId: string; onlyEndpoint?: string; bypassQuiet?: boolean; server?: { id: string; is_default?: boolean } }): Promise<PushTally> {
   const tally: PushTally = { attempted: 0, sent: 0, rejected: 0, failed: 0, gone: 0, skipped: 0 };
   try {
     const people = [...new Set(userIds)].filter((u) => typeof u === "string").slice(0, MAX_PER_SEND);
     if (!people.length) return tally;
     const subs = await sr.entities.PushSubscription.filter({ user_id: { $in: people } }, "created_date", MAX_PER_SEND * 2);
-    const scoped = onlyEndpoint ? subs.filter((s: any) => s.endpoint === onlyEndpoint) : subs;
+    const wanted = server ? subs.filter((s: any) => wantsServerPush(s, kind, server)) : subs;
+    const scoped = onlyEndpoint ? wanted.filter((s: any) => s.endpoint === onlyEndpoint) : wanted;
     if (onlyEndpoint && !scoped.length) tally.failure_reason = "no_subscription";
     const now = Date.now();
     const due = scoped.filter((s: any) => bypassQuiet || !s.last_push_at || now - Date.parse(s.last_push_at) > QUIET_MS);
@@ -136,10 +154,36 @@ export const notificationActions: Actions = {
     const claimed = await sr.entities.PushSubscription.filter({ endpoint: body.endpoint }, "created_date", 20);
     const same = claimed.find((s: any) => s.user_id === user.id && s.p256dh === body.p256dh && s.auth === body.auth && s.mute_secret === body.mute_secret);
     if (same) return { ok: true };
+    // New keys for the same browser and person keep the servers it asked for.
+    const choice = claimed.find((s: any) => s.user_id === user.id && s.alerts_set === true);
     for (const old of claimed) await sr.entities.PushSubscription.delete(old.id).catch(() => null);
     const mine = await sr.entities.PushSubscription.filter({ user_id: user.id }, "created_date", MAX_SUBSCRIPTIONS + 5);
     for (const old of mine.slice(0, Math.max(0, mine.length - MAX_SUBSCRIPTIONS + 1))) await sr.entities.PushSubscription.delete(old.id).catch(() => null);
-    await sr.entities.PushSubscription.create({ user_id: user.id, device_id: session?.deviceId || "", endpoint: body.endpoint, p256dh: body.p256dh, auth: body.auth, mute_secret: body.mute_secret, last_push_at: "" });
+    await sr.entities.PushSubscription.create({
+      user_id: user.id, device_id: session?.deviceId || "", endpoint: body.endpoint, p256dh: body.p256dh, auth: body.auth, mute_secret: body.mute_secret, last_push_at: "",
+      ...(choice ? { alerts_set: true, alert_all: choice.alert_all || [], alert_mentions: choice.alert_mentions || [] } : {}),
+    });
+    return { ok: true };
+  },
+
+  /**
+   * Which servers this browser wants pushes from: `all`, every new message or post; `mentions`,
+   * only when it's mentioned; a server in neither list pushes it nothing. Per server, never per
+   * channel: the app works the lists out from its own settings (a server's most talkative channel
+   * setting decides), and the browser still applies its channel settings to what arrives.
+   */
+  async alerts({ sr, user, body }: any) {
+    if (!pushEndpointOk(body.endpoint)) throw new ApiError(400, "BAD_ENDPOINT", "This browser has no valid push subscription.");
+    const list = (value: unknown) => {
+      if (!Array.isArray(value) || value.length > MAX_ALERT_SERVERS) throw new ApiError(400, "BAD_FIELD", "Invalid server list.");
+      return [...new Set(value.map((v) => id(v, "server")))];
+    };
+    const all = list(body.all);
+    const mentions = list(body.mentions).filter((s) => !all.includes(s));
+    if (all.length + mentions.length > MAX_ALERT_SERVERS) throw new ApiError(400, "BAD_FIELD", "Invalid server list.");
+    const [sub] = await sr.entities.PushSubscription.filter({ endpoint: body.endpoint, user_id: user.id }, "created_date", 1);
+    if (!sub) throw new ApiError(409, "PUSH_NOT_REGISTERED", "This browser's subscription isn't registered. Turn push off and on here.");
+    await sr.entities.PushSubscription.update(sub.id, { alerts_set: true, alert_all: all, alert_mentions: mentions });
     return { ok: true };
   },
 

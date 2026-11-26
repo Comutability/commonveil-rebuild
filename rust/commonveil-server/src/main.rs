@@ -2,6 +2,7 @@
 //! same as the Node.js server's: see docs/SELF_HOSTING.md.
 //!
 //!   APP_ROOT=.. DIST_DIR=../dist-selfhost cargo run -p commonveil-server     (from rust/)
+#![forbid(unsafe_code)]
 use std::path::PathBuf;
 
 use commonveil_server::config::Config;

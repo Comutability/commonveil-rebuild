@@ -110,7 +110,7 @@ compatibility checklist but cannot use the experimental Rust staging API.
 A protected client-side, recipient-authorised importer and independent
 cross-implementation tests are required before enabling actual migration.
 
-**Status:** SNIP-0007 and the 0.7.0 migration helpers are draft/unaudited.
+**Status:** SNIP-0007 and the migration helpers (Secure Net 0.7.0 and 0.8.0) are draft/unaudited.
 A green Rust build and Docker image do not constitute protocol adoption,
 post-quantum recipient key enrolment, cryptographic security review or a
 working account/inbox cutover.
@@ -165,3 +165,17 @@ live account ownership or inbox routing change in this release. Docker
 Compose and its CI require both EXPERIMENTAL_TRANSFER_STAGING=false
 and EXPERIMENTAL_RECIPIENT_CONSENT=false by default. The public hosted
 application only clarifies the protocol readiness status.
+
+
+## Secure Net 0.8.0 (Commonveil 0.24.23)
+
+The Rust workspace and Docker builds pin Secure Net 0.8.0, the merge of its pull request #20
+(6901da8ccb347a94ce97da8e66334f71ae9ad5fe), which passed Secure Net's CI, including its new
+RustSec advisory check, and an independent review. 0.8.0 is the number for the draft SNIP-0007
+transfer code that had been added on top of 0.7.0; v0.7.0 now means only the Rust-only release.
+
+What changed for Commonveil: in the prototype KEM possession proof, the destination now stores a
+digest of the expected answer, never the answer itself, so stored state can't be replayed as a
+proof. Commonveil doesn't use that proof (the staging service accepts only the signed recipient
+request and grant), so nothing here changes behaviour. Draft SNIP-0008 (independent apps) is a
+proposal only, with no code. Everything stays experimental and off by default, as above.

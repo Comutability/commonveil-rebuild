@@ -90,7 +90,7 @@ type SeoCache = Mutex<Vec<(PathBuf, std::sync::Arc<SeoAssets>)>>;
 fn seo_assets(dist: &Path) -> std::sync::Arc<SeoAssets> {
     static CACHE: OnceLock<SeoCache> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(Vec::new()));
-    let mut c = cache.lock().unwrap();
+    let mut c = cache.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((_, a)) = c.iter().find(|(p, _)| p == dist) {
         return a.clone();
     }

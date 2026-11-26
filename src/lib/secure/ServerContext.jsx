@@ -1050,7 +1050,7 @@ export function ServerProvider({ children }) {
 
   // Notification rules stay on this browser, even when the app is closed. The worker receives
   // only a per-browser keyed token for the channel, never its identifier or a message.
-  useEffect(() => { mirrorServerPushPrefs(servers, prefs).catch(() => {}); }, [servers, prefs]);
+  useEffect(() => { mirrorServerPushPrefs(servers, prefs, loaded).catch(() => {}); }, [servers, prefs, loaded]);
 
   const muted = useCallback((id) => Boolean(prefs.muted?.[id]), [prefs]);
 

@@ -461,13 +461,13 @@ impl Store {
     /// (server/federation). Never call this from a write or remove hook: those run while the
     /// store is locked.
     pub fn with_db<R>(&self, f: impl FnOnce(&Connection) -> R) -> R {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         f(&inner.db)
     }
 
     /// A consistent copy of the whole database in a new file (SQLite's `VACUUM INTO`).
     pub fn vacuum_into(&self, file: &std::path::Path) -> rusqlite::Result<()> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner
             .db
             .execute("VACUUM INTO ?", [file.to_string_lossy().as_ref()])
@@ -476,7 +476,7 @@ impl Store {
 
     /// Small settings the server keeps for itself (not entities).
     pub fn get_setting(&self, k: &str) -> Option<Value> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let row: Option<String> = inner
             .db
             .query_row("SELECT v FROM kv WHERE k = ?", [k], |r| r.get(0))
@@ -486,7 +486,7 @@ impl Store {
         row.and_then(|v| serde_json::from_str(&v).ok())
     }
     pub fn set_setting(&self, k: &str, v: Option<&Value>) {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         match v {
             None | Some(Value::Null) => {
                 let _ = inner.db.execute("DELETE FROM kv WHERE k = ?", [k]);
@@ -650,7 +650,7 @@ impl Store {
         limit: Option<f64>,
         skip: Option<f64>,
     ) -> Result<Vec<Value>> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let t = Self::table(&mut inner, name)?;
         let default = Value::String("-created_date".into());
         let sort = sort.unwrap_or(&default);
@@ -699,7 +699,7 @@ impl Store {
     }
 
     pub fn get(&self, name: &str, id: &str) -> Result<Value> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         Self::table(&mut inner, name)?
             .rows
             .get(id)
@@ -708,7 +708,7 @@ impl Store {
     }
 
     pub fn create(&self, name: &str, data: &Value, fixed_id: Option<&str>) -> Result<Value> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let at = Self::tick(&mut inner);
         let taken = Self::table(&mut inner, name)?
             .rows
@@ -729,7 +729,7 @@ impl Store {
     }
 
     pub fn update(&self, name: &str, id: &str, data: &Value) -> Result<Value> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let row = Self::table(&mut inner, name)?
             .rows
             .get(id)
@@ -749,7 +749,7 @@ impl Store {
             .get("$set")
             .filter(|_| ops.as_object().is_some_and(|o| o.len() == 1))
             .ok_or_else(|| denied(400, "updateMany supports $set only"))?;
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let ids = Self::find(Self::table(&mut inner, name)?, query)?;
         let mut n = 0;
         for id in ids {
@@ -763,13 +763,13 @@ impl Store {
     }
 
     pub fn delete(&self, name: &str, id: &str) -> Result<Value> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         self.remove(&mut inner, name, id)?;
         Ok(json!({ "ok": true }))
     }
 
     pub fn delete_many(&self, name: &str, query: &Value) -> Result<Value> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let ids = Self::find(Self::table(&mut inner, name)?, query)?;
         let mut n = 0;
         for id in ids {
@@ -782,7 +782,7 @@ impl Store {
 
     /// The table a row with this id is in, if any.
     pub fn table_of(&self, id: &str) -> Option<String> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         for name in self.schemas.keys() {
             if Self::table(&mut inner, name).ok()?.rows.contains_key(id) {
                 return Some(name.clone());

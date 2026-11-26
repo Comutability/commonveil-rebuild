@@ -474,6 +474,36 @@ fn script(net: &mut Net, kits: &[Kit]) -> Vec<Value> {
     );
     net.get(a, "discover", "/cvp/v1/discover", a);
 
+    // ----- checking another site before a move (protocol.check_site) -----
+    net.call(
+        a,
+        "protocol",
+        "check another site",
+        alice,
+        json!({ "action": "check_site", "host": "https://Beta.test/x" }),
+    );
+    net.call(
+        a,
+        "protocol",
+        "check: this site",
+        alice,
+        json!({ "action": "check_site", "host": a }),
+    );
+    net.call(
+        a,
+        "protocol",
+        "check: not a site",
+        alice,
+        json!({ "action": "check_site", "host": "not a site" }),
+    );
+    net.call(
+        a,
+        "protocol",
+        "check: nowhere",
+        alice,
+        json!({ "action": "check_site", "host": "nowhere.test" }),
+    );
+
     // ----- a conversation across sites -----
     let dm = net.call(
         a,

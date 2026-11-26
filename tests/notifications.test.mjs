@@ -9,6 +9,7 @@ import { classifyPushFetchError, encryptPayload, makeVapidKeys, probeFcmConnecti
 import { forgetPushKeys, muteKey } from "../base44/shared/handlers/notifications.ts";
 import { b64url, fromB64url } from "../base44/shared/identity/crypto.ts";
 import { muteToken } from "../src/lib/pwa/mute.js";
+import { pushLevelsFor } from "../src/lib/pwa/pushLevels.js";
 
 const subtle = globalThis.crypto.subtle;
 const realFetch = globalThis.fetch;
@@ -306,3 +307,36 @@ test("the fixed-host push probe also uses edge-supported manual redirect handlin
   assert.equal(result.status, 404);
   assert.deepEqual(requests, [{ url: "https://fcm.googleapis.com/", redirect: "manual" }]);
 });
+
+test("the site is told per server only, and a server's most talkative channel decides", () => {
+  const text = (id) => ({ id, kind: "text" });
+  const servers = {
+    agora: { server: { id: "agora", is_default: true }, channels: [text("a1"), text("a2"), { id: "a-voice", kind: "voice" }] },
+    club: { server: { id: "club" }, channels: [text("c1"), text("c2")] },
+    quiet: { server: { id: "quiet" }, channels: [text("q1")] },
+    loading: { server: { id: "loading" } },
+    half: { channels: [text("h1")] },
+  };
+  // Defaults: the default server @mentions only, others everything; a server whose channels haven't
+  // loaded uses its own setting; one the list hasn't loaded isn't said at all.
+  let r = pushLevelsFor(servers, {});
+  assert.deepEqual(r.all, ["club", "loading", "quiet"]);
+  assert.deepEqual(r.mentions, ["agora"]);
+  assert.deepEqual(r.channels.find((c) => c.id === "h1"), { id: "h1", level: "all" }, "the worker still gets every loaded channel");
+  assert.ok(!r.channels.some((c) => c.id === "a-voice"), "voice channels don't push");
+
+  // One watched channel on the default server asks for everything from it; muting a whole server
+  // asks for nothing; muting one channel of two changes nothing for the server.
+  r = pushLevelsFor(servers, { notify: { a2: "all" }, muted: { quiet: true, c1: true } });
+  assert.deepEqual(r.all, ["agora", "club", "loading"]);
+  assert.deepEqual(r.mentions, []);
+  assert.equal(r.channels.find((c) => c.id === "c1").level, "none");
+  assert.equal(r.channels.find((c) => c.id === "q1").level, "none");
+
+  // Every channel of a server set to @mentions or nothing: @mentions at most.
+  r = pushLevelsFor(servers, { notify: { club: "mentions", c2: "none" } });
+  assert.deepEqual(r.mentions, ["agora", "club"]);
+  r = pushLevelsFor(servers, { notify: { club: "none" } });
+  assert.ok(!r.all.includes("club") && !r.mentions.includes("club"), "a server set to nothing is in neither list");
+});
+

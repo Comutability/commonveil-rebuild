@@ -123,6 +123,12 @@ publishes a site key and relay endpoints, whether it serves actor documents at a
 seals relay traffic. The address guard is the strict one: HTTPS only, public names only (no numeric,
 loopback, private or reserved addresses), no credentials, redirects refused, and the reply capped.
 
+From 0.24.23 the browser doesn't fetch the document itself (the site's content security policy
+rightly stops pages talking to other sites). It asks its own site (`protocol.check_site`), which
+reads the document through its federation client: the same address guard, the site's own block
+list, and nothing pinned or cached, so a check never makes the destination trusted. A member can
+check 10 addresses every 10 minutes.
+
 The checklist blocks any claimed readiness when post-quantum relay keys, required versioned
 Secure Net transfer capabilities, or independent mailbox and outbox endpoints are missing.
 Advertised support alone is not proof that real transfer or import works.

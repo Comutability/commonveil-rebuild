@@ -546,6 +546,70 @@ fn proto_disable(ctx: &mut Ctx) -> Result<Value> {
     Ok(json!({ "ok": true }))
 }
 
+/// Site checks: at most this many per person in the window, per server.
+const SITE_CHECKS_PER_WINDOW: usize = 10;
+const SITE_CHECK_WINDOW_MS: i64 = 10 * 60_000;
+fn site_checks() -> &'static Mutex<HashMap<String, Vec<i64>>> {
+    static CHECKS: OnceLock<Mutex<HashMap<String, Vec<i64>>>> = OnceLock::new();
+    CHECKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Another site's public document, for the pre-move checklist (Settings, Protocol identity)
+/// (base44/shared/handlers/protocol.ts, checkSite). It goes through this server because the app's
+/// security policy only lets the browser talk to its own site. Nothing is pinned or remembered.
+fn check_site(ctx: &mut Ctx) -> Result<Value> {
+    let host = ctx.body["host"]
+        .as_str()
+        .filter(|h| h.encode_utf16().count() <= 300)
+        .and_then(secure_net_core::wire::federation::norm_host)
+        .ok_or_else(|| ApiError::new(400, "BAD_SITE", "That isn't a site address."))?;
+    let fed = &ctx.app.federation;
+    if !fed.enabled {
+        return Err(ApiError::new(
+            503,
+            "FEDERATION_OFF",
+            "This site doesn't talk to other sites.",
+        ));
+    }
+    if host == fed.host {
+        return Err(ApiError::new(400, "BAD_SITE", "That's this site."));
+    }
+    {
+        let mut checks = site_checks().lock().unwrap_or_else(|e| e.into_inner());
+        let now = ctx.now;
+        let recent: Vec<i64> = checks
+            .get(ctx.user_id())
+            .map(|v| {
+                v.iter()
+                    .copied()
+                    .filter(|at| now - at < SITE_CHECK_WINDOW_MS)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if recent.len() >= SITE_CHECKS_PER_WINDOW {
+            return Err(rate_limited("checking sites"));
+        }
+        let mut recent = recent;
+        recent.push(now);
+        checks.insert(ctx.user_id().to_string(), recent);
+    }
+    let document = fed
+        .signer
+        .peek_site_doc(&ctx.app.store, &host)
+        .map_err(|e| {
+            if e.status == 403 {
+                ApiError::new(403, "SITE_BLOCKED", "This site doesn't talk to that site.")
+            } else {
+                ApiError::new(
+                    502,
+                    "SITE_UNREACHABLE",
+                    "That site couldn't be read. It may be down, or not be a Commonveil site.",
+                )
+            }
+        })?;
+    Ok(json!({ "host": host, "document": document }))
+}
+
 pub fn actions() -> Actions {
     let mut a = Actions::new();
     for (name, f) in [
@@ -557,6 +621,7 @@ pub fn actions() -> Actions {
         ("send", send),
         ("collect", collect),
         ("proto_disable", proto_disable),
+        ("check_site", check_site),
     ] {
         a.insert(name, f);
     }

@@ -34,9 +34,10 @@ const CHANNEL_PUSH_BATCH = 200;
 
 /**
  * Encrypted content stays encrypted. The sender optionally supplies ephemeral mention-routing
- * metadata (user/role ids, never text). Only current members who can read the channel receive a
- * notification; the recipient's browser independently applies its private notification settings.
- * This metadata is not persisted with the message or included in its push payload.
+ * metadata (user/role ids, never text). Only current members who can read the channel, on browsers
+ * that asked for this server's pushes of that kind (notifications `alerts`), receive a
+ * notification; the recipient's browser independently applies its channel settings. This metadata
+ * is not persisted with the message or included in its push payload.
  */
 async function notifyChannel(sr: any, push: any, view: any, senderId: string, body: any) {
   try {
@@ -54,7 +55,7 @@ async function notifyChannel(sr: any, push: any, view: any, senderId: string, bo
       const match = everyone || users.has(m.user_id) || (m.role_ids || []).some((r: string) => mentionedRoles.has(r));
       (match ? mentions : activity).push(m.user_id);
     }
-    const options = { path: `/app/s/${server.id}/${channel.id}`, placeId: channel.id };
+    const options = { path: `/app/s/${server.id}/${channel.id}`, placeId: channel.id, server: { id: server.id, is_default: server.is_default === true } };
     if (mentions.length) await notifyPeople(sr, push, mentions, { ...options, kind: "mention" });
     if (activity.length) await notifyPeople(sr, push, activity, { ...options, kind: "activity" });
   } catch {

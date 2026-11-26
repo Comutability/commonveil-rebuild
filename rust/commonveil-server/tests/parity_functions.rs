@@ -60,7 +60,10 @@ impl Passkey {
         json!({ "type": typ, "challenge": challenge, "origin": "https://cv.example", "crossOrigin": false }).to_string().into_bytes()
     }
     fn create(&self, options: &Value) -> Value {
-        let point = self.key.verifying_key().to_encoded_point(false);
+        let point = {
+            use p256::elliptic_curve::sec1::ToSec1Point;
+            self.key.verifying_key().as_affine().to_sec1_point(false)
+        };
         let mut cose = Vec::new();
         cbor_head(5, 5, &mut cose);
         for (k, v) in [(1, 2), (3, -7), (-1, 1)] {

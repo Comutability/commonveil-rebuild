@@ -791,11 +791,67 @@ fn script(port: u16, data: &Path, kits: &[Kit]) -> Vec<Value> {
         bob,
         json!({ "action": "subscribe", "endpoint": "https://fcm.googleapis.com/fcm/send/abc", "p256dh": "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4", "auth": "BTBZMqHH6r4Tts7J_aSIgg", "mute_secret": "c2VjcmV0" }),
     );
+    let endpoint = "https://fcm.googleapis.com/fcm/send/abc";
+    n(
+        &mut f,
+        "alerts: not a list",
+        bob,
+        json!({ "action": "alerts", "endpoint": endpoint, "all": "everything", "mentions": [] }),
+    );
+    n(
+        &mut f,
+        "alerts: not a server id",
+        bob,
+        json!({ "action": "alerts", "endpoint": endpoint, "all": ["no such thing!"], "mentions": [] }),
+    );
+    let many: Vec<String> = (0..201).map(|i| format!("server{i}")).collect();
+    n(
+        &mut f,
+        "alerts: too many servers",
+        bob,
+        json!({ "action": "alerts", "endpoint": endpoint, "all": many, "mentions": [] }),
+    );
+    n(
+        &mut f,
+        "alerts: someone else's browser",
+        carol,
+        json!({ "action": "alerts", "endpoint": endpoint, "all": [], "mentions": [] }),
+    );
+    n(
+        &mut f,
+        "alerts: not a push address",
+        bob,
+        json!({ "action": "alerts", "endpoint": "https://evil.example/x", "all": [], "mentions": [] }),
+    );
+    n(
+        &mut f,
+        "alerts",
+        bob,
+        json!({ "action": "alerts", "endpoint": endpoint, "all": ["server1", "server1"], "mentions": ["server2", "server1"] }),
+    );
+    n(
+        &mut f,
+        "subscribe again: the same browser",
+        bob,
+        json!({ "action": "subscribe", "endpoint": endpoint, "p256dh": "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4", "auth": "BTBZMqHH6r4Tts7J_aSIgg", "mute_secret": "c2VjcmV0" }),
+    );
+    n(
+        &mut f,
+        "alerts: still registered",
+        bob,
+        json!({ "action": "alerts", "endpoint": endpoint, "all": [], "mentions": ["server2"] }),
+    );
     n(
         &mut f,
         "unsubscribe",
         bob,
         json!({ "action": "unsubscribe" }),
+    );
+    n(
+        &mut f,
+        "alerts: after unsubscribing",
+        bob,
+        json!({ "action": "alerts", "endpoint": endpoint, "all": [], "mentions": [] }),
     );
     n(
         &mut f,
@@ -851,6 +907,9 @@ fn conversations_and_messages_answer_as_the_node_server_does() {
             "add dave back",
             "dave leaves last",
             "subscribe",
+            "alerts",
+            "subscribe again: the same browser",
+            "alerts: still registered",
             "push key",
         ],
     );
