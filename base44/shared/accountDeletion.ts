@@ -165,6 +165,39 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
 }
 
 /**
+ * Forget which other sites hold what for this person (FedClaim) and which sites they use
+ * (FedUserHost). A self-hosted site keeps these in its own tables and forgets them the same way.
+ * Says whether every row went: a read that fails, or a page where no delete succeeds, stops here
+ * rather than looping.
+ */
+async function removeFederationTraces(sr: any, userId: string): Promise<boolean> {
+  for (const table of ["FedClaim", "FedUserHost"]) {
+    const T = sr.entities[table];
+    if (!T) continue;
+    for (;;) {
+      let rows: any[];
+      try {
+        rows = await T.filter({ user_id: userId }, "created_date", 200);
+      } catch {
+        return false;
+      }
+      if (!rows.length) break;
+      let gone = 0;
+      for (const r of rows) {
+        try {
+          await T.delete(r.id);
+          gone += 1;
+        } catch {
+          // counted below
+        }
+      }
+      if (!gone) return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Remove the member's sign-in: their Commonveil sign-in records, and their account record (a
  * Person, or a Base44 user for accounts made with an email). Base44 keeps removed users in its own
  * bin for 30 days before erasing them, and never lets an app remove its owner.
@@ -172,12 +205,19 @@ export async function purgeAccount(sr: any, userId: string, deadline: number): P
 export async function removePlatformUser(sr: any, userId: string): Promise<boolean> {
   await removeSignIn(sr, userId);
   await removePush(sr, userId);
+  // The account goes whatever happens here: nothing would come back to retry a kept one.
+  if (!(await removeFederationTraces(sr, userId))) console.warn("[accounts] some of a deleted account's records about other sites couldn't be removed; they name no one else and route nothing once the account is gone.");
   const person = await sr.entities.Person.get(userId).catch(() => null);
+  let gone = false;
   try {
     if (person) await sr.entities.Person.delete(userId);
     else await sr.entities.User.delete(userId);
-    return true;
+    gone = true;
   } catch {
-    return false;
+    // reported below
   }
+  // Once more now the account is gone: a request that was out while the first pass ran may have
+  // written a row since, and nothing writes one for a missing account.
+  if (gone) await removeFederationTraces(sr, userId);
+  return gone;
 }

@@ -85,7 +85,7 @@ export class ActorHost {
       }
       const room = decodeURIComponent(instanceId);
       // A room on another site: this site carries the connection there.
-      const remote = user && this.federation?.roomHost(room);
+      const remote = user && this.federation?.roomHost(room, user.id);
       if (remote) return this.federation.proxyActor(ws, { host: remote, name, room, connId, user });
       return this.attach(ws, name, room, connId, user);
     });

@@ -328,6 +328,30 @@ fn purge(sr: &Db, store: &Store, user_id: &str, deadline: i64) -> R<()> {
     Ok(())
 }
 
+/// Which other sites hold what for a person, and which sites they use (the federation's own
+/// tables; absent if federation never ran here). Both go together or not at all.
+fn remove_federation_traces(store: &Store, user_id: &str) {
+    let traces: rusqlite::Result<()> = store.with_db(|db| {
+        let tx = db.unchecked_transaction()?;
+        for table in ["fed_claims", "fed_user_hosts"] {
+            let exists: bool = tx.query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                [table],
+                |r| r.get(0),
+            )?;
+            if exists {
+                tx.execute(&format!("DELETE FROM {table} WHERE user_id = ?"), [user_id])?;
+            }
+        }
+        tx.commit()
+    });
+    if let Err(e) = traces {
+        eprintln!(
+            "[accounts] a deleted account's records about other sites couldn't be removed: {e}"
+        );
+    }
+}
+
 /// Remove the member's sign-in and account record. Returns whether the record went.
 pub fn remove_platform_user(sr: &Db, store: &Store, user_id: &str) -> bool {
     crate::identity::remove_sign_in(store, user_id);
@@ -339,9 +363,16 @@ pub fn remove_platform_user(sr: &Db, store: &Store, user_id: &str) -> bool {
             let _ = sr.delete(name, id_of(&r));
         }
     }
-    if sr.get("Person", user_id).is_some() {
+    // The account goes whatever happens to these, and they go once more afterwards: a request that
+    // was out meanwhile may have written a row, and nothing writes one for a missing account.
+    remove_federation_traces(store, user_id);
+    let gone = if sr.get("Person", user_id).is_some() {
         sr.delete("Person", user_id).is_ok()
     } else {
         sr.delete("User", user_id).is_ok()
+    };
+    if gone {
+        remove_federation_traces(store, user_id);
     }
+    gone
 }

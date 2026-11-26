@@ -162,7 +162,7 @@ export class FakeWorld {
     const rows = [];
     return {
       _rows: rows,
-      async filter(query = {}, sort = "-created_date", limit = 5000) {
+      async filter(query = {}, sort = "-created_date", limit = 5000, skip = 0) {
         assertQueryable(query);
         const field = String(sort || "-created_date").replace(/^-/, "");
         const dir = String(sort || "").startsWith("-") ? -1 : 1;
@@ -171,7 +171,7 @@ export class FakeWorld {
           .filter(([r]) => matches(r, query))
           .sort((x, y) => dir * compare(x[0][field], y[0][field]) || x[1] - y[1])
           .map(([r]) => r);
-        return clone(found.slice(0, limit));
+        return clone(found.slice(skip, skip + limit));
       },
       async get(id) {
         const row = rows.find((r) => r.id === id);
@@ -255,10 +255,10 @@ export class FakeWorld {
         const rules = RULES[name] || {};
         const store = world.entities[name];
         return {
-          async filter(query = {}, sort, limit) {
+          async filter(query = {}, sort, limit, skip) {
             const allowed = ruleToQuery(rules.read, user, userData);
             if (!allowed) return [];
-            return store.filter(Object.keys(allowed).length ? { $and: [query, allowed] } : query, sort, limit);
+            return store.filter(Object.keys(allowed).length ? { $and: [query, allowed] } : query, sort, limit, skip);
           },
           async get(id) {
             const allowed = ruleToQuery(rules.read, user, userData);

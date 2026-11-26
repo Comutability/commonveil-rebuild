@@ -78,6 +78,76 @@ const DOC_TTL_MS = 5 * 60_000;
 const ROOM_KEYS: Record<string, string> = { conversation_id: "Conversation", server_id: "Server", channel_id: "Channel" };
 const ROOM_LISTS: Record<string, string> = { conversations: "Conversation", servers: "Server", channels: "Channel", conversation: "Conversation", server: "Server", channel: "Channel" };
 const ROOM_ID_LISTS: Record<string, string> = { conversation_ids: "Conversation", server_ids: "Server", channel_ids: "Channel" };
+/**
+ * How much a claim about where something lives counts (docs/FEDERATION.md, "Routes"). Claims are
+ * kept per person: what one site says to one person never moves anyone else's requests. The
+ * highest claim wins; two sites with the same highest claim are a dispute, and the request goes to
+ * neither. The hosted site never routes by ids an app chooses, so it has no "chosen" claims.
+ */
+export const CLAIM = {
+  implicit: 1, // a site's answer to this person's request, or its notice that they joined something there
+  legacy: 2, // learned before 0.24.25, for everyone here (FedRoute rows with no user_id)
+  explicit: 3, // the person's app named the site (_site), and the site answered
+};
+export type Route = { route: string | null; disputed: string[] };
+
+/** The claims for one thing, blocked sites already left out. */
+export function resolveRoute(claims: { host: string; strength: number }[]): Route {
+  if (!claims.length) return { route: null, disputed: [] };
+  const top = Math.max(...claims.map((c) => c.strength));
+  const hosts = [...new Set(claims.filter((c) => c.strength === top).map((c) => c.host))].sort();
+  return hosts.length === 1 ? { route: hosts[0], disputed: [] } : { route: null, disputed: hosts };
+}
+/**
+ * How much a claim from a site the person's app named counts: named, unless another site already
+ * holds the thing for them by an old route or a named claim. Then only heard: a site can't take
+ * over what someone already has by answering a join.
+ */
+export function namedClaimStrength(claims: { host: string; strength: number }[], host: string): { strength: number; other: string | null } {
+  const others = claims.filter((c) => c.host !== host && c.strength >= CLAIM.legacy).sort((a, b) => b.strength - a.strength || a.host.localeCompare(b.host));
+  return others.length ? { strength: CLAIM.implicit, other: others[0].host } : { strength: CLAIM.explicit, other: null };
+}
+const ROUTE_TTL_MS = 10_000;
+/** Held-here answers and routes from before 0.24.25 change only by going away, so they're kept longer. */
+const HELD_TTL_MS = 600_000;
+const HELD_TABLES = ["Conversation", "Server", "Channel"];
+/** At most this many ids are learned from one answer (each new one costs a platform call). */
+const MAX_LEARNED = 200;
+/**
+ * At most this many membership notices from one site that add a new claim for one person, in an
+ * hour, as on a self-hosted site (each running copy of the functions counts its own). Refreshes and
+ * leaves don't count. This slows how fast notices alone add claims; it doesn't bound the claims an
+ * answer to someone's own request adds. Claims are never removed to make room: removing one could
+ * leave a rogue site's claim as the only one.
+ */
+export const NOTICES_PER_HOUR = 1000;
+const noticeCounts = new Map<string, { hour: number; n: number }>();
+/** Whether one more counted membership notice for this key ("site person") is taken this hour. */
+export function noticeAllowed(key: string, now = Date.now()): boolean {
+  const hour = Math.floor(now / 3_600_000);
+  if (noticeCounts.size > 100_000) noticeCounts.clear();
+  const c = noticeCounts.get(key);
+  if (!c || c.hour !== hour) {
+    noticeCounts.set(key, { hour, n: 1 });
+    return true;
+  }
+  c.n += 1;
+  return c.n <= NOTICES_PER_HOUR;
+}
+/** Rows per read when reading everything. */
+const READ_PAGE = 2000;
+/** Say something about two sites at most once an hour: a site can't flood the log. */
+const warned = new Map<string, number>();
+/** For tests: say everything again. */
+export const forgetWarnings = () => warned.clear();
+function warnOnce(log: any, kind: string, a: string, b: string, line: () => string) {
+  const key = `${kind} ${[a, b].sort().join(" ")}`;
+  const now = Date.now();
+  if (warned.size > 10_000) warned.clear();
+  if (now - (warned.get(key) || 0) < 3_600_000) return;
+  warned.set(key, now);
+  log.warn?.(line());
+}
 /** Functions that are only ever a person's own site's business. */
 const LOCAL_ONLY = new Set(["identity", "admin", "notifications", "maintenance", "disclose", "invite", "voice", "files"]);
 const KEY_READS = new Set(["status", "peer_keys", "device_sync", "get_recovery", "ack_envelopes"]);
@@ -464,6 +534,7 @@ export class HostedFederation {
 
   async addUserHost(userId: string, host: string) {
     if ((await this.userHosts(userId)).includes(host)) return;
+    if (!(await this.localAccount(userId))) return;
     const T = this.sr.entities.FedUserHost;
     if (!(await T.filter({ user_id: userId, host }, "created_date", 1)).length) await T.create({ user_id: userId, host });
     memo.delete(`hosts:${userId}`);
@@ -474,34 +545,188 @@ export class HostedFederation {
     memo.delete(`hosts:${userId}`);
   }
 
-  /** Which site hosts each of these ids, for the ones on another site. */
-  async routes(ids: string[]): Promise<Map<string, string>> {
-    const out = new Map<string, string>();
+  /** Routes from before 0.24.25 (FedRoute: one per id, for everyone), remembered a while: they only ever go. */
+  async #legacyRows(ids: string[]): Promise<any[]> {
+    const out: any[] = [];
     const ask: string[] = [];
     for (const id of new Set(ids)) {
-      const hit = memo.get(`route:${id}`);
-      if (hit && Date.now() - hit.at < (hit.value ? 600_000 : 15_000)) {
-        if (hit.value) out.set(id, hit.value);
-      } else ask.push(id);
+      const hit = memo.get(`legacy:${id}`);
+      if (hit && Date.now() - hit.at < HELD_TTL_MS) out.push(...hit.value);
+      else ask.push(id);
     }
-    if (ask.length) {
-      const rows = await this.sr.entities.FedRoute.filter({ ref_id: { $in: ask } }, "created_date", 500);
-      for (const id of ask) {
-        const host = rows.find((r: any) => r.ref_id === id)?.host || "";
-        memo.set(`route:${id}`, { at: Date.now(), value: host });
-        if (host) out.set(id, host);
+    for (let i = 0; i < ask.length; i += 500) {
+      const part = ask.slice(i, i + 500);
+      const rows = await this.sr.entities.FedRoute.filter({ ref_id: { $in: part } }, "created_date", 2000);
+      for (const id of part) {
+        const these = rows.filter((r: any) => r.ref_id === id);
+        memo.set(`legacy:${id}`, { at: Date.now(), value: these });
+        out.push(...these);
       }
     }
     return out;
   }
 
-  /** Remember that a room is on another site. Never for something that exists here. */
-  async learnRoute(id: string, table: string, host: string): Promise<boolean> {
-    if (!ID24.test(id) || (await this.routes([id])).has(id)) return false;
-    if (await this.sr.entities[table].get(id).catch(() => null)) return false;
-    await this.sr.entities.FedRoute.create({ ref_id: id, host, kind: table });
-    memo.set(`route:${id}`, { at: Date.now(), value: host });
-    return true;
+  /**
+   * This person's own claims about these ids (FedClaim), read fresh: one they just made must count
+   * at once, in every running copy of the functions.
+   */
+  async #personRows(ids: string[], userId: string): Promise<any[]> {
+    const ask = [...new Set(ids)];
+    const out: any[] = [];
+    if (!ID24.test(userId)) return out;
+    // Every row, page by page: a claim left unread would make a dispute out of a settled route.
+    for (let i = 0; i < ask.length; i += 500) {
+      const query = { ref_id: { $in: ask.slice(i, i + 500) }, user_id: userId };
+      for (let skip = 0; ; skip += READ_PAGE) {
+        const page = await this.sr.entities.FedClaim.filter(query, "created_date", READ_PAGE, skip);
+        out.push(...page);
+        if (page.length < READ_PAGE) break;
+      }
+    }
+    return out;
+  }
+
+  async #blockedSites(): Promise<Set<string>> {
+    return remembered("blocked-sites", ROUTE_TTL_MS, async () => {
+      const out = new Set<string>();
+      for (let skip = 0; ; skip += READ_PAGE) {
+        const page = await this.sr.entities.FedSite.filter({ blocked: true }, "created_date", READ_PAGE, skip);
+        for (const r of page) out.add(r.host);
+        if (page.length < READ_PAGE) break;
+      }
+      return out;
+    });
+  }
+
+  /** Which of these ids are a conversation, server or channel held here (that never changes): one read per table. */
+  async #heldMany(ids: string[]): Promise<Set<string>> {
+    const held = new Set<string>();
+    const ask: string[] = [];
+    for (const id of new Set(ids)) {
+      const hit = memo.get(`held:${id}`);
+      if (hit && Date.now() - hit.at < HELD_TTL_MS) {
+        if (hit.value) held.add(id);
+      } else ask.push(id);
+    }
+    for (let i = 0; i < ask.length; i += 200) {
+      const part = ask.slice(i, i + 200);
+      const found = new Set<string>();
+      for (const table of HELD_TABLES) {
+        const rest = part.filter((id) => !found.has(id));
+        if (!rest.length) break;
+        for (const r of await this.sr.entities[table].filter({ id: { $in: rest } }, "created_date", rest.length)) found.add(r.id);
+      }
+      for (const id of part) {
+        memo.set(`held:${id}`, { at: Date.now(), value: found.has(id) });
+        if (found.has(id)) held.add(id);
+      }
+    }
+    return held;
+  }
+
+  /** The claims about one id that count for this person: theirs, the site-wide ones, none from blocked sites. */
+  #claimsFrom(id: string, legacy: any[], mine: any[], blocked: Set<string>) {
+    return [
+      ...legacy.filter((r: any) => r.ref_id === id).map((r: any) => ({ host: String(r.host || ""), strength: CLAIM.legacy })),
+      ...mine.filter((r: any) => r.ref_id === id).map((r: any) => ({ host: String(r.host || ""), strength: Number(r.strength) })),
+    ].filter((c) => c.host && !blocked.has(c.host) && Number.isFinite(c.strength));
+  }
+
+  /**
+   * Where each of these ids lives, for this person: their own claims and the site-wide ones from
+   * before 0.24.25, leaving out blocked sites. Ids nobody has claimed are left out.
+   */
+  async routes(ids: string[], userId: string): Promise<Map<string, Route>> {
+    const out = new Map<string, Route>();
+    const [legacy, mine] = await Promise.all([this.#legacyRows(ids), this.#personRows(ids, userId)]);
+    if (!legacy.length && !mine.length) return out;
+    const blocked = await this.#blockedSites();
+    for (const id of new Set(ids)) {
+      const claims = this.#claimsFrom(id, legacy, mine, blocked);
+      if (claims.length) out.set(id, resolveRoute(claims));
+    }
+    return out;
+  }
+
+  /**
+   * Record a site's claim that a room is there, for one person. Never for something held here, in
+   * any table: what kind of room the claim says it is doesn't matter. Answers whether it was kept.
+   */
+  async learnRoute(id: string, table: string, host: string, userId: string, strength: number = CLAIM.implicit): Promise<boolean> {
+    return (await this.#claimMany(new Map([[id, table]]), host, userId, strength)) > 0;
+  }
+
+  /**
+   * Record one site's claims for one person (id -> table), reading what's needed once: this
+   * person's claims, the old routes, what's held here, blocked sites. `named`: the person's app
+   * named the site, so each counts as namedClaimStrength says. Answers how many were kept.
+   */
+  async #claimMany(entries: Map<string, string>, host: string, userId: string, strength: number, named = false): Promise<number> {
+    const ids = [...entries.keys()].filter((id) => ID24.test(id));
+    if (!ids.length || !ID24.test(userId) || !host || host === this.host) return 0;
+    let kept = 0;
+    try {
+      const [legacy, mine, held, blocked] = await Promise.all([this.#legacyRows(ids), this.#personRows(ids, userId), this.#heldMany(ids), this.#blockedSites()]);
+      if (blocked.has(host)) return 0;
+      for (const id of ids) {
+        if (held.has(id)) continue;
+        const claims = this.#claimsFrom(id, legacy, mine, blocked);
+        let weight = strength;
+        if (named) {
+          const n = namedClaimStrength(claims, host);
+          weight = n.strength;
+          if (n.other) warnOnce(this.log, "named", host, n.other, () => `[federation] ${host} answered as the home of something ${n.other} already holds for someone here; it stays with ${n.other}. Block whichever is wrong.`);
+        }
+        const row = mine.find((r: any) => r.ref_id === id && r.host === host);
+        if (row && Number(row.strength) >= weight) continue;
+        if (row) await this.sr.entities.FedClaim.update(row.id, { strength: weight });
+        else {
+          const made = await this.sr.entities.FedClaim.create({ ref_id: id, user_id: userId, host, kind: entries.get(id), strength: weight });
+          // A claim has to be one person's, at one strength, or it would count wrongly: take it
+          // back, and say what's wrong.
+          if (!made || made.user_id !== userId || Number(made.strength) !== weight) {
+            if (made?.id) await this.sr.entities.FedClaim.delete(made.id).catch(() => {});
+            this.log.warn?.("[federation] the FedClaim table didn't keep a claim as one person's: deploy its fields");
+            return kept;
+          }
+        }
+        kept += 1;
+        const before = resolveRoute(claims);
+        const after = resolveRoute([...claims, { host, strength: weight }]);
+        // Which sites, never what or whose: the admin can block the one that's wrong.
+        if (!before.disputed.length && after.disputed.length) {
+          warnOnce(this.log, "dispute", after.disputed[0], after.disputed[1], () => `[federation] ${after.disputed.join(after.disputed.length === 2 ? " and " : ", ")} each claim to hold the same thing; requests about it go to neither. Block whichever is wrong.`);
+        } else if (after.route && after.route !== host && weight < CLAIM.legacy && claims.some((c) => c.host === after.route && c.strength === CLAIM.legacy)) {
+          // A route from before 0.24.25 outweighs what this site says: it could be one a site took over then.
+          const older = after.route;
+          warnOnce(this.log, "older", older, host, () => `[federation] ${older} (a route from before 0.24.25) and ${host} each claim to hold the same thing; the older route is used. Block whichever is wrong.`);
+        }
+      }
+    } catch (err: any) {
+      // Never let recording a claim break the request it came with.
+      this.log.warn?.("[federation] claim", err?.name || "Error");
+    }
+    return kept;
+  }
+
+  /** Remove every claim about something held here (they can only be wrong), and say which sites made them. */
+  async #forgetClaims(id: string) {
+    // Every row, a page at a time, until none are left or a page can't be removed.
+    const drain = async (T: any) => {
+      const gone: any[] = [];
+      for (;;) {
+        const page = await T.filter({ ref_id: id }, "created_date", READ_PAGE).catch(() => []);
+        if (!page.length) return gone;
+        let n = 0;
+        for (const r of page) if (await T.delete(r.id).then(() => true, () => false)) (n += 1), gone.push(r);
+        if (!n) return gone;
+      }
+    };
+    const legacy = await drain(this.sr.entities.FedRoute);
+    const claims = await drain(this.sr.entities.FedClaim);
+    memo.delete(`legacy:${id}`);
+    const hosts = [...new Set([...legacy, ...claims].map((r: any) => r.host))].sort();
+    if (hosts.length) warnOnce(this.log, "held-here", hosts.join(" "), this.host, () => `[federation] ${hosts.join(", ")} claimed to hold something that is held here; those claims are removed. Block any site you don't trust.`);
   }
 
   #rooms(value: any, visit: (id: string, table: string) => void, depth = 0) {
@@ -519,36 +744,96 @@ export class HostedFederation {
     }
   }
 
+  /** What a site's answer to this person says it holds: claims for this person only. */
   async learnRoutes(host: string, data: any, userId: string) {
     const found = new Map<string, string>();
-    this.#rooms(data, (id, table) => found.set(id, table));
+    this.#rooms(data, (id, table) => {
+      if (found.size < MAX_LEARNED || found.has(id)) found.set(id, table);
+    });
     if (!found.size) return;
-    const known = await this.routes([...found.keys()]);
-    for (const [id, table] of found) if (!known.has(id)) await this.learnRoute(id, table, host);
+    // The account went while the answer was on its way: nothing to remember for it.
+    if (!(await this.localAccount(userId))) return;
+    // One read of each kind for all of them; usually every claim is already there and nothing is written.
+    await this.#claimMany(found, host, userId, CLAIM.implicit);
     await this.addUserHost(userId, host);
   }
 
-  /** Which other site a request is about, if any: an explicit _site, or the site hosting what it names. */
-  async targetOf(body: any): Promise<string | null> {
+  /** The rooms a request names, in its body and its signed payload: id -> table. */
+  #named(body: any): Map<string, string> {
+    const ids = new Map<string, string>();
+    this.#rooms(body, (id, table) => ids.set(id, table));
+    if (typeof body.payload === "string") {
+      try {
+        this.#rooms(JSON.parse(body.payload), (id, table) => ids.set(id, table));
+      } catch {
+        // not JSON: nothing to route by
+      }
+    }
+    return ids;
+  }
+
+  /** The places a request names directly (conversation_id, server_id, channel_id and their lists): id -> table. */
+  #places(body: any): Map<string, string> {
+    const out = new Map<string, string>();
+    const take = (o: any) => {
+      if (!o || typeof o !== "object" || Array.isArray(o)) return;
+      for (const [k, v] of Object.entries(o)) {
+        if (typeof v === "string" && ROOM_KEYS[k] && ID24.test(v)) out.set(v, ROOM_KEYS[k]);
+        else if (Array.isArray(v) && ROOM_ID_LISTS[k]) for (const x of v.slice(0, 500)) if (typeof x === "string" && ID24.test(x)) out.set(x, ROOM_ID_LISTS[k]);
+      }
+    };
+    take(body);
+    if (typeof body.payload === "string") {
+      try {
+        take(JSON.parse(body.payload));
+      } catch {
+        // not JSON: nothing named in it
+      }
+    }
+    return out;
+  }
+
+  /** Which other site a request is about, for this person: an explicit _site, or the site holding what it names. */
+  async targetOf(body: any, userId: string): Promise<string | null> {
     if (typeof body._site === "string" && body._site) {
       const site = W.normHost(body._site);
       if (!site) throw new FederationError(400, "BAD_SITE", "That isn't a site.");
       return site === this.host ? null : site;
     }
-    const ids = new Set<string>();
-    this.#rooms(body, (id) => ids.add(id));
-    if (typeof body.payload === "string") {
-      try {
-        this.#rooms(JSON.parse(body.payload), (id) => ids.add(id));
-      } catch {
-        // not JSON: nothing to route by
+    const named = this.#named(body);
+    if (!named.size) return null;
+    const routed = await this.routes([...named.keys()], userId);
+    const hosts = new Set<string>();
+    let here = false;
+    let disputed = false;
+    const contenders: string[][] = [];
+    const held = routed.size ? await this.#heldMany([...routed.keys()]) : new Set<string>();
+    for (const [id, r] of routed) {
+      // A claim about something held here never counts, whoever made it: it goes.
+      if (held.has(id)) {
+        here = true;
+        await this.#forgetClaims(id);
+        continue;
+      }
+      if (r.route && r.route !== this.host) hosts.add(r.route);
+      else if (r.disputed.length) {
+        disputed = true;
+        contenders.push(r.disputed);
+        warnOnce(this.log, "dispute", r.disputed[0], r.disputed[1], () => `[federation] ${r.disputed.join(r.disputed.length === 2 ? " and " : ", ")} each claim to hold the same thing; requests about it go to neither. Block whichever is wrong.`);
       }
     }
-    if (!ids.size) return null;
-    const routed = await this.routes([...ids]);
-    const hosts = new Set(routed.values());
     if (hosts.size > 1) throw new FederationError(400, "MIXED_SITES", "That request names things on more than one site.");
-    return [...hosts][0] || null;
+    // A request goes to the site its other ids point to only if that site is one of the
+    // contenders for every disputed id in it: a third site can't steer it, and a contender can't
+    // block a request the rest of it settles.
+    if (hosts.size) {
+      const [host] = hosts;
+      if (contenders.every((c) => c.includes(host))) return host;
+    } else if (here || !disputed) return null;
+    // Something named is here: that's this site's business, whatever else is disputed.
+    const rest = [...named.keys()].filter((id) => !routed.has(id));
+    if (!hosts.size && rest.length && (await this.#heldMany(rest)).size) return null;
+    throw new FederationError(409, "DISPUTED_SITE", "More than one site claims to hold this, so it isn't being sent to either. Your site's admin can see which sites in its log, and block the wrong one.");
   }
 
   // ---------- my people's calls, relayed ----------
@@ -571,17 +856,30 @@ export class HostedFederation {
     if (!this.enabled || !user || LOCAL_ONLY.has(fn)) return null;
     let target: string | null;
     try {
-      target = await this.targetOf(body);
+      target = await this.targetOf(body, user.id);
     } catch (err: any) {
       if (err instanceof FederationError) return { status: err.status, data: { error: err.message, code: err.code } };
       // Trouble working out where something lives must never stop people using their own site.
       this.log.warn?.("[federation] routing", err?.name || "Error");
       return null;
     }
+    const hadSite = typeof body._site === "string" && Boolean(body._site);
     delete body._site;
     if (target) {
       try {
-        return await this.act(target, user, fn, body);
+        const r = await this.act(target, user, fn, body);
+        // The person's app named the site, and it answered: what the request is about lives there,
+        // for this person, whatever another site said before.
+        if (r.status === 200 && hadSite) {
+          const places = this.#places(body);
+          // Joining by invite names only the code: the server is the one the site joined them to
+          // (as trusted as the ids in its listing, which it chooses too). Never what someone already
+          // has from another site: namedClaimStrength.
+          if (!places.size && fn === "servers" && body.action === "join_server" && ID24.test(String(r.data?.server_id || ""))) places.set(r.data.server_id, "Server");
+          // Not for an account that went while the request was out.
+          if (await this.localAccount(user.id)) await this.#claimMany(places, target, user.id, CLAIM.explicit, true);
+        }
+        return r;
       } catch (err: any) {
         if (!(err instanceof FederationError)) throw err;
         return { status: err.status, data: { error: err.message, code: err.code } };
@@ -715,9 +1013,15 @@ export class HostedFederation {
     if (payload?.type === "membership") {
       const uid = String(payload.user_id || "");
       if (!ID24.test(uid) || !(await this.localAccount(uid))) return { ok: false };
+      // Only a claim for that person, and a weak one: any site can send this notice.
       const id = String(payload.room?.id || "");
+      // Only a notice that would add a claim counts towards the cap (see noticeAllowed).
+      if (ID24.test(id) && !(await this.#heldMany([id])).size && !(await this.sr.entities.FedClaim.filter({ user_id: uid, ref_id: id, host: from }, "created_date", 1)).length && !noticeAllowed(`${from} ${uid}`)) {
+        warnOnce(this.log, "notices", from, this.host, () => `[federation] ${from} sent more than ${NOTICES_PER_HOUR} membership notices adding new claims for one person this hour; the rest are refused until the next.`);
+        return { ok: false, code: "TOO_MANY_NOTICES" };
+      }
       const table = payload.room?.kind === "server" ? "Server" : "Conversation";
-      if (ID24.test(id)) await this.learnRoute(id, table, from);
+      if (ID24.test(id)) await this.learnRoute(id, table, from, uid, CLAIM.implicit);
       if (payload.joined) await this.addUserHost(uid, from);
       return { ok: true };
     }

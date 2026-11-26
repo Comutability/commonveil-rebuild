@@ -40,15 +40,14 @@ use crate::protocol::js_stringify;
 use crate::shared::{blocked_either_way, peer_device_out, statement_out};
 use crate::App;
 
-const ID_KEYS: [&str; 13] = [
+// Where something lives (docs/FEDERATION.md, "Routes"). Ids a site gives its own records: where one
+// appears, it says which site holds it.
+const ID_KEYS: [&str; 10] = [
     "conversation_id",
     "server_id",
     "channel_id",
-    "event_id",
-    "report_id",
     "case_id",
     "message_id",
-    "thread_id",
     "ticket_id",
     "invite_id",
     "role_id",
@@ -63,6 +62,73 @@ const ID_LIST_KEYS: [&str; 4] = [
     "channel_ids",
     "message_ids",
 ];
+/// Ids a person's app chooses (a thread is named by its first message, an event and a server report
+/// by their items): anyone can write any value there, so they only route a request that names
+/// nothing else, and never outweigh what a site says about its own records.
+const CHOSEN_KEYS: [&str; 3] = ["thread_id", "event_id", "report_id"];
+/// What an app names when it picks the site itself (_site): the place the request is about.
+const PLACE_KEYS: [&str; 6] = [
+    "conversation_id",
+    "server_id",
+    "channel_id",
+    "conversation_ids",
+    "server_ids",
+    "channel_ids",
+];
+/// How much a claim about where something lives counts. Claims are kept per person: what one site
+/// says to one person never moves anyone else's requests. The highest claim wins; two sites with
+/// the same highest claim are a dispute, and the request goes to neither.
+/// A chosen id (above) in an answer.
+pub const CLAIM_CHOSEN: i64 = 0;
+/// A site's answer to this person's request, or its notice that they joined something there.
+pub const CLAIM_IMPLICIT: i64 = 1;
+/// Learned before 0.24.25, for everyone here (routes then weren't kept per person).
+pub const CLAIM_LEGACY: i64 = 2;
+/// The person's app named the site (_site), and the site answered.
+pub const CLAIM_EXPLICIT: i64 = 3;
+
+/// Where something lives, for one person.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Route {
+    Unknown,
+    Host(String),
+    /// More than one site makes the highest claim.
+    Disputed(Vec<String>),
+}
+
+/// How much a claim from a site the person's app named counts: named, unless another site already
+/// holds the thing for them by an old route or a named claim. Then only heard: a site can't take over
+/// what someone already has by answering a join. (strength, the other site)
+pub fn named_claim_strength(claims: &[(String, i64)], host: &str) -> (i64, Option<String>) {
+    let mut others: Vec<&(String, i64)> = claims
+        .iter()
+        .filter(|(h, s)| h != host && *s >= CLAIM_LEGACY)
+        .collect();
+    others.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    match others.first() {
+        Some((h, _)) => (CLAIM_IMPLICIT, Some(h.clone())),
+        None => (CLAIM_EXPLICIT, None),
+    }
+}
+
+/// The claims for one thing, as (site, strength), with blocked sites already left out.
+pub fn resolve_route(claims: &[(String, i64)]) -> Route {
+    let Some(top) = claims.iter().map(|(_, s)| *s).max() else {
+        return Route::Unknown;
+    };
+    let mut hosts: Vec<String> = claims
+        .iter()
+        .filter(|(_, s)| *s == top)
+        .map(|(h, _)| h.clone())
+        .collect();
+    hosts.sort();
+    hosts.dedup();
+    if hosts.len() == 1 {
+        Route::Host(hosts.remove(0))
+    } else {
+        Route::Disputed(hosts)
+    }
+}
 pub const MAX_ACT_BODY: usize = 9 * 1024 * 1024;
 // Held messages (docs/OFFLINE.md): tried again after 30 seconds, then less and less often (at
 // most every 30 minutes), for up to a week; the same week a message written offline may wait.
@@ -158,6 +224,137 @@ fn str_of(v: Option<&Value>) -> String {
     }
 }
 
+/// Routes from before 0.24.25 (one table for everyone, first claim kept) become site-wide claims
+/// that a person's own explicit choice can still overrule. The old table stays, untouched: if the
+/// updater rolls back to 0.24.24, that version still finds its routes. Copying again changes nothing.
+pub fn migrate_routes(db: &rusqlite::Connection) -> rusqlite::Result<()> {
+    let old: Option<String> = db
+        .query_row(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'fed_routes'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if old.is_some() {
+        db.execute(&format!("INSERT OR IGNORE INTO fed_claims (user_id, id, host, strength, seen) SELECT '*', id, host, {CLAIM_LEGACY}, seen FROM fed_routes"), [])?;
+    }
+    Ok(())
+}
+
+/// At most this many ids are learned from one answer: what one answer says can't make unbounded
+/// work.
+const MAX_LEARNED: usize = 2000;
+/// At most this many membership notices from one site that add a new claim for one person, in an
+/// hour (notice_allowed, keyed "site person"). Refreshes and leaves don't count, so an honest
+/// site's bulk join only counts each person's new rooms. This slows how fast notices alone add
+/// claims; it doesn't bound the claims an answer to someone's own request adds. Claims are never
+/// removed to make room: removing one could leave a rogue site's claim as the only one.
+pub const NOTICES_PER_HOUR: u32 = 1000;
+static NOTICE_COUNTS: std::sync::OnceLock<Mutex<HashMap<String, (i64, u32)>>> =
+    std::sync::OnceLock::new();
+/// Whether one more counted membership notice for this key ("site person") is taken this hour.
+pub fn notice_allowed(key: &str, now: i64) -> bool {
+    let hour = now / 3_600_000;
+    let mut counts = NOTICE_COUNTS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if counts.len() > 100_000 {
+        counts.clear();
+    }
+    let c = counts.entry(key.to_string()).or_insert((hour, 0));
+    if c.0 != hour {
+        *c = (hour, 0);
+    }
+    c.1 += 1;
+    c.1 <= NOTICES_PER_HOUR
+}
+
+/// Say something about two sites at most once an hour: a site can't flood the log.
+fn warn_once(kind: &str, a: &str, b: &str, line: impl FnOnce() -> String) {
+    static LAST: std::sync::OnceLock<Mutex<HashMap<String, i64>>> = std::sync::OnceLock::new();
+    let key = if a < b {
+        format!("{kind} {a} {b}")
+    } else {
+        format!("{kind} {b} {a}")
+    };
+    let now = now_ms();
+    let mut last = LAST
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if last.len() > 10_000 {
+        last.clear();
+    }
+    if last.get(&key).is_some_and(|t| now - t < 3_600_000) {
+        return;
+    }
+    last.insert(key, now);
+    eprintln!("{}", line());
+}
+
+/// The ids a request or an answer names: (id, true if it's under a key an app chooses the value of).
+fn ids_named(
+    v: &Value,
+    key: &str,
+    depth: usize,
+    max_depth: usize,
+    per_list: usize,
+    out: &mut Vec<(String, bool)>,
+) {
+    if depth > max_depth {
+        return;
+    }
+    match v {
+        Value::String(s) if (ID_KEYS.contains(&key) || ID_LIST_KEYS.contains(&key)) && id24(s) => {
+            out.push((s.clone(), false))
+        }
+        Value::String(s) if CHOSEN_KEYS.contains(&key) && id24(s) => out.push((s.clone(), true)),
+        Value::Array(a) => a
+            .iter()
+            .take(per_list)
+            .for_each(|x| ids_named(x, key, depth + 1, max_depth, per_list, out)),
+        Value::Object(o) => o
+            .iter()
+            .for_each(|(k, x)| ids_named(x, k, depth + 1, max_depth, per_list, out)),
+        _ => {}
+    }
+}
+
+/// The places a request names (PLACE_KEYS) at the top level of its body and of its signed
+/// payload. Only the top level: an id nested deeper is data, not the place the request is about,
+/// and the hosted site looks no deeper either.
+fn places_named(body: &Value) -> Vec<String> {
+    fn take(v: &Value, out: &mut Vec<String>) {
+        let Some(o) = v.as_object() else { return };
+        for (k, x) in o {
+            if !PLACE_KEYS.contains(&k.as_str()) {
+                continue;
+            }
+            match x {
+                Value::String(s) if id24(s) => out.push(s.clone()),
+                Value::Array(a) => a
+                    .iter()
+                    .take(500)
+                    .filter_map(Value::as_str)
+                    .filter(|s| id24(s))
+                    .for_each(|s| out.push(s.to_string())),
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    take(body, &mut out);
+    if let Some(payload) = body["payload"].as_str() {
+        if let Ok(parsed) = serde_json::from_str::<Value>(payload) {
+            take(&parsed, &mut out);
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// What a store watcher saw, for the federation's own thread (watchers run while the store is
 /// locked, so they only hand work on).
 pub enum Job {
@@ -202,12 +399,26 @@ impl Federation {
         store
             .with_db(|db| {
                 db.execute_batch(
-                    "CREATE TABLE IF NOT EXISTS fed_routes (id TEXT PRIMARY KEY, host TEXT NOT NULL, seen INTEGER NOT NULL);
+                    "CREATE TABLE IF NOT EXISTS fed_claims (user_id TEXT NOT NULL, id TEXT NOT NULL, host TEXT NOT NULL, strength INTEGER NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, id, host));
+                     CREATE INDEX IF NOT EXISTS fed_claims_by_id ON fed_claims (id);
                      CREATE TABLE IF NOT EXISTS fed_user_hosts (user_id TEXT NOT NULL, host TEXT NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, host));
                      CREATE TABLE IF NOT EXISTS fed_shadows (user_id TEXT PRIMARY KEY, home TEXT NOT NULL, handle TEXT NOT NULL, digest TEXT NOT NULL DEFAULT '', updated INTEGER NOT NULL);
                      CREATE TABLE IF NOT EXISTS fed_notified (user_id TEXT NOT NULL, room TEXT NOT NULL, PRIMARY KEY (user_id, room));
                      CREATE TABLE IF NOT EXISTS fed_outbox (host TEXT NOT NULL, msg_id TEXT NOT NULL, user_id TEXT NOT NULL, fn TEXT NOT NULL, body TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_at INTEGER NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (host, msg_id));",
-                )
+                )?;
+                // Whether the site ever gave this id as one an app chooses: kept apart from
+                // strength, so the same site naming it as one of its own records too doesn't lose it.
+                let has_chosen: bool = db.query_row(
+                    "SELECT COUNT(*) > 0 FROM pragma_table_info('fed_claims') WHERE name = 'chosen'",
+                    [],
+                    |r| r.get(0),
+                )?;
+                if !has_chosen {
+                    db.execute_batch(&format!(
+                        "ALTER TABLE fed_claims ADD COLUMN chosen INTEGER NOT NULL DEFAULT 0; UPDATE fed_claims SET chosen = 1 WHERE strength = {CLAIM_CHOSEN}"
+                    ))?;
+                }
+                migrate_routes(db)
             })
             .map_err(|e| e.to_string())?;
         Ok((host, signer))
@@ -240,17 +451,116 @@ impl Federation {
         self.app().store.with_db(f).ok()
     }
 
-    fn route_of(&self, id: &str) -> Option<String> {
-        self.sql(|db| {
-            db.query_row("SELECT host FROM fed_routes WHERE id = ?", [id], |r| {
-                r.get(0)
-            })
-            .optional()
-        })
-        .flatten()
+    /// Where something on another site lives, for this person: their own claims and the site-wide
+    /// ones from before 0.24.25, leaving out blocked sites.
+    pub fn route_of(&self, user_id: &str, id: &str) -> Route {
+        resolve_route(&self.claims_of(user_id, id))
     }
-    fn put_route(&self, id: &str, host: &str, now: i64) {
-        self.sql(|db| db.execute("INSERT INTO fed_routes (id, host, seen) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET seen = excluded.seen", params![id, host, now]));
+    /// The route a request takes for one id. A chosen id (CHOSEN_KEYS) routes only by chosen
+    /// claims (the site gave it as a chosen id, whatever else it said) or a route from before
+    /// 0.24.25, and anything else only by heard claims or stronger: a notice can't steer a chosen
+    /// id, and a chosen id in an answer never steers a request about a place or a room.
+    fn route_for(&self, user_id: &str, id: &str, chosen: bool) -> Route {
+        if chosen {
+            let claims = self
+                .sql(|db| {
+                    db.prepare("SELECT c.host, MAX(CASE WHEN c.user_id = '*' THEN c.strength ELSE 0 END) FROM fed_claims c LEFT JOIN fed_sites s ON s.host = c.host WHERE c.id = ?1 AND (c.user_id = '*' OR (c.user_id = ?2 AND c.chosen = 1)) AND COALESCE(s.blocked, 0) = 0 GROUP BY c.host")?
+                        .query_map([id, user_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+                        .collect::<rusqlite::Result<Vec<(String, i64)>>>()
+                })
+                .unwrap_or_default();
+            return resolve_route(&claims);
+        }
+        let claims: Vec<(String, i64)> = self
+            .claims_of(user_id, id)
+            .into_iter()
+            .filter(|(_, s)| *s >= CLAIM_IMPLICIT)
+            .collect();
+        resolve_route(&claims)
+    }
+    fn claims_of(&self, user_id: &str, id: &str) -> Vec<(String, i64)> {
+        self.sql(|db| {
+            db.prepare("SELECT c.host, MAX(c.strength) FROM fed_claims c LEFT JOIN fed_sites s ON s.host = c.host WHERE c.id = ? AND c.user_id IN (?, '*') AND COALESCE(s.blocked, 0) = 0 GROUP BY c.host")?
+                .query_map([id, user_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+                .collect::<rusqlite::Result<Vec<(String, i64)>>>()
+        })
+        .unwrap_or_default()
+    }
+    /// A claim from a site the person's app named: see named_claim_strength.
+    fn claim_named(&self, user_id: &str, id: &str, host: &str, now: i64) {
+        // Not for an account that went while the request was out.
+        if !id24(id)
+            || host == self.host
+            || self.app().store.has(id)
+            || !self
+                .app()
+                .store
+                .table_of(user_id)
+                .is_some_and(|t| t == "User" || t == "Person")
+        {
+            return;
+        }
+        let (strength, other) = named_claim_strength(&self.claims_of(user_id, id), host);
+        if let Some(other) = other {
+            warn_once("named", host, &other, || {
+                format!("[federation] {host} answered as the home of something {other} already holds for someone here; it stays with {other}. Block whichever is wrong.")
+            });
+        }
+        self.claim(user_id, id, host, strength, now);
+    }
+    /// Whether this site already has a claim on this id for this person.
+    fn has_claim(&self, user_id: &str, id: &str, host: &str) -> bool {
+        self.sql(|db| {
+            db.query_row(
+                "SELECT COUNT(*) FROM fed_claims WHERE user_id = ? AND id = ? AND host = ?",
+                [user_id, id, host],
+                |r| r.get::<_, i64>(0),
+            )
+        })
+        .unwrap_or(0)
+            > 0
+    }
+    /// Record a site's claim that it holds something, for one person. Never for something that's here.
+    fn claim(&self, user_id: &str, id: &str, host: &str, strength: i64, now: i64) {
+        if !id24(id) || host == self.host || self.app().store.has(id) {
+            return;
+        }
+        // Heard before, as strongly: nothing changes but when.
+        let chosen = i64::from(strength == CLAIM_CHOSEN);
+        let same = self.sql(|db| db.execute("UPDATE fed_claims SET seen = ? WHERE user_id = ? AND id = ? AND host = ? AND strength >= ? AND chosen >= ?", params![now, user_id, id, host, strength, chosen])).unwrap_or(0);
+        if same > 0 {
+            return;
+        }
+        let before = self.route_of(user_id, id);
+        self.sql(|db| db.execute("INSERT INTO fed_claims (user_id, id, host, strength, seen, chosen) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, id, host) DO UPDATE SET strength = MAX(strength, excluded.strength), chosen = MAX(chosen, excluded.chosen), seen = excluded.seen", params![user_id, id, host, strength, now, chosen]));
+        // Which sites, never what or whose: the admin can block the one that's wrong.
+        let claims = self.claims_of(user_id, id);
+        match resolve_route(&claims) {
+            Route::Disputed(hosts) if !matches!(before, Route::Disputed(_)) && hosts.len() == 2 => {
+                warn_once("dispute", &hosts[0], &hosts[1], || {
+                    format!("[federation] {} each claim to hold the same thing; requests about it go to neither. Block whichever is wrong.", hosts.join(" and "))
+                });
+            }
+            Route::Disputed(hosts) if !matches!(before, Route::Disputed(_)) => {
+                warn_once("dispute", &hosts[0], host, || {
+                    format!("[federation] {} each claim to hold the same thing; requests about it go to neither. Block whichever is wrong.", hosts.join(", "))
+                });
+            }
+            // A route from before 0.24.25 outweighs what this site says: it could be one a site
+            // took over then, so say so.
+            Route::Host(winner)
+                if winner != host
+                    && strength < CLAIM_LEGACY
+                    && claims
+                        .iter()
+                        .any(|(h, s)| *h == winner && *s == CLAIM_LEGACY) =>
+            {
+                warn_once("older", &winner, host, || {
+                    format!("[federation] {winner} (a route from before 0.24.25) and {host} each claim to hold the same thing; the older route is used. Block whichever is wrong.")
+                });
+            }
+            _ => {}
+        }
     }
     pub fn hosts_of(&self, user_id: &str) -> Vec<String> {
         self.sql(|db| {
@@ -829,103 +1139,114 @@ impl Federation {
 
     // ---------- home side: relaying my people's calls ----------
 
-    fn learn_routes(&self, host: &str, data: &Value, user_id: Option<&str>) {
-        fn visit(v: &Value, key: &str, depth: usize, out: &mut Vec<String>) {
-            if depth > 8 {
-                return;
-            }
-            match v {
-                Value::String(s)
-                    if (ID_KEYS.contains(&key) || ID_LIST_KEYS.contains(&key)) && id24(s) =>
-                {
-                    out.push(s.clone())
-                }
-                Value::Array(a) => a
-                    .iter()
-                    .take(5000)
-                    .for_each(|x| visit(x, key, depth + 1, out)),
-                Value::Object(o) => o.iter().for_each(|(k, x)| visit(x, k, depth + 1, out)),
-                _ => {}
-            }
-        }
+    /// What a site's answer to this person says it holds: claims for this person only.
+    fn learn_routes(&self, host: &str, data: &Value, user_id: &str) {
         let mut found = Vec::new();
-        visit(data, "", 0, &mut found);
+        ids_named(data, "", 0, 8, 5000, &mut found);
+        let mut seen = std::collections::HashSet::new();
+        found.retain(|f| seen.insert(f.clone()));
+        found.truncate(MAX_LEARNED);
         let app = self.app();
+        // The account went while the answer was on its way: nothing to remember for it.
+        if !app
+            .store
+            .table_of(user_id)
+            .is_some_and(|t| t == "User" || t == "Person")
+        {
+            return;
+        }
         let now = now_ms();
         let mut learned = false;
-        for id in found {
+        for (id, chosen) in found {
             if !app.store.has(&id) {
-                self.put_route(&id, host, now);
+                self.claim(
+                    user_id,
+                    &id,
+                    host,
+                    if chosen { CLAIM_CHOSEN } else { CLAIM_IMPLICIT },
+                    now,
+                );
                 learned = true;
             }
         }
-        if let (true, Some(u)) = (learned, user_id) {
-            self.put_host(u, host, now);
+        if learned {
+            self.put_host(user_id, host, now);
         }
     }
 
-    /// Which site a request is about: an explicit _site, or the site hosting the ids it names.
-    fn target_of(&self, body: &Value) -> FedResult<Option<String>> {
+    /// Which site a request is about, for this person: an explicit _site, or the site holding the
+    /// ids it names. Ids an app chooses (CHOSEN_KEYS) count only when nothing else is named.
+    fn target_of(&self, body: &Value, user_id: &str) -> FedResult<Option<String>> {
         if let Some(site) = body["_site"].as_str().filter(|s| !s.is_empty()) {
             let site = norm_host(site)?;
             return Ok((site != self.host).then_some(site));
         }
         let app = self.app();
-        let mut hosts: Vec<String> = Vec::new();
-        let mut visit = |v: &Value, key: &str, depth: usize| {
-            fn go(v: &Value, key: &str, depth: usize, out: &mut Vec<String>) {
-                if depth > 6 {
-                    return;
-                }
-                match v {
-                    Value::String(s)
-                        if (ID_KEYS.contains(&key) || ID_LIST_KEYS.contains(&key)) && id24(s) =>
-                    {
-                        out.push(s.clone())
-                    }
-                    Value::Array(a) => a.iter().take(500).for_each(|x| go(x, key, depth + 1, out)),
-                    Value::Object(o) => o.iter().for_each(|(k, x)| go(x, k, depth + 1, out)),
-                    _ => {}
-                }
-            }
-            let mut ids = Vec::new();
-            go(v, key, depth, &mut ids);
-            for id in ids {
-                let h = if app.store.has(&id) {
-                    Some(self.host.clone())
-                } else {
-                    self.route_of(&id)
-                };
-                if let Some(h) = h {
-                    if !hosts.contains(&h) {
-                        hosts.push(h);
-                    }
-                }
-            }
-        };
-        visit(body, "", 0);
+        let mut named = Vec::new();
+        ids_named(body, "", 0, 6, 500, &mut named);
         if let Some(payload) = body["payload"].as_str() {
             if let Ok(parsed) = serde_json::from_str::<Value>(payload) {
-                visit(&parsed, "", 0);
+                ids_named(&parsed, "", 0, 6, 500, &mut named);
             }
         }
         // Calls rooms: "<server>.<channel>" and "dm.<conversation>.<call>" carry their ids too.
         for k in ["room", "room_id"] {
             if let Some(r) = body[k].as_str() {
                 for part in r.split('.') {
-                    visit(&json!(part), "id", 1);
+                    ids_named(&json!(part), "id", 1, 6, 500, &mut named);
                 }
             }
         }
-        hosts.retain(|h| *h != self.host);
-        if hosts.len() > 1 {
-            return Err(fed_err(
-                400,
-                "MIXED_SITES",
-                "That request names things on more than one site.",
-            ));
+        // Chosen ids route a request only when it names no other id at all.
+        let ordinary = named.iter().any(|(_, c)| !*c);
+        for chosen in [!ordinary] {
+            let (mut hosts, mut here, mut disputed) = (Vec::<String>::new(), false, false);
+            let mut contenders: Vec<Vec<String>> = Vec::new();
+            for (id, _) in named.iter().filter(|(_, c)| *c == chosen) {
+                if app.store.has(id) {
+                    here = true;
+                    continue;
+                }
+                match self.route_for(user_id, id, chosen) {
+                    Route::Host(h) => {
+                        if !hosts.contains(&h) {
+                            hosts.push(h);
+                        }
+                    }
+                    Route::Disputed(h) => {
+                        disputed = true;
+                        contenders.push(h.clone());
+                        let line = || {
+                            format!("[federation] {} each claim to hold the same thing; requests about it go to neither. Block whichever is wrong.", h.join(if h.len() == 2 { " and " } else { ", " }))
+                        };
+                        warn_once("dispute", &h[0], &h[1], line);
+                    }
+                    Route::Unknown => {}
+                }
+            }
+            hosts.retain(|h| *h != self.host);
+            if hosts.len() > 1 {
+                return Err(fed_err(
+                    400,
+                    "MIXED_SITES",
+                    "That request names things on more than one site.",
+                ));
+            }
+            // A request goes to the site its other ids point to only if that site is one of the
+            // contenders for every disputed id in it: a third site can't steer it, and a contender
+            // can't block a request the rest of it settles.
+            if let Some(h) = hosts.pop() {
+                if contenders.iter().all(|c| c.contains(&h)) {
+                    return Ok(Some(h));
+                }
+            } else if here {
+                return Ok(None);
+            }
+            if disputed {
+                return Err(fed_err(409, "DISPUTED_SITE", "More than one site claims to hold this, so it isn't being sent to either. Your site's admin can see which sites in its log, and block the wrong one."));
+            }
         }
-        Ok(hosts.into_iter().next())
+        Ok(None)
     }
 
     /// Run one call on another site, as this person: (status, reply).
@@ -953,7 +1274,7 @@ impl Federation {
         )?;
         let mut data = r.data;
         if r.status == 200 {
-            self.learn_routes(host, &data, Some(user_id));
+            self.learn_routes(host, &data, user_id);
         }
         if function == "files" && truthy(Some(&data)) {
             rewrite_file_links(host, &mut data);
@@ -986,13 +1307,18 @@ impl Federation {
         else {
             return None;
         };
-        let target = match self.target_of(&Value::Object(body.clone())) {
+        let user_id = to_js_string(user.get("id"));
+        let target = match self.target_of(&Value::Object(body.clone()), &user_id) {
             Ok(t) => t,
             Err(e) => return Some((e.status, json!({ "error": e.message, "code": e.code }))),
         };
+        // Only a site the app actually named counts as its choice: an empty _site routed by claims.
+        let named_site = body
+            .get("_site")
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.is_empty());
         let had_site = body.contains_key("_site");
         body.shift_remove("_site");
-        let user_id = to_js_string(user.get("id"));
         let body_value = Value::Object(body.clone());
         if let Some(target) = target {
             return Some(match self.act(&target, &user_id, function, &body_value) {
@@ -1001,6 +1327,30 @@ impl Federation {
                     if matches!(status, 502..=504) && holdable(function, &body_value) =>
                 {
                     self.hold(&target, &user_id, function, &body_value)
+                }
+                // The person's app named the site, and it answered: what the request is about lives
+                // there, for this person, whatever another site said before.
+                Ok((200, data)) if named_site => {
+                    let now = now_ms();
+                    let mut places = places_named(&body_value);
+                    // Joining by invite names only the code: the server is the one the site joined
+                    // them to (as trusted as the ids in its listing, which it chooses too). Never
+                    // what someone already has from another site: named_claim_strength.
+                    if places.is_empty()
+                        && function == "servers"
+                        && body_value["action"] == "join_server"
+                    {
+                        places.extend(
+                            data["server_id"]
+                                .as_str()
+                                .filter(|s| id24(s))
+                                .map(str::to_string),
+                        );
+                    }
+                    for id in places {
+                        self.claim_named(&user_id, &id, &target, now);
+                    }
+                    (200, data)
                 }
                 Ok(r) => r,
                 Err(e) if e.code == "SITE_UNREACHABLE" && holdable(function, &body_value) => {
@@ -1408,9 +1758,21 @@ impl Federation {
                 {
                     return Ok(json!({ "ok": false }));
                 }
+                // Only a claim for that person, and a weak one: any site can send this notice.
                 let room_id = str_of(payload["room"].get("id"));
+                // Only a notice that would add a claim counts towards the cap (see notice_allowed).
+                if id24(&room_id)
+                    && !app.store.has(&room_id)
+                    && !self.has_claim(&uid, &room_id, from)
+                    && !notice_allowed(&format!("{from} {uid}"), now_ms())
+                {
+                    warn_once("notices", from, &self.host, || {
+                        format!("[federation] {from} sent more than {NOTICES_PER_HOUR} membership notices adding new claims for one person this hour; the rest are refused until the next.")
+                    });
+                    return Ok(json!({ "ok": false, "code": "TOO_MANY_NOTICES" }));
+                }
                 if id24(&room_id) {
-                    self.put_route(&room_id, from, now_ms());
+                    self.claim(&uid, &room_id, from, CLAIM_IMPLICIT, now_ms());
                 }
                 if truthy(payload.get("joined")) {
                     self.put_host(&uid, from, now_ms());
@@ -1660,21 +2022,30 @@ impl Federation {
 
     // ---------- realtime rooms across sites ----------
 
-    /// Which site hosts a realtime room, from the ids in its name.
-    pub fn room_host(&self, room: &str) -> Option<String> {
+    /// Which site hosts a realtime room, for this person, from the ids in its name. A disputed id
+    /// carries the connection nowhere.
+    pub fn room_host(&self, room: &str, user_id: &str) -> Option<String> {
         if !self.enabled {
             return None;
         }
         let app = self.app();
+        let mut host: Option<String> = None;
+        let mut contenders: Vec<Vec<String>> = Vec::new();
         for part in room.split('.').filter(|p| id24(p)) {
             if app.store.has(part) {
                 return None;
             }
-            if let Some(h) = self.route_of(part) {
-                return Some(h);
+            match self.route_for(user_id, part, false) {
+                Route::Host(h) => {
+                    host.get_or_insert(h);
+                }
+                Route::Disputed(c) => contenders.push(c),
+                Route::Unknown => {}
             }
         }
-        None
+        // As for requests: a disputed id carries the connection only where the room's other ids
+        // point, and only if that site is one of its contenders.
+        host.filter(|h| contenders.iter().all(|c| c.contains(h)))
     }
 
     /// A person here connects to a room on another site: this site carries their connection there.
@@ -2321,6 +2692,113 @@ mod tests {
     }
 
     #[test]
+    fn claims_resolve_as_the_shared_vectors_say() {
+        let vectors: Value =
+            serde_json::from_str(include_str!("../../../tests/vectors/route-claims.json")).unwrap();
+        for case in vectors["cases"].as_array().unwrap() {
+            let claims: Vec<(String, i64)> = case["claims"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| (c[0].as_str().unwrap().to_string(), c[1].as_i64().unwrap()))
+                .collect();
+            let want = match (
+                case["route"].as_str(),
+                case["disputed"].as_array().map_or(0, Vec::len),
+            ) {
+                (Some(h), _) => Route::Host(h.to_string()),
+                (None, 0) => Route::Unknown,
+                (None, _) => Route::Disputed(
+                    case["disputed"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|h| h.as_str().unwrap().to_string())
+                        .collect(),
+                ),
+            };
+            assert_eq!(resolve_route(&claims), want, "{}", case["name"]);
+        }
+        for case in vectors["named"].as_array().unwrap() {
+            let existing: Vec<(String, i64)> = case["existing"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| (c[0].as_str().unwrap().to_string(), c[1].as_i64().unwrap()))
+                .collect();
+            let want = (
+                case["strength"].as_i64().unwrap(),
+                case["other"].as_str().map(str::to_string),
+            );
+            assert_eq!(
+                named_claim_strength(&existing, case["host"].as_str().unwrap()),
+                want,
+                "{}",
+                case["name"]
+            );
+        }
+    }
+
+    #[test]
+    fn routes_from_before_become_site_wide_claims_and_the_old_table_stays() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE fed_claims (user_id TEXT NOT NULL, id TEXT NOT NULL, host TEXT NOT NULL, strength INTEGER NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (user_id, id, host));
+             CREATE TABLE fed_routes (id TEXT PRIMARY KEY, host TEXT NOT NULL, seen INTEGER NOT NULL);
+             INSERT INTO fed_routes VALUES ('aaaaaaaaaaaaaaaaaaaaaaaa', 'b.test', 5), ('bbbbbbbbbbbbbbbbbbbbbbbb', 'c.test', 6);",
+        )
+        .unwrap();
+        migrate_routes(&db).unwrap();
+        migrate_routes(&db).unwrap();
+        let rows: Vec<(String, String, String, i64, i64)> = db
+            .prepare("SELECT user_id, id, host, strength, seen FROM fed_claims ORDER BY id")
+            .unwrap()
+            .query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("*".into(), "a".repeat(24), "b.test".into(), CLAIM_LEGACY, 5),
+                ("*".into(), "b".repeat(24), "c.test".into(), CLAIM_LEGACY, 6)
+            ]
+        );
+        let kept: i64 = db
+            .query_row("SELECT COUNT(*) FROM fed_routes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            kept, 2,
+            "0.24.24, if the updater goes back to it, still finds its routes"
+        );
+    }
+
+    #[test]
+    fn chosen_ids_are_told_apart_from_a_sites_own() {
+        let id = |c: char| c.to_string().repeat(24);
+        let body = json!({ "server_id": id('a'), "thread_id": id('b'), "payload": "x", "list": [{ "event_id": id('c'), "id": id('d') }], "report_id": "not-an-id", "file_ids": [id('e')] });
+        let mut out = Vec::new();
+        ids_named(&body, "", 0, 6, 500, &mut out);
+        out.sort();
+        assert_eq!(
+            out,
+            vec![
+                (id('a'), false),
+                (id('b'), true),
+                (id('c'), true),
+                (id('d'), false)
+            ],
+            "file ids never route"
+        );
+        let places = places_named(
+            &json!({ "server_id": id('a'), "channel_id": id('b'), "thread_id": id('c'), "payload": json!({ "conversation_id": id('d'), "message_id": id('e') }).to_string() }),
+        );
+        assert_eq!(places, vec![id('a'), id('b'), id('d')]);
+    }
+
+    #[test]
     fn file_links_are_carried_through_this_site() {
         let name = "a".repeat(48);
         let mut v = json!({ "links": { "f": format!("http://b.test/api/files/{name}?exp=123&sig=ab_-") }, "other": "x" });
@@ -2330,5 +2808,22 @@ mod tests {
             format!("/api/fed/files/b.test/{name}?exp=123&sig=ab_-")
         );
         assert_eq!(v["other"], "x");
+    }
+
+    #[test]
+    fn one_sites_membership_notices_are_capped_per_hour() {
+        let hour = 1_000 * 3_600_000;
+        for _ in 0..NOTICES_PER_HOUR {
+            assert!(notice_allowed("flood-rs.test", hour));
+        }
+        assert!(!notice_allowed("flood-rs.test", hour));
+        assert!(
+            notice_allowed("other-rs.test", hour),
+            "other sites are counted apart"
+        );
+        assert!(
+            notice_allowed("flood-rs.test", hour + 3_600_000),
+            "the next hour starts again"
+        );
     }
 }

@@ -1,0 +1,264 @@
+{
+  "about": "Where something on another site lives, for one person, from the claims about it (docs/FEDERATION.md, 'Routes'). Each claim is [site, strength]: 0 an id an app chose, 1 a site's answer or notice, 2 a route from before 0.24.25, 3 the person's app named the site. The Rust server, the Node.js reference and the hosted site must all agree.",
+  "cases": [
+    {
+      "name": "nothing claimed",
+      "claims": [],
+      "route": null,
+      "disputed": []
+    },
+    {
+      "name": "one site",
+      "claims": [
+        [
+          "b.test",
+          1
+        ]
+      ],
+      "route": "b.test",
+      "disputed": []
+    },
+    {
+      "name": "the same site, heard twice",
+      "claims": [
+        [
+          "b.test",
+          1
+        ],
+        [
+          "b.test",
+          3
+        ]
+      ],
+      "route": "b.test",
+      "disputed": []
+    },
+    {
+      "name": "the person's own choice beats what a site said",
+      "claims": [
+        [
+          "g.test",
+          1
+        ],
+        [
+          "b.test",
+          3
+        ]
+      ],
+      "route": "b.test",
+      "disputed": []
+    },
+    {
+      "name": "an old route beats a new notice",
+      "claims": [
+        [
+          "b.test",
+          2
+        ],
+        [
+          "g.test",
+          1
+        ]
+      ],
+      "route": "b.test",
+      "disputed": []
+    },
+    {
+      "name": "the person's own choice beats an old route",
+      "claims": [
+        [
+          "g.test",
+          2
+        ],
+        [
+          "b.test",
+          3
+        ]
+      ],
+      "route": "b.test",
+      "disputed": []
+    },
+    {
+      "name": "a site's word beats an id someone chose",
+      "claims": [
+        [
+          "g.test",
+          0
+        ],
+        [
+          "b.test",
+          1
+        ]
+      ],
+      "route": "b.test",
+      "disputed": []
+    },
+    {
+      "name": "two sites, equally: disputed",
+      "claims": [
+        [
+          "g.test",
+          1
+        ],
+        [
+          "b.test",
+          1
+        ]
+      ],
+      "route": null,
+      "disputed": [
+        "b.test",
+        "g.test"
+      ]
+    },
+    {
+      "name": "two sites the person named: disputed",
+      "claims": [
+        [
+          "b.test",
+          3
+        ],
+        [
+          "g.test",
+          3
+        ]
+      ],
+      "route": null,
+      "disputed": [
+        "b.test",
+        "g.test"
+      ]
+    },
+    {
+      "name": "a dispute under a stronger claim doesn't matter",
+      "claims": [
+        [
+          "g.test",
+          1
+        ],
+        [
+          "h.test",
+          1
+        ],
+        [
+          "b.test",
+          3
+        ]
+      ],
+      "route": "b.test",
+      "disputed": []
+    },
+    {
+      "name": "two chosen ids: disputed",
+      "claims": [
+        [
+          "g.test",
+          0
+        ],
+        [
+          "b.test",
+          0
+        ]
+      ],
+      "route": null,
+      "disputed": [
+        "b.test",
+        "g.test"
+      ]
+    }
+  ],
+  "about_named": "When a person's app names a site (_site) and it answers, its claim counts as named (3) unless another site already holds the thing for that person by an old route (2) or a named claim (3): then it counts only as heard (1), and the log names both. existing is the person's claims, as [site, strength].",
+  "named": [
+    {
+      "name": "nothing known yet",
+      "existing": [],
+      "host": "b.test",
+      "strength": 3,
+      "other": null
+    },
+    {
+      "name": "only this site so far",
+      "existing": [
+        [
+          "b.test",
+          1
+        ],
+        [
+          "b.test",
+          2
+        ]
+      ],
+      "host": "b.test",
+      "strength": 3,
+      "other": null
+    },
+    {
+      "name": "outweighs another site's heard claim (a pre-claim)",
+      "existing": [
+        [
+          "g.test",
+          1
+        ]
+      ],
+      "host": "b.test",
+      "strength": 3,
+      "other": null
+    },
+    {
+      "name": "outweighs another site's chosen id",
+      "existing": [
+        [
+          "g.test",
+          0
+        ]
+      ],
+      "host": "b.test",
+      "strength": 3,
+      "other": null
+    },
+    {
+      "name": "can't take over another site's old route",
+      "existing": [
+        [
+          "b.test",
+          2
+        ]
+      ],
+      "host": "g.test",
+      "strength": 1,
+      "other": "b.test"
+    },
+    {
+      "name": "can't take over another site's named claim",
+      "existing": [
+        [
+          "b.test",
+          3
+        ],
+        [
+          "g.test",
+          1
+        ]
+      ],
+      "host": "g.test",
+      "strength": 1,
+      "other": "b.test"
+    },
+    {
+      "name": "names the heaviest other site",
+      "existing": [
+        [
+          "c.test",
+          2
+        ],
+        [
+          "b.test",
+          3
+        ]
+      ],
+      "host": "g.test",
+      "strength": 1,
+      "other": "b.test"
+    }
+  ]
+}

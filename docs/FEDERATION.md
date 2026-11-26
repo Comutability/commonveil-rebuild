@@ -169,10 +169,10 @@ site can't act for someone without one of their devices. Not allowed: the `admin
 person's own home.
 
 A home decides where a request goes from the ids in it: every conversation, server, channel and
-message has a 24-hex id, and the home learns which site hosts each from the answers it relays and
-from membership notices. A request naming things on two sites is refused (`MIXED_SITES`). An app
-can also name a site explicitly with `_site` (browsing another site's servers, joining one by
-invite).
+message has a 24-hex id, and the home learns which site hosts each, for each of its people, from
+the answers it relays, from membership notices, and from the person's own choices (see
+[Routes](#routes)). A request naming things on two sites is refused (`MIXED_SITES`). An app can
+also name a site explicitly with `_site` (browsing another site's servers, joining one by invite).
 
 Requests with no conversation or server named mean "everything of mine": checking for new messages
 (`messages.poll`), the conversation and server lists, scheduled messages. The home asks every site
@@ -194,7 +194,7 @@ the same "nobody here" as for a name that doesn't exist.
 
 | `type` | Sent by | Meaning |
 | --- | --- | --- |
-| `membership` | a host | `{ user_id, room: { kind, id }, joined }`: one of your people joined or left something here. The home then knows where that id lives, and where to look for that person's messages. |
+| `membership` | a host | `{ user_id, room: { kind, id }, joined }`: one of your people joined or left something here. For that person only, the home counts it as a claim that the id lives on the sending site (the weakest kind but one: see [Routes](#routes)), and knows where to look for their messages. |
 | `keys` | a home | `{ user: <card> }`: this person's keys or devices changed; update the shadow. |
 | `block` | a home | `{ user_id, blocked_id, blocked }`: one of our people blocked (or unblocked) someone; apply it on rooms you host. |
 
@@ -224,6 +224,105 @@ link only for an id it asked for, and only for the place it asked about, so a ho
 links for files posted elsewhere and learn when they're opened. The Base44 site doesn't offer files
 to other sites yet.
 
+## Routes
+
+A home has to know which site holds each conversation, server and channel its people use. Any
+site can claim to hold any id, so since 0.24.25 a home treats each claim as evidence for one
+person, weighed by how it was learned, never as a fact for everyone:
+
+| Claim | Learned from | Weight |
+| --- | --- | --- |
+| Named | The person's app named the site (a non-empty `_site`) and the site answered. That covers what the request names, and, when it joins a server by invite (which names only the code), the server the site joined them to. If another site already holds the thing for that person by a named claim or an old route, it counts as heard instead (below). | 3 |
+| From before 0.24.25 | Routes learned under the old rules (one table for everyone, first claim kept). Kept for everyone, so nothing stops working on upgrade. The old table itself is left as it was, so a rollback to 0.24.24 still finds it. | 2 |
+| Heard | A site's answer to that person's request, or its membership notice naming them. At most 2000 ids from one answer (200 on the hosted site). | 1 |
+| Chosen | An id in an answer under a key whose value an app picks: `thread_id` (a thread is named by its first message), `event_id`, `report_id` (named by their items). | 0 |
+
+- **The heaviest claim decides.** A site naming itself in a notice can't outweigh the site the
+  person joined through, or a route the home already had.
+- **Naming a site never moves what someone joined from another site.** When the app names a site
+  and it answers as the home of something another site already holds for that person, by a named
+  claim or a route from before 0.24.25, the home can't tell which of the two is honest. So the answer counts
+  only as heard, requests stay where they were, and the log names both sites (at most once an
+  hour for each pair). Blocking the wrong one settles it.
+- **A tie between two sites is a dispute.** A request about that id goes to neither unless its
+  other ids point to one of the two (see below); otherwise the app is told `DISPUTED_SITE`, and the home's log names the two sites (never what or whose, and at most once an
+  hour for each pair). Claims from blocked sites don't count, so blocking the wrong one settles it.
+- **Claims belong to the person they came with.** A notice naming Ann, or an answer to Ann's
+  request, never changes where Ben's requests go.
+- **Chosen ids only route a request that names no other id, and only by chosen claims** (a site
+  gave the id as a chosen one, whatever else it said about it) **or a route from before 0.24.25.**
+  A thread id can't send a request that names a server anywhere, even an unknown one, and a
+  membership notice can't steer a request that names only a chosen id.
+- **A disputed id goes only where the rest of the request points.** If a request names a disputed
+  id, it goes to the site its other ids point to only if that site is one of the contenders;
+  otherwise it isn't sent anywhere. The same goes for a realtime room. A request whose app names
+  the site itself (`_site`) goes there regardless: that's the person's own choice. Requests about a
+  place, and realtime rooms, never route by chosen claims.
+- **Only the top of a request names a place.** A named claim covers the conversation, server or
+  channel ids at the top level of the request and of its signed payload, never ids nested deeper.
+- **Notices that add claims are capped.** A site can send at most 1000 membership notices an
+  hour that add a new claim for any one person; refreshes and leaves don't count, so an honest
+  site's bulk join only counts each person's new rooms. Past the cap its notices are refused
+  (`TOO_MANY_NOTICES`) until the next hour, and the log names it. This slows only what notices add:
+  answers to a person's own requests still add up to 2000 claims each (200 on the hosted site).
+  Claims are never removed to make room, since removing one could leave a rogue site's claim as the
+  only one. On the hosted site each running copy of the functions counts on its own.
+- **No claim counts for an id this site holds**, whatever kind of room the claim says it is. A
+  request naming things held here, and otherwise only disputed ids, runs here. The hosted site
+  also deletes any claim it finds about something it holds.
+- **An old route outweighing a site is reported.** When a route from before 0.24.25 wins over what
+  another site now says, the log names both sites, since the old route could be one a site took
+  over before the update.
+
+Realtime rooms are found the same way, for the person connecting. The hosted site keeps each
+person's claims in `FedClaim` and reads `FedRoute` (from before 0.24.25) as the site-wide ones; it
+never routes by chosen ids. Every implementation resolves claims as
+`tests/vectors/route-claims.json` says.
+
+What this can't do:
+
+- **Routes taken over before 0.24.25 stay**, for everyone, until the admin blocks the site that
+  took them (which makes them stop counting for everyone). Rejoining from the real site doesn't
+  move them, because naming a site never moves what someone joined from another site. The log names such a
+  site when the real one speaks up. To look yourself: on a self-hosted site, `SELECT host,
+  COUNT(*) FROM fed_claims WHERE user_id = '*' GROUP BY host;` in its database lists the sites old
+  routes point to; on the hosted site, the `FedRoute` table. Block any site there you don't trust.
+  To remove one route by hand on a self-hosted site, delete it from both `fed_claims` and
+  `fed_routes`: the old table is kept so a rollback to 0.24.24 still works, and its routes are
+  copied in again at each start.
+- **Joining from a site means trusting it about what you joined.** Its listing, or an invite link
+  pointing at it, chooses the ids; if it lists a copy of another site's server, a person who joins
+  from it gets its copy. That only works for someone who hasn't joined the server from another
+  site and has no route to it from before 0.24.25: for anyone who has, the copy's answer counts as
+  heard and the log names both sites.
+- **While nothing else has been said about an id, the only claim decides.** A site can point
+  someone's requests about a server elsewhere until they join it (and joining names its site), and
+  a site whose people are already in a conversation, so know its id, can claim it before the real
+  site's notice arrives (then it's a dispute).
+- **A site that knows an id can make it unusable for someone** by disputing where it lives, until
+  their admin blocks it. That covers a conversation it's in, and a channel or server whose id it
+  has seen, whenever the home knows of it only by heard claims (for example, a conversation
+  learned after the update, or a request that names only a channel).
+- **Claims are kept until the account goes.** Which remote rooms someone uses, and on which
+  sites, is kept with their claims (`fed_claims` and `fed_user_hosts`, or `FedClaim` and
+  `FedUserHost` on the hosted site) and removed when their account is deleted: once before the
+  account goes and once after, and nothing writes them for an account that's gone. If removal fails
+  the account is still deleted and the failure is logged, and on the hosted site an answer that
+  arrives in the very moment of deletion can still leave a row (its functions share no lock). Rows
+  left behind name only the deleted account's id and route nothing. Nothing removes them sooner by
+  age.
+- **Rolling back loses what was learned since.** A rollback to 0.24.24 finds only the routes
+  learned before the update: anything joined on 0.24.25 runs locally or fails until 0.24.24 learns
+  it again, first claim kept. Updating again copies every old route in again as a site-wide claim
+  (weight 2), including any a site took over while 0.24.24 ran, and those outweigh heard claims.
+  The same holds on the hosted site until every function runs the new code: an older function
+  can still write `FedRoute`.
+- **Whoever answers for a server chooses its keys.** Apps check who signed a server's keys, not
+  whether the signer may hand them out: that's the host's job (server membership isn't
+  cryptographic yet: [THREAT_MODEL.md](THREAT_MODEL.md)). So a site that receives a person's
+  requests about a server can show its own version of it, and read what they then post there.
+  That is why where requests go matters.
+
 ## When a site can't be reached
 
 A home that can't reach a host holds message sends (and only those: other requests fail with
@@ -252,8 +351,13 @@ and by the app's own retry) is stored once. See `docs/OFFLINE.md`.
 - **First claim on an id wins on each host.** A site could claim an id that belongs to someone on a
   third site before that person first visits the host; that person's requests there are then
   refused. It's a denial of service, not an impersonation: the address shown is the claiming site's.
+- **Claims about where things live are weighed, per person.** Before 0.24.25 a home kept the first
+  site to mention an id, for everyone, so a site could claim another site's server or channel and
+  receive the requests about it. See [Routes](#routes) for what replaced that, and what it still
+  can't prevent.
 - **A host can withhold.** It can drop or delay messages and refuse service; it can't make apps
-  accept a forged one.
+  accept a forged one. It does decide who is in the servers it hosts, and so whose keys members'
+  apps use there (see [Routes](#routes) and [THREAT_MODEL.md](THREAT_MODEL.md)).
 - **Blocking a site.** Admins can block any site; blocked sites' requests are refused both ways.
 - **Rate limits** are the host's own, applied to people from other sites as to its own people.
 
@@ -283,7 +387,8 @@ The hosted site (the Base44 build) speaks the same protocol, on what a hosted fu
   `feddiscover`.
 - Its key is made on first use and kept in the backend-only `FedKey` table. What it knows about
   other sites is in `FedSite` (pinned keys; set `blocked` to stop talking to one, delete the row
-  to accept a changed key), `FedRoute`, `FedUserHost`, `FedShadow` and `FedNonce` (used requests).
+  to accept a changed key), `FedClaim` (claims about where things live, per person: see
+  [Routes](#routes)), `FedRoute` (the site-wide routes from before 0.24.25), `FedUserHost`, `FedShadow` and `FedNonce` (used requests).
 - People from other sites have no account there, only what their own site shares: a profile row
   marked `remote`, their public keys, and a `FedShadow` row. They can never sign in there.
 - Notices to other sites (someone was added to a conversation, keys changed, a block) are sent
