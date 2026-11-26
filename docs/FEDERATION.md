@@ -244,8 +244,8 @@ person, weighed by how it was learned, never as a fact for everyone:
   claim or a route from before 0.24.25, the home can't tell which of the two is honest. So the answer counts
   only as heard, requests stay where they were, and the log names both sites (at most once an
   hour for each pair). Blocking the wrong one settles it.
-- **A tie between two sites is a dispute.** Requests about that id go to neither: the app is told
-  `DISPUTED_SITE`, and the home's log names the two sites (never what or whose, and at most once an
+- **A tie between two sites is a dispute.** A request about that id goes to neither unless its
+  other ids point to one of the two (see below); otherwise the app is told `DISPUTED_SITE`, and the home's log names the two sites (never what or whose, and at most once an
   hour for each pair). Claims from blocked sites don't count, so blocking the wrong one settles it.
 - **Claims belong to the person they came with.** A notice naming Ann, or an answer to Ann's
   request, never changes where Ben's requests go.
@@ -305,8 +305,9 @@ What this can't do:
   learned after the update, or a request that names only a channel).
 - **Claims are kept until the account goes.** Which remote rooms someone uses, and on which
   sites, is kept with their claims (`fed_claims` and `fed_user_hosts`, or `FedClaim` and
-  `FedUserHost` on the hosted site) and removed when their account is deleted. Nothing removes
-  them sooner by age.
+  `FedUserHost` on the hosted site) and removed when their account is deleted. If that removal
+  fails, the account is still deleted and the failure is logged; the rows left behind name only the
+  deleted account and route nothing. Nothing removes them sooner by age.
 - **Rolling back loses what was learned since.** A rollback to 0.24.24 finds only the routes
   learned before the update: anything joined on 0.24.25 runs locally or fails until 0.24.24 learns
   it again, first claim kept. Updating again copies every old route in again as a site-wide claim
